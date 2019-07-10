@@ -17,41 +17,31 @@
 package android.databinding.tool;
 
 import android.databinding.tool.expr.Expr;
-import android.databinding.tool.expr.ExprModel;
-import android.databinding.tool.expr.LambdaExpr;
 import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.processing.scopes.LocationScopeProvider;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.reflection.ModelMethod;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.store.SetterStore;
-import android.databinding.tool.store.SetterStore.BindingSetterCall;
 import android.databinding.tool.store.SetterStore.SetterCall;
 import android.databinding.tool.util.L;
-import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.writer.LayoutBinderWriterKt;
+import android.databinding.tool.writer.CodeGenUtil;
+import android.databinding.tool.writer.WriterPackage;
 
 import java.util.List;
-import java.util.Map;
 
 public class Binding implements LocationScopeProvider {
 
     private final String mName;
-    private Expr mExpr;
+    private final Expr mExpr;
     private final BindingTarget mTarget;
-    private BindingSetterCall mSetterCall;
+    private SetterStore.SetterCall mSetterCall;
 
     public Binding(BindingTarget target, String name, Expr expr) {
-        this(target, name, expr, null);
-    }
-
-    public Binding(BindingTarget target, String name, Expr expr, BindingSetterCall setterCall) {
         mTarget = target;
         mName = name;
         mExpr = expr;
-        mSetterCall = setterCall;
     }
 
     @Override
@@ -60,42 +50,9 @@ public class Binding implements LocationScopeProvider {
     }
 
     public void resolveListeners() {
-        final ModelClass listenerParameter = getListenerParameter(mTarget, mName, mExpr.getModel());
-        Expr listenerExpr = mExpr.resolveListeners(listenerParameter, null);
-        if (listenerExpr != mExpr) {
-            listenerExpr.setBindingExpression(true);
-            mExpr = listenerExpr;
-        }
-    }
-
-    public void resolveCallbackParams() {
-        if (!(mExpr instanceof LambdaExpr)) {
-            return;
-        }
-        LambdaExpr lambdaExpr = (LambdaExpr) mExpr;
-        final ModelClass listener = getListenerParameter(mTarget, mName, mExpr.getModel());
-        Preconditions.checkNotNull(listener, ErrorMessages.CANNOT_FIND_SETTER_CALL, mName,
-                "lambda", getTarget().getInterfaceType());
-        //noinspection ConstantConditions
-        List<ModelMethod> abstractMethods = listener.getAbstractMethods();
-        int numberOfAbstractMethods = abstractMethods.size();
-        if (numberOfAbstractMethods != 1) {
-            L.e(ErrorMessages.CANNOT_FIND_ABSTRACT_METHOD, mName, listener.getCanonicalName(),
-                    numberOfAbstractMethods, 1);
-        }
-        final ModelMethod method = abstractMethods.get(0);
-        final int argCount = lambdaExpr.getCallbackExprModel().getArgCount();
-        if (argCount != 0 && argCount != method.getParameterTypes().length) {
-            L.e(ErrorMessages.CALLBACK_ARGUMENT_COUNT_MISMATCH, listener.getCanonicalName(),
-                    method.getName(), method.getParameterTypes().length, argCount);
-        }
-        lambdaExpr.setup(listener, method, mExpr.getModel().obtainCallbackId());
-    }
-
-    public void resolveTwoWayExpressions() {
-        Expr expr = mExpr.resolveTwoWayExpressions(null);
-        if (expr != mExpr) {
-            mExpr = expr;
+        ModelClass listenerParameter = getListenerParameter();
+        if (listenerParameter != null) {
+            mExpr.resolveListeners(listenerParameter);
         }
     }
 
@@ -106,8 +63,7 @@ public class Binding implements LocationScopeProvider {
                 Scope.enter(this);
                 resolveSetterCall();
                 if (mSetterCall == null) {
-                    L.e(ErrorMessages.CANNOT_FIND_SETTER_CALL, mName, mExpr.getResolvedType(),
-                            getTarget().getInterfaceType());
+                    L.e(ErrorMessages.CANNOT_FIND_SETTER_CALL, mName, mExpr.getResolvedType());
                 }
             } finally {
                 Scope.exit();
@@ -120,21 +76,19 @@ public class Binding implements LocationScopeProvider {
     private void resolveSetterCall() {
         ModelClass viewType = mTarget.getResolvedType();
         if (viewType != null && viewType.extendsViewStub()) {
-            if (isListenerAttribute(mName)) {
+            if (isListenerAttribute()) {
                 ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
                 ModelClass viewStubProxy = modelAnalyzer.
                         findClass("android.databinding.ViewStubProxy", null);
                 mSetterCall = SetterStore.get(modelAnalyzer).getSetterCall(mName,
                         viewStubProxy, mExpr.getResolvedType(), mExpr.getModel().getImports());
-            } else if (isViewStubAttribute(mName)) {
-                mSetterCall = new ViewStubDirectCall(mName, viewType, mExpr.getResolvedType(),
-                        mExpr.getModel().getImports());
+            } else if (isViewStubAttribute()) {
+                mSetterCall = new ViewStubDirectCall(mName, viewType, mExpr);
             } else {
                 mSetterCall = new ViewStubSetterCall(mName);
             }
         } else {
-            final SetterStore setterStore = SetterStore.get(ModelAnalyzer.getInstance());
-            mSetterCall = setterStore.getSetterCall(mName,
+            mSetterCall = SetterStore.get(ModelAnalyzer.getInstance()).getSetterCall(mName,
                     viewType, mExpr.getResolvedType(), mExpr.getModel().getImports());
         }
     }
@@ -142,39 +96,31 @@ public class Binding implements LocationScopeProvider {
     /**
      * Similar to getSetterCall, but assumes an Object parameter to find the best matching listener.
      */
-    private static ModelClass getListenerParameter(BindingTarget target, String name,
-            ExprModel model) {
-        ModelClass viewType = target.getResolvedType();
+    private ModelClass getListenerParameter() {
+        ModelClass viewType = mTarget.getResolvedType();
         SetterCall setterCall;
         ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
         ModelClass objectParameter = modelAnalyzer.findClass(Object.class);
-        SetterStore setterStore = SetterStore.get(modelAnalyzer);
         if (viewType != null && viewType.extendsViewStub()) {
-            if (isListenerAttribute(name)) {
+            if (isListenerAttribute()) {
                 ModelClass viewStubProxy = modelAnalyzer.
                         findClass("android.databinding.ViewStubProxy", null);
-                setterCall = SetterStore.get(modelAnalyzer).getSetterCall(name,
-                        viewStubProxy, objectParameter, model.getImports());
-            } else if (isViewStubAttribute(name)) {
-                setterCall = null; // view stub attrs are not callbacks
+                setterCall = SetterStore.get(modelAnalyzer).getSetterCall(mName,
+                        viewStubProxy, objectParameter, mExpr.getModel().getImports());
+            } else if (isViewStubAttribute()) {
+                setterCall = SetterStore.get(ModelAnalyzer.getInstance()).getSetterCall(mName,
+                        viewType, objectParameter, mExpr.getModel().getImports());
             } else {
-                setterCall = new ViewStubSetterCall(name);
+                setterCall = new ViewStubSetterCall(mName);
             }
         } else {
-            setterCall = setterStore.getSetterCall(name, viewType, objectParameter,
-                    model.getImports());
+            setterCall = SetterStore.get(ModelAnalyzer.getInstance()).getSetterCall(mName,
+                    viewType, objectParameter, mExpr.getModel().getImports());
         }
-        if (setterCall != null) {
-            return setterCall.getParameterTypes()[0];
-        }
-        List<SetterStore.MultiAttributeSetter> setters =
-                setterStore.getMultiAttributeSetterCalls(new String[]{name}, viewType,
-                new ModelClass[] {modelAnalyzer.findClass(Object.class)});
-        if (setters.isEmpty()) {
+        if (setterCall == null) {
             return null;
-        } else {
-            return setters.get(0).getParameterTypes()[0];
         }
+        return setterCall.getParameterTypes()[0];
     }
 
     public BindingTarget getTarget() {
@@ -183,13 +129,17 @@ public class Binding implements LocationScopeProvider {
 
     public String toJavaCode(String targetViewName, String bindingComponent) {
         final String currentValue = requiresOldValue()
-                ? "this." + LayoutBinderWriterKt.getOldValueName(mExpr) : null;
-        final String argCode = getExpr().toCode().generate();
+                ? "this." + WriterPackage.getOldValueName(mExpr) : null;
+        final String argCode = CodeGenUtil.Companion.toCode(getExpr(), false).generate();
         return getSetterCall().toJava(bindingComponent, targetViewName, currentValue, argCode);
     }
 
     public String getBindingAdapterInstanceClass() {
         return getSetterCall().getBindingAdapterInstanceClass();
+    }
+
+    public void setBindingAdapterCall(String method) {
+        getSetterCall().setBindingAdapterCall(method);
     }
 
     public Expr[] getComponentExpressions() {
@@ -218,16 +168,17 @@ public class Binding implements LocationScopeProvider {
         return mExpr;
     }
 
-    private static boolean isViewStubAttribute(String name) {
-        return ("android:inflatedId".equals(name) ||
-                "android:layout".equals(name) ||
-                "android:visibility".equals(name) ||
-                "android:layoutInflater".equals(name));
+    private boolean isViewStubAttribute() {
+        return ("android:inflatedId".equals(mName) ||
+                "android:layout".equals(mName) ||
+                "android:visibility".equals(mName) ||
+                "android:layoutInflater".equals(mName));
     }
 
-    private static boolean isListenerAttribute(String name) {
-        return ("android:onInflate".equals(name) ||
-                "android:onInflateListener".equals(name));
+    private boolean isListenerAttribute() {
+        return ("android:onInflate".equals(mName) ||
+                "android:onInflateListener".equals(mName));
+
     }
 
     private static class ViewStubSetterCall extends SetterCall {
@@ -271,18 +222,21 @@ public class Binding implements LocationScopeProvider {
         public String getBindingAdapterInstanceClass() {
             return null;
         }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+        }
     }
 
     private static class ViewStubDirectCall extends SetterCall {
         private final SetterCall mWrappedCall;
 
-        public ViewStubDirectCall(String name, ModelClass viewType, ModelClass resolvedType,
-                Map<String, String> imports) {
+        public ViewStubDirectCall(String name, ModelClass viewType, Expr expr) {
             mWrappedCall = SetterStore.get(ModelAnalyzer.getInstance()).getSetterCall(name,
-                    viewType, resolvedType, imports);
+                    viewType, expr.getResolvedType(), expr.getModel().getImports());
             if (mWrappedCall == null) {
                 L.e("Cannot find the setter for attribute '%s' on %s with parameter type %s.",
-                        name, viewType, resolvedType);
+                        name, viewType, expr.getResolvedType());
             }
         }
 
@@ -320,6 +274,11 @@ public class Binding implements LocationScopeProvider {
         @Override
         public String getBindingAdapterInstanceClass() {
             return mWrappedCall.getBindingAdapterInstanceClass();
+        }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+            mWrappedCall.setBindingAdapterCall(method);
         }
     }
 }

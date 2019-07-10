@@ -348,7 +348,6 @@ public interface Cursor extends Closeable {
      * Calling {@link #requery} will make the cursor active again.
      * @deprecated Since {@link #requery()} is deprecated, so too is this.
      */
-    @Deprecated
     void deactivate();
 
     /**

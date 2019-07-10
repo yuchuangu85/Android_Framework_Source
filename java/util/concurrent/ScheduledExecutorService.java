@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -70,7 +41,7 @@ package java.util.concurrent;
  * Here is a class with a method that sets up a ScheduledExecutorService
  * to beep every ten seconds for an hour:
  *
- * <pre> {@code
+ *  <pre> {@code
  * import static java.util.concurrent.TimeUnit.*;
  * class BeeperControl {
  *   private final ScheduledExecutorService scheduler =
@@ -117,7 +88,6 @@ public interface ScheduledExecutorService extends ExecutorService {
      * @param callable the function to execute
      * @param delay the time from now to delay execution
      * @param unit the time unit of the delay parameter
-     * @param <V> the type of the callable's result
      * @return a ScheduledFuture that can be used to extract result or cancel
      * @throws RejectedExecutionException if the task cannot be
      *         scheduled for execution
@@ -129,37 +99,23 @@ public interface ScheduledExecutorService extends ExecutorService {
     /**
      * Creates and executes a periodic action that becomes enabled first
      * after the given initial delay, and subsequently with the given
-     * period; that is, executions will commence after
-     * {@code initialDelay}, then {@code initialDelay + period}, then
+     * period; that is executions will commence after
+     * {@code initialDelay} then {@code initialDelay+period}, then
      * {@code initialDelay + 2 * period}, and so on.
-     *
-     * <p>The sequence of task executions continues indefinitely until
-     * one of the following exceptional completions occur:
-     * <ul>
-     * <li>The task is {@linkplain Future#cancel explicitly cancelled}
-     * via the returned future.
-     * <li>The executor terminates, also resulting in task cancellation.
-     * <li>An execution of the task throws an exception.  In this case
-     * calling {@link Future#get() get} on the returned future will
-     * throw {@link ExecutionException}.
-     * </ul>
-     * Subsequent executions are suppressed.  Subsequent calls to
-     * {@link Future#isDone isDone()} on the returned future will
-     * return {@code true}.
-     *
-     * <p>If any execution of this task takes longer than its period, then
-     * subsequent executions may start late, but will not concurrently
-     * execute.
+     * If any execution of the task
+     * encounters an exception, subsequent executions are suppressed.
+     * Otherwise, the task will only terminate via cancellation or
+     * termination of the executor.  If any execution of this task
+     * takes longer than its period, then subsequent executions
+     * may start late, but will not concurrently execute.
      *
      * @param command the task to execute
      * @param initialDelay the time to delay first execution
      * @param period the period between successive executions
      * @param unit the time unit of the initialDelay and period parameters
      * @return a ScheduledFuture representing pending completion of
-     *         the series of repeated tasks.  The future's {@link
-     *         Future#get() get()} method will never return normally,
-     *         and will throw an exception upon task cancellation or
-     *         abnormal termination of a task execution.
+     *         the task, and whose {@code get()} method will throw an
+     *         exception upon cancellation
      * @throws RejectedExecutionException if the task cannot be
      *         scheduled for execution
      * @throws NullPointerException if command is null
@@ -174,21 +130,10 @@ public interface ScheduledExecutorService extends ExecutorService {
      * Creates and executes a periodic action that becomes enabled first
      * after the given initial delay, and subsequently with the
      * given delay between the termination of one execution and the
-     * commencement of the next.
-     *
-     * <p>The sequence of task executions continues indefinitely until
-     * one of the following exceptional completions occur:
-     * <ul>
-     * <li>The task is {@linkplain Future#cancel explicitly cancelled}
-     * via the returned future.
-     * <li>The executor terminates, also resulting in task cancellation.
-     * <li>An execution of the task throws an exception.  In this case
-     * calling {@link Future#get() get} on the returned future will
-     * throw {@link ExecutionException}.
-     * </ul>
-     * Subsequent executions are suppressed.  Subsequent calls to
-     * {@link Future#isDone isDone()} on the returned future will
-     * return {@code true}.
+     * commencement of the next.  If any execution of the task
+     * encounters an exception, subsequent executions are suppressed.
+     * Otherwise, the task will only terminate via cancellation or
+     * termination of the executor.
      *
      * @param command the task to execute
      * @param initialDelay the time to delay first execution
@@ -196,10 +141,8 @@ public interface ScheduledExecutorService extends ExecutorService {
      * execution and the commencement of the next
      * @param unit the time unit of the initialDelay and delay parameters
      * @return a ScheduledFuture representing pending completion of
-     *         the series of repeated tasks.  The future's {@link
-     *         Future#get() get()} method will never return normally,
-     *         and will throw an exception upon task cancellation or
-     *         abnormal termination of a task execution.
+     *         the task, and whose {@code get()} method will throw an
+     *         exception upon cancellation
      * @throws RejectedExecutionException if the task cannot be
      *         scheduled for execution
      * @throws NullPointerException if command is null

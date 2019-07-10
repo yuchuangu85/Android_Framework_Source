@@ -18,7 +18,6 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.writer.KCode;
 
 import java.util.List;
 
@@ -30,28 +29,8 @@ public class UnaryExpr extends Expr {
     }
 
     @Override
-    public String getInvertibleError() {
-        return getExpr().getInvertibleError();
-    }
-
-    @Override
     protected String computeUniqueKey() {
         return join(getOpStr(), getExpr().getUniqueKey());
-    }
-
-    @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        return model.unary(mOp, getExpr().generateInverse(model, value, bindingClassName));
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.unary(mOp, getExpr().cloneToModel(model));
-    }
-
-    @Override
-    protected KCode generateCode() {
-        return new KCode().app(getOp(), getExpr().toCode());
     }
 
     @Override
@@ -80,10 +59,5 @@ public class UnaryExpr extends Expr {
 
     public Expr getExpr() {
         return getChildren().get(0);
-    }
-
-    @Override
-    public String toString() {
-        return mOp + getExpr();
     }
 }

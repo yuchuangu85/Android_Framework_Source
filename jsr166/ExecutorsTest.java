@@ -36,31 +36,29 @@ public class ExecutorsTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ExecutorsTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
      * A newCachedThreadPool can execute runnables
      */
     public void testNewCachedThreadPool1() {
-        final ExecutorService e = Executors.newCachedThreadPool();
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newCachedThreadPool();
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
      * A newCachedThreadPool with given ThreadFactory can execute runnables
      */
     public void testNewCachedThreadPool2() {
-        final ExecutorService e = Executors.newCachedThreadPool(new SimpleThreadFactory());
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newCachedThreadPool(new SimpleThreadFactory());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
@@ -77,24 +75,22 @@ public class ExecutorsTest extends JSR166TestCase {
      * A new SingleThreadExecutor can execute runnables
      */
     public void testNewSingleThreadExecutor1() {
-        final ExecutorService e = Executors.newSingleThreadExecutor();
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newSingleThreadExecutor();
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
      * A new SingleThreadExecutor with given ThreadFactory can execute runnables
      */
     public void testNewSingleThreadExecutor2() {
-        final ExecutorService e = Executors.newSingleThreadExecutor(new SimpleThreadFactory());
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newSingleThreadExecutor(new SimpleThreadFactory());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
@@ -111,12 +107,13 @@ public class ExecutorsTest extends JSR166TestCase {
      * A new SingleThreadExecutor cannot be casted to concrete implementation
      */
     public void testCastNewSingleThreadExecutor() {
-        final ExecutorService e = Executors.newSingleThreadExecutor();
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                ThreadPoolExecutor tpe = (ThreadPoolExecutor)e;
-                shouldThrow();
-            } catch (ClassCastException success) {}
+        ExecutorService e = Executors.newSingleThreadExecutor();
+        try {
+            ThreadPoolExecutor tpe = (ThreadPoolExecutor)e;
+            shouldThrow();
+        } catch (ClassCastException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -124,24 +121,22 @@ public class ExecutorsTest extends JSR166TestCase {
      * A new newFixedThreadPool can execute runnables
      */
     public void testNewFixedThreadPool1() {
-        final ExecutorService e = Executors.newFixedThreadPool(2);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newFixedThreadPool(2);
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
      * A new newFixedThreadPool with given ThreadFactory can execute runnables
      */
     public void testNewFixedThreadPool2() {
-        final ExecutorService e = Executors.newFixedThreadPool(2, new SimpleThreadFactory());
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.newFixedThreadPool(2, new SimpleThreadFactory());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
@@ -168,12 +163,11 @@ public class ExecutorsTest extends JSR166TestCase {
      * An unconfigurable newFixedThreadPool can execute runnables
      */
     public void testUnconfigurableExecutorService() {
-        final ExecutorService e = Executors.unconfigurableExecutorService(Executors.newFixedThreadPool(2));
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-            e.execute(new NoOpRunnable());
-        }
+        ExecutorService e = Executors.unconfigurableExecutorService(Executors.newFixedThreadPool(2));
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        e.execute(new NoOpRunnable());
+        joinPool(e);
     }
 
     /**
@@ -200,8 +194,8 @@ public class ExecutorsTest extends JSR166TestCase {
      * a newSingleThreadScheduledExecutor successfully runs delayed task
      */
     public void testNewSingleThreadScheduledExecutor() throws Exception {
-        final ScheduledExecutorService p = Executors.newSingleThreadScheduledExecutor();
-        try (PoolCleaner cleaner = cleaner(p)) {
+        ScheduledExecutorService p = Executors.newSingleThreadScheduledExecutor();
+        try {
             final CountDownLatch proceed = new CountDownLatch(1);
             final Runnable task = new CheckedRunnable() {
                 public void realRun() {
@@ -217,6 +211,8 @@ public class ExecutorsTest extends JSR166TestCase {
             assertTrue(f.isDone());
             assertFalse(f.isCancelled());
             assertTrue(millisElapsedSince(startTime) >= timeoutMillis());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -224,8 +220,8 @@ public class ExecutorsTest extends JSR166TestCase {
      * a newScheduledThreadPool successfully runs delayed task
      */
     public void testNewScheduledThreadPool() throws Exception {
-        final ScheduledExecutorService p = Executors.newScheduledThreadPool(2);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        ScheduledExecutorService p = Executors.newScheduledThreadPool(2);
+        try {
             final CountDownLatch proceed = new CountDownLatch(1);
             final Runnable task = new CheckedRunnable() {
                 public void realRun() {
@@ -241,6 +237,8 @@ public class ExecutorsTest extends JSR166TestCase {
             assertTrue(f.isDone());
             assertFalse(f.isCancelled());
             assertTrue(millisElapsedSince(startTime) >= timeoutMillis());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -248,10 +246,10 @@ public class ExecutorsTest extends JSR166TestCase {
      * an unconfigurable newScheduledThreadPool successfully runs delayed task
      */
     public void testUnconfigurableScheduledExecutorService() throws Exception {
-        final ScheduledExecutorService p =
+        ScheduledExecutorService p =
             Executors.unconfigurableScheduledExecutorService
             (Executors.newScheduledThreadPool(2));
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             final CountDownLatch proceed = new CountDownLatch(1);
             final Runnable task = new CheckedRunnable() {
                 public void realRun() {
@@ -267,6 +265,8 @@ public class ExecutorsTest extends JSR166TestCase {
             assertTrue(f.isDone());
             assertFalse(f.isCancelled());
             assertTrue(millisElapsedSince(startTime) >= timeoutMillis());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -327,10 +327,16 @@ public class ExecutorsTest extends JSR166TestCase {
                 done.countDown();
             }};
         ExecutorService e = Executors.newSingleThreadExecutor(Executors.defaultThreadFactory());
-        try (PoolCleaner cleaner = cleaner(e)) {
-            e.execute(r);
-            await(done);
+
+        e.execute(r);
+        await(done);
+
+        try {
+            e.shutdown();
+        } catch (SecurityException ok) {
         }
+
+        joinPool(e);
     }
 
     /**
@@ -360,14 +366,14 @@ public class ExecutorsTest extends JSR166TestCase {
                         String name = current.getName();
                         assertTrue(name.endsWith("thread-1"));
                         assertSame(thisccl, current.getContextClassLoader());
-                        //assertEquals(thisacc, AccessController.getContext());
+                        // assertEquals(thisacc, AccessController.getContext());
                         done.countDown();
                     }};
                 ExecutorService e = Executors.newSingleThreadExecutor(Executors.privilegedThreadFactory());
-                try (PoolCleaner cleaner = cleaner(e)) {
-                    e.execute(r);
-                    await(done);
-                }
+                e.execute(r);
+                await(done);
+                e.shutdown();
+                joinPool(e);
             }};
 
         runWithPermissions(r,

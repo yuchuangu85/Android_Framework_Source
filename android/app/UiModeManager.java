@@ -16,18 +16,11 @@
 
 package android.app;
 
-import android.annotation.IntDef;
-import android.annotation.SystemService;
-import android.annotation.TestApi;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.ServiceManager.ServiceNotFoundException;
 import android.util.Log;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 
 /**
  * This class provides access to the system uimode services.  These services
@@ -50,8 +43,11 @@ import java.lang.annotation.RetentionPolicy;
  * displayed allowing the user to exit dock mode.  Thus the dock mode
  * represented here may be different than the current state of the underlying
  * dock event broadcast.
+ *
+ * <p>You do not instantiate this class directly; instead, retrieve it through
+ * {@link android.content.Context#getSystemService
+ * Context.getSystemService(Context.UI_MODE_SERVICE)}.
  */
-@SystemService(Context.UI_MODE_SERVICE)
 public class UiModeManager {
     private static final String TAG = "UiModeManager";
 
@@ -96,39 +92,27 @@ public class UiModeManager {
      * when the user exits desk mode.
      */
     public static String ACTION_EXIT_DESK_MODE = "android.app.action.EXIT_DESK_MODE";
-
-    /** @hide */
-    @IntDef(prefix = { "MODE_" }, value = {
-            MODE_NIGHT_AUTO,
-            MODE_NIGHT_NO,
-            MODE_NIGHT_YES
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface NightMode {}
-
-    /**
-     * Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
+    
+    /** Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
      * automatically switch night mode on and off based on the time.
      */
     public static final int MODE_NIGHT_AUTO = Configuration.UI_MODE_NIGHT_UNDEFINED >> 4;
     
-    /**
-     * Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
+    /** Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
      * never run in night mode.
      */
     public static final int MODE_NIGHT_NO = Configuration.UI_MODE_NIGHT_NO >> 4;
     
-    /**
-     * Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
+    /** Constant for {@link #setNightMode(int)} and {@link #getNightMode()}:
      * always run in night mode.
      */
     public static final int MODE_NIGHT_YES = Configuration.UI_MODE_NIGHT_YES >> 4;
 
     private IUiModeManager mService;
 
-    /*package*/ UiModeManager() throws ServiceNotFoundException {
+    /*package*/ UiModeManager() {
         mService = IUiModeManager.Stub.asInterface(
-                ServiceManager.getServiceOrThrow(Context.UI_MODE_SERVICE));
+                ServiceManager.getService(Context.UI_MODE_SERVICE));
     }
 
     /**
@@ -162,7 +146,7 @@ public class UiModeManager {
             try {
                 mService.enableCarMode(flags);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "disableCarMode: RemoteException", e);
             }
         }
     }
@@ -185,7 +169,7 @@ public class UiModeManager {
             try {
                 mService.disableCarMode(flags);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "disableCarMode: RemoteException", e);
             }
         }
     }
@@ -196,114 +180,57 @@ public class UiModeManager {
      * {@link Configuration#UI_MODE_TYPE_DESK Configuration.UI_MODE_TYPE_DESK},
      * {@link Configuration#UI_MODE_TYPE_CAR Configuration.UI_MODE_TYPE_CAR},
      * {@link Configuration#UI_MODE_TYPE_TELEVISION Configuration.UI_MODE_TYPE_TELEVISION},
-     * {@link Configuration#UI_MODE_TYPE_APPLIANCE Configuration.UI_MODE_TYPE_APPLIANCE},
-     * {@link Configuration#UI_MODE_TYPE_WATCH Configuration.UI_MODE_TYPE_WATCH}, or
-     * {@link Configuration#UI_MODE_TYPE_VR_HEADSET Configuration.UI_MODE_TYPE_VR_HEADSET}.
+     * {@link Configuration#UI_MODE_TYPE_APPLIANCE Configuration.UI_MODE_TYPE_APPLIANCE}, or
+     * {@link Configuration#UI_MODE_TYPE_WATCH Configuration.UI_MODE_TYPE_WATCH}.
      */
     public int getCurrentModeType() {
         if (mService != null) {
             try {
                 return mService.getCurrentModeType();
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "getCurrentModeType: RemoteException", e);
             }
         }
         return Configuration.UI_MODE_TYPE_NORMAL;
     }
 
     /**
-     * Sets the night mode.
-     * <p>
-     * The mode can be one of:
-     * <ul>
-     *   <li><em>{@link #MODE_NIGHT_NO}<em> sets the device into
-     *       {@code notnight} mode</li>
-     *   <li><em>{@link #MODE_NIGHT_YES}</em> sets the device into
-     *       {@code night} mode</li>
-     *   <li><em>{@link #MODE_NIGHT_AUTO}</em> automatically switches between
-     *       {@code night} and {@code notnight} based on the device's current
-     *       location and certain other sensors</li>
-     * </ul>
-     * <p>
-     * <strong>Note:</strong> On API 22 and below, changes to the night mode
-     * are only effective when the {@link Configuration#UI_MODE_TYPE_CAR car}
-     * or {@link Configuration#UI_MODE_TYPE_DESK desk} mode is enabled on a
-     * device. Starting in API 23, changes to night mode are always effective.
+     * Sets the night mode.  Changes to the night mode are only effective when
+     * the car or desk mode is enabled on a device.
      *
-     * @param mode the night mode to set
-     * @see #getNightMode()
+     * <p>The mode can be one of:
+     * <ul>
+     *   <li><em>{@link #MODE_NIGHT_NO}<em> - sets the device into notnight
+     *       mode.</li>
+     *   <li><em>{@link #MODE_NIGHT_YES}</em> - sets the device into night mode.
+     *   </li>
+     *   <li><em>{@link #MODE_NIGHT_AUTO}</em> - automatic night/notnight switching
+     *       depending on the location and certain other sensors.</li>
+     * </ul>
      */
-    public void setNightMode(@NightMode int mode) {
+    public void setNightMode(int mode) {
         if (mService != null) {
             try {
                 mService.setNightMode(mode);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "setNightMode: RemoteException", e);
             }
         }
     }
 
     /**
-     * Returns the currently configured night mode.
-     * <p>
-     * May be one of:
-     * <ul>
-     *   <li>{@link #MODE_NIGHT_NO}</li>
-     *   <li>{@link #MODE_NIGHT_YES}</li>
-     *   <li>{@link #MODE_NIGHT_AUTO}</li>
-     *   <li>{@code -1} on error</li>
-     * </ul>
-     *
-     * @return the current night mode, or {@code -1} on error
-     * @see #setNightMode(int)
+     * @return the currently configured night mode. May be one of
+     *         {@link #MODE_NIGHT_NO}, {@link #MODE_NIGHT_YES},
+     *         {@link #MODE_NIGHT_AUTO}, or -1 on error.
      */
-    public @NightMode int getNightMode() {
+    public int getNightMode() {
         if (mService != null) {
             try {
                 return mService.getNightMode();
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "getNightMode: RemoteException", e);
             }
         }
         return -1;
-    }
-
-    /**
-     * @return If UI mode is locked or not. When UI mode is locked, calls to change UI mode
-     *         like {@link #enableCarMode(int)} will silently fail.
-     * @hide
-     */
-    @TestApi
-    public boolean isUiModeLocked() {
-        if (mService != null) {
-            try {
-                return mService.isUiModeLocked();
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Returns whether night mode is locked or not.
-     * <p>
-     * When night mode is locked, only privileged system components may change
-     * night mode and calls from non-privileged applications to change night
-     * mode will fail silently.
-     *
-     * @return {@code true} if night mode is locked or {@code false} otherwise
-     * @hide
-     */
-    @TestApi
-    public boolean isNightModeLocked() {
-        if (mService != null) {
-            try {
-                return mService.isNightModeLocked();
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
-        return true;
     }
 }

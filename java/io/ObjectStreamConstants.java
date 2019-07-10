@@ -1,235 +1,185 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
 /**
- * Constants written into the Object Serialization Stream.
- *
- * @author  unascribed
- * @since JDK 1.1
+ * A helper interface with constants used by the serialization implementation.
  */
-public interface ObjectStreamConstants {
+public abstract interface ObjectStreamConstants {
 
     /**
-     * Magic number that is written to the stream header.
+     * The stream header's magic number.
      */
-    final static short STREAM_MAGIC = (short)0xaced;
+    public static final short STREAM_MAGIC = (short) 0xaced;
 
     /**
-     * Version number that is written to the stream header.
+     * The stream header's version number.
      */
-    final static short STREAM_VERSION = 5;
+    public static final short STREAM_VERSION = 5;
 
-    /* Each item in the stream is preceded by a tag
-     */
+    // These are tags to indicate the stream contents
 
     /**
-     * First tag value.
+     * The minimum tag value.
      */
-    final static byte TC_BASE = 0x70;
+    public static final byte TC_BASE = 0x70;
 
     /**
-     * Null object reference.
+     * Tag to mark a {@code null} object reference.
      */
-    final static byte TC_NULL =         (byte)0x70;
+    public static final byte TC_NULL = (byte) 0x70;
 
     /**
-     * Reference to an object already written into the stream.
+     * Tag to mark a reference to an object that has already been written to the
+     * stream.
      */
-    final static byte TC_REFERENCE =    (byte)0x71;
+    public static final byte TC_REFERENCE = (byte) 0x71;
 
     /**
-     * new Class Descriptor.
+     * Tag to mark a new class descriptor.
      */
-    final static byte TC_CLASSDESC =    (byte)0x72;
+    public static final byte TC_CLASSDESC = (byte) 0x72;
 
     /**
-     * new Object.
+     * Tag to mark a new object.
      */
-    final static byte TC_OBJECT =       (byte)0x73;
+    public static final byte TC_OBJECT = (byte) 0x73;
 
     /**
-     * new String.
+     * Tag to mark a new string.
      */
-    final static byte TC_STRING =       (byte)0x74;
+    public static final byte TC_STRING = (byte) 0x74;
 
     /**
-     * new Array.
+     * Tag to mark a new array.
      */
-    final static byte TC_ARRAY =        (byte)0x75;
+    public static final byte TC_ARRAY = (byte) 0x75;
 
     /**
-     * Reference to Class.
+     * Tag to mark a reference to a class.
      */
-    final static byte TC_CLASS =        (byte)0x76;
+    public static final byte TC_CLASS = (byte) 0x76;
 
     /**
-     * Block of optional data. Byte following tag indicates number
-     * of bytes in this block data.
+     * Tag to mark a block of optional data. The byte following this tag
+     * indicates the size of the block.
      */
-    final static byte TC_BLOCKDATA =    (byte)0x77;
+    public static final byte TC_BLOCKDATA = (byte) 0x77;
 
     /**
-     * End of optional block data blocks for an object.
+     * Tag to mark the end of block data blocks for an object.
      */
-    final static byte TC_ENDBLOCKDATA = (byte)0x78;
+    public static final byte TC_ENDBLOCKDATA = (byte) 0x78;
 
     /**
-     * Reset stream context. All handles written into stream are reset.
+     * Tag to mark a stream reset.
      */
-    final static byte TC_RESET =        (byte)0x79;
+    public static final byte TC_RESET = (byte) 0x79;
 
     /**
-     * long Block data. The long following the tag indicates the
-     * number of bytes in this block data.
+     * Tag to mark a long block of data. The long following this tag
+     * indicates the size of the block.
      */
-    final static byte TC_BLOCKDATALONG= (byte)0x7A;
+    public static final byte TC_BLOCKDATALONG = (byte) 0x7A;
 
     /**
-     * Exception during write.
+     * Tag to mark an exception.
      */
-    final static byte TC_EXCEPTION =    (byte)0x7B;
+    public static final byte TC_EXCEPTION = (byte) 0x7B;
 
     /**
-     * Long string.
+     * Tag to mark a long string.
      */
-    final static byte TC_LONGSTRING =   (byte)0x7C;
+    public static final byte TC_LONGSTRING = (byte) 0x7C;
 
     /**
-     * new Proxy Class Descriptor.
+     * Tag to mark a new proxy class descriptor.
      */
-    final static byte TC_PROXYCLASSDESC =       (byte)0x7D;
+    public static final byte TC_PROXYCLASSDESC = (byte) 0x7D;
 
     /**
-     * new Enum constant.
-     * @since 1.5
+     * The maximum tag value.
      */
-    final static byte TC_ENUM =         (byte)0x7E;
+    public static final byte TC_MAX = 0x7E;
 
     /**
-     * Last tag value.
+     * Handle for the first object that gets serialized.
      */
-    final static byte TC_MAX =          (byte)0x7E;
+    public static final int baseWireHandle = 0x007e0000;
 
     /**
-     * First wire handle to be assigned.
+     * Stream protocol version 1.
      */
-    final static int baseWireHandle = 0x7e0000;
-
-
-    /******************************************************/
-    /* Bit masks for ObjectStreamClass flag.*/
+    public static final int PROTOCOL_VERSION_1 = 1;
 
     /**
-     * Bit mask for ObjectStreamClass flag. Indicates a Serializable class
-     * defines its own writeObject method.
+     * Stream protocol version 2.
      */
-    final static byte SC_WRITE_METHOD = 0x01;
+    public static final int PROTOCOL_VERSION_2 = 2;
 
     /**
-     * Bit mask for ObjectStreamClass flag. Indicates Externalizable data
-     * written in Block Data mode.
-     * Added for PROTOCOL_VERSION_2.
-     *
-     * @see #PROTOCOL_VERSION_2
-     * @since 1.2
+     * Permission constant to enable subclassing of ObjectInputStream and
+     * ObjectOutputStream.
      */
-    final static byte SC_BLOCK_DATA = 0x08;
+    public static final SerializablePermission SUBCLASS_IMPLEMENTATION_PERMISSION = new SerializablePermission(
+            "enableSubclassImplementation");
 
     /**
-     * Bit mask for ObjectStreamClass flag. Indicates class is Serializable.
+     * Permission constant to enable object substitution during serialization
+     * and deserialization.
      */
-    final static byte SC_SERIALIZABLE = 0x02;
+    public static final SerializablePermission SUBSTITUTION_PERMISSION = new SerializablePermission(
+            "enableSubstitution");
+
+    // Flags that indicate if the object was serializable, externalizable
+    // and had a writeObject method when dumped.
+    /**
+     * Bit mask for the {@code flag} field in {@link ObjectStreamClass}. Indicates
+     * that a {@link Serializable} class has its own {@code writeObject} method.
+     */
+    public static final byte SC_WRITE_METHOD = 0x01; // If SC_SERIALIZABLE
 
     /**
-     * Bit mask for ObjectStreamClass flag. Indicates class is Externalizable.
+     * Bit mask for the {@code flag} field in {@link ObjectStreamClass}. Indicates
+     * that a class implements {@link Serializable} but not {@link Externalizable}.
      */
-    final static byte SC_EXTERNALIZABLE = 0x04;
+    public static final byte SC_SERIALIZABLE = 0x02;
 
     /**
-     * Bit mask for ObjectStreamClass flag. Indicates class is an enum type.
-     * @since 1.5
+     * Bit mask for the {@code flag} field in {@link ObjectStreamClass}. Indicates
+     * that a class implements {@link Externalizable}.
      */
-    final static byte SC_ENUM = 0x10;
-
-
-    /* *******************************************************************/
-    /* Security permissions */
+    public static final byte SC_EXTERNALIZABLE = 0x04;
 
     /**
-     * Enable substitution of one object for another during
-     * serialization/deserialization.
-     *
-     * @see java.io.ObjectOutputStream#enableReplaceObject(boolean)
-     * @see java.io.ObjectInputStream#enableResolveObject(boolean)
-     * @since 1.2
+     * Bit mask for the {@code flag} field in {@link ObjectStreamClass}. Indicates
+     * that an externalizable class is written in block data mode.
      */
-    final static SerializablePermission SUBSTITUTION_PERMISSION =
-                           new SerializablePermission("enableSubstitution");
+    public static final byte SC_BLOCK_DATA = 0x08; // If SC_EXTERNALIZABLE
 
     /**
-     * Enable overriding of readObject and writeObject.
-     *
-     * @see java.io.ObjectOutputStream#writeObjectOverride(Object)
-     * @see java.io.ObjectInputStream#readObjectOverride()
-     * @since 1.2
+     * Tag to mark a new enum.
      */
-    final static SerializablePermission SUBCLASS_IMPLEMENTATION_PERMISSION =
-                    new SerializablePermission("enableSubclassImplementation");
-   /**
-    * A Stream Protocol Version. <p>
-    *
-    * All externalizable data is written in JDK 1.1 external data
-    * format after calling this method. This version is needed to write
-    * streams containing Externalizable data that can be read by
-    * pre-JDK 1.1.6 JVMs.
-    *
-    * @see java.io.ObjectOutputStream#useProtocolVersion(int)
-    * @since 1.2
-    */
-    public final static int PROTOCOL_VERSION_1 = 1;
+    public static final byte TC_ENUM = 0x7E;
 
-
-   /**
-    * A Stream Protocol Version. <p>
-    *
-    * This protocol is written by JVM 1.2.
-    *
-    * Externalizable data is written in block data mode and is
-    * terminated with TC_ENDBLOCKDATA. Externalizable class descriptor
-    * flags has SC_BLOCK_DATA enabled. JVM 1.1.6 and greater can
-    * read this format change.
-    *
-    * Enables writing a nonSerializable class descriptor into the
-    * stream. The serialVersionUID of a nonSerializable class is
-    * set to 0L.
-    *
-    * @see java.io.ObjectOutputStream#useProtocolVersion(int)
-    * @see #SC_BLOCK_DATA
-    * @since 1.2
-    */
-    public final static int PROTOCOL_VERSION_2 = 2;
+    /**
+     * Bit mask for the {@code flag} field in {@link ObjectStreamClass}. Indicates
+     * that a class is an enum type.
+     */
+    public static final byte SC_ENUM = 0x10;
 }

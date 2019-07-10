@@ -1,687 +1,438 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.util.*;
-
-import java.security.*;
-import java.security.Provider.Service;
-import java.security.spec.*;
-
-import sun.security.jca.*;
-import sun.security.jca.GetInstance.Instance;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
+import java.security.ProviderException;
+import java.security.SecureRandom;
+import java.security.Security;
+import java.security.spec.AlgorithmParameterSpec;
+import java.util.ArrayList;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * This class provides the functionality of a key agreement (or key
- * exchange) protocol.
- * <p>
- * The keys involved in establishing a shared secret are created by one of the
- * key generators (<code>KeyPairGenerator</code> or
- * <code>KeyGenerator</code>), a <code>KeyFactory</code>, or as a result from
- * an intermediate phase of the key agreement protocol.
- *
- * <p> For each of the correspondents in the key exchange, <code>doPhase</code>
- * needs to be called. For example, if this key exchange is with one other
- * party, <code>doPhase</code> needs to be called once, with the
- * <code>lastPhase</code> flag set to <code>true</code>.
- * If this key exchange is
- * with two other parties, <code>doPhase</code> needs to be called twice,
- * the first time setting the <code>lastPhase</code> flag to
- * <code>false</code>, and the second time setting it to <code>true</code>.
- * There may be any number of parties involved in a key exchange.
- *
- * <p> Android provides the following <code>KeyAgreement</code> algorithms:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>DH</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>ECDH</td>
- *       <td>11+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * This algorithm is described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
- * KeyAgreement section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * @author Jan Luehe
- *
- * @see KeyGenerator
- * @see SecretKey
- * @since 1.4
+ * This class provides the functionality for a key exchange protocol. This
+ * enables two or more parties to agree on a secret key for symmetric
+ * cryptography.
  */
-
 public class KeyAgreement {
 
-    // Android-removed: this debugging mechanism is not used in Android.
-    /*
-    private static final Debug debug =
-                        Debug.getInstance("jca", "KeyAgreement");
+    // The service name.
+    private static final String SERVICE = "KeyAgreement";
 
-    private static final Debug pdebug =
-                        Debug.getInstance("provider", "Provider");
-    private static final boolean skipDebug =
-        Debug.isOn("engine=") && !Debug.isOn("keyagreement");
-    */
+    // Used to access common engine functionality
+    private static final Engine ENGINE = new Engine(SERVICE);
 
-    // The provider
+    // Store SecureRandom
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    // Store used provider
     private Provider provider;
 
-    // The provider implementation (delegate)
-    private KeyAgreementSpi spi;
+    // Provider that was requested during creation.
+    private final Provider specifiedProvider;
 
-    // The name of the key agreement algorithm.
+    // Store used spi implementation
+    private KeyAgreementSpi spiImpl;
+
+    // Store used algorithm name
     private final String algorithm;
 
-    // BEGIN Android-removed: Redo the provider selection logic to allow reselecting provider.
-    // When only the algorithm is specified, we want to allow the KeyAgreement provider for that
-    // algorithm to change if multiple providers exist and they support different subsets of
-    // keys.  To that end, we don't hold an iterator and exhaust it when we need to choose
-    // a provider like the upstream implementation, we reestablish the list of providers
-    // each time.
-    /*
-    // next service to try in provider selection
-    // null once provider is selected
-    private Service firstService;
-
-    // remaining services to try in provider selection
-    // null once provider is selected
-    private Iterator<Service> serviceIterator;
-    */
-    // END Android-removed: Redo the provider selection logic to allow reselecting provider.
-
-    private final Object lock;
+    /**
+     * Lock held while the SPI is initializing.
+     */
+    private final Object initLock = new Object();
 
     /**
-     * Creates a KeyAgreement object.
+     * Creates a new {@code KeyAgreement} instance.
      *
-     * @param keyAgreeSpi the delegate
-     * @param provider the provider
-     * @param algorithm the algorithm
+     * @param keyAgreeSpi
+     *            the <b>SPI</b> delegate.
+     * @param provider
+     *            the provider providing this KeyAgreement.
+     * @param algorithm
+     *            the name of the key agreement algorithm.
      */
     protected KeyAgreement(KeyAgreementSpi keyAgreeSpi, Provider provider,
-                           String algorithm) {
-        this.spi = keyAgreeSpi;
-        this.provider = provider;
+            String algorithm) {
+        this.spiImpl = keyAgreeSpi;
+        this.specifiedProvider = provider;
         this.algorithm = algorithm;
-        lock = null;
-    }
-
-    // Android-changed: Remove Service and Iterator from constructor args.
-    private KeyAgreement(String algorithm) {
-        this.algorithm = algorithm;
-        lock = new Object();
     }
 
     /**
-     * Returns the algorithm name of this <code>KeyAgreement</code> object.
+     * Returns the name of the key agreement algorithm.
      *
-     * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this
-     * <code>KeyAgreement</code> object.
-     *
-     * @return the algorithm name of this <code>KeyAgreement</code> object.
+     * @return the name of the key agreement algorithm.
      */
     public final String getAlgorithm() {
-        return this.algorithm;
+        return algorithm;
     }
 
     /**
-     * Returns a <code>KeyAgreement</code> object that implements the
-     * specified key agreement algorithm.
+     * Returns the provider for this {@code KeyAgreement} instance.
      *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new KeyAgreement object encapsulating the
-     * KeyAgreementSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested key agreement
-     * algorithm.
-     * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @return the new <code>KeyAgreement</code> object.
-     *
-     * @exception NullPointerException if the specified algorithm
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports a
-     *          KeyAgreementSpi implementation for the
-     *          specified algorithm.
-     *
-     * @see java.security.Provider
-     */
-    public static final KeyAgreement getInstance(String algorithm)
-            throws NoSuchAlgorithmException {
-        List<Service> services =
-                GetInstance.getServices("KeyAgreement", algorithm);
-        // make sure there is at least one service from a signed provider
-        Iterator<Service> t = services.iterator();
-        while (t.hasNext()) {
-            Service s = t.next();
-            if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                continue;
-            }
-            // Android-changed: Remove Service and Iterator from constructor args.
-            // return new KeyAgreement(s, t, algorithm);
-            return new KeyAgreement(algorithm);
-        }
-        throw new NoSuchAlgorithmException
-                                ("Algorithm " + algorithm + " not available");
-    }
-
-    /**
-     * Returns a <code>KeyAgreement</code> object that implements the
-     * specified key agreement algorithm.
-     *
-     * <p> A new KeyAgreement object encapsulating the
-     * KeyAgreementSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested key agreement
-     * algorithm.
-     * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new <code>KeyAgreement</code> object.
-     *
-     * @exception NullPointerException if the specified algorithm
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if a KeyAgreementSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null or empty.
-     *
-     * @see java.security.Provider
-     */
-    public static final KeyAgreement getInstance(String algorithm,
-            String provider) throws NoSuchAlgorithmException,
-            NoSuchProviderException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "KeyAgreement", algorithm);
-        Instance instance = JceSecurity.getInstance
-                ("KeyAgreement", KeyAgreementSpi.class, algorithm, provider);
-        return new KeyAgreement((KeyAgreementSpi)instance.impl,
-                instance.provider, algorithm);
-    }
-
-    /**
-     * Returns a <code>KeyAgreement</code> object that implements the
-     * specified key agreement algorithm.
-     *
-     * <p> A new KeyAgreement object encapsulating the
-     * KeyAgreementSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param algorithm the standard name of the requested key agreement
-     * algorithm.
-     * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the provider.
-     *
-     * @return the new <code>KeyAgreement</code> object.
-     *
-     * @exception NullPointerException if the specified algorithm
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if a KeyAgreementSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null.
-     *
-     * @see java.security.Provider
-     */
-    public static final KeyAgreement getInstance(String algorithm,
-            Provider provider) throws NoSuchAlgorithmException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "KeyAgreement", algorithm);
-        Instance instance = JceSecurity.getInstance
-                ("KeyAgreement", KeyAgreementSpi.class, algorithm, provider);
-        return new KeyAgreement((KeyAgreementSpi)instance.impl,
-                instance.provider, algorithm);
-    }
-
-    // max number of debug warnings to print from chooseFirstProvider()
-    private static int warnCount = 10;
-
-    /**
-     * Choose the Spi from the first provider available. Used if
-     * delayed provider selection is not possible because init()
-     * is not the first method called.
-     */
-    void chooseFirstProvider() {
-        if (spi != null) {
-            return;
-        }
-        synchronized (lock) {
-            if (spi != null) {
-                return;
-            }
-            // Android-removed: this debugging mechanism is not used in Android.
-            /*
-            if (debug != null) {
-                int w = --warnCount;
-                if (w >= 0) {
-                    debug.println("KeyAgreement.init() not first method "
-                        + "called, disabling delayed provider selection");
-                    if (w == 0) {
-                        debug.println("Further warnings of this type will "
-                            + "be suppressed");
-                    }
-                    new Exception("Call trace").printStackTrace();
-                }
-            }
-            */
-            Exception lastException = null;
-            // Android-changed: Provider selection; loop over a new list each time.
-            for (Service s : GetInstance.getServices("KeyAgreement", algorithm)) {
-                if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                    continue;
-                }
-                try {
-                    Object obj = s.newInstance(null);
-                    if (obj instanceof KeyAgreementSpi == false) {
-                        continue;
-                    }
-                    spi = (KeyAgreementSpi)obj;
-                    provider = s.getProvider();
-                    // Android-removed: Provider selection; loop over a new list each time.
-                    /*
-                    // not needed any more
-                    firstService = null;
-                    serviceIterator = null;
-                    */
-                    return;
-                } catch (Exception e) {
-                    lastException = e;
-                }
-            }
-            ProviderException e = new ProviderException
-                    ("Could not construct KeyAgreementSpi instance");
-            if (lastException != null) {
-                e.initCause(lastException);
-            }
-            throw e;
-        }
-    }
-
-    private final static int I_NO_PARAMS = 1;
-    private final static int I_PARAMS    = 2;
-
-    private void implInit(KeyAgreementSpi spi, int type, Key key,
-            AlgorithmParameterSpec params, SecureRandom random)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-        if (type == I_NO_PARAMS) {
-            spi.engineInit(key, random);
-        } else { // I_PARAMS
-            spi.engineInit(key, params, random);
-        }
-    }
-
-    private void chooseProvider(int initType, Key key,
-            AlgorithmParameterSpec params, SecureRandom random)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-        synchronized (lock) {
-            // Android-changed: Use the currently-selected provider only if no key was provided.
-            // if (spi != null) {
-            if (spi != null && key == null) {
-                implInit(spi, initType, key, params, random);
-                return;
-            }
-            Exception lastException = null;
-            // Android-changed: Provider selection; loop over a new list each time.
-            for (Service s : GetInstance.getServices("KeyAgreement", algorithm)) {
-                // if provider says it does not support this key, ignore it
-                if (s.supportsParameter(key) == false) {
-                    continue;
-                }
-                if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                    continue;
-                }
-                try {
-                    KeyAgreementSpi spi = (KeyAgreementSpi)s.newInstance(null);
-                    implInit(spi, initType, key, params, random);
-                    provider = s.getProvider();
-                    this.spi = spi;
-                    // Android-removed: Provider selection; loop over a new list each time.
-                    /*
-                    firstService = null;
-                    serviceIterator = null;
-                    */
-                    return;
-                } catch (Exception e) {
-                    // NoSuchAlgorithmException from newInstance()
-                    // InvalidKeyException from init()
-                    // RuntimeException (ProviderException) from init()
-                    if (lastException == null) {
-                        lastException = e;
-                    }
-                }
-            }
-            // no working provider found, fail
-            if (lastException instanceof InvalidKeyException) {
-                throw (InvalidKeyException)lastException;
-            }
-            if (lastException instanceof InvalidAlgorithmParameterException) {
-                throw (InvalidAlgorithmParameterException)lastException;
-            }
-            if (lastException instanceof RuntimeException) {
-                throw (RuntimeException)lastException;
-            }
-            String kName = (key != null) ? key.getClass().getName() : "(null)";
-            throw new InvalidKeyException
-                ("No installed provider supports this key: "
-                + kName, lastException);
-        }
-    }
-
-    /**
-     * Returns the provider of this <code>KeyAgreement</code> object.
-     *
-     * @return the provider of this <code>KeyAgreement</code> object
+     * @return the provider for this {@code KeyAgreement} instance.
      */
     public final Provider getProvider() {
-        chooseFirstProvider();
-        return this.provider;
+        getSpi();
+        return provider;
     }
 
     /**
-     * Initializes this key agreement with the given key, which is required to
-     * contain all the algorithm parameters required for this key agreement.
+     * Creates a new {@code KeyAgreement} for the specified algorithm.
      *
-     * <p> If this key agreement requires any random bytes, it will get
-     * them using the
-     * {@link java.security.SecureRandom}
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
+     * @param algorithm
+     *            the name of the key agreement algorithm to create.
+     * @return a key agreement for the specified algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if no installed provider can provide the requested algorithm.
+     * @throws NullPointerException
+     *             if the specified algorithm is {@code null}.
+     */
+    public static final KeyAgreement getInstance(String algorithm) throws NoSuchAlgorithmException {
+        return getKeyAgreement(algorithm, null);
+    }
+
+    /**
+     * Creates a new {@code KeyAgreement} for the specified algorithm from the
+     * specified provider.
      *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
+     * @param algorithm
+     *            the name of the key agreement algorithm to create.
+     * @param provider
+     *            the name of the provider that provides the requested
+     *            algorithm.
+     * @return a key agreement for the specified algorithm from the specified
+     *         provider.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             algorithm.
+     * @throws NoSuchProviderException
+     *             if the specified provider does not exist.
+     * @throws IllegalArgumentException
+     *             if the specified provider name is {@code null} or empty.
+     */
+    public static final KeyAgreement getInstance(String algorithm, String provider)
+            throws NoSuchAlgorithmException, NoSuchProviderException {
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("Provider is null or empty");
+        }
+        Provider impProvider = Security.getProvider(provider);
+        if (impProvider == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        return getKeyAgreement(algorithm, impProvider);
+    }
+
+    /**
+     * Create a new {@code KeyAgreement} for the specified algorithm from the
+     * specified provider. The {@code provider} supplied does not have to be
+     * registered.
      *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
+     * @param algorithm
+     *            the name of the key agreement algorithm to create.
+     * @param provider
+     *            the provider that provides the requested algorithm.
+     * @return a key agreement for the specified algorithm from the specified
+     *         provider.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             algorithm.
+     * @throws IllegalArgumentException
+     *             if the specified provider is {@code null}.
+     * @throws NullPointerException
+     *             if the specified algorithm name is {@code null}.
+     */
+    public static final KeyAgreement getInstance(String algorithm, Provider provider)
+            throws NoSuchAlgorithmException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        return getKeyAgreement(algorithm, provider);
+    }
+
+    private static KeyAgreement getKeyAgreement(String algorithm, Provider provider)
+            throws NoSuchAlgorithmException {
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+
+        boolean providerSupportsAlgorithm;
+        try {
+            providerSupportsAlgorithm = tryAlgorithm(null /* key */, provider, algorithm) != null;
+        } catch (InvalidKeyException e) {
+            throw new IllegalStateException("InvalidKeyException thrown when key == null", e);
+        }
+        if (!providerSupportsAlgorithm) {
+            if (provider == null) {
+                throw new NoSuchAlgorithmException("No provider found for " + algorithm);
+            } else {
+                throw new NoSuchAlgorithmException("Provider " + provider.getName()
+                        + " does not provide " + algorithm);
+            }
+        }
+        return new KeyAgreement(null, provider, algorithm);
+    }
+
+    /**
+     * @throws InvalidKeyException if the specified key cannot be used to
+     *             initialize any provider.
+     */
+    private static Engine.SpiAndProvider tryAlgorithm(Key key, Provider provider, String algorithm)
+            throws InvalidKeyException {
+        if (provider != null) {
+            Provider.Service service = provider.getService(SERVICE, algorithm);
+            if (service == null) {
+                return null;
+            }
+            return tryAlgorithmWithProvider(service);
+        }
+        ArrayList<Provider.Service> services = ENGINE.getServices(algorithm);
+        if (services == null || services.isEmpty()) {
+            return null;
+        }
+        boolean keySupported = false;
+        for (Provider.Service service : services) {
+            if (key == null || service.supportsParameter(key)) {
+                keySupported = true;
+                Engine.SpiAndProvider sap = tryAlgorithmWithProvider(service);
+                if (sap != null) {
+                    return sap;
+                }
+            }
+        }
+        if (!keySupported) {
+            throw new InvalidKeyException("No provider supports the provided key");
+        }
+        return null;
+    }
+
+    private static Engine.SpiAndProvider tryAlgorithmWithProvider(Provider.Service service) {
+        try {
+            Engine.SpiAndProvider sap = ENGINE.getInstance(service, null);
+            if (sap.spi == null || sap.provider == null) {
+                return null;
+            }
+            if (!(sap.spi instanceof KeyAgreementSpi)) {
+                return null;
+            }
+            return sap;
+        } catch (NoSuchAlgorithmException ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Makes sure a KeyAgreementSpi that matches this type is selected.
+     *
+     * @throws InvalidKeyException if the specified key cannot be used to
+     *             initialize this key agreement.
+     */
+    private KeyAgreementSpi getSpi(Key key) throws InvalidKeyException {
+        synchronized (initLock) {
+            if (spiImpl != null && key == null) {
+                return spiImpl;
+            }
+
+            final Engine.SpiAndProvider sap = tryAlgorithm(key, specifiedProvider, algorithm);
+            if (sap == null) {
+                throw new ProviderException("No provider for " + getAlgorithm());
+            }
+
+            spiImpl = (KeyAgreementSpi) sap.spi;
+            provider = sap.provider;
+
+            return spiImpl;
+        }
+    }
+
+    /**
+     * Convenience call when the Key is not available.
+     */
+    private KeyAgreementSpi getSpi() {
+        try {
+            return getSpi(null /* key */);
+        } catch (InvalidKeyException e) {
+            throw new IllegalStateException("InvalidKeyException thrown when key == null", e);
+        }
+    }
+
+    /**
+     * Returns the {@code KeyAgreementSpi} backing this {@code KeyAgreement} or {@code null} if no
+     * {@code KeyAgreementSpi} is backing this {@code KeyAgreement}.
+     *
+     * @hide
+     */
+    public KeyAgreementSpi getCurrentSpi() {
+        synchronized (initLock) {
+            return spiImpl;
+        }
+    }
+
+    /**
+     * Initializes this {@code KeyAgreement} with the specified key.
+     *
+     * @param key the key to initialize this key agreement.
+     * @throws InvalidKeyException if the specified key cannot be used to
+     *             initialize this key agreement.
      */
     public final void init(Key key) throws InvalidKeyException {
-        init(key, JceSecurity.RANDOM);
+        getSpi(key).engineInit(key, RANDOM);//new SecureRandom());
     }
 
     /**
-     * Initializes this key agreement with the given key and source of
-     * randomness. The given key is required to contain all the algorithm
-     * parameters required for this key agreement.
+     * Initializes this {@code KeyAgreement} with the specified key and the
+     * specified randomness source.
      *
-     * <p> If the key agreement algorithm requires random bytes, it gets them
-     * from the given source of randomness, <code>random</code>.
-     * However, if the underlying
-     * algorithm implementation does not require any random bytes,
-     * <code>random</code> is ignored.
-     *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
+     * @param key
+     *            the key to initialize this key agreement.
+     * @param random
+     *            the source for any randomness needed.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this key
+     *             agreement.
      */
     public final void init(Key key, SecureRandom random)
             throws InvalidKeyException {
-        // Android-changed: Use the currently-selected provider only if no key was provided.
-        // if (spi != null) {
-        if (spi != null && (key == null || lock == null)) {
-            spi.engineInit(key, random);
-        } else {
-            try {
-                chooseProvider(I_NO_PARAMS, key, null, random);
-            } catch (InvalidAlgorithmParameterException e) {
-                // should never occur
-                throw new InvalidKeyException(e);
-            }
-        }
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
+        getSpi(key).engineInit(key, random);
     }
 
     /**
-     * Initializes this key agreement with the given key and set of
+     * Initializes this {@code KeyAgreement} with the specified key and the
      * algorithm parameters.
      *
-     * <p> If this key agreement requires any random bytes, it will get
-     * them using the
-     * {@link java.security.SecureRandom}
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
-     *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
-     * @param params the key agreement parameters
-     *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
-     * @exception InvalidAlgorithmParameterException if the given parameters
-     * are inappropriate for this key agreement.
+     * @param key
+     *            the key to initialize this key agreement.
+     * @param params
+     *            the parameters for this key agreement algorithm.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this key
+     *             agreement.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters are invalid for this key
+     *             agreement algorithm.
      */
     public final void init(Key key, AlgorithmParameterSpec params)
-        throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        init(key, params, JceSecurity.RANDOM);
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
+        getSpi(key).engineInit(key, params, RANDOM);//new SecureRandom());
     }
 
     /**
-     * Initializes this key agreement with the given key, set of
-     * algorithm parameters, and source of randomness.
+     * Initializes this {@code KeyAgreement} with the specified key, algorithm
+     * parameters and randomness source.
      *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
-     * @param params the key agreement parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
-     * @exception InvalidAlgorithmParameterException if the given parameters
-     * are inappropriate for this key agreement.
+     * @param key
+     *            the key to initialize this key agreement.
+     * @param params
+     *            the parameters for this key agreement algorithm.
+     * @param random
+     *            the source for any randomness needed.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this key
+     *             agreement.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters are invalid for this key
+     *             agreement algorithm.
      */
     public final void init(Key key, AlgorithmParameterSpec params,
-                           SecureRandom random)
-        throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        if (spi != null) {
-            spi.engineInit(key, params, random);
-        } else {
-            chooseProvider(I_PARAMS, key, params, random);
-        }
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
+            SecureRandom random) throws InvalidKeyException,
+            InvalidAlgorithmParameterException {
+        getSpi(key).engineInit(key, params, random);
     }
 
     /**
-     * Executes the next phase of this key agreement with the given
-     * key that was received from one of the other parties involved in this key
-     * agreement.
+     * Does the next (or the last) phase of the key agreement, using the
+     * specified key.
      *
-     * @param key the key for this phase. For example, in the case of
-     * Diffie-Hellman between 2 parties, this would be the other party's
-     * Diffie-Hellman public key.
-     * @param lastPhase flag which indicates whether or not this is the last
-     * phase of this key agreement.
-     *
-     * @return the (intermediate) key resulting from this phase, or null
-     * if this phase does not yield a key
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this phase.
-     * @exception IllegalStateException if this key agreement has not been
-     * initialized.
+     * @param key
+     *            the key received from the other party for this phase.
+     * @param lastPhase
+     *            set to {@code true} if this is the last phase of this key
+     *            agreement.
+     * @return the intermediate key from this phase or {@code null} if there is
+     *         no intermediate key for this phase.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used in this key agreement or
+     *             this phase,
+     * @throws IllegalStateException
+     *             if this instance has not been initialized.
      */
     public final Key doPhase(Key key, boolean lastPhase)
-        throws InvalidKeyException, IllegalStateException
-    {
-        chooseFirstProvider();
-        return spi.engineDoPhase(key, lastPhase);
+            throws InvalidKeyException, IllegalStateException {
+        return getSpi().engineDoPhase(key, lastPhase);
     }
 
     /**
-     * Generates the shared secret and returns it in a new buffer.
+     * Generates the shared secret.
      *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @return the new buffer with the shared secret
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
+     * @return the generated shared secret.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
      */
     public final byte[] generateSecret() throws IllegalStateException {
-        chooseFirstProvider();
-        return spi.engineGenerateSecret();
+        return getSpi().engineGenerateSecret();
     }
 
     /**
-     * Generates the shared secret, and places it into the buffer
-     * <code>sharedSecret</code>, beginning at <code>offset</code> inclusive.
+     * Generates the shared secret and stores it into the buffer {@code
+     * sharedSecred} at {@code offset}.
      *
-     * <p>If the <code>sharedSecret</code> buffer is too small to hold the
-     * result, a <code>ShortBufferException</code> is thrown.
-     * In this case, this call should be repeated with a larger output buffer.
-     *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @param sharedSecret the buffer for the shared secret
-     * @param offset the offset in <code>sharedSecret</code> where the
-     * shared secret will be stored
-     *
-     * @return the number of bytes placed into <code>sharedSecret</code>
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the secret
+     * @param sharedSecret
+     *            the buffer to store the shared secret.
+     * @param offset
+     *            the offset in the buffer.
+     * @return the number of bytes stored in the buffer.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
+     * @throws ShortBufferException
+     *             if the specified buffer is too small for the shared secret.
      */
     public final int generateSecret(byte[] sharedSecret, int offset)
-        throws IllegalStateException, ShortBufferException
-    {
-        chooseFirstProvider();
-        return spi.engineGenerateSecret(sharedSecret, offset);
+            throws IllegalStateException, ShortBufferException {
+        return getSpi().engineGenerateSecret(sharedSecret, offset);
     }
 
     /**
-     * Creates the shared secret and returns it as a <code>SecretKey</code>
-     * object of the specified algorithm.
+     * Generates the shared secret.
      *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @param algorithm the requested secret-key algorithm
-     *
-     * @return the shared secret key
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
-     * @exception NoSuchAlgorithmException if the specified secret-key
-     * algorithm is not available
-     * @exception InvalidKeyException if the shared secret-key material cannot
-     * be used to generate a secret key of the specified algorithm (e.g.,
-     * the key material is too short)
+     * @param algorithm
+     *            the algorithm to for the {@code SecretKey}
+     * @return the shared secret as a {@code SecretKey} of the specified
+     *         algorithm.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm for the secret key does not
+     *             exists.
+     * @throws InvalidKeyException
+     *             if a {@code SecretKey} with the specified algorithm cannot be
+     *             created using the generated shared secret.
      */
     public final SecretKey generateSecret(String algorithm)
-        throws IllegalStateException, NoSuchAlgorithmException,
-            InvalidKeyException
-    {
-        chooseFirstProvider();
-        return spi.engineGenerateSecret(algorithm);
+            throws IllegalStateException, NoSuchAlgorithmException,
+            InvalidKeyException {
+        return getSpi().engineGenerateSecret(algorithm);
     }
+
 }

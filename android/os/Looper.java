@@ -18,11 +18,8 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.LooperProto;
 import android.util.Log;
 import android.util.Printer;
-import android.util.Slog;
-import android.util.proto.ProtoOutputStream;
 
 /**
   * Class used to run a message loop for a thread.  Threads by default do
@@ -75,20 +72,8 @@ public final class Looper {
     final Thread mThread;
 
     private Printer mLogging;
-    private long mTraceTag;
 
-    /**
-     * If set, the looper will show a warning log if a message dispatch takes longer than this.
-     */
-    private long mSlowDispatchThresholdMs;
-
-    /**
-     * If set, the looper will show a warning log if a message delivery (actual delivery time -
-     * post time) takes longer than this.
-     */
-    private long mSlowDeliveryThresholdMs;
-
-    /** Initialize the current thread as a looper.
+     /** Initialize the current thread as a looper.
       * This gives you a chance to create handlers that then reference
       * this looper, before actually starting the loop. Be sure to call
       * {@link #loop()} after calling this method, and end it by calling
@@ -99,7 +84,7 @@ public final class Looper {
     }
 
     private static void prepare(boolean quitAllowed) {
-        if (sThreadLocal.get() != null) {// 确保ThreadLocal中只有一个Looper
+        if (sThreadLocal.get() != null) {
             throw new RuntimeException("Only one Looper may be created per thread");
         }
         sThreadLocal.set(new Looper(quitAllowed));
@@ -110,9 +95,6 @@ public final class Looper {
      * application's main looper. The main looper for your application
      * is created by the Android environment, so you should never need
      * to call this function yourself.  See also: {@link #prepare()}
-     *
-     * 主线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
-     * 调用该方法有两个地方，一个是系统启动创建Looper（系统主线程），另一个是App启动创建Looper（App主线程）
      */
     public static void prepareMainLooper() {
         prepare(false);
@@ -149,18 +131,7 @@ public final class Looper {
         Binder.clearCallingIdentity();
         final long ident = Binder.clearCallingIdentity();
 
-        // Allow overriding a threshold with a system prop. e.g.
-        // adb shell 'setprop log.looper.1000.main.slow 1 && stop && start'
-        final int thresholdOverride =
-                SystemProperties.getInt("log.looper."
-                        + Process.myUid() + "."
-                        + Thread.currentThread().getName()
-                        + ".slow", 0);
-
-        boolean slowDeliveryDetected = false;
-
-        for (;;) {// 死循环
-            // 获取消息
+        for (;;) {
             Message msg = queue.next(); // might block
             if (msg == null) {
                 // No message indicates that the message queue is quitting.
@@ -168,57 +139,13 @@ public final class Looper {
             }
 
             // This must be in a local variable, in case a UI event sets the logger
-            final Printer logging = me.mLogging;
+            Printer logging = me.mLogging;
             if (logging != null) {
                 logging.println(">>>>> Dispatching to " + msg.target + " " +
                         msg.callback + ": " + msg.what);
             }
 
-            final long traceTag = me.mTraceTag;
-            long slowDispatchThresholdMs = me.mSlowDispatchThresholdMs;
-            long slowDeliveryThresholdMs = me.mSlowDeliveryThresholdMs;
-            if (thresholdOverride > 0) {
-                slowDispatchThresholdMs = thresholdOverride;
-                slowDeliveryThresholdMs = thresholdOverride;
-            }
-            final boolean logSlowDelivery = (slowDeliveryThresholdMs > 0) && (msg.when > 0);
-            final boolean logSlowDispatch = (slowDispatchThresholdMs > 0);
-
-            final boolean needStartTime = logSlowDelivery || logSlowDispatch;
-            final boolean needEndTime = logSlowDispatch;
-
-            if (traceTag != 0 && Trace.isTagEnabled(traceTag)) {
-                Trace.traceBegin(traceTag, msg.target.getTraceName(msg));
-            }
-
-            final long dispatchStart = needStartTime ? SystemClock.uptimeMillis() : 0;
-            final long dispatchEnd;
-            try {
-                // 处理消息
-                msg.target.dispatchMessage(msg);
-                dispatchEnd = needEndTime ? SystemClock.uptimeMillis() : 0;
-            } finally {
-                if (traceTag != 0) {
-                    Trace.traceEnd(traceTag);
-                }
-            }
-            if (logSlowDelivery) {
-                if (slowDeliveryDetected) {
-                    if ((dispatchStart - msg.when) <= 10) {
-                        Slog.w(TAG, "Drained");
-                        slowDeliveryDetected = false;
-                    }
-                } else {
-                    if (showSlowLog(slowDeliveryThresholdMs, msg.when, dispatchStart, "delivery",
-                            msg)) {
-                        // Once we write a slow delivery log, suppress until the queue drains.
-                        slowDeliveryDetected = true;
-                    }
-                }
-            }
-            if (logSlowDispatch) {
-                showSlowLog(slowDispatchThresholdMs, dispatchStart, dispatchEnd, "dispatch", msg);
-            }
+            msg.target.dispatchMessage(msg);
 
             if (logging != null) {
                 logging.println("<<<<< Finished to " + msg.target + " " + msg.callback);
@@ -235,22 +162,8 @@ public final class Looper {
                         + msg.callback + " what=" + msg.what);
             }
 
-            // 回收消息
             msg.recycleUnchecked();
         }
-    }
-
-    private static boolean showSlowLog(long threshold, long measureStart, long measureEnd,
-            String what, Message msg) {
-        final long actualTime = measureEnd - measureStart;
-        if (actualTime < threshold) {
-            return false;
-        }
-        // For slow delivery, the current message isn't really important, but log it anyway.
-        Slog.w(TAG, "Slow " + what + " took " + actualTime + "ms "
-                + Thread.currentThread().getName() + " h="
-                + msg.target.getClass().getName() + " c=" + msg.callback + " m=" + msg.what);
-        return true;
     }
 
     /**
@@ -293,20 +206,6 @@ public final class Looper {
      */
     public void setMessageLogging(@Nullable Printer printer) {
         mLogging = printer;
-    }
-
-    /** {@hide} */
-    public void setTraceTag(long traceTag) {
-        mTraceTag = traceTag;
-    }
-
-    /**
-     * Set a thresholds for slow dispatch/delivery log.
-     * {@hide}
-     */
-    public void setSlowLogThresholdMs(long slowDispatchThresholdMs, long slowDeliveryThresholdMs) {
-        mSlowDispatchThresholdMs = slowDispatchThresholdMs;
-        mSlowDeliveryThresholdMs = slowDeliveryThresholdMs;
     }
 
     /**
@@ -371,29 +270,7 @@ public final class Looper {
      */
     public void dump(@NonNull Printer pw, @NonNull String prefix) {
         pw.println(prefix + toString());
-        mQueue.dump(pw, prefix + "  ", null);
-    }
-
-    /**
-     * Dumps the state of the looper for debugging purposes.
-     *
-     * @param pw A printer to receive the contents of the dump.
-     * @param prefix A prefix to prepend to each line which is printed.
-     * @param handler Only dump messages for this Handler.
-     * @hide
-     */
-    public void dump(@NonNull Printer pw, @NonNull String prefix, Handler handler) {
-        pw.println(prefix + toString());
-        mQueue.dump(pw, prefix + "  ", handler);
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long looperToken = proto.start(fieldId);
-        proto.write(LooperProto.THREAD_NAME, mThread.getName());
-        proto.write(LooperProto.THREAD_ID, mThread.getId());
-        mQueue.writeToProto(proto, LooperProto.QUEUE);
-        proto.end(looperToken);
+        mQueue.dump(pw, prefix + "  ");
     }
 
     @Override

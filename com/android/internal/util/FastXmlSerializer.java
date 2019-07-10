@@ -28,7 +28,6 @@ import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.UnsupportedCharsetException;
 
@@ -39,29 +38,28 @@ import java.nio.charset.UnsupportedCharsetException;
  */
 public class FastXmlSerializer implements XmlSerializer {
     private static final String ESCAPE_TABLE[] = new String[] {
-        "&#0;",   "&#1;",   "&#2;",   "&#3;",  "&#4;",    "&#5;",   "&#6;",  "&#7;",  // 0-7
-        "&#8;",   "&#9;",   "&#10;",  "&#11;", "&#12;",   "&#13;",  "&#14;", "&#15;", // 8-15
-        "&#16;",  "&#17;",  "&#18;",  "&#19;", "&#20;",   "&#21;",  "&#22;", "&#23;", // 16-23
-        "&#24;",  "&#25;",  "&#26;",  "&#27;", "&#28;",   "&#29;",  "&#30;", "&#31;", // 24-31
-        null,     null,     "&quot;", null,     null,     null,     "&amp;",  null,   // 32-39
-        null,     null,     null,     null,     null,     null,     null,     null,   // 40-47
-        null,     null,     null,     null,     null,     null,     null,     null,   // 48-55
-        null,     null,     null,     null,     "&lt;",   null,     "&gt;",   null,   // 56-63
+        null,     null,     null,     null,     null,     null,     null,     null,  // 0-7
+        null,     null,     null,     null,     null,     null,     null,     null,  // 8-15
+        null,     null,     null,     null,     null,     null,     null,     null,  // 16-23
+        null,     null,     null,     null,     null,     null,     null,     null,  // 24-31
+        null,     null,     "&quot;", null,     null,     null,     "&amp;",  null,  // 32-39
+        null,     null,     null,     null,     null,     null,     null,     null,  // 40-47
+        null,     null,     null,     null,     null,     null,     null,     null,  // 48-55
+        null,     null,     null,     null,     "&lt;",   null,     "&gt;",   null,  // 56-63
     };
 
-    private static final int DEFAULT_BUFFER_LEN = 32*1024;
+    private static final int BUFFER_LEN = 8192;
 
     private static String sSpace = "                                                              ";
 
-    private final int mBufferLen;
-    private final char[] mText;
+    private final char[] mText = new char[BUFFER_LEN];
     private int mPos;
 
     private Writer mWriter;
 
     private OutputStream mOutputStream;
     private CharsetEncoder mCharset;
-    private ByteBuffer mBytes;
+    private ByteBuffer mBytes = ByteBuffer.allocate(BUFFER_LEN);
 
     private boolean mIndent = false;
     private boolean mInTag;
@@ -69,25 +67,9 @@ public class FastXmlSerializer implements XmlSerializer {
     private int mNesting = 0;
     private boolean mLineStart = true;
 
-    public FastXmlSerializer() {
-        this(DEFAULT_BUFFER_LEN);
-    }
-
-    /**
-     * Allocate a FastXmlSerializer with the given internal output buffer size.  If the
-     * size is zero or negative, then the default buffer size will be used.
-     *
-     * @param bufferSize Size in bytes of the in-memory output buffer that the writer will use.
-     */
-    public FastXmlSerializer(int bufferSize) {
-        mBufferLen = (bufferSize > 0) ? bufferSize : DEFAULT_BUFFER_LEN;
-        mText = new char[mBufferLen];
-        mBytes = ByteBuffer.allocate(mBufferLen);
-    }
-
     private void append(char c) throws IOException {
         int pos = mPos;
-        if (pos >= (mBufferLen-1)) {
+        if (pos >= (BUFFER_LEN-1)) {
             flush();
             pos = mPos;
         }
@@ -96,17 +78,17 @@ public class FastXmlSerializer implements XmlSerializer {
     }
 
     private void append(String str, int i, final int length) throws IOException {
-        if (length > mBufferLen) {
+        if (length > BUFFER_LEN) {
             final int end = i + length;
             while (i < end) {
-                int next = i + mBufferLen;
-                append(str, i, next<end ? mBufferLen : (end-i));
+                int next = i + BUFFER_LEN;
+                append(str, i, next<end ? BUFFER_LEN : (end-i));
                 i = next;
             }
             return;
         }
         int pos = mPos;
-        if ((pos+length) > mBufferLen) {
+        if ((pos+length) > BUFFER_LEN) {
             flush();
             pos = mPos;
         }
@@ -115,17 +97,17 @@ public class FastXmlSerializer implements XmlSerializer {
     }
 
     private void append(char[] buf, int i, final int length) throws IOException {
-        if (length > mBufferLen) {
+        if (length > BUFFER_LEN) {
             final int end = i + length;
             while (i < end) {
-                int next = i + mBufferLen;
-                append(buf, i, next<end ? mBufferLen : (end-i));
+                int next = i + BUFFER_LEN;
+                append(buf, i, next<end ? BUFFER_LEN : (end-i));
                 i = next;
             }
             return;
         }
         int pos = mPos;
-        if ((pos+length) > mBufferLen) {
+        if ((pos+length) > BUFFER_LEN) {
             flush();
             pos = mPos;
         }
@@ -328,9 +310,7 @@ public class FastXmlSerializer implements XmlSerializer {
             throw new IllegalArgumentException();
         if (true) {
             try {
-                mCharset = Charset.forName(encoding).newEncoder()
-                        .onMalformedInput(CodingErrorAction.REPLACE)
-                        .onUnmappableCharacter(CodingErrorAction.REPLACE);
+                mCharset = Charset.forName(encoding).newEncoder();
             } catch (IllegalCharsetNameException e) {
                 throw (UnsupportedEncodingException) (new UnsupportedEncodingException(
                         encoding).initCause(e));

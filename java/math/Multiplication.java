@@ -25,13 +25,13 @@ class Multiplication {
     /** Just to denote that this class can't be instantiated. */
     private Multiplication() {}
 
-    // BEGIN Android-removed
+    // BEGIN android-removed
     // /**
     //  * Break point in digits (number of {@code int} elements)
     //  * between Karatsuba and Pencil and Paper multiply.
     //  */
     // static final int whenUseKaratsuba = 63; // an heuristic value
-    // END Android-removed
+    // END android-removed
 
     /**
      * An array with powers of ten that fit in the type {@code int}.

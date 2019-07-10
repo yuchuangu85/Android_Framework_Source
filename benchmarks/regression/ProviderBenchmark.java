@@ -20,7 +20,11 @@ import java.security.Provider;
 import java.security.Security;
 import javax.crypto.Cipher;
 
-public class ProviderBenchmark {
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
+import javax.net.ssl.SSLSocketFactory;
+
+public class ProviderBenchmark extends SimpleBenchmark {
     public void timeStableProviders(int reps) throws Exception {
         for (int i = 0; i < reps; ++i) {
             Cipher c = Cipher.getInstance("RSA");

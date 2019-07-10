@@ -16,31 +16,25 @@
 
 package android.app.trust;
 
-import android.Manifest;
-import android.annotation.RequiresPermission;
-import android.annotation.SystemService;
-import android.content.Context;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.util.ArrayMap;
+import android.util.Log;
 
 /**
  * See {@link com.android.server.trust.TrustManagerService}
  * @hide
  */
-@SystemService(Context.TRUST_SERVICE)
 public class TrustManager {
 
     private static final int MSG_TRUST_CHANGED = 1;
     private static final int MSG_TRUST_MANAGED_CHANGED = 2;
-    private static final int MSG_TRUST_ERROR = 3;
 
     private static final String TAG = "TrustManager";
     private static final String DATA_FLAGS = "initiatedByUser";
-    private static final String DATA_MESSAGE = "message";
 
     private final ITrustManager mService;
     private final ArrayMap<TrustListener, ITrustListener> mTrustListeners;
@@ -48,22 +42,6 @@ public class TrustManager {
     public TrustManager(IBinder b) {
         mService = ITrustManager.Stub.asInterface(b);
         mTrustListeners = new ArrayMap<TrustListener, ITrustListener>();
-    }
-
-    /**
-     * Changes the lock status for the given user. This is only applicable to Managed Profiles,
-     * other users should be handled by Keyguard.
-     *
-     * @param userId The id for the user to be locked/unlocked.
-     * @param locked The value for that user's locked state.
-     */
-    @RequiresPermission(Manifest.permission.ACCESS_KEYGUARD_SECURE_STORAGE)
-    public void setDeviceLockedForUser(int userId, boolean locked) {
-        try {
-            mService.setDeviceLockedForUser(userId, locked);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
     }
 
     /**
@@ -77,27 +55,7 @@ public class TrustManager {
         try {
             mService.reportUnlockAttempt(successful, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Reports that user {@param userId} has entered a temporary device lockout.
-     *
-     * This generally occurs when  the user has unsuccessfully tried to unlock the device too many
-     * times. The user will then be unable to unlock the device until a set amount of time has
-     * elapsed.
-     *
-     * @param timeout The amount of time that needs to elapse, in milliseconds, until the user may
-     *    attempt to unlock the device again.
-     *
-     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
-     */
-    public void reportUnlockLockout(int timeoutMs, int userId) {
-        try {
-            mService.reportUnlockLockout(timeoutMs, userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            onError(e);
         }
     }
 
@@ -110,7 +68,22 @@ public class TrustManager {
         try {
             mService.reportEnabledTrustAgentsChanged(userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            onError(e);
+        }
+    }
+
+    /**
+     * Reports that trust is disabled until credentials have been entered for user {@param userId}.
+     *
+     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
+     *
+     * @param userId either an explicit user id or {@link android.os.UserHandle#USER_ALL}
+     */
+    public void reportRequireCredentialEntry(int userId) {
+        try {
+            mService.reportRequireCredentialEntry(userId);
+        } catch (RemoteException e) {
+            onError(e);
         }
     }
 
@@ -123,7 +96,7 @@ public class TrustManager {
         try {
             mService.reportKeyguardShowingChanged();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            onError(e);
         }
     }
 
@@ -150,18 +123,11 @@ public class TrustManager {
                     mHandler.obtainMessage(MSG_TRUST_MANAGED_CHANGED, (managed ? 1 : 0), userId,
                             trustListener).sendToTarget();
                 }
-
-                @Override
-                public void onTrustError(CharSequence message) {
-                    Message m = mHandler.obtainMessage(MSG_TRUST_ERROR);
-                    m.getData().putCharSequence(DATA_MESSAGE, message);
-                    m.sendToTarget();
-                }
             };
             mService.registerTrustListener(iTrustListener);
             mTrustListeners.put(trustListener, iTrustListener);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            onError(e);
         }
     }
 
@@ -176,48 +142,30 @@ public class TrustManager {
             try {
                 mService.unregisterTrustListener(iTrustListener);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                onError(e);
             }
         }
     }
 
     /**
-     * @return whether {@param userId} has enabled and configured trust agents. Ignores short-term
-     * unavailability of trust due to {@link LockPatternUtils.StrongAuthTracker}.
+     * Checks whether the specified user has been authenticated since the last boot.
+     *
+     * @param userId the user id of the user to check for
+     * @return true if the user has authenticated since boot, false otherwise
+     *
+     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
      */
-    @RequiresPermission(android.Manifest.permission.TRUST_LISTENER)
-    public boolean isTrustUsuallyManaged(int userId) {
+    public boolean hasUserAuthenticatedSinceBoot(int userId) {
         try {
-            return mService.isTrustUsuallyManaged(userId);
+            return mService.hasUserAuthenticatedSinceBoot(userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            onError(e);
+            return false;
         }
     }
 
-    /**
-     * Updates the trust state for the user due to the user unlocking via fingerprint.
-     * Should only be called if user authenticated via fingerprint and bouncer can be skipped.
-     * @param userId
-     */
-    @RequiresPermission(Manifest.permission.ACCESS_KEYGUARD_SECURE_STORAGE)
-    public void unlockedByFingerprintForUser(int userId) {
-        try {
-            mService.unlockedByFingerprintForUser(userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Clears authenticated fingerprints for all users.
-     */
-    @RequiresPermission(Manifest.permission.ACCESS_KEYGUARD_SECURE_STORAGE)
-    public void clearAllFingerprints() {
-        try {
-            mService.clearAllFingerprints();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    private void onError(Exception e) {
+        Log.e(TAG, "Error while calling TrustManagerService", e);
     }
 
     private final Handler mHandler = new Handler(Looper.getMainLooper()) {
@@ -230,10 +178,6 @@ public class TrustManager {
                     break;
                 case MSG_TRUST_MANAGED_CHANGED:
                     ((TrustListener)msg.obj).onTrustManagedChanged(msg.arg1 != 0, msg.arg2);
-                    break;
-                case MSG_TRUST_ERROR:
-                    final CharSequence message = msg.peekData().getCharSequence(DATA_MESSAGE);
-                    ((TrustListener)msg.obj).onTrustError(message);
             }
         }
     };
@@ -242,9 +186,9 @@ public class TrustManager {
 
         /**
          * Reports that the trust state has changed.
-         * @param enabled If true, the system believes the environment to be trusted.
-         * @param userId The user, for which the trust changed.
-         * @param flags Flags specified by the trust agent when granting trust. See
+         * @param enabled if true, the system believes the environment to be trusted.
+         * @param userId the user, for which the trust changed.
+         * @param flags flags specified by the trust agent when granting trust. See
          *     {@link android.service.trust.TrustAgentService#grantTrust(CharSequence, long, int)
          *                 TrustAgentService.grantTrust(CharSequence, long, int)}.
          */
@@ -252,15 +196,9 @@ public class TrustManager {
 
         /**
          * Reports that whether trust is managed has changed
-         * @param enabled If true, at least one trust agent is managing trust.
-         * @param userId The user, for which the state changed.
+         * @param enabled if true, at least one trust agent is managing trust.
+         * @param userId the user, for which the state changed.
          */
         void onTrustManagedChanged(boolean enabled, int userId);
-
-        /**
-         * Reports that an error happened on a TrustAgentService.
-         * @param message A message that should be displayed on the UI.
-         */
-        void onTrustError(CharSequence message);
     }
 }

@@ -207,6 +207,7 @@ public final class ClientOperation implements Operation, BaseStream {
      *         object
      */
     public synchronized int getResponseCode() throws IOException {
+        //avoid dup validateConnection
         if ((mReplyHeader.responseCode == -1)
                 || (mReplyHeader.responseCode == ResponseCodes.OBEX_HTTP_CONTINUE)) {
             validateConnection();
@@ -422,9 +423,8 @@ public final class ClientOperation implements Operation, BaseStream {
     private void validateConnection() throws IOException {
         ensureOpen();
 
-        // Make sure that a response has been recieved from remote
-        // before continuing
-        if (mPrivateInput == null || mReplyHeader.responseCode == -1) {
+        // to sure only one privateInput object exist.
+        if (mPrivateInput == null) {
             startProcessing();
         }
     }
@@ -632,32 +632,21 @@ public final class ClientOperation implements Operation, BaseStream {
 
         if (mGetOperation) {
             if (!mOperationDone) {
-                if (!mGetFinalFlag) {
-                    mReplyHeader.responseCode = ResponseCodes.OBEX_HTTP_CONTINUE;
-                    while ((more) && (mReplyHeader.responseCode ==
-                            ResponseCodes.OBEX_HTTP_CONTINUE)) {
-                        more = sendRequest(ObexHelper.OBEX_OPCODE_GET);
-                    }
-                    // For GET we need to loop until all headers have been sent,
-                    // And then we wait for the first continue package with the
-                    // reply.
-                    if (mReplyHeader.responseCode == ResponseCodes.OBEX_HTTP_CONTINUE) {
-                        mParent.sendRequest(ObexHelper.OBEX_OPCODE_GET_FINAL,
-                                null, mReplyHeader, mPrivateInput, mSrmActive);
-                    }
-                    if (mReplyHeader.responseCode != ResponseCodes.OBEX_HTTP_CONTINUE) {
-                        mOperationDone = true;
-                    } else {
-                        checkForSrm();
-                    }
-                } else {
-                    more = sendRequest(ObexHelper.OBEX_OPCODE_GET_FINAL);
-
-                    if (more) {
-                        throw new IOException("FINAL_GET forced, data didn't fit into one packet");
-                    }
-
+                mReplyHeader.responseCode = ResponseCodes.OBEX_HTTP_CONTINUE;
+                while ((more) && (mReplyHeader.responseCode == ResponseCodes.OBEX_HTTP_CONTINUE)) {
+                    more = sendRequest(ObexHelper.OBEX_OPCODE_GET);
+                }
+                // For GET we need to loop until all headers have been sent,
+                // And then we wait for the first continue package with the
+                // reply.
+                if (mReplyHeader.responseCode == ResponseCodes.OBEX_HTTP_CONTINUE) {
+                    mParent.sendRequest(ObexHelper.OBEX_OPCODE_GET_FINAL,
+                            null, mReplyHeader, mPrivateInput, mSrmActive);
+                }
+                if (mReplyHeader.responseCode != ResponseCodes.OBEX_HTTP_CONTINUE) {
                     mOperationDone = true;
+                } else {
+                    checkForSrm();
                 }
             }
         } else {
@@ -716,15 +705,7 @@ public final class ClientOperation implements Operation, BaseStream {
                 if (mPrivateInput == null) {
                     mPrivateInput = new PrivateInputStream(this);
                 }
-
-                if (!mGetFinalFlag) {
-                    sendRequest(ObexHelper.OBEX_OPCODE_GET);
-                } else {
-                    sendRequest(ObexHelper.OBEX_OPCODE_GET_FINAL);
-                }
-                if (mReplyHeader.responseCode != ResponseCodes.OBEX_HTTP_CONTINUE) {
-                    mOperationDone = true;
-                }
+                sendRequest(ObexHelper.OBEX_OPCODE_GET);
                 return true;
 
             } else if (mOperationDone) {

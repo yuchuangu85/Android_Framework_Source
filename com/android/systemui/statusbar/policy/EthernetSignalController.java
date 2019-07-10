@@ -19,7 +19,6 @@ import android.content.Context;
 import android.net.NetworkCapabilities;
 
 import com.android.systemui.statusbar.policy.NetworkController.IconState;
-import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
 
 import java.util.BitSet;
 
@@ -47,12 +46,12 @@ public class EthernetSignalController extends
     }
 
     @Override
-    public void notifyListeners(SignalCallback callback) {
+    public void notifyListeners() {
         boolean ethernetVisible = mCurrentState.connected;
         String contentDescription = getStringIfExists(getContentDescription());
 
         // TODO: wire up data transfer using WifiSignalPoller.
-        callback.setEthernetIndicators(new IconState(ethernetVisible, getCurrentIconId(),
+        mCallbackHandler.setEthernetIndicators(new IconState(ethernetVisible, getCurrentIconId(),
                 contentDescription));
     }
 

@@ -27,7 +27,6 @@ import android.content.ComponentName;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
@@ -40,7 +39,6 @@ import android.os.IDeviceIdleController;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.provider.Telephony;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.Rlog;
@@ -49,9 +47,6 @@ import android.telephony.SubscriptionManager;
 import android.util.Log;
 
 import com.android.internal.telephony.uicc.IccUtils;
-
-import java.util.HashMap;
-
 import com.google.android.mms.MmsException;
 import com.google.android.mms.pdu.DeliveryInd;
 import com.google.android.mms.pdu.GenericPdu;
@@ -71,52 +66,12 @@ public class WapPushOverSms implements ServiceConnection {
     private static final boolean DBG = false;
 
     private final Context mContext;
-    private IDeviceIdleController mDeviceIdleController;
+    IDeviceIdleController mDeviceIdleController;
 
     private String mWapPushManagerPackage;
 
     /** Assigned from ServiceConnection callback on main threaad. */
     private volatile IWapPushManager mWapPushManager;
-
-    /** Broadcast receiver that binds to WapPushManager when the user unlocks the phone for the
-     *  first time after reboot and the credential-encrypted storage is available.
-     */
-    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(final Context context, Intent intent) {
-            Rlog.d(TAG, "Received broadcast " + intent.getAction());
-            if (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) {
-                new BindServiceThread(mContext).start();
-            }
-        }
-    };
-
-    private class BindServiceThread extends Thread {
-        private final Context context;
-
-        private BindServiceThread(Context context) {
-            this.context = context;
-        }
-
-        @Override
-        public void run() {
-            bindWapPushManagerService(context);
-        }
-    }
-
-    private void bindWapPushManagerService(Context context) {
-        Intent intent = new Intent(IWapPushManager.class.getName());
-        ComponentName comp = intent.resolveSystemService(context.getPackageManager(), 0);
-        intent.setComponent(comp);
-        if (comp == null || !context.bindService(intent, this, Context.BIND_AUTO_CREATE)) {
-            Rlog.e(TAG, "bindService() for wappush manager failed");
-        } else {
-            synchronized (this) {
-                mWapPushManagerPackage = comp.getPackageName();
-            }
-            if (DBG) Rlog.v(TAG, "bindService() for wappush manager succeeded");
-        }
-    }
 
     @Override
     public void onServiceConnected(ComponentName name, IBinder service) {
@@ -132,20 +87,20 @@ public class WapPushOverSms implements ServiceConnection {
 
     public WapPushOverSms(Context context) {
         mContext = context;
-        mDeviceIdleController = TelephonyComponentFactory.getInstance().getIDeviceIdleController();
-
-        UserManager userManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-
-        if (userManager.isUserUnlocked()) {
-            bindWapPushManagerService(mContext);
+        mDeviceIdleController = IDeviceIdleController.Stub.asInterface(
+                ServiceManager.getService(Context.DEVICE_IDLE_CONTROLLER));
+        Intent intent = new Intent(IWapPushManager.class.getName());
+        ComponentName comp = intent.resolveSystemService(context.getPackageManager(), 0);
+        intent.setComponent(comp);
+        if (comp == null || !context.bindService(intent, this, Context.BIND_AUTO_CREATE)) {
+            Rlog.e(TAG, "bindService() for wappush manager failed");
         } else {
-            IntentFilter userFilter = new IntentFilter();
-            userFilter.addAction(Intent.ACTION_USER_UNLOCKED);
-            context.registerReceiver(mBroadcastReceiver, userFilter);
+            mWapPushManagerPackage = comp.getPackageName();
+            if (DBG) Rlog.v(TAG, "bindService() for wappush manager succeeded");
         }
     }
 
-    public void dispose() {
+    void dispose() {
         if (mWapPushManager != null) {
             if (DBG) Rlog.v(TAG, "dispose: unbind wappush manager");
             mContext.unbindService(this);
@@ -155,16 +110,16 @@ public class WapPushOverSms implements ServiceConnection {
     }
 
     /**
-     * Decodes the wap push pdu. The decoded result is wrapped inside the {@link DecodedResult}
-     * object. The caller of this method should check {@link DecodedResult#statusCode} for the
-     * decoding status. It  can have the following values.
+     * Dispatches inbound messages that are in the WAP PDU format. See
+     * wap-230-wsp-20010705-a section 8 for details on the WAP PDU format.
      *
-     * Activity.RESULT_OK - the wap push pdu is successfully decoded and should be further processed
-     * Intents.RESULT_SMS_HANDLED - the wap push pdu should be ignored.
-     * Intents.RESULT_SMS_GENERIC_ERROR - the pdu is invalid.
+     * @param pdu The WAP PDU, made up of one or more SMS PDUs
+     * @return a result code from {@link android.provider.Telephony.Sms.Intents}, or
+     *         {@link Activity#RESULT_OK} if the message has been broadcast
+     *         to applications
      */
-    private DecodedResult decodeWapPdu(byte[] pdu, InboundSmsHandler handler) {
-        DecodedResult result = new DecodedResult();
+    public int dispatchWapPdu(byte[] pdu, BroadcastReceiver receiver, InboundSmsHandler handler) {
+
         if (DBG) Rlog.d(TAG, "Rx: " + IccUtils.bytesToHexString(pdu));
 
         try {
@@ -190,18 +145,15 @@ public class WapPushOverSms implements ServiceConnection {
                     if ((pduType != WspTypeDecoder.PDU_TYPE_PUSH)
                             && (pduType != WspTypeDecoder.PDU_TYPE_CONFIRMED_PUSH)) {
                         if (DBG) Rlog.w(TAG, "Received non-PUSH WAP PDU. Type = " + pduType);
-                        result.statusCode = Intents.RESULT_SMS_HANDLED;
-                        return result;
+                        return Intents.RESULT_SMS_HANDLED;
                     }
                 } else {
                     if (DBG) Rlog.w(TAG, "Received non-PUSH WAP PDU. Type = " + pduType);
-                    result.statusCode = Intents.RESULT_SMS_HANDLED;
-                    return result;
+                    return Intents.RESULT_SMS_HANDLED;
                 }
             }
 
-            WspTypeDecoder pduDecoder =
-                    TelephonyComponentFactory.getInstance().makeWspTypeDecoder(pdu);
+            WspTypeDecoder pduDecoder = new WspTypeDecoder(pdu);
 
             /**
              * Parse HeaderLen(unsigned integer).
@@ -211,8 +163,7 @@ public class WapPushOverSms implements ServiceConnection {
              */
             if (pduDecoder.decodeUintvarInteger(index) == false) {
                 if (DBG) Rlog.w(TAG, "Received PDU. Header Length error.");
-                result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
-                return result;
+                return Intents.RESULT_SMS_GENERIC_ERROR;
             }
             int headerLength = (int) pduDecoder.getValue32();
             index += pduDecoder.getDecodedDataLength();
@@ -233,8 +184,7 @@ public class WapPushOverSms implements ServiceConnection {
              */
             if (pduDecoder.decodeContentType(index) == false) {
                 if (DBG) Rlog.w(TAG, "Received PDU. Header Content-Type error.");
-                result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
-                return result;
+                return Intents.RESULT_SMS_GENERIC_ERROR;
             }
 
             String mimeType = pduDecoder.getValueString();
@@ -254,26 +204,14 @@ public class WapPushOverSms implements ServiceConnection {
                 System.arraycopy(pdu, dataIndex, intentData, 0, intentData.length);
             }
 
-            int[] subIds = SubscriptionManager.getSubId(phoneId);
-            int subId = (subIds != null) && (subIds.length > 0) ? subIds[0]
-                    : SmsManager.getDefaultSmsSubscriptionId();
-
-            // Continue if PDU parsing fails: the default messaging app may successfully parse the
-            // same PDU.
-            GenericPdu parsedPdu = null;
-            try {
-                parsedPdu = new PduParser(intentData, shouldParseContentDisposition(subId)).parse();
-            } catch (Exception e) {
-                Rlog.e(TAG, "Unable to parse PDU: " + e.toString());
-            }
-
-            if (parsedPdu != null && parsedPdu.getMessageType() == MESSAGE_TYPE_NOTIFICATION_IND) {
-                final NotificationInd nInd = (NotificationInd) parsedPdu;
-                if (nInd.getFrom() != null
-                        && BlockChecker.isBlocked(mContext, nInd.getFrom().getString(), null)) {
-                    result.statusCode = Intents.RESULT_SMS_HANDLED;
-                    return result;
-                }
+            if (SmsManager.getDefault().getAutoPersisting()) {
+                // Store the wap push data in telephony
+                int [] subIds = SubscriptionManager.getSubId(phoneId);
+                // FIXME (tomtaylor) - when we've updated SubscriptionManager, change
+                // SubscriptionManager.DEFAULT_SUB_ID to SubscriptionManager.getDefaultSmsSubId()
+                int subId = (subIds != null) && (subIds.length > 0) ? subIds[0] :
+                    SmsManager.getDefaultSmsSubscriptionId();
+                writeInboxMessage(subId, intentData);
             }
 
             /**
@@ -289,141 +227,98 @@ public class WapPushOverSms implements ServiceConnection {
                 if (wapAppId == null) {
                     wapAppId = Integer.toString((int) pduDecoder.getValue32());
                 }
-                result.wapAppId = wapAppId;
+
                 String contentType = ((mimeType == null) ?
                         Long.toString(binaryContentType) : mimeType);
-                result.contentType = contentType;
                 if (DBG) Rlog.v(TAG, "appid found: " + wapAppId + ":" + contentType);
+
+                try {
+                    boolean processFurther = true;
+                    IWapPushManager wapPushMan = mWapPushManager;
+
+                    if (wapPushMan == null) {
+                        if (DBG) Rlog.w(TAG, "wap push manager not found!");
+                    } else {
+                        mDeviceIdleController.addPowerSaveTempWhitelistAppForMms(
+                                mWapPushManagerPackage, 0, "mms-mgr");
+
+                        Intent intent = new Intent();
+                        intent.putExtra("transactionId", transactionId);
+                        intent.putExtra("pduType", pduType);
+                        intent.putExtra("header", header);
+                        intent.putExtra("data", intentData);
+                        intent.putExtra("contentTypeParameters",
+                                pduDecoder.getContentParameters());
+                        SubscriptionManager.putPhoneIdAndSubIdExtra(intent, phoneId);
+
+                        int procRet = wapPushMan.processMessage(wapAppId, contentType, intent);
+                        if (DBG) Rlog.v(TAG, "procRet:" + procRet);
+                        if ((procRet & WapPushManagerParams.MESSAGE_HANDLED) > 0
+                                && (procRet & WapPushManagerParams.FURTHER_PROCESSING) == 0) {
+                            processFurther = false;
+                        }
+                    }
+                    if (!processFurther) {
+                        return Intents.RESULT_SMS_HANDLED;
+                    }
+                } catch (RemoteException e) {
+                    if (DBG) Rlog.w(TAG, "remote func failed...");
+                }
+            }
+            if (DBG) Rlog.v(TAG, "fall back to existing handler");
+
+            if (mimeType == null) {
+                if (DBG) Rlog.w(TAG, "Header Content-Type error.");
+                return Intents.RESULT_SMS_GENERIC_ERROR;
             }
 
-            result.subId = subId;
-            result.phoneId = phoneId;
-            result.parsedPdu = parsedPdu;
-            result.mimeType = mimeType;
-            result.transactionId = transactionId;
-            result.pduType = pduType;
-            result.header = header;
-            result.intentData = intentData;
-            result.contentTypeParameters = pduDecoder.getContentParameters();
-            result.statusCode = Activity.RESULT_OK;
+            String permission;
+            int appOp;
+
+            if (mimeType.equals(WspTypeDecoder.CONTENT_TYPE_B_MMS)) {
+                permission = android.Manifest.permission.RECEIVE_MMS;
+                appOp = AppOpsManager.OP_RECEIVE_MMS;
+            } else {
+                permission = android.Manifest.permission.RECEIVE_WAP_PUSH;
+                appOp = AppOpsManager.OP_RECEIVE_WAP_PUSH;
+            }
+
+            Intent intent = new Intent(Intents.WAP_PUSH_DELIVER_ACTION);
+            intent.setType(mimeType);
+            intent.putExtra("transactionId", transactionId);
+            intent.putExtra("pduType", pduType);
+            intent.putExtra("header", header);
+            intent.putExtra("data", intentData);
+            intent.putExtra("contentTypeParameters", pduDecoder.getContentParameters());
+            SubscriptionManager.putPhoneIdAndSubIdExtra(intent, phoneId);
+
+            // Direct the intent to only the default MMS app. If we can't find a default MMS app
+            // then sent it to all broadcast receivers.
+            ComponentName componentName = SmsApplication.getDefaultMmsApplication(mContext, true);
+            Bundle options = null;
+            if (componentName != null) {
+                // Deliver MMS message only to this receiver
+                intent.setComponent(componentName);
+                if (DBG) Rlog.v(TAG, "Delivering MMS to: " + componentName.getPackageName() +
+                        " " + componentName.getClassName());
+                try {
+                    long duration = mDeviceIdleController.addPowerSaveTempWhitelistAppForMms(
+                            componentName.getPackageName(), 0, "mms-app");
+                    BroadcastOptions bopts = BroadcastOptions.makeBasic();
+                    bopts.setTemporaryAppWhitelistDuration(duration);
+                    options = bopts.toBundle();
+                } catch (RemoteException e) {
+                }
+            }
+
+            handler.dispatchIntent(intent, permission, appOp, options, receiver, UserHandle.OWNER);
+            return Activity.RESULT_OK;
         } catch (ArrayIndexOutOfBoundsException aie) {
             // 0-byte WAP PDU or other unexpected WAP PDU contents can easily throw this;
             // log exception string without stack trace and return false.
             Rlog.e(TAG, "ignoring dispatchWapPdu() array index exception: " + aie);
-            result.statusCode = Intents.RESULT_SMS_GENERIC_ERROR;
-        }
-        return result;
-    }
-
-    /**
-     * Dispatches inbound messages that are in the WAP PDU format. See
-     * wap-230-wsp-20010705-a section 8 for details on the WAP PDU format.
-     *
-     * @param pdu The WAP PDU, made up of one or more SMS PDUs
-     * @return a result code from {@link android.provider.Telephony.Sms.Intents}, or
-     *         {@link Activity#RESULT_OK} if the message has been broadcast
-     *         to applications
-     */
-    public int dispatchWapPdu(byte[] pdu, BroadcastReceiver receiver, InboundSmsHandler handler) {
-        DecodedResult result = decodeWapPdu(pdu, handler);
-        if (result.statusCode != Activity.RESULT_OK) {
-            return result.statusCode;
-        }
-
-        if (SmsManager.getDefault().getAutoPersisting()) {
-            // Store the wap push data in telephony
-            writeInboxMessage(result.subId, result.parsedPdu);
-        }
-
-        /**
-         * If the pdu has application ID, WapPushManager substitute the message
-         * processing. Since WapPushManager is optional module, if WapPushManager
-         * is not found, legacy message processing will be continued.
-         */
-        if (result.wapAppId != null) {
-            try {
-                boolean processFurther = true;
-                IWapPushManager wapPushMan = mWapPushManager;
-
-                if (wapPushMan == null) {
-                    if (DBG) Rlog.w(TAG, "wap push manager not found!");
-                } else {
-                    synchronized (this) {
-                        mDeviceIdleController.addPowerSaveTempWhitelistAppForMms(
-                                mWapPushManagerPackage, 0, "mms-mgr");
-                    }
-
-                    Intent intent = new Intent();
-                    intent.putExtra("transactionId", result.transactionId);
-                    intent.putExtra("pduType", result.pduType);
-                    intent.putExtra("header", result.header);
-                    intent.putExtra("data", result.intentData);
-                    intent.putExtra("contentTypeParameters", result.contentTypeParameters);
-                    SubscriptionManager.putPhoneIdAndSubIdExtra(intent, result.phoneId);
-
-                    int procRet = wapPushMan.processMessage(
-                        result.wapAppId, result.contentType, intent);
-                    if (DBG) Rlog.v(TAG, "procRet:" + procRet);
-                    if ((procRet & WapPushManagerParams.MESSAGE_HANDLED) > 0
-                            && (procRet & WapPushManagerParams.FURTHER_PROCESSING) == 0) {
-                        processFurther = false;
-                    }
-                }
-                if (!processFurther) {
-                    return Intents.RESULT_SMS_HANDLED;
-                }
-            } catch (RemoteException e) {
-                if (DBG) Rlog.w(TAG, "remote func failed...");
-            }
-        }
-        if (DBG) Rlog.v(TAG, "fall back to existing handler");
-
-        if (result.mimeType == null) {
-            if (DBG) Rlog.w(TAG, "Header Content-Type error.");
             return Intents.RESULT_SMS_GENERIC_ERROR;
         }
-
-        Intent intent = new Intent(Intents.WAP_PUSH_DELIVER_ACTION);
-        intent.setType(result.mimeType);
-        intent.putExtra("transactionId", result.transactionId);
-        intent.putExtra("pduType", result.pduType);
-        intent.putExtra("header", result.header);
-        intent.putExtra("data", result.intentData);
-        intent.putExtra("contentTypeParameters", result.contentTypeParameters);
-        SubscriptionManager.putPhoneIdAndSubIdExtra(intent, result.phoneId);
-
-        // Direct the intent to only the default MMS app. If we can't find a default MMS app
-        // then sent it to all broadcast receivers.
-        ComponentName componentName = SmsApplication.getDefaultMmsApplication(mContext, true);
-        Bundle options = null;
-        if (componentName != null) {
-            // Deliver MMS message only to this receiver
-            intent.setComponent(componentName);
-            if (DBG) Rlog.v(TAG, "Delivering MMS to: " + componentName.getPackageName() +
-                    " " + componentName.getClassName());
-            try {
-                long duration = mDeviceIdleController.addPowerSaveTempWhitelistAppForMms(
-                        componentName.getPackageName(), 0, "mms-app");
-                BroadcastOptions bopts = BroadcastOptions.makeBasic();
-                bopts.setTemporaryAppWhitelistDuration(duration);
-                options = bopts.toBundle();
-            } catch (RemoteException e) {
-            }
-        }
-
-        handler.dispatchIntent(intent, getPermissionForType(result.mimeType),
-                getAppOpsPermissionForIntent(result.mimeType), options, receiver,
-                UserHandle.SYSTEM);
-        return Activity.RESULT_OK;
-    }
-
-    /**
-     * Check whether the pdu is a MMS WAP push pdu that should be dispatched to the SMS app.
-     */
-    public boolean isWapPushForMms(byte[] pdu, InboundSmsHandler handler) {
-        DecodedResult result = decodeWapPdu(pdu, handler);
-        return result.statusCode == Activity.RESULT_OK
-            && WspTypeDecoder.CONTENT_TYPE_B_MMS.equals(result.mimeType);
     }
 
     private static boolean shouldParseContentDisposition(int subId) {
@@ -433,7 +328,9 @@ public class WapPushOverSms implements ServiceConnection {
                 .getBoolean(SmsManager.MMS_CONFIG_SUPPORT_MMS_CONTENT_DISPOSITION, true);
     }
 
-    private void writeInboxMessage(int subId, GenericPdu pdu) {
+    private void writeInboxMessage(int subId, byte[] pushData) {
+        final GenericPdu pdu =
+                new PduParser(pushData, shouldParseContentDisposition(subId)).parse();
         if (pdu == null) {
             Rlog.e(TAG, "Invalid PUSH PDU");
         }
@@ -594,43 +491,5 @@ public class WapPushOverSms implements ServiceConnection {
             }
         }
         return false;
-    }
-
-    public static String getPermissionForType(String mimeType) {
-        String permission;
-        if (WspTypeDecoder.CONTENT_TYPE_B_MMS.equals(mimeType)) {
-            permission = android.Manifest.permission.RECEIVE_MMS;
-        } else {
-            permission = android.Manifest.permission.RECEIVE_WAP_PUSH;
-        }
-        return permission;
-    }
-
-    public static int getAppOpsPermissionForIntent(String mimeType) {
-        int appOp;
-        if (WspTypeDecoder.CONTENT_TYPE_B_MMS.equals(mimeType)) {
-            appOp = AppOpsManager.OP_RECEIVE_MMS;
-        } else {
-            appOp = AppOpsManager.OP_RECEIVE_WAP_PUSH;
-        }
-        return appOp;
-    }
-
-    /**
-     * Place holder for decoded Wap pdu data.
-     */
-    private final class DecodedResult {
-        String mimeType;
-        String contentType;
-        int transactionId;
-        int pduType;
-        int phoneId;
-        int subId;
-        byte[] header;
-        String wapAppId;
-        byte[] intentData;
-        HashMap<String, String> contentTypeParameters;
-        GenericPdu parsedPdu;
-        int statusCode;
     }
 }

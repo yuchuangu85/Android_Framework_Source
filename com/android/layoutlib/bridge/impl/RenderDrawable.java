@@ -42,6 +42,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Action to render a given Drawable provided through {@link DrawableParams#getDrawable()}.
  *
@@ -68,12 +72,8 @@ public class RenderDrawable extends RenderAction<DrawableParams> {
         BridgeContext context = getContext();
         drawableResource = context.getRenderResources().resolveResValue(drawableResource);
 
-        if (drawableResource == null) {
-            return Status.ERROR_NOT_A_DRAWABLE.createResult();
-        }
-
-        ResourceType resourceType = drawableResource.getResourceType();
-        if (resourceType != ResourceType.DRAWABLE && resourceType != ResourceType.MIPMAP) {
+        if (drawableResource == null ||
+                drawableResource.getResourceType() != ResourceType.DRAWABLE) {
             return Status.ERROR_NOT_A_DRAWABLE.createResult();
         }
 

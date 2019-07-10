@@ -28,11 +28,11 @@ import java.util.HashSet;
 
 /**
  * A class that exposes {@link IActivityRecognitionHardware} functionality to unbundled services.
- * @hide
  */
 public final class ActivityRecognitionProvider {
     private final IActivityRecognitionHardware mService;
-    private final HashSet<Sink> mSinkSet = new HashSet<>();
+    private final HashSet<Sink> mSinkSet = new HashSet<Sink>();
+    private final SinkTransport mSinkTransport = new SinkTransport();
 
     // the following constants must remain in sync with activity_recognition.h
 
@@ -43,8 +43,6 @@ public final class ActivityRecognitionProvider {
     public static final String ACTIVITY_STILL = "android.activity_recognition.still";
     public static final String ACTIVITY_TILTING = "android.activity_recognition.tilting";
 
-    // NOTE: when adding an additional EVENT_TYPE_, EVENT_TYPE_COUNT needs to be updated in
-    // android.hardware.location.ActivityRecognitionHardware
     public static final int EVENT_TYPE_FLUSH_COMPLETE = 0;
     public static final int EVENT_TYPE_ENTER = 1;
     public static final int EVENT_TYPE_EXIT = 2;
@@ -62,7 +60,7 @@ public final class ActivityRecognitionProvider {
             throws RemoteException {
         Preconditions.checkNotNull(service);
         mService = service;
-        mService.registerSink(new SinkTransport());
+        mService.registerSink(mSinkTransport);
     }
 
     public String[] getSupportedActivities() throws RemoteException {
@@ -104,23 +102,26 @@ public final class ActivityRecognitionProvider {
 
     private final class SinkTransport extends IActivityRecognitionHardwareSink.Stub {
         @Override
-        public void onActivityChanged(android.hardware.location.ActivityChangedEvent event) {
+        public void onActivityChanged(
+                android.hardware.location.ActivityChangedEvent activityChangedEvent) {
             Collection<Sink> sinks;
             synchronized (mSinkSet) {
                 if (mSinkSet.isEmpty()) {
                     return;
                 }
-                sinks = new ArrayList<>(mSinkSet);
+
+                sinks = new ArrayList<Sink>(mSinkSet);
             }
 
             // translate the event from platform internal and GmsCore types
-            ArrayList<ActivityRecognitionEvent> gmsEvents = new ArrayList<>();
-            for (android.hardware.location.ActivityRecognitionEvent reportingEvent
-                    : event.getActivityRecognitionEvents()) {
+            ArrayList<ActivityRecognitionEvent> gmsEvents =
+                    new ArrayList<ActivityRecognitionEvent>();
+            for (android.hardware.location.ActivityRecognitionEvent event
+                    : activityChangedEvent.getActivityRecognitionEvents()) {
                 ActivityRecognitionEvent gmsEvent = new ActivityRecognitionEvent(
-                        reportingEvent.getActivity(),
-                        reportingEvent.getEventType(),
-                        reportingEvent.getTimestampNs());
+                        event.getActivity(),
+                        event.getEventType(),
+                        event.getTimestampNs());
                 gmsEvents.add(gmsEvent);
             }
             ActivityChangedEvent gmsEvent = new ActivityChangedEvent(gmsEvents);

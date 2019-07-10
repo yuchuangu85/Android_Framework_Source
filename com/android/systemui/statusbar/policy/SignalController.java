@@ -15,15 +15,14 @@
  */
 package com.android.systemui.statusbar.policy;
 
+import static com.android.systemui.statusbar.policy.NetworkControllerImpl.TAG;
+
 import android.content.Context;
 import android.text.format.DateFormat;
 import android.util.Log;
-import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
 
 import java.io.PrintWriter;
 import java.util.BitSet;
-
-import static com.android.systemui.statusbar.policy.NetworkControllerImpl.TAG;
 
 
 /**
@@ -49,7 +48,7 @@ public abstract class SignalController<T extends SignalController.State,
     // is aware of current state.
     protected final NetworkControllerImpl mNetworkController;
 
-    private final CallbackHandler mCallbackHandler;
+    protected final CallbackHandler mCallbackHandler;
 
     // Save the previous HISTORY_SIZE states for logging.
     private final State[] mHistory;
@@ -199,16 +198,12 @@ public abstract class SignalController<T extends SignalController.State,
         }
     }
 
-    public final void notifyListeners() {
-        notifyListeners(mCallbackHandler);
-    }
-
     /**
      * Trigger callbacks based on current state.  The callbacks should be completely
      * based on current state, and only need to be called in the scenario where
      * mCurrentState != mLastState.
      */
-    public abstract void notifyListeners(SignalCallback callback);
+    public abstract void notifyListeners();
 
     /**
      * Generate a blank T.
@@ -297,7 +292,7 @@ public abstract class SignalController<T extends SignalController.State,
                     .append("activityIn=").append(activityIn).append(',')
                     .append("activityOut=").append(activityOut).append(',')
                     .append("rssi=").append(rssi).append(',')
-                    .append("lastModified=").append(DateFormat.format("MM-dd HH:mm:ss", time));
+                    .append("lastModified=").append(DateFormat.format("MM-dd hh:mm:ss", time));
         }
 
         @Override

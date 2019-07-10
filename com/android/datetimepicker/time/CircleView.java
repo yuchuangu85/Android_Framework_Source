@@ -28,7 +28,7 @@ import com.android.datetimepicker.R;
 /**
  * Draws a simple white circle on which the numbers will be drawn.
  */
-class CircleView extends View {
+public class CircleView extends View {
     private static final String TAG = "CircleView";
 
     private final Paint mPaint = new Paint();

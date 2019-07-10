@@ -1,204 +1,128 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * (C) Copyright Taligent, Inc. 1996, 1997 - All Rights Reserved
- * (C) Copyright IBM Corp. 1996 - 1998 - All Rights Reserved
- *
- * The original version of this source code and documentation
- * is copyrighted and owned by Taligent, Inc., a wholly-owned
- * subsidiary of IBM. These materials are provided under terms
- * of a License Agreement between Taligent and Sun. This technology
- * is protected by multiple US and International patents.
- *
- * This notice and attribution to Taligent may not be removed.
- * Taligent is a registered trademark of Taligent, Inc.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
-import java.io.IOException;
-import sun.util.ResourceBundleEnumeration;
 
 /**
- * <code>PropertyResourceBundle</code> is a concrete subclass of
- * <code>ResourceBundle</code> that manages resources for a locale
- * using a set of static strings from a property file. See
- * {@link ResourceBundle ResourceBundle} for more information about resource
- * bundles.
- *
- * <p>
- * Unlike other types of resource bundle, you don't subclass
- * <code>PropertyResourceBundle</code>.  Instead, you supply properties
- * files containing the resource data.  <code>ResourceBundle.getBundle</code>
- * will automatically look for the appropriate properties file and create a
- * <code>PropertyResourceBundle</code> that refers to it. See
- * {@link ResourceBundle#getBundle(java.lang.String, java.util.Locale, java.lang.ClassLoader) ResourceBundle.getBundle}
- * for a complete description of the search and instantiation strategy.
- *
- * <p>
- * The following <a name="sample">example</a> shows a member of a resource
- * bundle family with the base name "MyResources".
- * The text defines the bundle "MyResources_de",
- * the German member of the bundle family.
- * This member is based on <code>PropertyResourceBundle</code>, and the text
- * therefore is the content of the file "MyResources_de.properties"
- * (a related <a href="ListResourceBundle.html#sample">example</a> shows
- * how you can add bundles to this family that are implemented as subclasses
- * of <code>ListResourceBundle</code>).
- * The keys in this example are of the form "s1" etc. The actual
- * keys are entirely up to your choice, so long as they are the same as
- * the keys you use in your program to retrieve the objects from the bundle.
- * Keys are case-sensitive.
- * <blockquote>
- * <pre>
- * # MessageFormat pattern
- * s1=Die Platte \"{1}\" enth&auml;lt {0}.
- *
- * # location of {0} in pattern
- * s2=1
- *
- * # sample disk name
- * s3=Meine Platte
- *
- * # first ChoiceFormat choice
- * s4=keine Dateien
- *
- * # second ChoiceFormat choice
- * s5=eine Datei
- *
- * # third ChoiceFormat choice
- * s6={0,number} Dateien
- *
- * # sample date
- * s7=3. M&auml;rz 1996
- * </pre>
- * </blockquote>
- *
- * <p>
- * The implementation of a {@code PropertyResourceBundle} subclass must be
- * thread-safe if it's simultaneously used by multiple threads. The default
- * implementations of the non-abstract methods in this class are thread-safe.
- *
- * <p>
- * <strong>Note:</strong> PropertyResourceBundle can be constructed either
- * from an InputStream or a Reader, which represents a property file.
- * Constructing a PropertyResourceBundle instance from an InputStream requires
- * that the input stream be encoded in ISO-8859-1.  In that case, characters
- * that cannot be represented in ISO-8859-1 encoding must be represented by Unicode Escapes
- * as defined in section 3.3 of
- * <cite>The Java&trade; Language Specification</cite>
- * whereas the other constructor which takes a Reader does not have that limitation.
+ * {@code PropertyResourceBundle} loads resources from an {@code InputStream}. All resources are
+ * Strings. The resources must be of the form {@code key=value}, one
+ * resource per line (see Properties).
  *
  * @see ResourceBundle
- * @see ListResourceBundle
  * @see Properties
- * @since JDK1.1
+ * @since 1.1
  */
 public class PropertyResourceBundle extends ResourceBundle {
-    /**
-     * Creates a property resource bundle from an {@link java.io.InputStream
-     * InputStream}.  The property file read with this constructor
-     * must be encoded in ISO-8859-1.
-     *
-     * @param stream an InputStream that represents a property file
-     *        to read from.
-     * @throws IOException if an I/O error occurs
-     * @throws NullPointerException if <code>stream</code> is null
-     * @throws IllegalArgumentException if {@code stream} contains a
-     *     malformed Unicode escape sequence.
-     */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    public PropertyResourceBundle (InputStream stream) throws IOException {
-        Properties properties = new Properties();
-        properties.load(stream);
-        lookup = new HashMap(properties);
-    }
+
+    Properties resources;
 
     /**
-     * Creates a property resource bundle from a {@link java.io.Reader
-     * Reader}.  Unlike the constructor
-     * {@link #PropertyResourceBundle(java.io.InputStream) PropertyResourceBundle(InputStream)},
-     * there is no limitation as to the encoding of the input property file.
+     * Constructs a new instance of {@code PropertyResourceBundle} and loads the
+     * properties file from the specified {@code InputStream}.
      *
-     * @param reader a Reader that represents a property file to
-     *        read from.
-     * @throws IOException if an I/O error occurs
-     * @throws NullPointerException if <code>reader</code> is null
-     * @throws IllegalArgumentException if a malformed Unicode escape sequence appears
-     *     from {@code reader}.
-     * @since 1.6
+     * @param stream
+     *            the {@code InputStream}.
+     * @throws IOException
+     *             if an error occurs during a read operation on the
+     *             {@code InputStream}.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    public PropertyResourceBundle (Reader reader) throws IOException {
-        Properties properties = new Properties();
-        properties.load(reader);
-        lookup = new HashMap(properties);
-    }
-
-    // Implements java.util.ResourceBundle.handleGetObject; inherits javadoc specification.
-    public Object handleGetObject(String key) {
-        if (key == null) {
-            throw new NullPointerException();
+    public PropertyResourceBundle(InputStream stream) throws IOException {
+        if (stream == null) {
+            throw new NullPointerException("stream == null");
         }
-        return lookup.get(key);
+        resources = new Properties();
+        resources.load(stream);
     }
 
     /**
-     * Returns an <code>Enumeration</code> of the keys contained in
-     * this <code>ResourceBundle</code> and its parent bundles.
+     * Constructs a new resource bundle with properties read from {@code reader}.
      *
-     * @return an <code>Enumeration</code> of the keys contained in
-     *         this <code>ResourceBundle</code> and its parent bundles.
-     * @see #keySet()
-     */
-    public Enumeration<String> getKeys() {
-        ResourceBundle parent = this.parent;
-        return new ResourceBundleEnumeration(lookup.keySet(),
-                (parent != null) ? parent.getKeys() : null);
-    }
-
-    /**
-     * Returns a <code>Set</code> of the keys contained
-     * <em>only</em> in this <code>ResourceBundle</code>.
-     *
-     * @return a <code>Set</code> of the keys contained only in this
-     *         <code>ResourceBundle</code>
+     * @param reader the {@code Reader}
+     * @throws IOException
      * @since 1.6
-     * @see #keySet()
      */
-    protected Set<String> handleKeySet() {
-        return lookup.keySet();
+    public PropertyResourceBundle(Reader reader) throws IOException {
+        resources = new Properties();
+        resources.load(reader);
     }
 
-    // ==================privates====================
+    protected Set<String> handleKeySet(){
+        return resources.stringPropertyNames();
+    }
 
-    // Android-changed: Fix unsafe publication http://b/31467561
-    // Fixed in OpenJDK 9: http://hg.openjdk.java.net/jdk9/dev/jdk/rev/29ecac30ecae
-    // was: private Map<String,Object> lookup;
-    private final Map<String,Object> lookup;
+    @SuppressWarnings("unchecked")
+    private Enumeration<String> getLocalKeys() {
+        return (Enumeration<String>) resources.propertyNames();
+    }
+
+    @Override
+    public Enumeration<String> getKeys() {
+        if (parent == null) {
+            return getLocalKeys();
+        }
+        return new Enumeration<String>() {
+            Enumeration<String> local = getLocalKeys();
+
+            Enumeration<String> pEnum = parent.getKeys();
+
+            String nextElement;
+
+            private boolean findNext() {
+                if (nextElement != null) {
+                    return true;
+                }
+                while (pEnum.hasMoreElements()) {
+                    String next = pEnum.nextElement();
+                    if (!resources.containsKey(next)) {
+                        nextElement = next;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            public boolean hasMoreElements() {
+                if (local.hasMoreElements()) {
+                    return true;
+                }
+                return findNext();
+            }
+
+            public String nextElement() {
+                if (local.hasMoreElements()) {
+                    return local.nextElement();
+                }
+                if (findNext()) {
+                    String result = nextElement;
+                    nextElement = null;
+                    return result;
+                }
+                // Cause an exception
+                return pEnum.nextElement();
+            }
+        };
+    }
+
+    @Override
+    public Object handleGetObject(String key) {
+        return resources.get(key);
+    }
 }

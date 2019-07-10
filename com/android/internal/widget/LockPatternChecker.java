@@ -4,7 +4,6 @@ import android.os.AsyncTask;
 
 import com.android.internal.widget.LockPatternUtils.RequestThrottledException;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -15,13 +14,6 @@ public final class LockPatternChecker {
      * Interface for a callback to be invoked after security check.
      */
     public interface OnCheckCallback {
-
-        /**
-         * Invoked as soon as possible we know that the credentials match. This will be called
-         * earlier than {@link #onChecked} but only if the credentials match.
-         */
-        default void onEarlyMatched() {}
-
         /**
          * Invoked when a security check is finished.
          *
@@ -30,11 +22,6 @@ public final class LockPatternChecker {
          * the call. Only non-0 if matched is false.
          */
         void onChecked(boolean matched, int throttleTimeoutMs);
-
-        /**
-         * Called when the underlying AsyncTask was cancelled.
-         */
-        default void onCancelled() {}
     }
 
     /**
@@ -67,19 +54,11 @@ public final class LockPatternChecker {
             final OnVerifyCallback callback) {
         AsyncTask<Void, Void, byte[]> task = new AsyncTask<Void, Void, byte[]>() {
             private int mThrottleTimeout;
-            private List<LockPatternView.Cell> patternCopy;
-
-            @Override
-            protected void onPreExecute() {
-                // Make a copy of the pattern to prevent race conditions.
-                // No need to clone the individual cells because they are immutable.
-                patternCopy = new ArrayList(pattern);
-            }
 
             @Override
             protected byte[] doInBackground(Void... args) {
                 try {
-                    return utils.verifyPattern(patternCopy, challenge, userId);
+                    return utils.verifyPattern(pattern, challenge, userId);
                 } catch (RequestThrottledException ex) {
                     mThrottleTimeout = ex.getTimeoutMs();
                     return null;
@@ -109,19 +88,11 @@ public final class LockPatternChecker {
             final OnCheckCallback callback) {
         AsyncTask<Void, Void, Boolean> task = new AsyncTask<Void, Void, Boolean>() {
             private int mThrottleTimeout;
-            private List<LockPatternView.Cell> patternCopy;
-
-            @Override
-            protected void onPreExecute() {
-                // Make a copy of the pattern to prevent race conditions.
-                // No need to clone the individual cells because they are immutable.
-                patternCopy = new ArrayList(pattern);
-            }
 
             @Override
             protected Boolean doInBackground(Void... args) {
                 try {
-                    return utils.checkPattern(patternCopy, userId, callback::onEarlyMatched);
+                    return utils.checkPattern(pattern, userId);
                 } catch (RequestThrottledException ex) {
                     mThrottleTimeout = ex.getTimeoutMs();
                     return false;
@@ -131,11 +102,6 @@ public final class LockPatternChecker {
             @Override
             protected void onPostExecute(Boolean result) {
                 callback.onChecked(result, mThrottleTimeout);
-            }
-
-            @Override
-            protected void onCancelled() {
-                callback.onCancelled();
             }
         };
         task.execute();
@@ -179,43 +145,6 @@ public final class LockPatternChecker {
     }
 
     /**
-     * Verify a password asynchronously.
-     *
-     * @param utils The LockPatternUtils instance to use.
-     * @param password The password to check.
-     * @param challenge The challenge to verify against the pattern.
-     * @param userId The user to check against the pattern.
-     * @param callback The callback to be invoked with the verification result.
-     */
-    public static AsyncTask<?, ?, ?> verifyTiedProfileChallenge(final LockPatternUtils utils,
-            final String password,
-            final boolean isPattern,
-            final long challenge,
-            final int userId,
-            final OnVerifyCallback callback) {
-        AsyncTask<Void, Void, byte[]> task = new AsyncTask<Void, Void, byte[]>() {
-            private int mThrottleTimeout;
-
-            @Override
-            protected byte[] doInBackground(Void... args) {
-                try {
-                    return utils.verifyTiedProfileChallenge(password, isPattern, challenge, userId);
-                } catch (RequestThrottledException ex) {
-                    mThrottleTimeout = ex.getTimeoutMs();
-                    return null;
-                }
-            }
-
-            @Override
-            protected void onPostExecute(byte[] result) {
-                callback.onVerified(result, mThrottleTimeout);
-            }
-        };
-        task.execute();
-        return task;
-    }
-
-    /**
      * Checks a password asynchronously.
      *
      * @param utils The LockPatternUtils instance to use.
@@ -233,7 +162,7 @@ public final class LockPatternChecker {
             @Override
             protected Boolean doInBackground(Void... args) {
                 try {
-                    return utils.checkPassword(password, userId, callback::onEarlyMatched);
+                    return utils.checkPassword(password, userId);
                 } catch (RequestThrottledException ex) {
                     mThrottleTimeout = ex.getTimeoutMs();
                     return false;
@@ -243,11 +172,6 @@ public final class LockPatternChecker {
             @Override
             protected void onPostExecute(Boolean result) {
                 callback.onChecked(result, mThrottleTimeout);
-            }
-
-            @Override
-            protected void onCancelled() {
-                callback.onCancelled();
             }
         };
         task.execute();

@@ -15,26 +15,20 @@
  */
 package android.support.v4.media;
 
+import android.graphics.Bitmap;
 import android.media.MediaDescription;
 import android.net.Uri;
+import android.os.Bundle;
+import android.os.Parcel;
 
-import androidx.annotation.RequiresApi;
-
-@RequiresApi(23)
-class MediaDescriptionCompatApi23 {
+class MediaDescriptionCompatApi23 extends MediaDescriptionCompatApi21 {
     public static Uri getMediaUri(Object descriptionObj) {
         return ((MediaDescription) descriptionObj).getMediaUri();
     }
 
-    static class Builder {
+    static class Builder extends MediaDescriptionCompatApi21.Builder {
         public static void setMediaUri(Object builderObj, Uri mediaUri) {
             ((MediaDescription.Builder)builderObj).setMediaUri(mediaUri);
         }
-
-        private Builder() {
-        }
-    }
-
-    private MediaDescriptionCompatApi23() {
     }
 }

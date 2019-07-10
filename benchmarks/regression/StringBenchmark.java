@@ -17,8 +17,9 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class StringBenchmark {
+public class StringBenchmark extends SimpleBenchmark {
     enum StringLengths {
         EMPTY(""),
         SHORT("short"),

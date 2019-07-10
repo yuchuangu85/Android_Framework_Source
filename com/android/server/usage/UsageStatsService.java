@@ -17,67 +17,76 @@
 package com.android.server.usage;
 
 import android.Manifest;
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
+import android.app.AppGlobals;
 import android.app.AppOpsManager;
-import android.app.IUidObserver;
-import android.app.PendingIntent;
-import android.app.admin.DeviceAdminInfo;
-import android.app.admin.DevicePolicyManagerInternal;
-import android.app.usage.AppStandbyInfo;
+import android.app.admin.DevicePolicyManager;
 import android.app.usage.ConfigurationStats;
-import android.app.usage.EventStats;
 import android.app.usage.IUsageStatsManager;
 import android.app.usage.UsageEvents;
-import android.app.usage.UsageStatsManager;
-import android.app.usage.UsageStatsManager.StandbyBuckets;
 import android.app.usage.UsageEvents.Event;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManagerInternal;
+import android.app.usage.UsageStatsManagerInternal.AppIdleStateChangeListener;
+import android.appwidget.AppWidgetManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.content.pm.ParceledListSlice;
 import android.content.pm.UserInfo;
 import android.content.res.Configuration;
+import android.database.ContentObserver;
+import android.hardware.display.DisplayManager;
+import android.net.NetworkScoreManager;
+import android.os.BatteryManager;
+import android.os.BatteryStats;
 import android.os.Binder;
 import android.os.Environment;
-import android.os.FileUtils;
 import android.os.Handler;
 import android.os.IDeviceIdleController;
 import android.os.Looper;
 import android.os.Message;
+import android.os.PowerManager;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
 import android.util.ArraySet;
+import android.util.AtomicFile;
+import android.util.KeyValueListParser;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
+import android.util.TimeUtils;
+import android.view.Display;
 
-import com.android.internal.content.PackageMonitor;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.app.IBatteryStats;
 import com.android.internal.os.BackgroundThread;
-import com.android.internal.util.DumpUtils;
+import com.android.internal.os.SomeArgs;
 import com.android.internal.util.IndentingPrintWriter;
-import com.android.server.LocalServices;
 import com.android.server.SystemService;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A service that collects, aggregates, and persists application usage data.
@@ -87,68 +96,62 @@ public class UsageStatsService extends SystemService implements
         UserUsageStatsService.StatsUpdatedListener {
 
     static final String TAG = "UsageStatsService";
-    public static final boolean ENABLE_TIME_CHANGE_CORRECTION
-            = SystemProperties.getBoolean("persist.debug.time_correction", true);
 
-    static final boolean DEBUG = false; // Never submit with true
+    static final boolean DEBUG = false;
     static final boolean COMPRESS_TIME = false;
 
     private static final long TEN_SECONDS = 10 * 1000;
+    private static final long ONE_MINUTE = 60 * 1000;
     private static final long TWENTY_MINUTES = 20 * 60 * 1000;
     private static final long FLUSH_INTERVAL = COMPRESS_TIME ? TEN_SECONDS : TWENTY_MINUTES;
     private static final long TIME_CHANGE_THRESHOLD_MILLIS = 2 * 1000; // Two seconds.
 
-    private static final boolean ENABLE_KERNEL_UPDATES = true;
-    private static final File KERNEL_COUNTER_FILE = new File("/proc/uid_procstat/set");
+    long mAppIdleDurationMillis;
+    long mCheckIdleIntervalMillis;
+    long mAppIdleWallclockThresholdMillis;
+    long mAppIdleParoleIntervalMillis;
+    long mAppIdleParoleDurationMillis;
 
     // Handler message types.
     static final int MSG_REPORT_EVENT = 0;
     static final int MSG_FLUSH_TO_DISK = 1;
     static final int MSG_REMOVE_USER = 2;
-    static final int MSG_UID_STATE_CHANGED = 3;
+    static final int MSG_INFORM_LISTENERS = 3;
+    static final int MSG_FORCE_IDLE_STATE = 4;
+    static final int MSG_CHECK_IDLE_STATES = 5;
+    static final int MSG_CHECK_PAROLE_TIMEOUT = 6;
+    static final int MSG_PAROLE_END_TIMEOUT = 7;
+    static final int MSG_REPORT_CONTENT_PROVIDER_USAGE = 8;
+    static final int MSG_PAROLE_STATE_CHANGED = 9;
 
     private final Object mLock = new Object();
     Handler mHandler;
     AppOpsManager mAppOps;
     UserManager mUserManager;
-    PackageManager mPackageManager;
-    PackageManagerInternal mPackageManagerInternal;
-    PackageMonitor mPackageMonitor;
+    AppWidgetManager mAppWidgetManager;
     IDeviceIdleController mDeviceIdleController;
-    // Do not use directly. Call getDpmInternal() instead
-    DevicePolicyManagerInternal mDpmInternal;
+    private DisplayManager mDisplayManager;
+    private PowerManager mPowerManager;
+    private IBatteryStats mBatteryStats;
 
     private final SparseArray<UserUsageStatsService> mUserState = new SparseArray<>();
-    private final SparseIntArray mUidToKernelCounter = new SparseIntArray();
     private File mUsageStatsDir;
     long mRealTimeSnapshot;
     long mSystemTimeSnapshot;
 
-    /** Manages the standby state of apps. */
-    AppStandbyController mAppStandby;
+    boolean mAppIdleEnabled;
+    boolean mAppIdleParoled;
+    private boolean mScreenOn;
+    private long mLastAppIdleParoledTime;
 
-    /** Manages app time limit observers */
-    AppTimeLimitController mAppTimeLimit;
+    long mScreenOnTime;
+    long mScreenOnSystemTimeSnapshot;
 
-    private UsageStatsManagerInternal.AppIdleStateChangeListener mStandbyChangeListener =
-            new UsageStatsManagerInternal.AppIdleStateChangeListener() {
-                @Override
-                public void onAppIdleStateChanged(String packageName, int userId, boolean idle,
-                        int bucket, int reason) {
-                    Event event = new Event();
-                    event.mEventType = Event.STANDBY_BUCKET_CHANGED;
-                    event.mBucketAndReason = (bucket << 16) | (reason & 0xFFFF);
-                    event.mPackage = packageName;
-                    // This will later be converted to system time.
-                    event.mTimeStamp = SystemClock.elapsedRealtime();
-                    mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
-                }
+    @GuardedBy("mLock")
+    private AppIdleHistory mAppIdleHistory = new AppIdleHistory();
 
-                @Override
-                public void onParoleStateChanged(boolean isParoleOn) {
-
-                }
-            };
+    private ArrayList<UsageStatsManagerInternal.AppIdleStateChangeListener>
+            mPackageAccessListeners = new ArrayList<>();
 
     public UsageStatsService(Context context) {
         super(context);
@@ -158,27 +161,9 @@ public class UsageStatsService extends SystemService implements
     public void onStart() {
         mAppOps = (AppOpsManager) getContext().getSystemService(Context.APP_OPS_SERVICE);
         mUserManager = (UserManager) getContext().getSystemService(Context.USER_SERVICE);
-        mPackageManager = getContext().getPackageManager();
-        mPackageManagerInternal = LocalServices.getService(PackageManagerInternal.class);
+
         mHandler = new H(BackgroundThread.get().getLooper());
 
-        mAppStandby = new AppStandbyController(getContext(), BackgroundThread.get().getLooper());
-
-        mAppTimeLimit = new AppTimeLimitController(
-                (observerId, userId, timeLimit, timeElapsed, callbackIntent) -> {
-                    Intent intent = new Intent();
-                    intent.putExtra(UsageStatsManager.EXTRA_OBSERVER_ID, observerId);
-                    intent.putExtra(UsageStatsManager.EXTRA_TIME_LIMIT, timeLimit);
-                    intent.putExtra(UsageStatsManager.EXTRA_TIME_USED, timeElapsed);
-                    try {
-                        callbackIntent.send(getContext(), 0, intent);
-                    } catch (PendingIntent.CanceledException e) {
-                        Slog.w(TAG, "Couldn't deliver callback: "
-                                + callbackIntent);
-                    }
-                }, mHandler.getLooper());
-
-        mAppStandby.addListener(mStandbyChangeListener);
         File systemDataDir = new File(Environment.getDataDirectory(), "system");
         mUsageStatsDir = new File(systemDataDir, "usagestats");
         mUsageStatsDir.mkdirs();
@@ -187,10 +172,19 @@ public class UsageStatsService extends SystemService implements
                     + mUsageStatsDir.getAbsolutePath());
         }
 
-        IntentFilter filter = new IntentFilter(Intent.ACTION_USER_REMOVED);
-        filter.addAction(Intent.ACTION_USER_STARTED);
-        getContext().registerReceiverAsUser(new UserActionsReceiver(), UserHandle.ALL, filter,
-                null, mHandler);
+        IntentFilter userActions = new IntentFilter(Intent.ACTION_USER_REMOVED);
+        userActions.addAction(Intent.ACTION_USER_STARTED);
+        getContext().registerReceiverAsUser(new UserActionsReceiver(), UserHandle.ALL, userActions,
+                null, null);
+
+        mAppIdleEnabled = getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_enableAutoPowerModes);
+        if (mAppIdleEnabled) {
+            IntentFilter deviceStates = new IntentFilter(BatteryManager.ACTION_CHARGING);
+            deviceStates.addAction(BatteryManager.ACTION_DISCHARGING);
+            deviceStates.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
+            getContext().registerReceiver(new DeviceStateReceiver(), deviceStates);
+        }
 
         synchronized (mLock) {
             cleanUpRemovedUsersLocked();
@@ -201,101 +195,89 @@ public class UsageStatsService extends SystemService implements
 
         publishLocalService(UsageStatsManagerInternal.class, new LocalService());
         publishBinderService(Context.USAGE_STATS_SERVICE, new BinderService());
-        // Make sure we initialize the data, in case job scheduler needs it early.
-        getUserDataAndInitializeIfNeededLocked(UserHandle.USER_SYSTEM, mSystemTimeSnapshot);
     }
 
     @Override
     public void onBootPhase(int phase) {
         if (phase == PHASE_SYSTEM_SERVICES_READY) {
-            mAppStandby.onBootPhase(phase);
-            // initialize mDpmInternal
-            getDpmInternal();
+            // Observe changes to the threshold
+            SettingsObserver settingsObserver = new SettingsObserver(mHandler);
+            settingsObserver.registerObserver();
+            settingsObserver.updateSettings();
 
+            mAppWidgetManager = getContext().getSystemService(AppWidgetManager.class);
             mDeviceIdleController = IDeviceIdleController.Stub.asInterface(
                     ServiceManager.getService(Context.DEVICE_IDLE_CONTROLLER));
+            mBatteryStats = IBatteryStats.Stub.asInterface(
+                    ServiceManager.getService(BatteryStats.SERVICE_NAME));
+            mDisplayManager = (DisplayManager) getContext().getSystemService(
+                    Context.DISPLAY_SERVICE);
+            mPowerManager = getContext().getSystemService(PowerManager.class);
 
-            if (ENABLE_KERNEL_UPDATES && KERNEL_COUNTER_FILE.exists()) {
-                try {
-                    ActivityManager.getService().registerUidObserver(mUidObserver,
-                            ActivityManager.UID_OBSERVER_PROCSTATE
-                                    | ActivityManager.UID_OBSERVER_GONE,
-                            ActivityManager.PROCESS_STATE_UNKNOWN, null);
-                } catch (RemoteException e) {
-                    throw new RuntimeException(e);
-                }
-            } else {
-                Slog.w(TAG, "Missing procfs interface: " + KERNEL_COUNTER_FILE);
+            mScreenOnSystemTimeSnapshot = System.currentTimeMillis();
+            synchronized (this) {
+                mScreenOnTime = readScreenOnTimeLocked();
             }
+            mDisplayManager.registerDisplayListener(mDisplayListener, null);
+            synchronized (this) {
+                updateDisplayLocked();
+            }
+        } else if (phase == PHASE_BOOT_COMPLETED) {
+            setAppIdleParoled(getContext().getSystemService(BatteryManager.class).isCharging());
         }
-    }
-
-    private DevicePolicyManagerInternal getDpmInternal() {
-        if (mDpmInternal == null) {
-            mDpmInternal = LocalServices.getService(DevicePolicyManagerInternal.class);
-        }
-        return mDpmInternal;
     }
 
     private class UserActionsReceiver extends BroadcastReceiver {
+
         @Override
         public void onReceive(Context context, Intent intent) {
             final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, -1);
-            final String action = intent.getAction();
-            if (Intent.ACTION_USER_REMOVED.equals(action)) {
+            if (Intent.ACTION_USER_REMOVED.equals(intent.getAction())) {
                 if (userId >= 0) {
                     mHandler.obtainMessage(MSG_REMOVE_USER, userId, 0).sendToTarget();
                 }
-            } else if (Intent.ACTION_USER_STARTED.equals(action)) {
+            } else if (Intent.ACTION_USER_STARTED.equals(intent.getAction())) {
                 if (userId >=0) {
-                    mAppStandby.postCheckIdleStates(userId);
+                    postCheckIdleStates(userId);
                 }
             }
         }
     }
 
-    private final IUidObserver mUidObserver = new IUidObserver.Stub() {
+    private class DeviceStateReceiver extends BroadcastReceiver {
         @Override
-        public void onUidStateChanged(int uid, int procState, long procStateSeq) {
-            mHandler.obtainMessage(MSG_UID_STATE_CHANGED, uid, procState).sendToTarget();
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (BatteryManager.ACTION_CHARGING.equals(action)
+                    || BatteryManager.ACTION_DISCHARGING.equals(action)) {
+                setAppIdleParoled(BatteryManager.ACTION_CHARGING.equals(action));
+            } else if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)) {
+                onDeviceIdleModeChanged();
+            }
+        }
+    }
+
+    private final DisplayManager.DisplayListener mDisplayListener
+            = new DisplayManager.DisplayListener() {
+
+        @Override public void onDisplayAdded(int displayId) {
         }
 
-        @Override
-        public void onUidIdle(int uid, boolean disabled) {
-            // Ignored
+        @Override public void onDisplayRemoved(int displayId) {
         }
 
-        @Override
-        public void onUidGone(int uid, boolean disabled) {
-            onUidStateChanged(uid, ActivityManager.PROCESS_STATE_NONEXISTENT, 0);
-        }
-
-        @Override
-        public void onUidActive(int uid) {
-            // Ignored
-        }
-
-        @Override public void onUidCachedChanged(int uid, boolean cached) {
+        @Override public void onDisplayChanged(int displayId) {
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                synchronized (UsageStatsService.this.mLock) {
+                    updateDisplayLocked();
+                }
+            }
         }
     };
 
     @Override
     public void onStatsUpdated() {
         mHandler.sendEmptyMessageDelayed(MSG_FLUSH_TO_DISK, FLUSH_INTERVAL);
-    }
-
-    @Override
-    public void onStatsReloaded() {
-        mAppStandby.postOneTimeCheckIdleStates();
-    }
-
-    @Override
-    public void onNewUpdate(int userId) {
-        mAppStandby.initializeDefaultsForSystemApps(userId);
-    }
-
-    private boolean shouldObfuscateInstantAppsForCaller(int callingUid, int userId) {
-        return !mPackageManagerInternal.canAccessInstantApps(callingUid, userId);
     }
 
     private void cleanUpRemovedUsersLocked() {
@@ -325,6 +307,200 @@ public class UsageStatsService extends SystemService implements
         }
     }
 
+    /** Paroled here means temporary pardon from being inactive */
+    void setAppIdleParoled(boolean paroled) {
+        synchronized (mLock) {
+            if (mAppIdleParoled != paroled) {
+                mAppIdleParoled = paroled;
+                if (DEBUG) Slog.d(TAG, "Changing paroled to " + mAppIdleParoled);
+                if (paroled) {
+                    mLastAppIdleParoledTime = checkAndGetTimeLocked();
+                    postNextParoleTimeout();
+                }
+                postParoleStateChanged();
+            }
+        }
+    }
+
+    private void postNextParoleTimeout() {
+        if (DEBUG) Slog.d(TAG, "Posting MSG_CHECK_PAROLE_TIMEOUT");
+        mHandler.removeMessages(MSG_CHECK_PAROLE_TIMEOUT);
+        // Compute when the next parole needs to happen. We check more frequently than necessary
+        // since the message handler delays are based on elapsedRealTime and not wallclock time.
+        // The comparison is done in wallclock time.
+        long timeLeft = (mLastAppIdleParoledTime + mAppIdleParoleIntervalMillis)
+                - checkAndGetTimeLocked();
+        if (timeLeft < 0) {
+            timeLeft = 0;
+        }
+        mHandler.sendEmptyMessageDelayed(MSG_CHECK_PAROLE_TIMEOUT, timeLeft / 10);
+    }
+
+    private void postParoleEndTimeout() {
+        if (DEBUG) Slog.d(TAG, "Posting MSG_PAROLE_END_TIMEOUT");
+        mHandler.removeMessages(MSG_PAROLE_END_TIMEOUT);
+        mHandler.sendEmptyMessageDelayed(MSG_PAROLE_END_TIMEOUT, mAppIdleParoleDurationMillis);
+    }
+
+    private void postParoleStateChanged() {
+        if (DEBUG) Slog.d(TAG, "Posting MSG_PAROLE_STATE_CHANGED");
+        mHandler.removeMessages(MSG_PAROLE_STATE_CHANGED);
+        mHandler.sendEmptyMessage(MSG_PAROLE_STATE_CHANGED);
+    }
+
+    void postCheckIdleStates(int userId) {
+        mHandler.sendMessage(mHandler.obtainMessage(MSG_CHECK_IDLE_STATES, userId, 0));
+    }
+
+    /** Check all running users' or specified user's apps to see if they enter an idle state. */
+    void checkIdleStates(int checkUserId) {
+        if (!mAppIdleEnabled) {
+            return;
+        }
+
+        final int[] userIds;
+        try {
+            if (checkUserId == UserHandle.USER_ALL) {
+                userIds = ActivityManagerNative.getDefault().getRunningUserIds();
+            } else {
+                userIds = new int[] { checkUserId };
+            }
+        } catch (RemoteException re) {
+            return;
+        }
+
+        for (int i = 0; i < userIds.length; i++) {
+            final int userId = userIds[i];
+            List<PackageInfo> packages =
+                    getContext().getPackageManager().getInstalledPackages(
+                            PackageManager.GET_DISABLED_COMPONENTS
+                                | PackageManager.GET_UNINSTALLED_PACKAGES,
+                            userId);
+            synchronized (mLock) {
+                final long timeNow = checkAndGetTimeLocked();
+                final long screenOnTime = getScreenOnTimeLocked(timeNow);
+                UserUsageStatsService service = getUserDataAndInitializeIfNeededLocked(userId,
+                        timeNow);
+                final int packageCount = packages.size();
+                for (int p = 0; p < packageCount; p++) {
+                    final String packageName = packages.get(p).packageName;
+                    final boolean isIdle = isAppIdleFiltered(packageName, userId, service, timeNow,
+                            screenOnTime);
+                    mHandler.sendMessage(mHandler.obtainMessage(MSG_INFORM_LISTENERS,
+                            userId, isIdle ? 1 : 0, packageName));
+                    mAppIdleHistory.addEntry(packageName, userId, isIdle, timeNow);
+                }
+            }
+        }
+        mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_CHECK_IDLE_STATES, checkUserId, 0),
+                mCheckIdleIntervalMillis);
+    }
+
+    /** Check if it's been a while since last parole and let idle apps do some work */
+    void checkParoleTimeout() {
+        synchronized (mLock) {
+            if (!mAppIdleParoled) {
+                final long timeSinceLastParole = checkAndGetTimeLocked() - mLastAppIdleParoledTime;
+                if (timeSinceLastParole > mAppIdleParoleIntervalMillis) {
+                    if (DEBUG) Slog.d(TAG, "Crossed default parole interval");
+                    setAppIdleParoled(true);
+                    // Make sure it ends at some point
+                    postParoleEndTimeout();
+                } else {
+                    if (DEBUG) Slog.d(TAG, "Not long enough to go to parole");
+                    postNextParoleTimeout();
+                }
+            }
+        }
+    }
+
+    private void notifyBatteryStats(String packageName, int userId, boolean idle) {
+        try {
+            int uid = AppGlobals.getPackageManager().getPackageUid(packageName, userId);
+            if (idle) {
+                mBatteryStats.noteEvent(BatteryStats.HistoryItem.EVENT_PACKAGE_INACTIVE,
+                        packageName, uid);
+            } else {
+                mBatteryStats.noteEvent(BatteryStats.HistoryItem.EVENT_PACKAGE_ACTIVE,
+                        packageName, uid);
+            }
+        } catch (RemoteException re) {
+        }
+    }
+
+    void updateDisplayLocked() {
+        boolean screenOn = mDisplayManager.getDisplay(Display.DEFAULT_DISPLAY).getState()
+                == Display.STATE_ON;
+
+        if (screenOn == mScreenOn) return;
+
+        mScreenOn = screenOn;
+        long now = System.currentTimeMillis();
+        if (mScreenOn) {
+            mScreenOnSystemTimeSnapshot = now;
+        } else {
+            mScreenOnTime += now - mScreenOnSystemTimeSnapshot;
+            writeScreenOnTimeLocked(mScreenOnTime);
+        }
+    }
+
+    private long getScreenOnTimeLocked(long now) {
+        if (mScreenOn) {
+            return now - mScreenOnSystemTimeSnapshot + mScreenOnTime;
+        } else {
+            return mScreenOnTime;
+        }
+    }
+
+    private File getScreenOnTimeFile() {
+        return new File(mUsageStatsDir, UserHandle.USER_OWNER + "/screen_on_time");
+    }
+
+    private long readScreenOnTimeLocked() {
+        long screenOnTime = 0;
+        File screenOnTimeFile = getScreenOnTimeFile();
+        if (screenOnTimeFile.exists()) {
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(screenOnTimeFile));
+                screenOnTime = Long.parseLong(reader.readLine());
+                reader.close();
+            } catch (IOException | NumberFormatException e) {
+            }
+        } else {
+            writeScreenOnTimeLocked(screenOnTime);
+        }
+        return screenOnTime;
+    }
+
+    private void writeScreenOnTimeLocked(long screenOnTime) {
+        AtomicFile screenOnTimeFile = new AtomicFile(getScreenOnTimeFile());
+        FileOutputStream fos = null;
+        try {
+            fos = screenOnTimeFile.startWrite();
+            fos.write(Long.toString(screenOnTime).getBytes());
+            screenOnTimeFile.finishWrite(fos);
+        } catch (IOException ioe) {
+            screenOnTimeFile.failWrite(fos);
+        }
+    }
+
+    void onDeviceIdleModeChanged() {
+        final boolean deviceIdle = mPowerManager.isDeviceIdleMode();
+        if (DEBUG) Slog.i(TAG, "DeviceIdleMode changed to " + deviceIdle);
+        synchronized (mLock) {
+            final long timeSinceLastParole = checkAndGetTimeLocked() - mLastAppIdleParoledTime;
+            if (!deviceIdle
+                    && timeSinceLastParole >= mAppIdleParoleIntervalMillis) {
+                if (DEBUG) Slog.i(TAG, "Bringing idle apps out of inactive state due to deviceIdleMode=false");
+                postNextParoleTimeout();
+                setAppIdleParoled(true);
+            } else if (deviceIdle) {
+                if (DEBUG) Slog.i(TAG, "Device idle, back to prison");
+                setAppIdleParoled(false);
+            }
+        }
+    }
+
     private static void deleteRecursively(File f) {
         File[] files = f.listFiles();
         if (files != null) {
@@ -344,7 +520,7 @@ public class UsageStatsService extends SystemService implements
         if (service == null) {
             service = new UserUsageStatsService(getContext(), userId,
                     new File(mUsageStatsDir, Integer.toString(userId)), this);
-            service.init(currentTimeMillis);
+            service.init(currentTimeMillis, getScreenOnTimeLocked(currentTimeMillis));
             mUserState.put(userId, service);
         }
         return service;
@@ -357,15 +533,20 @@ public class UsageStatsService extends SystemService implements
         final long actualSystemTime = System.currentTimeMillis();
         final long actualRealtime = SystemClock.elapsedRealtime();
         final long expectedSystemTime = (actualRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot;
-        final long diffSystemTime = actualSystemTime - expectedSystemTime;
-        if (Math.abs(diffSystemTime) > TIME_CHANGE_THRESHOLD_MILLIS
-                && ENABLE_TIME_CHANGE_CORRECTION) {
+        boolean resetBeginIdleTime = false;
+        if (Math.abs(actualSystemTime - expectedSystemTime) > TIME_CHANGE_THRESHOLD_MILLIS) {
             // The time has changed.
-            Slog.i(TAG, "Time changed in UsageStats by " + (diffSystemTime / 1000) + " seconds");
+
+            // Check if it's severe enough a change to reset screenOnTime
+            if (Math.abs(actualSystemTime - expectedSystemTime) > mAppIdleDurationMillis) {
+                mScreenOnSystemTimeSnapshot = actualSystemTime;
+                mScreenOnTime = 0;
+                resetBeginIdleTime = true;
+            }
             final int userCount = mUserState.size();
             for (int i = 0; i < userCount; i++) {
                 final UserUsageStatsService service = mUserState.valueAt(i);
-                service.onTimeChanged(expectedSystemTime, actualSystemTime);
+                service.onTimeChanged(expectedSystemTime, actualSystemTime, resetBeginIdleTime);
             }
             mRealTimeSnapshot = actualRealtime;
             mSystemTimeSnapshot = actualSystemTime;
@@ -397,28 +578,84 @@ public class UsageStatsService extends SystemService implements
     void reportEvent(UsageEvents.Event event, int userId) {
         synchronized (mLock) {
             final long timeNow = checkAndGetTimeLocked();
-            final long elapsedRealtime = SystemClock.elapsedRealtime();
+            final long screenOnTime = getScreenOnTimeLocked(timeNow);
             convertToSystemTimeLocked(event);
-
-            if (event.getPackageName() != null
-                    && mPackageManagerInternal.isPackageEphemeral(userId, event.getPackageName())) {
-                event.mFlags |= Event.FLAG_IS_PACKAGE_INSTANT_APP;
-            }
 
             final UserUsageStatsService service =
                     getUserDataAndInitializeIfNeededLocked(userId, timeNow);
-            service.reportEvent(event);
+            final long beginIdleTime = service.getBeginIdleTime(event.mPackage);
+            final long lastUsedTime = service.getSystemLastUsedTime(event.mPackage);
+            final boolean previouslyIdle = hasPassedIdleTimeoutLocked(beginIdleTime,
+                    lastUsedTime, screenOnTime, timeNow);
+            service.reportEvent(event, screenOnTime);
+            // Inform listeners if necessary
+            if ((event.mEventType == Event.MOVE_TO_FOREGROUND
+                    || event.mEventType == Event.MOVE_TO_BACKGROUND
+                    || event.mEventType == Event.SYSTEM_INTERACTION
+                    || event.mEventType == Event.USER_INTERACTION)) {
+                if (previouslyIdle) {
+                    // Slog.d(TAG, "Informing listeners of out-of-idle " + event.mPackage);
+                    mHandler.sendMessage(mHandler.obtainMessage(MSG_INFORM_LISTENERS, userId,
+                            /* idle = */ 0, event.mPackage));
+                    notifyBatteryStats(event.mPackage, userId, false);
+                    mAppIdleHistory.addEntry(event.mPackage, userId, false, timeNow);
+                }
+            }
+        }
+    }
 
-            mAppStandby.reportEvent(event, elapsedRealtime, userId);
-            switch (event.mEventType) {
-                case Event.MOVE_TO_FOREGROUND:
-                    mAppTimeLimit.moveToForeground(event.getPackageName(), event.getClassName(),
-                            userId);
-                    break;
-                case Event.MOVE_TO_BACKGROUND:
-                    mAppTimeLimit.moveToBackground(event.getPackageName(), event.getClassName(),
-                            userId);
-                    break;
+    void reportContentProviderUsage(String authority, String providerPkgName, int userId) {
+        // Get sync adapters for the authority
+        String[] packages = ContentResolver.getSyncAdapterPackagesForAuthorityAsUser(
+                authority, userId);
+        for (String packageName: packages) {
+            // Only force the sync adapters to active if the provider is not in the same package and
+            // the sync adapter is a system package.
+            try {
+                PackageInfo pi = AppGlobals.getPackageManager().getPackageInfo(
+                        packageName, 0, userId);
+                if (pi == null || pi.applicationInfo == null
+                        || !pi.applicationInfo.isSystemApp()) {
+                    continue;
+                }
+                if (!packageName.equals(providerPkgName)) {
+                    forceIdleState(packageName, userId, false);
+                }
+            } catch (RemoteException re) {
+                // Shouldn't happen
+            }
+        }
+    }
+
+    /**
+     * Forces the app's beginIdleTime and lastUsedTime to reflect idle or active. If idle,
+     * then it rolls back the beginIdleTime and lastUsedTime to a point in time that's behind
+     * the threshold for idle.
+     */
+    void forceIdleState(String packageName, int userId, boolean idle) {
+        synchronized (mLock) {
+            final long timeNow = checkAndGetTimeLocked();
+            final long screenOnTime = getScreenOnTimeLocked(timeNow);
+            final long deviceUsageTime = screenOnTime - (idle ? mAppIdleDurationMillis : 0) - 5000;
+
+            final UserUsageStatsService service =
+                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            final long beginIdleTime = service.getBeginIdleTime(packageName);
+            final long lastUsedTime = service.getSystemLastUsedTime(packageName);
+            final boolean previouslyIdle = hasPassedIdleTimeoutLocked(beginIdleTime,
+                    lastUsedTime, screenOnTime, timeNow);
+            service.setBeginIdleTime(packageName, deviceUsageTime);
+            service.setSystemLastUsedTime(packageName,
+                    timeNow - (idle ? mAppIdleWallclockThresholdMillis : 0) - 5000);
+            // Inform listeners if necessary
+            if (previouslyIdle != idle) {
+                // Slog.d(TAG, "Informing listeners of out-of-idle " + packageName);
+                mHandler.sendMessage(mHandler.obtainMessage(MSG_INFORM_LISTENERS, userId,
+                        /* idle = */ idle ? 1 : 0, packageName));
+                if (!idle) {
+                    notifyBatteryStats(packageName, userId, idle);
+                }
+                mAppIdleHistory.addEntry(packageName, userId, idle, timeNow);
             }
         }
     }
@@ -435,12 +672,10 @@ public class UsageStatsService extends SystemService implements
     /**
      * Called by the Binder stub.
      */
-    void onUserRemoved(int userId) {
+    void removeUser(int userId) {
         synchronized (mLock) {
             Slog.i(TAG, "Removing user " + userId + " and all data.");
             mUserState.remove(userId);
-            mAppStandby.onUserRemoved(userId);
-            mAppTimeLimit.onUserRemoved(userId);
             cleanUpRemovedUsersLocked();
         }
     }
@@ -448,8 +683,7 @@ public class UsageStatsService extends SystemService implements
     /**
      * Called by the Binder stub.
      */
-    List<UsageStats> queryUsageStats(int userId, int bucketType, long beginTime, long endTime,
-            boolean obfuscateInstantApps) {
+    List<UsageStats> queryUsageStats(int userId, int bucketType, long beginTime, long endTime) {
         synchronized (mLock) {
             final long timeNow = checkAndGetTimeLocked();
             if (!validRange(timeNow, beginTime, endTime)) {
@@ -458,23 +692,7 @@ public class UsageStatsService extends SystemService implements
 
             final UserUsageStatsService service =
                     getUserDataAndInitializeIfNeededLocked(userId, timeNow);
-            List<UsageStats> list = service.queryUsageStats(bucketType, beginTime, endTime);
-            if (list == null) {
-                return null;
-            }
-
-            // Mangle instant app names *using their current state (not whether they were ephemeral
-            // when the data was recorded)*.
-            if (obfuscateInstantApps) {
-                for (int i = list.size() - 1; i >= 0; i--) {
-                    final UsageStats stats = list.get(i);
-                    if (mPackageManagerInternal.isPackageEphemeral(userId, stats.mPackageName)) {
-                        list.set(i, stats.getObfuscatedForInstantApp());
-                    }
-                }
-            }
-
-            return list;
+            return service.queryUsageStats(bucketType, beginTime, endTime);
         }
     }
 
@@ -498,8 +716,7 @@ public class UsageStatsService extends SystemService implements
     /**
      * Called by the Binder stub.
      */
-    List<EventStats> queryEventStats(int userId, int bucketType, long beginTime,
-            long endTime) {
+    UsageEvents queryEvents(int userId, long beginTime, long endTime) {
         synchronized (mLock) {
             final long timeNow = checkAndGetTimeLocked();
             if (!validRange(timeNow, beginTime, endTime)) {
@@ -508,41 +725,219 @@ public class UsageStatsService extends SystemService implements
 
             final UserUsageStatsService service =
                     getUserDataAndInitializeIfNeededLocked(userId, timeNow);
-            return service.queryEventStats(bucketType, beginTime, endTime);
+            return service.queryEvents(beginTime, endTime);
+        }
+    }
+
+    private boolean isAppIdleUnfiltered(String packageName, UserUsageStatsService userService,
+            long timeNow, long screenOnTime) {
+        synchronized (mLock) {
+            long beginIdleTime = userService.getBeginIdleTime(packageName);
+            long lastUsedTime = userService.getSystemLastUsedTime(packageName);
+            return hasPassedIdleTimeoutLocked(beginIdleTime, lastUsedTime, screenOnTime,
+                    timeNow);
         }
     }
 
     /**
-     * Called by the Binder stub.
+     * @param beginIdleTime when the app was last used in device usage timebase
+     * @param lastUsedTime wallclock time of when the app was last used
+     * @param screenOnTime screen-on timebase time
+     * @param currentTime current time in device usage timebase
+     * @return whether it's been used far enough in the past to be considered inactive
      */
-    UsageEvents queryEvents(int userId, long beginTime, long endTime,
-            boolean shouldObfuscateInstantApps) {
-        synchronized (mLock) {
-            final long timeNow = checkAndGetTimeLocked();
-            if (!validRange(timeNow, beginTime, endTime)) {
-                return null;
-            }
+    boolean hasPassedIdleTimeoutLocked(long beginIdleTime, long lastUsedTime,
+            long screenOnTime, long currentTime) {
+        return (beginIdleTime <= screenOnTime - mAppIdleDurationMillis)
+                && (lastUsedTime <= currentTime - mAppIdleWallclockThresholdMillis);
+    }
 
-            final UserUsageStatsService service =
-                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
-            return service.queryEvents(beginTime, endTime, shouldObfuscateInstantApps);
+    void addListener(AppIdleStateChangeListener listener) {
+        synchronized (mLock) {
+            if (!mPackageAccessListeners.contains(listener)) {
+                mPackageAccessListeners.add(listener);
+            }
         }
     }
 
-    /**
-     * Called by the Binder stub.
-     */
-    UsageEvents queryEventsForPackage(int userId, long beginTime, long endTime,
-            String packageName) {
+    void removeListener(AppIdleStateChangeListener listener) {
         synchronized (mLock) {
-            final long timeNow = checkAndGetTimeLocked();
-            if (!validRange(timeNow, beginTime, endTime)) {
-                return null;
-            }
+            mPackageAccessListeners.remove(listener);
+        }
+    }
 
-            final UserUsageStatsService service =
-                    getUserDataAndInitializeIfNeededLocked(userId, timeNow);
-            return service.queryEventsForPackage(beginTime, endTime, packageName);
+    boolean isAppIdleFilteredOrParoled(String packageName, int userId, long timeNow) {
+        if (mAppIdleParoled) {
+            return false;
+        }
+        return isAppIdleFiltered(packageName, userId, timeNow);
+    }
+
+    boolean isAppIdleFiltered(String packageName, int userId, long timeNow) {
+        final UserUsageStatsService userService;
+        final long screenOnTime;
+        synchronized (mLock) {
+            if (timeNow == -1) {
+                timeNow = checkAndGetTimeLocked();
+            }
+            userService = getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            screenOnTime = getScreenOnTimeLocked(timeNow);
+        }
+        return isAppIdleFiltered(packageName, userId, userService, timeNow, screenOnTime);
+    }
+
+    /**
+     * Checks if an app has been idle for a while and filters out apps that are excluded.
+     * It returns false if the current system state allows all apps to be considered active.
+     * This happens if the device is plugged in or temporarily allowed to make exceptions.
+     * Called by interface impls.
+     */
+    private boolean isAppIdleFiltered(String packageName, int userId,
+            UserUsageStatsService userService, long timeNow, long screenOnTime) {
+        if (packageName == null) return false;
+        // If not enabled at all, of course nobody is ever idle.
+        if (!mAppIdleEnabled) {
+            return false;
+        }
+        if (packageName.equals("android")) return false;
+        try {
+            // We allow all whitelisted apps, including those that don't want to be whitelisted
+            // for idle mode, because app idle (aka app standby) is really not as big an issue
+            // for controlling who participates vs. doze mode.
+            if (mDeviceIdleController.isPowerSaveWhitelistExceptIdleApp(packageName)) {
+                return false;
+            }
+        } catch (RemoteException re) {
+        }
+        // TODO: Optimize this check
+        if (isActiveDeviceAdmin(packageName, userId)) {
+            return false;
+        }
+
+        if (isCarrierApp(packageName)) {
+            return false;
+        }
+
+        if (isActiveNetworkScorer(packageName)) {
+            return false;
+        }
+
+        if (mAppWidgetManager != null
+                && mAppWidgetManager.isBoundWidgetPackage(packageName, userId)) {
+            return false;
+        }
+
+        return isAppIdleUnfiltered(packageName, userService, timeNow, screenOnTime);
+    }
+
+    int[] getIdleUidsForUser(int userId) {
+        if (!mAppIdleEnabled) {
+            return new int[0];
+        }
+
+        final long timeNow;
+        final UserUsageStatsService userService;
+        final long screenOnTime;
+        synchronized (mLock) {
+            timeNow = checkAndGetTimeLocked();
+            userService = getUserDataAndInitializeIfNeededLocked(userId, timeNow);
+            screenOnTime = getScreenOnTimeLocked(timeNow);
+        }
+
+        List<ApplicationInfo> apps;
+        try {
+            ParceledListSlice<ApplicationInfo> slice
+                    = AppGlobals.getPackageManager().getInstalledApplications(0, userId);
+            apps = slice.getList();
+        } catch (RemoteException e) {
+            return new int[0];
+        }
+
+        // State of each uid.  Key is the uid.  Value lower 16 bits is the number of apps
+        // associated with that uid, upper 16 bits is the number of those apps that is idle.
+        SparseIntArray uidStates = new SparseIntArray();
+
+        // Now resolve all app state.  Iterating over all apps, keeping track of how many
+        // we find for each uid and how many of those are idle.
+        for (int i = apps.size()-1; i >= 0; i--) {
+            ApplicationInfo ai = apps.get(i);
+
+            // Check whether this app is idle.
+            boolean idle = isAppIdleFiltered(ai.packageName, userId, userService, timeNow,
+                    screenOnTime);
+
+            int index = uidStates.indexOfKey(ai.uid);
+            if (index < 0) {
+                uidStates.put(ai.uid, 1 + (idle ? 1<<16 : 0));
+            } else {
+                int value = uidStates.valueAt(index);
+                uidStates.setValueAt(index, value + 1 + (idle ? 1<<16 : 0));
+            }
+        }
+
+        int numIdle = 0;
+        for (int i = uidStates.size() - 1; i >= 0; i--) {
+            int value = uidStates.valueAt(i);
+            if ((value&0x7fff) == (value>>16)) {
+                numIdle++;
+            }
+        }
+
+        int[] res = new int[numIdle];
+        numIdle = 0;
+        for (int i = uidStates.size() - 1; i >= 0; i--) {
+            int value = uidStates.valueAt(i);
+            if ((value&0x7fff) == (value>>16)) {
+                res[numIdle] = uidStates.keyAt(i);
+                numIdle++;
+            }
+        }
+
+        return res;
+    }
+
+    void setAppIdle(String packageName, boolean idle, int userId) {
+        if (packageName == null) return;
+
+        mHandler.obtainMessage(MSG_FORCE_IDLE_STATE, userId, idle ? 1 : 0, packageName)
+                .sendToTarget();
+    }
+
+    private boolean isActiveDeviceAdmin(String packageName, int userId) {
+        DevicePolicyManager dpm = getContext().getSystemService(DevicePolicyManager.class);
+        if (dpm == null) return false;
+        List<ComponentName> components = dpm.getActiveAdminsAsUser(userId);
+        if (components == null) return false;
+        final int size = components.size();
+        for (int i = 0; i < size; i++) {
+            if (components.get(i).getPackageName().equals(packageName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isCarrierApp(String packageName) {
+        TelephonyManager telephonyManager = getContext().getSystemService(TelephonyManager.class);
+        return telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(packageName)
+                    == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+    }
+
+    private boolean isActiveNetworkScorer(String packageName) {
+        NetworkScoreManager nsm = (NetworkScoreManager) getContext().getSystemService(
+                Context.NETWORK_SCORE_SERVICE);
+        return packageName != null && packageName.equals(nsm.getActiveScorerPackage());
+    }
+
+    void informListeners(String packageName, int userId, boolean isIdle) {
+        for (AppIdleStateChangeListener listener : mPackageAccessListeners) {
+            listener.onAppIdleStateChanged(packageName, userId, isIdle);
+        }
+    }
+
+    void informParoleStateChanged() {
+        for (AppIdleStateChangeListener listener : mPackageAccessListeners) {
+            listener.onParoleStateChanged(mAppIdleParoled);
         }
     }
 
@@ -555,9 +950,7 @@ public class UsageStatsService extends SystemService implements
         for (int i = 0; i < userCount; i++) {
             UserUsageStatsService service = mUserState.valueAt(i);
             service.persistActiveStats();
-            mAppStandby.flushToDisk(mUserState.keyAt(i));
         }
-        mAppStandby.flushDurationsToDisk();
 
         mHandler.removeMessages(MSG_FLUSH_TO_DISK);
     }
@@ -567,57 +960,64 @@ public class UsageStatsService extends SystemService implements
      */
     void dump(String[] args, PrintWriter pw) {
         synchronized (mLock) {
+            final long screenOnTime = getScreenOnTimeLocked(checkAndGetTimeLocked());
             IndentingPrintWriter idpw = new IndentingPrintWriter(pw, "  ");
-
-            boolean checkin = false;
-            boolean compact = false;
-            String pkg = null;
-
-            if (args != null) {
-                for (int i = 0; i < args.length; i++) {
-                    String arg = args[i];
-                    if ("--checkin".equals(arg)) {
-                        checkin = true;
-                    } else
-                    if ("-c".equals(arg)) {
-                        compact = true;
-                    } else if ("flush".equals(arg)) {
-                        flushToDiskLocked();
-                        pw.println("Flushed stats to disk");
-                        return;
-                    } else if ("is-app-standby-enabled".equals(arg)) {
-                        pw.println(mAppStandby.mAppIdleEnabled);
-                        return;
-                    } else if (arg != null && !arg.startsWith("-")) {
-                        // Anything else that doesn't start with '-' is a pkg to filter
-                        pkg = arg;
-                        break;
-                    }
-                }
-            }
+            ArraySet<String> argSet = new ArraySet<>();
+            argSet.addAll(Arrays.asList(args));
 
             final int userCount = mUserState.size();
             for (int i = 0; i < userCount; i++) {
-                int userId = mUserState.keyAt(i);
-                idpw.printPair("user", userId);
+                idpw.printPair("user", mUserState.keyAt(i));
                 idpw.println();
                 idpw.increaseIndent();
-                if (checkin) {
-                    mUserState.valueAt(i).checkin(idpw);
+                if (argSet.contains("--checkin")) {
+                    mUserState.valueAt(i).checkin(idpw, screenOnTime);
                 } else {
-                    mUserState.valueAt(i).dump(idpw, pkg, compact);
+                    mUserState.valueAt(i).dump(idpw, screenOnTime);
                     idpw.println();
+                    if (args.length > 0 && "history".equals(args[0])) {
+                        mAppIdleHistory.dump(idpw, mUserState.keyAt(i));
+                    }
                 }
-                mAppStandby.dumpUser(idpw, userId, pkg);
                 idpw.decreaseIndent();
             }
+            pw.println("Screen On Timebase:" + mScreenOnTime);
 
-            if (pkg == null) {
-                pw.println();
-                mAppStandby.dumpState(args, pw);
-            }
+            pw.println();
+            pw.println("Settings:");
 
-            mAppTimeLimit.dump(pw);
+            pw.print("  mAppIdleDurationMillis=");
+            TimeUtils.formatDuration(mAppIdleDurationMillis, pw);
+            pw.println();
+
+            pw.print("  mAppIdleWallclockThresholdMillis=");
+            TimeUtils.formatDuration(mAppIdleWallclockThresholdMillis, pw);
+            pw.println();
+
+            pw.print("  mCheckIdleIntervalMillis=");
+            TimeUtils.formatDuration(mCheckIdleIntervalMillis, pw);
+            pw.println();
+
+            pw.print("  mAppIdleParoleIntervalMillis=");
+            TimeUtils.formatDuration(mAppIdleParoleIntervalMillis, pw);
+            pw.println();
+
+            pw.print("  mAppIdleParoleDurationMillis=");
+            TimeUtils.formatDuration(mAppIdleParoleDurationMillis, pw);
+            pw.println();
+
+            pw.println();
+            pw.print("mAppIdleEnabled="); pw.print(mAppIdleEnabled);
+            pw.print(" mAppIdleParoled="); pw.print(mAppIdleParoled);
+            pw.print(" mScreenOn="); pw.println(mScreenOn);
+            pw.print("mLastAppIdleParoledTime=");
+            TimeUtils.formatDuration(mLastAppIdleParoledTime, pw);
+            pw.println();
+            pw.print("mScreenOnTime="); TimeUtils.formatDuration(mScreenOnTime, pw);
+            pw.println();
+            pw.print("mScreenOnSystemTimeSnapshot=");
+            TimeUtils.formatDuration(mScreenOnSystemTimeSnapshot, pw);
+            pw.println();
         }
     }
 
@@ -638,31 +1038,104 @@ public class UsageStatsService extends SystemService implements
                     break;
 
                 case MSG_REMOVE_USER:
-                    onUserRemoved(msg.arg1);
+                    removeUser(msg.arg1);
                     break;
 
-                case MSG_UID_STATE_CHANGED: {
-                    final int uid = msg.arg1;
-                    final int procState = msg.arg2;
-
-                    final int newCounter = (procState <= ActivityManager.PROCESS_STATE_TOP) ? 0 : 1;
-                    synchronized (mUidToKernelCounter) {
-                        final int oldCounter = mUidToKernelCounter.get(uid, 0);
-                        if (newCounter != oldCounter) {
-                            mUidToKernelCounter.put(uid, newCounter);
-                            try {
-                                FileUtils.stringToFile(KERNEL_COUNTER_FILE, uid + " " + newCounter);
-                            } catch (IOException e) {
-                                Slog.w(TAG, "Failed to update counter set: " + e);
-                            }
-                        }
-                    }
+                case MSG_INFORM_LISTENERS:
+                    informListeners((String) msg.obj, msg.arg1, msg.arg2 == 1);
                     break;
-                }
+
+                case MSG_FORCE_IDLE_STATE:
+                    forceIdleState((String) msg.obj, msg.arg1, msg.arg2 == 1);
+                    break;
+
+                case MSG_CHECK_IDLE_STATES:
+                    checkIdleStates(msg.arg1);
+                    break;
+
+                case MSG_CHECK_PAROLE_TIMEOUT:
+                    checkParoleTimeout();
+                    break;
+
+                case MSG_PAROLE_END_TIMEOUT:
+                    if (DEBUG) Slog.d(TAG, "Ending parole");
+                    setAppIdleParoled(false);
+                    break;
+
+                case MSG_REPORT_CONTENT_PROVIDER_USAGE:
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    reportContentProviderUsage((String) args.arg1, // authority name
+                            (String) args.arg2, // package name
+                            (int) args.arg3); // userId
+                    args.recycle();
+                    break;
+
+                case MSG_PAROLE_STATE_CHANGED:
+                    if (DEBUG) Slog.d(TAG, "Parole state changed: " + mAppIdleParoled);
+                    informParoleStateChanged();
+                    break;
 
                 default:
                     super.handleMessage(msg);
                     break;
+            }
+        }
+    }
+
+    /**
+     * Observe settings changes for {@link Settings.Global#APP_IDLE_CONSTANTS}.
+     */
+    private class SettingsObserver extends ContentObserver {
+        private static final String KEY_IDLE_DURATION = "idle_duration";
+        private static final String KEY_WALLCLOCK_THRESHOLD = "wallclock_threshold";
+        private static final String KEY_PAROLE_INTERVAL = "parole_interval";
+        private static final String KEY_PAROLE_DURATION = "parole_duration";
+
+        private final KeyValueListParser mParser = new KeyValueListParser(',');
+
+        SettingsObserver(Handler handler) {
+            super(handler);
+        }
+
+        void registerObserver() {
+            getContext().getContentResolver().registerContentObserver(Settings.Global.getUriFor(
+                    Settings.Global.APP_IDLE_CONSTANTS), false, this);
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            updateSettings();
+            postCheckIdleStates(UserHandle.USER_ALL);
+        }
+
+        void updateSettings() {
+            synchronized (mLock) {
+                // Look at global settings for this.
+                // TODO: Maybe apply different thresholds for different users.
+                try {
+                    mParser.setString(Settings.Global.getString(getContext().getContentResolver(),
+                            Settings.Global.APP_IDLE_CONSTANTS));
+                } catch (IllegalArgumentException e) {
+                    Slog.e(TAG, "Bad value for app idle settings: " + e.getMessage());
+                    // fallthrough, mParser is empty and all defaults will be returned.
+                }
+
+                // Default: 12 hours of screen-on time sans dream-time
+                mAppIdleDurationMillis = mParser.getLong(KEY_IDLE_DURATION,
+                       COMPRESS_TIME ? ONE_MINUTE * 4 : 12 * 60 * ONE_MINUTE);
+
+                mAppIdleWallclockThresholdMillis = mParser.getLong(KEY_WALLCLOCK_THRESHOLD,
+                        COMPRESS_TIME ? ONE_MINUTE * 8 : 2L * 24 * 60 * ONE_MINUTE); // 2 days
+
+                mCheckIdleIntervalMillis = Math.min(mAppIdleDurationMillis / 4,
+                        COMPRESS_TIME ? ONE_MINUTE : 8 * 60 * ONE_MINUTE); // 8 hours
+
+                // Default: 24 hours between paroles
+                mAppIdleParoleIntervalMillis = mParser.getLong(KEY_PAROLE_INTERVAL,
+                        COMPRESS_TIME ? ONE_MINUTE * 10 : 24 * 60 * ONE_MINUTE);
+
+                mAppIdleParoleDurationMillis = mParser.getLong(KEY_PAROLE_DURATION,
+                        COMPRESS_TIME ? ONE_MINUTE : 10 * ONE_MINUTE); // 10 minutes
             }
         }
     }
@@ -674,7 +1147,7 @@ public class UsageStatsService extends SystemService implements
             if (callingUid == Process.SYSTEM_UID) {
                 return true;
             }
-            final int mode = mAppOps.noteOp(AppOpsManager.OP_GET_USAGE_STATS,
+            final int mode = mAppOps.checkOp(AppOpsManager.OP_GET_USAGE_STATS,
                     callingUid, callingPackage);
             if (mode == AppOpsManager.MODE_DEFAULT) {
                 // The default behavior here is to check if PackageManager has given the app
@@ -685,43 +1158,6 @@ public class UsageStatsService extends SystemService implements
             return mode == AppOpsManager.MODE_ALLOWED;
         }
 
-        private boolean hasObserverPermission(String callingPackage) {
-            final int callingUid = Binder.getCallingUid();
-            DevicePolicyManagerInternal dpmInternal = getDpmInternal();
-            if (callingUid == Process.SYSTEM_UID
-                    || (dpmInternal != null
-                        && dpmInternal.isActiveAdminWithPolicy(callingUid,
-                            DeviceAdminInfo.USES_POLICY_PROFILE_OWNER))) {
-                // Caller is the system or the profile owner, so proceed.
-                return true;
-            }
-            return getContext().checkCallingPermission(Manifest.permission.OBSERVE_APP_USAGE)
-                    == PackageManager.PERMISSION_GRANTED;
-        }
-
-        private void checkCallerIsSystemOrSameApp(String pkg) {
-            if (isCallingUidSystem()) {
-                return;
-            }
-            checkCallerIsSameApp(pkg);
-        }
-
-        private void checkCallerIsSameApp(String pkg) {
-            final int callingUid = Binder.getCallingUid();
-            final int callingUserId = UserHandle.getUserId(callingUid);
-
-            if (mPackageManagerInternal.getPackageUid(pkg, /*flags=*/ 0,
-                    callingUserId) != callingUid) {
-                throw new SecurityException("Calling uid " + pkg + " cannot query events"
-                        + "for package " + pkg);
-            }
-        }
-
-        private boolean isCallingUidSystem() {
-            final int uid = Binder.getCallingUid();
-            return uid == Process.SYSTEM_UID;
-        }
-
         @Override
         public ParceledListSlice<UsageStats> queryUsageStats(int bucketType, long beginTime,
                 long endTime, String callingPackage) {
@@ -729,14 +1165,11 @@ public class UsageStatsService extends SystemService implements
                 return null;
             }
 
-            final boolean obfuscateInstantApps = shouldObfuscateInstantAppsForCaller(
-                    Binder.getCallingUid(), UserHandle.getCallingUserId());
-
             final int userId = UserHandle.getCallingUserId();
             final long token = Binder.clearCallingIdentity();
             try {
                 final List<UsageStats> results = UsageStatsService.this.queryUsageStats(
-                        userId, bucketType, beginTime, endTime, obfuscateInstantApps);
+                        userId, bucketType, beginTime, endTime);
                 if (results != null) {
                     return new ParceledListSlice<>(results);
                 }
@@ -769,104 +1202,15 @@ public class UsageStatsService extends SystemService implements
         }
 
         @Override
-        public ParceledListSlice<EventStats> queryEventStats(int bucketType,
-                long beginTime, long endTime, String callingPackage) throws RemoteException {
-            if (!hasPermission(callingPackage)) {
-                return null;
-            }
-
-            final int userId = UserHandle.getCallingUserId();
-            final long token = Binder.clearCallingIdentity();
-            try {
-                final List<EventStats> results =
-                        UsageStatsService.this.queryEventStats(userId, bucketType,
-                                beginTime, endTime);
-                if (results != null) {
-                    return new ParceledListSlice<>(results);
-                }
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-            return null;
-        }
-
-        @Override
         public UsageEvents queryEvents(long beginTime, long endTime, String callingPackage) {
             if (!hasPermission(callingPackage)) {
                 return null;
             }
 
-            final boolean obfuscateInstantApps = shouldObfuscateInstantAppsForCaller(
-                    Binder.getCallingUid(), UserHandle.getCallingUserId());
-
             final int userId = UserHandle.getCallingUserId();
             final long token = Binder.clearCallingIdentity();
             try {
-                return UsageStatsService.this.queryEvents(userId, beginTime, endTime,
-                        obfuscateInstantApps);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public UsageEvents queryEventsForPackage(long beginTime, long endTime,
-                String callingPackage) {
-            final int callingUid = Binder.getCallingUid();
-            final int callingUserId = UserHandle.getUserId(callingUid);
-
-            checkCallerIsSameApp(callingPackage);
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return UsageStatsService.this.queryEventsForPackage(callingUserId, beginTime,
-                        endTime, callingPackage);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public UsageEvents queryEventsForUser(long beginTime, long endTime, int userId,
-                String callingPackage) {
-            if (!hasPermission(callingPackage)) {
-                return null;
-            }
-
-            if (userId != UserHandle.getCallingUserId()) {
-                getContext().enforceCallingPermission(
-                        Manifest.permission.INTERACT_ACROSS_USERS_FULL,
-                        "No permission to query usage stats for this user");
-            }
-
-            final boolean obfuscateInstantApps = shouldObfuscateInstantAppsForCaller(
-                    Binder.getCallingUid(), UserHandle.getCallingUserId());
-
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return UsageStatsService.this.queryEvents(userId, beginTime, endTime,
-                        obfuscateInstantApps);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public UsageEvents queryEventsForPackageForUser(long beginTime, long endTime,
-                int userId, String pkg, String callingPackage) {
-            if (!hasPermission(callingPackage)) {
-                return null;
-            }
-            if (userId != UserHandle.getCallingUserId()) {
-                getContext().enforceCallingPermission(
-                        Manifest.permission.INTERACT_ACROSS_USERS_FULL,
-                        "No permission to query usage stats for this user");
-            }
-            checkCallerIsSystemOrSameApp(pkg);
-
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return UsageStatsService.this.queryEventsForPackage(userId, beginTime,
-                        endTime, callingPackage);
+                return UsageStatsService.this.queryEvents(userId, beginTime, endTime);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -875,18 +1219,14 @@ public class UsageStatsService extends SystemService implements
         @Override
         public boolean isAppInactive(String packageName, int userId) {
             try {
-                userId = ActivityManager.getService().handleIncomingUser(Binder.getCallingPid(),
-                        Binder.getCallingUid(), userId, false, false, "isAppInactive", null);
+                userId = ActivityManagerNative.getDefault().handleIncomingUser(Binder.getCallingPid(),
+                        Binder.getCallingUid(), userId, false, true, "isAppInactive", null);
             } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
+                return false;
             }
-            final boolean obfuscateInstantApps = shouldObfuscateInstantAppsForCaller(
-                    Binder.getCallingUid(), userId);
             final long token = Binder.clearCallingIdentity();
             try {
-                return mAppStandby.isAppIdleFilteredOrParoled(
-                        packageName, userId,
-                        SystemClock.elapsedRealtime(), obfuscateInstantApps);
+                return UsageStatsService.this.isAppIdleFilteredOrParoled(packageName, userId, -1);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -896,163 +1236,21 @@ public class UsageStatsService extends SystemService implements
         public void setAppInactive(String packageName, boolean idle, int userId) {
             final int callingUid = Binder.getCallingUid();
             try {
-                userId = ActivityManager.getService().handleIncomingUser(
+                userId = ActivityManagerNative.getDefault().handleIncomingUser(
                         Binder.getCallingPid(), callingUid, userId, false, true,
-                        "setAppInactive", null);
+                        "setAppIdle", null);
             } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
+                return;
             }
             getContext().enforceCallingPermission(Manifest.permission.CHANGE_APP_IDLE_STATE,
                     "No permission to change app idle state");
             final long token = Binder.clearCallingIdentity();
             try {
-                final int appId = mAppStandby.getAppId(packageName);
-                if (appId < 0) return;
-                mAppStandby.setAppIdleAsync(packageName, idle, userId);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public int getAppStandbyBucket(String packageName, String callingPackage, int userId) {
-            final int callingUid = Binder.getCallingUid();
-            try {
-                userId = ActivityManager.getService().handleIncomingUser(
-                        Binder.getCallingPid(), callingUid, userId, false, false,
-                        "getAppStandbyBucket", null);
+                PackageInfo pi = AppGlobals.getPackageManager()
+                        .getPackageInfo(packageName, 0, userId);
+                if (pi == null) return;
+                UsageStatsService.this.setAppIdle(packageName, idle, userId);
             } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
-            }
-            final int packageUid = mPackageManagerInternal.getPackageUid(packageName, 0, userId);
-            // If the calling app is asking about itself, continue, else check for permission.
-            if (packageUid != callingUid) {
-                if (!hasPermission(callingPackage)) {
-                    throw new SecurityException(
-                            "Don't have permission to query app standby bucket");
-                }
-            }
-            if (packageUid < 0) {
-                throw new IllegalArgumentException(
-                        "Cannot get standby bucket for non existent package (" + packageName + ")");
-            }
-            final boolean obfuscateInstantApps = shouldObfuscateInstantAppsForCaller(callingUid,
-                    userId);
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return mAppStandby.getAppStandbyBucket(packageName, userId,
-                        SystemClock.elapsedRealtime(), obfuscateInstantApps);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public void setAppStandbyBucket(String packageName,
-                int bucket, int userId) {
-            getContext().enforceCallingPermission(Manifest.permission.CHANGE_APP_IDLE_STATE,
-                    "No permission to change app standby state");
-
-            if (bucket < UsageStatsManager.STANDBY_BUCKET_ACTIVE
-                    || bucket > UsageStatsManager.STANDBY_BUCKET_NEVER) {
-                throw new IllegalArgumentException("Cannot set the standby bucket to " + bucket);
-            }
-            final int callingUid = Binder.getCallingUid();
-            try {
-                userId = ActivityManager.getService().handleIncomingUser(
-                        Binder.getCallingPid(), callingUid, userId, false, true,
-                        "setAppStandbyBucket", null);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
-            }
-            final boolean shellCaller = callingUid == 0 || callingUid == Process.SHELL_UID;
-            final boolean systemCaller = UserHandle.isCore(callingUid);
-            final int reason = systemCaller
-                    ? UsageStatsManager.REASON_MAIN_FORCED
-                    : UsageStatsManager.REASON_MAIN_PREDICTED;
-            final long token = Binder.clearCallingIdentity();
-            try {
-                final int packageUid = mPackageManagerInternal.getPackageUid(packageName,
-                        PackageManager.MATCH_ANY_USER, userId);
-                // Caller cannot set their own standby state
-                if (packageUid == callingUid) {
-                    throw new IllegalArgumentException("Cannot set your own standby bucket");
-                }
-                if (packageUid < 0) {
-                    throw new IllegalArgumentException(
-                            "Cannot set standby bucket for non existent package (" + packageName
-                                    + ")");
-                }
-                mAppStandby.setAppStandbyBucket(packageName, userId, bucket, reason,
-                        SystemClock.elapsedRealtime(), shellCaller);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public ParceledListSlice<AppStandbyInfo> getAppStandbyBuckets(String callingPackageName,
-                int userId) {
-            final int callingUid = Binder.getCallingUid();
-            try {
-                userId = ActivityManager.getService().handleIncomingUser(
-                        Binder.getCallingPid(), callingUid, userId, false, false,
-                        "getAppStandbyBucket", null);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
-            }
-            if (!hasPermission(callingPackageName)) {
-                throw new SecurityException(
-                        "Don't have permission to query app standby bucket");
-            }
-            final long token = Binder.clearCallingIdentity();
-            try {
-                final List<AppStandbyInfo> standbyBucketList =
-                        mAppStandby.getAppStandbyBuckets(userId);
-                return (standbyBucketList == null) ? ParceledListSlice.emptyList()
-                        : new ParceledListSlice<>(standbyBucketList);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public void setAppStandbyBuckets(ParceledListSlice appBuckets, int userId) {
-            getContext().enforceCallingPermission(Manifest.permission.CHANGE_APP_IDLE_STATE,
-                    "No permission to change app standby state");
-
-            final int callingUid = Binder.getCallingUid();
-            try {
-                userId = ActivityManager.getService().handleIncomingUser(
-                        Binder.getCallingPid(), callingUid, userId, false, true,
-                        "setAppStandbyBucket", null);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
-            }
-            final boolean shellCaller = callingUid == 0 || callingUid == Process.SHELL_UID;
-            final int reason = shellCaller
-                    ? UsageStatsManager.REASON_MAIN_FORCED
-                    : UsageStatsManager.REASON_MAIN_PREDICTED;
-            final long token = Binder.clearCallingIdentity();
-            try {
-                final long elapsedRealtime = SystemClock.elapsedRealtime();
-                List<AppStandbyInfo> bucketList = appBuckets.getList();
-                for (AppStandbyInfo bucketInfo : bucketList) {
-                    final String packageName = bucketInfo.mPackageName;
-                    final int bucket = bucketInfo.mStandbyBucket;
-                    if (bucket < UsageStatsManager.STANDBY_BUCKET_ACTIVE
-                            || bucket > UsageStatsManager.STANDBY_BUCKET_NEVER) {
-                        throw new IllegalArgumentException(
-                                "Cannot set the standby bucket to " + bucket);
-                    }
-                    // Caller cannot set their own standby state
-                    if (mPackageManagerInternal.getPackageUid(packageName,
-                            PackageManager.MATCH_ANY_USER, userId) == callingUid) {
-                        throw new IllegalArgumentException("Cannot set your own standby bucket");
-                    }
-                    mAppStandby.setAppStandbyBucket(packageName, userId, bucket, reason,
-                            elapsedRealtime, shellCaller);
-                }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -1069,97 +1267,16 @@ public class UsageStatsService extends SystemService implements
         }
 
         @Override
-        public void onCarrierPrivilegedAppsChanged() {
-            if (DEBUG) {
-                Slog.i(TAG, "Carrier privileged apps changed");
-            }
-            getContext().enforceCallingOrSelfPermission(
-                    android.Manifest.permission.BIND_CARRIER_SERVICES,
-                    "onCarrierPrivilegedAppsChanged can only be called by privileged apps.");
-            mAppStandby.clearCarrierPrivilegedApps();
-        }
-
-        @Override
         protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (!DumpUtils.checkDumpAndUsageStatsPermission(getContext(), TAG, pw)) return;
-            UsageStatsService.this.dump(args, pw);
-        }
-
-        @Override
-        public void reportChooserSelection(String packageName, int userId, String contentType,
-                                           String[] annotations, String action) {
-            if (packageName == null) {
-                Slog.w(TAG, "Event report user selecting a null package");
+            if (getContext().checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
+                    != PackageManager.PERMISSION_GRANTED) {
+                pw.println("Permission Denial: can't dump UsageStats from pid="
+                        + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid()
+                        + " without permission " + android.Manifest.permission.DUMP);
                 return;
             }
-
-            UsageEvents.Event event = new UsageEvents.Event();
-            event.mPackage = packageName;
-
-            // This will later be converted to system time.
-            event.mTimeStamp = SystemClock.elapsedRealtime();
-
-            event.mEventType = Event.CHOOSER_ACTION;
-
-            event.mAction = action;
-
-            event.mContentType = contentType;
-
-            event.mContentAnnotations = annotations;
-
-            mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
+            UsageStatsService.this.dump(args, pw);
         }
-
-        @Override
-        public void registerAppUsageObserver(int observerId,
-                String[] packages, long timeLimitMs, PendingIntent
-                callbackIntent, String callingPackage) {
-            if (!hasObserverPermission(callingPackage)) {
-                throw new SecurityException("Caller doesn't have OBSERVE_APP_USAGE permission");
-            }
-
-            if (packages == null || packages.length == 0) {
-                throw new IllegalArgumentException("Must specify at least one package");
-            }
-            if (callbackIntent == null) {
-                throw new NullPointerException("callbackIntent can't be null");
-            }
-            final int callingUid = Binder.getCallingUid();
-            final int userId = UserHandle.getUserId(callingUid);
-            final long token = Binder.clearCallingIdentity();
-            try {
-                UsageStatsService.this.registerAppUsageObserver(callingUid, observerId,
-                        packages, timeLimitMs, callbackIntent, userId);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override
-        public void unregisterAppUsageObserver(int observerId, String callingPackage) {
-            if (!hasObserverPermission(callingPackage)) {
-                throw new SecurityException("Caller doesn't have OBSERVE_APP_USAGE permission");
-            }
-
-            final int callingUid = Binder.getCallingUid();
-            final int userId = UserHandle.getUserId(callingUid);
-            final long token = Binder.clearCallingIdentity();
-            try {
-                UsageStatsService.this.unregisterAppUsageObserver(callingUid, observerId, userId);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-    }
-
-    void registerAppUsageObserver(int callingUid, int observerId, String[] packages,
-            long timeLimitMs, PendingIntent callbackIntent, int userId) {
-        mAppTimeLimit.addObserver(callingUid, observerId, packages, timeLimitMs, callbackIntent,
-                userId);
-    }
-
-    void unregisterAppUsageObserver(int callingUid, int observerId, int userId) {
-        mAppTimeLimit.removeObserver(callingUid, observerId, userId);
     }
 
     /**
@@ -1223,67 +1340,28 @@ public class UsageStatsService extends SystemService implements
         }
 
         @Override
-        public void reportInterruptiveNotification(String packageName, String channelId,
-                int userId) {
-            if (packageName == null || channelId == null) {
-                Slog.w(TAG, "Event reported without a package name or a channel ID");
-                return;
-            }
-
-            UsageEvents.Event event = new UsageEvents.Event();
-            event.mPackage = packageName.intern();
-            event.mNotificationChannelId = channelId.intern();
-
-            // This will later be converted to system time.
-            event.mTimeStamp = SystemClock.elapsedRealtime();
-
-            event.mEventType = Event.NOTIFICATION_INTERRUPTION;
-            mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
-        }
-
-        @Override
-        public void reportShortcutUsage(String packageName, String shortcutId, int userId) {
-            if (packageName == null || shortcutId == null) {
-                Slog.w(TAG, "Event reported without a package name or a shortcut ID");
-                return;
-            }
-
-            UsageEvents.Event event = new UsageEvents.Event();
-            event.mPackage = packageName.intern();
-            event.mShortcutId = shortcutId.intern();
-
-            // This will later be converted to system time.
-            event.mTimeStamp = SystemClock.elapsedRealtime();
-
-            event.mEventType = Event.SHORTCUT_INVOCATION;
-            mHandler.obtainMessage(MSG_REPORT_EVENT, userId, 0, event).sendToTarget();
-        }
-
-        @Override
         public void reportContentProviderUsage(String name, String packageName, int userId) {
-            mAppStandby.postReportContentProviderUsage(name, packageName, userId);
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = name;
+            args.arg2 = packageName;
+            args.arg3 = userId;
+            mHandler.obtainMessage(MSG_REPORT_CONTENT_PROVIDER_USAGE, args)
+                    .sendToTarget();
         }
 
         @Override
-        public boolean isAppIdle(String packageName, int uidForAppId, int userId) {
-            return mAppStandby.isAppIdleFiltered(packageName, uidForAppId,
-                    userId, SystemClock.elapsedRealtime());
-        }
-
-        @Override
-        @StandbyBuckets public int getAppStandbyBucket(String packageName, int userId,
-                long nowElapsed) {
-            return mAppStandby.getAppStandbyBucket(packageName, userId, nowElapsed, false);
+        public boolean isAppIdle(String packageName, int userId) {
+            return UsageStatsService.this.isAppIdleFiltered(packageName, userId, -1);
         }
 
         @Override
         public int[] getIdleUidsForUser(int userId) {
-            return mAppStandby.getIdleUidsForUser(userId);
+            return UsageStatsService.this.getIdleUidsForUser(userId);
         }
 
         @Override
         public boolean isAppIdleParoleOn() {
-            return mAppStandby.isParoledOrCharging();
+            return mAppIdleParoled;
         }
 
         @Override
@@ -1296,87 +1374,14 @@ public class UsageStatsService extends SystemService implements
 
         @Override
         public void addAppIdleStateChangeListener(AppIdleStateChangeListener listener) {
-            mAppStandby.addListener(listener);
+            UsageStatsService.this.addListener(listener);
             listener.onParoleStateChanged(isAppIdleParoleOn());
         }
 
         @Override
         public void removeAppIdleStateChangeListener(
                 AppIdleStateChangeListener listener) {
-            mAppStandby.removeListener(listener);
-        }
-
-        @Override
-        public byte[] getBackupPayload(int user, String key) {
-            // Check to ensure that only user 0's data is b/r for now
-            synchronized (mLock) {
-                if (user == UserHandle.USER_SYSTEM) {
-                    final UserUsageStatsService userStats =
-                            getUserDataAndInitializeIfNeededLocked(user, checkAndGetTimeLocked());
-                    return userStats.getBackupPayload(key);
-                } else {
-                    return null;
-                }
-            }
-        }
-
-        @Override
-        public void applyRestoredPayload(int user, String key, byte[] payload) {
-            synchronized (mLock) {
-                if (user == UserHandle.USER_SYSTEM) {
-                    final UserUsageStatsService userStats =
-                            getUserDataAndInitializeIfNeededLocked(user, checkAndGetTimeLocked());
-                    userStats.applyRestoredPayload(key, payload);
-                }
-            }
-        }
-
-        @Override
-        public List<UsageStats> queryUsageStatsForUser(
-                int userId, int intervalType, long beginTime, long endTime,
-                boolean obfuscateInstantApps) {
-            return UsageStatsService.this.queryUsageStats(
-                    userId, intervalType, beginTime, endTime, obfuscateInstantApps);
-        }
-
-        @Override
-        public void setLastJobRunTime(String packageName, int userId, long elapsedRealtime) {
-            mAppStandby.setLastJobRunTime(packageName, userId, elapsedRealtime);
-        }
-
-        @Override
-        public long getTimeSinceLastJobRun(String packageName, int userId) {
-            return mAppStandby.getTimeSinceLastJobRun(packageName, userId);
-        }
-
-        @Override
-        public void reportAppJobState(String packageName, int userId,
-                int numDeferredJobs, long timeSinceLastJobRun) {
-        }
-
-        @Override
-        public void onActiveAdminAdded(String packageName, int userId) {
-            mAppStandby.addActiveDeviceAdmin(packageName, userId);
-        }
-
-        @Override
-        public void setActiveAdminApps(Set<String> packageNames, int userId) {
-            mAppStandby.setActiveAdminApps(packageNames, userId);
-        }
-
-        @Override
-        public void onAdminDataAvailable() {
-            mAppStandby.onAdminDataAvailable();
-        }
-
-        @Override
-        public void reportExemptedSyncScheduled(String packageName, int userId) {
-            mAppStandby.postReportExemptedSyncScheduled(packageName, userId);
-        }
-
-        @Override
-        public void reportExemptedSyncStart(String packageName, int userId) {
-            mAppStandby.postReportExemptedSyncStart(packageName, userId);
+            UsageStatsService.this.removeListener(listener);
         }
     }
 }

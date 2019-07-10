@@ -21,12 +21,10 @@ import static com.android.shell.BugreportPrefs.STATE_SHOW;
 import static com.android.shell.BugreportPrefs.STATE_UNKNOWN;
 import static com.android.shell.BugreportPrefs.getWarningState;
 import static com.android.shell.BugreportPrefs.setWarningState;
-import static com.android.shell.BugreportProgressService.sendShareIntent;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.widget.CheckBox;
@@ -61,15 +59,7 @@ public class BugreportWarningActivity extends AlertActivity
         ap.mNegativeButtonListener = this;
 
         mConfirmRepeat = (CheckBox) ap.mView.findViewById(android.R.id.checkbox);
-
-        final int state = getWarningState(this, STATE_UNKNOWN);
-        final boolean checked;
-        if (Build.IS_USER) {
-            checked = state == STATE_HIDE; // Only checks if specifically set to.
-        } else {
-            checked = state != STATE_SHOW; // Checks by default.
-        }
-        mConfirmRepeat.setChecked(checked);
+        mConfirmRepeat.setChecked(getWarningState(this, STATE_UNKNOWN) == STATE_SHOW);
 
         setupAlert();
     }
@@ -78,8 +68,8 @@ public class BugreportWarningActivity extends AlertActivity
     public void onClick(DialogInterface dialog, int which) {
         if (which == AlertDialog.BUTTON_POSITIVE) {
             // Remember confirm state, and launch target
-            setWarningState(this, mConfirmRepeat.isChecked() ? STATE_HIDE : STATE_SHOW);
-            sendShareIntent(this, mSendIntent);
+            setWarningState(this, mConfirmRepeat.isChecked() ? STATE_SHOW : STATE_HIDE);
+            startActivity(mSendIntent);
         }
 
         finish();

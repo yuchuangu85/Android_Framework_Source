@@ -16,9 +16,11 @@
 
 package benchmarks.regression;
 
+import java.nio.charset.Charset;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class CharsetBenchmark {
+public class CharsetBenchmark extends SimpleBenchmark {
     @Param({ "1", "10", "100", "1000", "10000" })
     private int length;
 

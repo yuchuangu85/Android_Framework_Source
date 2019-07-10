@@ -78,24 +78,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
          *
          * @hide
          */
-        public Key(String name, Class<T> type, long vendorId) {
-            mKey = new CameraMetadataNative.Key<T>(name, type, vendorId);
-        }
-
-        /**
-         * Visible for testing and vendor extensions only.
-         *
-         * @hide
-         */
-        public Key(String name, String fallbackName, Class<T> type) {
-            mKey = new CameraMetadataNative.Key<T>(name, fallbackName, type);
-        }
-
-       /**
-         * Visible for testing and vendor extensions only.
-         *
-         * @hide
-         */
         public Key(String name, Class<T> type) {
             mKey = new CameraMetadataNative.Key<T>(name, type);
         }
@@ -125,15 +107,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
         @NonNull
         public String getName() {
             return mKey.getName();
-        }
-
-        /**
-         * Return vendor tag id.
-         *
-         * @hide
-         */
-        public long getVendorId() {
-            return mKey.getVendorId();
         }
 
         /**
@@ -213,7 +186,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
         if (mResults.isEmpty()) {
             throw new AssertionError("Results must not be empty");
         }
-        setNativeInstance(mResults);
         mRequest = parent;
         mSequenceId = extras.getRequestId();
         mFrameNumber = extras.getFrameNumber();
@@ -243,7 +215,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
             throw new AssertionError("Results must not be empty");
         }
 
-        setNativeInstance(mResults);
         mRequest = null;
         mSequenceId = sequenceId;
         mFrameNumber = -1;
@@ -399,7 +370,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * FAST or HIGH_QUALITY will yield a picture with the same white point
      * as what was produced by the camera device in the earlier frame.</p>
      * <p>The expected processing pipeline is as follows:</p>
-     * <p><img alt="White balance processing pipeline" src="/reference/images/camera2/metadata/android.colorCorrection.mode/processing_pipeline.png" /></p>
+     * <p><img alt="White balance processing pipeline" src="../../../../images/camera2/metadata/android.colorCorrection.mode/processing_pipeline.png" /></p>
      * <p>The white balance is encoded by two values, a 4-channel white-balance
      * gain vector (applied in the Bayer domain), and a 3x3 color transform
      * matrix (applied after demosaic).</p>
@@ -700,7 +671,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   <li>{@link #CONTROL_AE_MODE_ON_AUTO_FLASH ON_AUTO_FLASH}</li>
      *   <li>{@link #CONTROL_AE_MODE_ON_ALWAYS_FLASH ON_ALWAYS_FLASH}</li>
      *   <li>{@link #CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE ON_AUTO_FLASH_REDEYE}</li>
-     *   <li>{@link #CONTROL_AE_MODE_ON_EXTERNAL_FLASH ON_EXTERNAL_FLASH}</li>
      * </ul></p>
      * <p><b>Available values for this device:</b><br>
      * {@link CameraCharacteristics#CONTROL_AE_AVAILABLE_MODES android.control.aeAvailableModes}</p>
@@ -718,7 +688,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * @see #CONTROL_AE_MODE_ON_AUTO_FLASH
      * @see #CONTROL_AE_MODE_ON_ALWAYS_FLASH
      * @see #CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE
-     * @see #CONTROL_AE_MODE_ON_EXTERNAL_FLASH
      */
     @PublicKey
     public static final Key<Integer> CONTROL_AE_MODE =
@@ -888,7 +857,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </tr>
      * </tbody>
      * </table>
-     * <p>When {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} is AE_MODE_ON*:</p>
+     * <p>When {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} is AE_MODE_ON_*:</p>
      * <table>
      * <thead>
      * <tr>
@@ -1009,13 +978,10 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </tr>
      * </tbody>
      * </table>
-     * <p>If the camera device supports AE external flash mode (ON_EXTERNAL_FLASH is included in
-     * {@link CameraCharacteristics#CONTROL_AE_AVAILABLE_MODES android.control.aeAvailableModes}), {@link CaptureResult#CONTROL_AE_STATE android.control.aeState} must be FLASH_REQUIRED after
-     * the camera device finishes AE scan and it's too dark without flash.</p>
      * <p>For the above table, the camera device may skip reporting any state changes that happen
      * without application intervention (i.e. mode switch, trigger, locking). Any state that
      * can be skipped in that manner is called a transient state.</p>
-     * <p>For example, for above AE modes (AE_MODE_ON*), in addition to the state transitions
+     * <p>For example, for above AE modes (AE_MODE_ON_*), in addition to the state transitions
      * listed in above table, it is also legal for the camera device to skip one or more
      * transient states between two results. See below table for examples:</p>
      * <table>
@@ -1086,11 +1052,9 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * Present on all camera devices that report being at least {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED HARDWARE_LEVEL_LIMITED} devices in the
      * {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL android.info.supportedHardwareLevel} key</p>
      *
-     * @see CameraCharacteristics#CONTROL_AE_AVAILABLE_MODES
      * @see CaptureRequest#CONTROL_AE_LOCK
      * @see CaptureRequest#CONTROL_AE_MODE
      * @see CaptureRequest#CONTROL_AE_PRECAPTURE_TRIGGER
-     * @see CaptureResult#CONTROL_AE_STATE
      * @see CaptureRequest#CONTROL_MODE
      * @see CaptureRequest#CONTROL_SCENE_MODE
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
@@ -1166,8 +1130,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * is used, all non-zero weights will have the same effect. A region with 0 weight is
      * ignored.</p>
      * <p>If all regions have 0 weight, then no specific metering area needs to be used by the
-     * camera device. The capture result will either be a zero weight region as well, or
-     * the region selected by the camera device as the focus area of interest.</p>
+     * camera device.</p>
      * <p>If the metering region is outside the used {@link CaptureRequest#SCALER_CROP_REGION android.scaler.cropRegion} returned in
      * capture result metadata, the camera device will ignore the sections outside the crop
      * region and output only the intersection rectangle as the metering region in the result
@@ -1771,13 +1734,10 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * strategy.</p>
      * <p>This control (except for MANUAL) is only effective if
      * <code>{@link CaptureRequest#CONTROL_MODE android.control.mode} != OFF</code> and any 3A routine is active.</p>
-     * <p>All intents are supported by all devices, except that:
-     *   * ZERO_SHUTTER_LAG will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} contains
-     * PRIVATE_REPROCESSING or YUV_REPROCESSING.
-     *   * MANUAL will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} contains
-     * MANUAL_SENSOR.
-     *   * MOTION_TRACKING will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} contains
-     * MOTION_TRACKING.</p>
+     * <p>ZERO_SHUTTER_LAG will be supported if {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities}
+     * contains PRIVATE_REPROCESSING or YUV_REPROCESSING. MANUAL will be supported if
+     * {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} contains MANUAL_SENSOR. Other intent values are
+     * always supported.</p>
      * <p><b>Possible values:</b>
      * <ul>
      *   <li>{@link #CONTROL_CAPTURE_INTENT_CUSTOM CUSTOM}</li>
@@ -1787,7 +1747,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   <li>{@link #CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT VIDEO_SNAPSHOT}</li>
      *   <li>{@link #CONTROL_CAPTURE_INTENT_ZERO_SHUTTER_LAG ZERO_SHUTTER_LAG}</li>
      *   <li>{@link #CONTROL_CAPTURE_INTENT_MANUAL MANUAL}</li>
-     *   <li>{@link #CONTROL_CAPTURE_INTENT_MOTION_TRACKING MOTION_TRACKING}</li>
      * </ul></p>
      * <p>This key is available on all devices.</p>
      *
@@ -1800,7 +1759,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * @see #CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT
      * @see #CONTROL_CAPTURE_INTENT_ZERO_SHUTTER_LAG
      * @see #CONTROL_CAPTURE_INTENT_MANUAL
-     * @see #CONTROL_CAPTURE_INTENT_MOTION_TRACKING
      */
     @PublicKey
     public static final Key<Integer> CONTROL_CAPTURE_INTENT =
@@ -1997,10 +1955,10 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * <p>When set to AUTO, the individual algorithm controls in
      * android.control.* are in effect, such as {@link CaptureRequest#CONTROL_AF_MODE android.control.afMode}.</p>
      * <p>When set to USE_SCENE_MODE, the individual controls in
-     * android.control.* are mostly disabled, and the camera device
-     * implements one of the scene mode settings (such as ACTION,
-     * SUNSET, or PARTY) as it wishes. The camera device scene mode
-     * 3A settings are provided by {@link android.hardware.camera2.CaptureResult capture results}.</p>
+     * android.control.* are mostly disabled, and the camera device implements
+     * one of the scene mode settings (such as ACTION, SUNSET, or PARTY)
+     * as it wishes. The camera device scene mode 3A settings are provided by
+     * {@link android.hardware.camera2.CaptureResult capture results}.</p>
      * <p>When set to OFF_KEEP_STATE, it is similar to OFF mode, the only difference
      * is that this frame will not be used by camera device background 3A statistics
      * update, as if this frame is never captured. This mode can be used in the scenario
@@ -2098,7 +2056,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
     /**
      * <p>Whether video stabilization is
      * active.</p>
-     * <p>Video stabilization automatically warps images from
+     * <p>Video stabilization automatically translates and scales images from
      * the camera in order to stabilize motion between consecutive frames.</p>
      * <p>If enabled, video stabilization can modify the
      * {@link CaptureRequest#SCALER_CROP_REGION android.scaler.cropRegion} to keep the video stream stabilized.</p>
@@ -2108,15 +2066,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * the video stabilization modes in the first several capture results may
      * still be "OFF", and it will become "ON" when the initialization is
      * done.</p>
-     * <p>In addition, not all recording sizes or frame rates may be supported for
-     * stabilization by a device that reports stabilization support. It is guaranteed
-     * that an output targeting a MediaRecorder or MediaCodec will be stabilized if
-     * the recording resolution is less than or equal to 1920 x 1080 (width less than
-     * or equal to 1920, height less than or equal to 1080), and the recording
-     * frame rate is less than or equal to 30fps.  At other sizes, the CaptureResult
-     * {@link CaptureRequest#CONTROL_VIDEO_STABILIZATION_MODE android.control.videoStabilizationMode} field will return
-     * OFF if the recording output is not stabilized, or if there are no output
-     * Surface types that can be stabilized.</p>
      * <p>If a camera device supports both this mode and OIS
      * ({@link CaptureRequest#LENS_OPTICAL_STABILIZATION_MODE android.lens.opticalStabilizationMode}), turning both modes on may
      * produce undesirable interaction, so it is recommended not to enable
@@ -2128,7 +2077,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </ul></p>
      * <p>This key is available on all devices.</p>
      *
-     * @see CaptureRequest#CONTROL_VIDEO_STABILIZATION_MODE
      * @see CaptureRequest#LENS_OPTICAL_STABILIZATION_MODE
      * @see CaptureRequest#SCALER_CROP_REGION
      * @see #CONTROL_VIDEO_STABILIZATION_MODE_OFF
@@ -2137,96 +2085,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
     @PublicKey
     public static final Key<Integer> CONTROL_VIDEO_STABILIZATION_MODE =
             new Key<Integer>("android.control.videoStabilizationMode", int.class);
-
-    /**
-     * <p>The amount of additional sensitivity boost applied to output images
-     * after RAW sensor data is captured.</p>
-     * <p>Some camera devices support additional digital sensitivity boosting in the
-     * camera processing pipeline after sensor RAW image is captured.
-     * Such a boost will be applied to YUV/JPEG format output images but will not
-     * have effect on RAW output formats like RAW_SENSOR, RAW10, RAW12 or RAW_OPAQUE.</p>
-     * <p>This key will be <code>null</code> for devices that do not support any RAW format
-     * outputs. For devices that do support RAW format outputs, this key will always
-     * present, and if a device does not support post RAW sensitivity boost, it will
-     * list <code>100</code> in this key.</p>
-     * <p>If the camera device cannot apply the exact boost requested, it will reduce the
-     * boost to the nearest supported value.
-     * The final boost value used will be available in the output capture result.</p>
-     * <p>For devices that support post RAW sensitivity boost, the YUV/JPEG output images
-     * of such device will have the total sensitivity of
-     * <code>{@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity} * {@link CaptureRequest#CONTROL_POST_RAW_SENSITIVITY_BOOST android.control.postRawSensitivityBoost} / 100</code>
-     * The sensitivity of RAW format images will always be <code>{@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity}</code></p>
-     * <p>This control is only effective if {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} or {@link CaptureRequest#CONTROL_MODE android.control.mode} is set to
-     * OFF; otherwise the auto-exposure algorithm will override this value.</p>
-     * <p><b>Units</b>: ISO arithmetic units, the same as {@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity}</p>
-     * <p><b>Range of valid values:</b><br>
-     * {@link CameraCharacteristics#CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE android.control.postRawSensitivityBoostRange}</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CaptureRequest#CONTROL_AE_MODE
-     * @see CaptureRequest#CONTROL_MODE
-     * @see CaptureRequest#CONTROL_POST_RAW_SENSITIVITY_BOOST
-     * @see CameraCharacteristics#CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE
-     * @see CaptureRequest#SENSOR_SENSITIVITY
-     */
-    @PublicKey
-    public static final Key<Integer> CONTROL_POST_RAW_SENSITIVITY_BOOST =
-            new Key<Integer>("android.control.postRawSensitivityBoost", int.class);
-
-    /**
-     * <p>Allow camera device to enable zero-shutter-lag mode for requests with
-     * {@link CaptureRequest#CONTROL_CAPTURE_INTENT android.control.captureIntent} == STILL_CAPTURE.</p>
-     * <p>If enableZsl is <code>true</code>, the camera device may enable zero-shutter-lag mode for requests with
-     * STILL_CAPTURE capture intent. The camera device may use images captured in the past to
-     * produce output images for a zero-shutter-lag request. The result metadata including the
-     * {@link CaptureResult#SENSOR_TIMESTAMP android.sensor.timestamp} reflects the source frames used to produce output images.
-     * Therefore, the contents of the output images and the result metadata may be out of order
-     * compared to previous regular requests. enableZsl does not affect requests with other
-     * capture intents.</p>
-     * <p>For example, when requests are submitted in the following order:
-     *   Request A: enableZsl is ON, {@link CaptureRequest#CONTROL_CAPTURE_INTENT android.control.captureIntent} is PREVIEW
-     *   Request B: enableZsl is ON, {@link CaptureRequest#CONTROL_CAPTURE_INTENT android.control.captureIntent} is STILL_CAPTURE</p>
-     * <p>The output images for request B may have contents captured before the output images for
-     * request A, and the result metadata for request B may be older than the result metadata for
-     * request A.</p>
-     * <p>Note that when enableZsl is <code>true</code>, it is not guaranteed to get output images captured in
-     * the past for requests with STILL_CAPTURE capture intent.</p>
-     * <p>For applications targeting SDK versions O and newer, the value of enableZsl in
-     * TEMPLATE_STILL_CAPTURE template may be <code>true</code>. The value in other templates is always
-     * <code>false</code> if present.</p>
-     * <p>For applications targeting SDK versions older than O, the value of enableZsl in all
-     * capture templates is always <code>false</code> if present.</p>
-     * <p>For application-operated ZSL, use CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG template.</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CaptureRequest#CONTROL_CAPTURE_INTENT
-     * @see CaptureResult#SENSOR_TIMESTAMP
-     */
-    @PublicKey
-    public static final Key<Boolean> CONTROL_ENABLE_ZSL =
-            new Key<Boolean>("android.control.enableZsl", boolean.class);
-
-    /**
-     * <p>Whether a significant scene change is detected within the currently-set AF
-     * region(s).</p>
-     * <p>When the camera focus routine detects a change in the scene it is looking at,
-     * such as a large shift in camera viewpoint, significant motion in the scene, or a
-     * significant illumination change, this value will be set to DETECTED for a single capture
-     * result. Otherwise the value will be NOT_DETECTED. The threshold for detection is similar
-     * to what would trigger a new passive focus scan to begin in CONTINUOUS autofocus modes.</p>
-     * <p>This key will be available if the camera device advertises this key via {@link android.hardware.camera2.CameraCharacteristics#getAvailableCaptureResultKeys }.</p>
-     * <p><b>Possible values:</b>
-     * <ul>
-     *   <li>{@link #CONTROL_AF_SCENE_CHANGE_NOT_DETECTED NOT_DETECTED}</li>
-     *   <li>{@link #CONTROL_AF_SCENE_CHANGE_DETECTED DETECTED}</li>
-     * </ul></p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     * @see #CONTROL_AF_SCENE_CHANGE_NOT_DETECTED
-     * @see #CONTROL_AF_SCENE_CHANGE_DETECTED
-     */
-    @PublicKey
-    public static final Key<Integer> CONTROL_AF_SCENE_CHANGE =
-            new Key<Integer>("android.control.afSceneChange", int.class);
 
     /**
      * <p>Operation mode for edge
@@ -2431,8 +2289,8 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * the thumbnail data will also be rotated.</p>
      * <p>Note that this orientation is relative to the orientation of the camera sensor, given
      * by {@link CameraCharacteristics#SENSOR_ORIENTATION android.sensor.orientation}.</p>
-     * <p>To translate from the device orientation given by the Android sensor APIs for camera
-     * sensors which are not EXTERNAL, the following sample code may be used:</p>
+     * <p>To translate from the device orientation given by the Android sensor APIs, the following
+     * sample code may be used:</p>
      * <pre><code>private int getJpegOrientation(CameraCharacteristics c, int deviceOrientation) {
      *     if (deviceOrientation == android.view.OrientationEventListener.ORIENTATION_UNKNOWN) return 0;
      *     int sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION);
@@ -2451,8 +2309,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *     return jpegOrientation;
      * }
      * </code></pre>
-     * <p>For EXTERNAL cameras the sensor orientation will always be set to 0 and the facing will
-     * also be set to EXTERNAL. The above code is not relevant in such case.</p>
      * <p><b>Units</b>: Degrees in multiples of 90</p>
      * <p><b>Range of valid values:</b><br>
      * 0, 90, 180, 270</p>
@@ -2746,13 +2602,13 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
     /**
      * <p>The orientation of the camera relative to the sensor
      * coordinate system.</p>
-     * <p>The four coefficients that describe the quaternion
+     * <p>The four coefficients that describe the quarternion
      * rotation from the Android sensor coordinate system to a
      * camera-aligned coordinate system where the X-axis is
      * aligned with the long side of the image sensor, the Y-axis
      * is aligned with the short side of the image sensor, and
      * the Z-axis is aligned with the optical axis of the sensor.</p>
-     * <p>To convert from the quaternion coefficients <code>(x,y,z,w)</code>
+     * <p>To convert from the quarternion coefficients <code>(x,y,z,w)</code>
      * to the axis of rotation <code>(a_x, a_y, a_z)</code> and rotation
      * amount <code>theta</code>, the following formulas can be used:</p>
      * <pre><code> theta = 2 * acos(w)
@@ -2761,7 +2617,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * a_z = z / sin(theta/2)
      * </code></pre>
      * <p>To create a 3x3 rotation matrix that applies the rotation
-     * defined by this quaternion, the following matrix can be
+     * defined by this quarternion, the following matrix can be
      * used:</p>
      * <pre><code>R = [ 1 - 2y^2 - 2z^2,       2xy - 2zw,       2xz + 2yw,
      *            2xy + 2zw, 1 - 2x^2 - 2z^2,       2yz - 2xw,
@@ -2773,7 +2629,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * <p>where <code>p</code> is in the device sensor coordinate system, and
      *  <code>p'</code> is in the camera-oriented coordinate system.</p>
      * <p><b>Units</b>:
-     * Quaternion coefficients</p>
+     * Quarternion coefficients</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      */
     @PublicKey
@@ -2783,34 +2639,35 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
     /**
      * <p>Position of the camera optical center.</p>
      * <p>The position of the camera device's lens optical center,
-     * as a three-dimensional vector <code>(x,y,z)</code>.</p>
-     * <p>Prior to Android P, or when {@link CameraCharacteristics#LENS_POSE_REFERENCE android.lens.poseReference} is PRIMARY_CAMERA, this position
-     * is relative to the optical center of the largest camera device facing in the same
-     * direction as this camera, in the {@link android.hardware.SensorEvent Android sensor
-     * coordinate axes}. Note that only the axis definitions are shared with the sensor
-     * coordinate system, but not the origin.</p>
-     * <p>If this device is the largest or only camera device with a given facing, then this
-     * position will be <code>(0, 0, 0)</code>; a camera device with a lens optical center located 3 cm
-     * from the main sensor along the +X axis (to the right from the user's perspective) will
-     * report <code>(0.03, 0, 0)</code>.</p>
-     * <p>To transform a pixel coordinates between two cameras facing the same direction, first
-     * the source camera {@link CameraCharacteristics#LENS_DISTORTION android.lens.distortion} must be corrected for.  Then the source
-     * camera {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration} needs to be applied, followed by the
-     * {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation} of the source camera, the translation of the source camera
-     * relative to the destination camera, the {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation} of the destination
-     * camera, and finally the inverse of {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration} of the destination
-     * camera. This obtains a radial-distortion-free coordinate in the destination camera pixel
-     * coordinates.</p>
-     * <p>To compare this against a real image from the destination camera, the destination camera
-     * image then needs to be corrected for radial distortion before comparison or sampling.</p>
-     * <p>When {@link CameraCharacteristics#LENS_POSE_REFERENCE android.lens.poseReference} is GYROSCOPE, then this position is relative to
-     * the center of the primary gyroscope on the device.</p>
+     * as a three-dimensional vector <code>(x,y,z)</code>, relative to the
+     * optical center of the largest camera device facing in the
+     * same direction as this camera, in the {@link android.hardware.SensorEvent Android sensor coordinate
+     * axes}. Note that only the axis definitions are shared with
+     * the sensor coordinate system, but not the origin.</p>
+     * <p>If this device is the largest or only camera device with a
+     * given facing, then this position will be <code>(0, 0, 0)</code>; a
+     * camera device with a lens optical center located 3 cm from
+     * the main sensor along the +X axis (to the right from the
+     * user's perspective) will report <code>(0.03, 0, 0)</code>.</p>
+     * <p>To transform a pixel coordinates between two cameras
+     * facing the same direction, first the source camera
+     * android.lens.radialDistortion must be corrected for.  Then
+     * the source camera android.lens.intrinsicCalibration needs
+     * to be applied, followed by the {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation}
+     * of the source camera, the translation of the source camera
+     * relative to the destination camera, the
+     * {@link CameraCharacteristics#LENS_POSE_ROTATION android.lens.poseRotation} of the destination camera, and
+     * finally the inverse of android.lens.intrinsicCalibration
+     * of the destination camera. This obtains a
+     * radial-distortion-free coordinate in the destination
+     * camera pixel coordinates.</p>
+     * <p>To compare this against a real image from the destination
+     * camera, the destination camera image then needs to be
+     * corrected for radial distortion before comparison or
+     * sampling.</p>
      * <p><b>Units</b>: Meters</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      *
-     * @see CameraCharacteristics#LENS_DISTORTION
-     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
-     * @see CameraCharacteristics#LENS_POSE_REFERENCE
      * @see CameraCharacteristics#LENS_POSE_ROTATION
      */
     @PublicKey
@@ -2857,7 +2714,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * where <code>(0,0)</code> is the top-left of the
      * preCorrectionActiveArraySize rectangle. Once the pose and
      * intrinsic calibration transforms have been applied to a
-     * world point, then the {@link CameraCharacteristics#LENS_DISTORTION android.lens.distortion}
+     * world point, then the android.lens.radialDistortion
      * transform needs to be applied, and the result adjusted to
      * be in the {@link CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE android.sensor.info.activeArraySize} coordinate
      * system (where <code>(0, 0)</code> is the top-left of the
@@ -2870,7 +2727,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * coordinate system.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      *
-     * @see CameraCharacteristics#LENS_DISTORTION
      * @see CameraCharacteristics#LENS_POSE_ROTATION
      * @see CameraCharacteristics#LENS_POSE_TRANSLATION
      * @see CameraCharacteristics#SENSOR_INFO_ACTIVE_ARRAY_SIZE
@@ -2899,7 +2755,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </code></pre>
      * <p>The pixel coordinates are defined in a normalized
      * coordinate system related to the
-     * {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration} calibration fields.
+     * android.lens.intrinsicCalibration calibration fields.
      * Both <code>[x_i, y_i]</code> and <code>[x_c, y_c]</code> have <code>(0,0)</code> at the
      * lens optical center <code>[c_x, c_y]</code>. The maximum magnitudes
      * of both x and y coordinates are normalized to be 1 at the
@@ -2912,59 +2768,10 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * <p><b>Units</b>:
      * Unitless coefficients.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
-     * @deprecated
-     * <p>This field was inconsistently defined in terms of its
-     * normalization. Use {@link CameraCharacteristics#LENS_DISTORTION android.lens.distortion} instead.</p>
-     *
-     * @see CameraCharacteristics#LENS_DISTORTION
-
      */
-    @Deprecated
     @PublicKey
     public static final Key<float[]> LENS_RADIAL_DISTORTION =
             new Key<float[]>("android.lens.radialDistortion", float[].class);
-
-    /**
-     * <p>The correction coefficients to correct for this camera device's
-     * radial and tangential lens distortion.</p>
-     * <p>Replaces the deprecated {@link CameraCharacteristics#LENS_RADIAL_DISTORTION android.lens.radialDistortion} field, which was
-     * inconsistently defined.</p>
-     * <p>Three radial distortion coefficients <code>[kappa_1, kappa_2,
-     * kappa_3]</code> and two tangential distortion coefficients
-     * <code>[kappa_4, kappa_5]</code> that can be used to correct the
-     * lens's geometric distortion with the mapping equations:</p>
-     * <pre><code> x_c = x_i * ( 1 + kappa_1 * r^2 + kappa_2 * r^4 + kappa_3 * r^6 ) +
-     *        kappa_4 * (2 * x_i * y_i) + kappa_5 * ( r^2 + 2 * x_i^2 )
-     *  y_c = y_i * ( 1 + kappa_1 * r^2 + kappa_2 * r^4 + kappa_3 * r^6 ) +
-     *        kappa_5 * (2 * x_i * y_i) + kappa_4 * ( r^2 + 2 * y_i^2 )
-     * </code></pre>
-     * <p>Here, <code>[x_c, y_c]</code> are the coordinates to sample in the
-     * input image that correspond to the pixel values in the
-     * corrected image at the coordinate <code>[x_i, y_i]</code>:</p>
-     * <pre><code> correctedImage(x_i, y_i) = sample_at(x_c, y_c, inputImage)
-     * </code></pre>
-     * <p>The pixel coordinates are defined in a coordinate system
-     * related to the {@link CameraCharacteristics#LENS_INTRINSIC_CALIBRATION android.lens.intrinsicCalibration}
-     * calibration fields; see that entry for details of the mapping stages.
-     * Both <code>[x_i, y_i]</code> and <code>[x_c, y_c]</code>
-     * have <code>(0,0)</code> at the lens optical center <code>[c_x, c_y]</code>, and
-     * the range of the coordinates depends on the focal length
-     * terms of the intrinsic calibration.</p>
-     * <p>Finally, <code>r</code> represents the radial distance from the
-     * optical center, <code>r^2 = x_i^2 + y_i^2</code>.</p>
-     * <p>The distortion model used is the Brown-Conrady model.</p>
-     * <p><b>Units</b>:
-     * Unitless coefficients.</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CameraCharacteristics#LENS_INTRINSIC_CALIBRATION
-     * @see CameraCharacteristics#LENS_RADIAL_DISTORTION
-     */
-    @PublicKey
-    public static final Key<float[]> LENS_DISTORTION =
-            new Key<float[]>("android.lens.distortion", float[].class);
 
     /**
      * <p>Mode of operation for the noise reduction algorithm.</p>
@@ -3039,8 +2846,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * Optional. Default value is FINAL.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      * @deprecated
-     * <p>Not used in HALv3 or newer</p>
-
      * @hide
      */
     @Deprecated
@@ -3057,8 +2862,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * &gt; 0</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      * @deprecated
-     * <p>Not used in HALv3 or newer</p>
-
      * @hide
      */
     @Deprecated
@@ -3202,35 +3005,45 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * can run concurrently to the rest of the camera pipeline, but
      * cannot process more than 1 capture at a time.</li>
      * </ul>
-     * <p>The necessary information for the application, given the model above, is provided via
+     * <p>The necessary information for the application, given the model above,
+     * is provided via the {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} field using
      * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputMinFrameDuration }.
-     * These are used to determine the maximum frame rate / minimum frame duration that is
-     * possible for a given stream configuration.</p>
+     * These are used to determine the maximum frame rate / minimum frame
+     * duration that is possible for a given stream configuration.</p>
      * <p>Specifically, the application can use the following rules to
      * determine the minimum frame duration it can request from the camera
      * device:</p>
      * <ol>
-     * <li>Let the set of currently configured input/output streams be called <code>S</code>.</li>
-     * <li>Find the minimum frame durations for each stream in <code>S</code>, by looking it up in {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputMinFrameDuration }
-     * (with its respective size/format). Let this set of frame durations be called <code>F</code>.</li>
-     * <li>For any given request <code>R</code>, the minimum frame duration allowed for <code>R</code> is the maximum
-     * out of all values in <code>F</code>. Let the streams used in <code>R</code> be called <code>S_r</code>.</li>
+     * <li>Let the set of currently configured input/output streams
+     * be called <code>S</code>.</li>
+     * <li>Find the minimum frame durations for each stream in <code>S</code>, by looking
+     * it up in {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap} using {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputMinFrameDuration }
+     * (with its respective size/format). Let this set of frame durations be
+     * called <code>F</code>.</li>
+     * <li>For any given request <code>R</code>, the minimum frame duration allowed
+     * for <code>R</code> is the maximum out of all values in <code>F</code>. Let the streams
+     * used in <code>R</code> be called <code>S_r</code>.</li>
      * </ol>
      * <p>If none of the streams in <code>S_r</code> have a stall time (listed in {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputStallDuration }
-     * using its respective size/format), then the frame duration in <code>F</code> determines the steady
-     * state frame rate that the application will get if it uses <code>R</code> as a repeating request. Let
-     * this special kind of request be called <code>Rsimple</code>.</p>
-     * <p>A repeating request <code>Rsimple</code> can be <em>occasionally</em> interleaved by a single capture of a
-     * new request <code>Rstall</code> (which has at least one in-use stream with a non-0 stall time) and if
-     * <code>Rstall</code> has the same minimum frame duration this will not cause a frame rate loss if all
-     * buffers from the previous <code>Rstall</code> have already been delivered.</p>
-     * <p>For more details about stalling, see {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputStallDuration }.</p>
+     * using its respective size/format), then the frame duration in <code>F</code>
+     * determines the steady state frame rate that the application will get
+     * if it uses <code>R</code> as a repeating request. Let this special kind of
+     * request be called <code>Rsimple</code>.</p>
+     * <p>A repeating request <code>Rsimple</code> can be <em>occasionally</em> interleaved
+     * by a single capture of a new request <code>Rstall</code> (which has at least
+     * one in-use stream with a non-0 stall time) and if <code>Rstall</code> has the
+     * same minimum frame duration this will not cause a frame rate loss
+     * if all buffers from the previous <code>Rstall</code> have already been
+     * delivered.</p>
+     * <p>For more details about stalling, see
+     * {@link android.hardware.camera2.params.StreamConfigurationMap#getOutputStallDuration }.</p>
      * <p>This control is only effective if {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} or {@link CaptureRequest#CONTROL_MODE android.control.mode} is set to
      * OFF; otherwise the auto-exposure algorithm will override this value.</p>
      * <p><b>Units</b>: Nanoseconds</p>
      * <p><b>Range of valid values:</b><br>
-     * See {@link CameraCharacteristics#SENSOR_INFO_MAX_FRAME_DURATION android.sensor.info.maxFrameDuration}, {@link android.hardware.camera2.params.StreamConfigurationMap }.
-     * The duration is capped to <code>max(duration, exposureTime + overhead)</code>.</p>
+     * See {@link CameraCharacteristics#SENSOR_INFO_MAX_FRAME_DURATION android.sensor.info.maxFrameDuration},
+     * {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP android.scaler.streamConfigurationMap}. The duration
+     * is capped to <code>max(duration, exposureTime + overhead)</code>.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      * <p><b>Full capability</b> -
      * Present on all camera devices that report being {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_FULL HARDWARE_LEVEL_FULL} devices in the
@@ -3239,6 +3052,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * @see CaptureRequest#CONTROL_AE_MODE
      * @see CaptureRequest#CONTROL_MODE
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
+     * @see CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP
      * @see CameraCharacteristics#SENSOR_INFO_MAX_FRAME_DURATION
      */
     @PublicKey
@@ -3257,8 +3071,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * requested, it will reduce the gain to the nearest supported
      * value. The final sensitivity used will be available in the
      * output capture result.</p>
-     * <p>This control is only effective if {@link CaptureRequest#CONTROL_AE_MODE android.control.aeMode} or {@link CaptureRequest#CONTROL_MODE android.control.mode} is set to
-     * OFF; otherwise the auto-exposure algorithm will override this value.</p>
      * <p><b>Units</b>: ISO arithmetic units</p>
      * <p><b>Range of valid values:</b><br>
      * {@link CameraCharacteristics#SENSOR_INFO_SENSITIVITY_RANGE android.sensor.info.sensitivityRange}</p>
@@ -3267,8 +3079,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * Present on all camera devices that report being {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_FULL HARDWARE_LEVEL_FULL} devices in the
      * {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL android.info.supportedHardwareLevel} key</p>
      *
-     * @see CaptureRequest#CONTROL_AE_MODE
-     * @see CaptureRequest#CONTROL_MODE
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
      * @see CameraCharacteristics#SENSOR_INFO_SENSITIVITY_RANGE
      * @see CameraCharacteristics#SENSOR_MAX_ANALOG_SENSITIVITY
@@ -3467,69 +3277,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
             new Key<Long>("android.sensor.rollingShutterSkew", long.class);
 
     /**
-     * <p>A per-frame dynamic black level offset for each of the color filter
-     * arrangement (CFA) mosaic channels.</p>
-     * <p>Camera sensor black levels may vary dramatically for different
-     * capture settings (e.g. {@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity}). The fixed black
-     * level reported by {@link CameraCharacteristics#SENSOR_BLACK_LEVEL_PATTERN android.sensor.blackLevelPattern} may be too
-     * inaccurate to represent the actual value on a per-frame basis. The
-     * camera device internal pipeline relies on reliable black level values
-     * to process the raw images appropriately. To get the best image
-     * quality, the camera device may choose to estimate the per frame black
-     * level values either based on optically shielded black regions
-     * ({@link CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS android.sensor.opticalBlackRegions}) or its internal model.</p>
-     * <p>This key reports the camera device estimated per-frame zero light
-     * value for each of the CFA mosaic channels in the camera sensor. The
-     * {@link CameraCharacteristics#SENSOR_BLACK_LEVEL_PATTERN android.sensor.blackLevelPattern} may only represent a coarse
-     * approximation of the actual black level values. This value is the
-     * black level used in camera device internal image processing pipeline
-     * and generally more accurate than the fixed black level values.
-     * However, since they are estimated values by the camera device, they
-     * may not be as accurate as the black level values calculated from the
-     * optical black pixels reported by {@link CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS android.sensor.opticalBlackRegions}.</p>
-     * <p>The values are given in the same order as channels listed for the CFA
-     * layout key (see {@link CameraCharacteristics#SENSOR_INFO_COLOR_FILTER_ARRANGEMENT android.sensor.info.colorFilterArrangement}), i.e. the
-     * nth value given corresponds to the black level offset for the nth
-     * color channel listed in the CFA.</p>
-     * <p>This key will be available if {@link CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS android.sensor.opticalBlackRegions} is available or the
-     * camera device advertises this key via {@link android.hardware.camera2.CameraCharacteristics#getAvailableCaptureResultKeys }.</p>
-     * <p><b>Range of valid values:</b><br>
-     * &gt;= 0 for each.</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CameraCharacteristics#SENSOR_BLACK_LEVEL_PATTERN
-     * @see CameraCharacteristics#SENSOR_INFO_COLOR_FILTER_ARRANGEMENT
-     * @see CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS
-     * @see CaptureRequest#SENSOR_SENSITIVITY
-     */
-    @PublicKey
-    public static final Key<float[]> SENSOR_DYNAMIC_BLACK_LEVEL =
-            new Key<float[]>("android.sensor.dynamicBlackLevel", float[].class);
-
-    /**
-     * <p>Maximum raw value output by sensor for this frame.</p>
-     * <p>Since the {@link CameraCharacteristics#SENSOR_BLACK_LEVEL_PATTERN android.sensor.blackLevelPattern} may change for different
-     * capture settings (e.g., {@link CaptureRequest#SENSOR_SENSITIVITY android.sensor.sensitivity}), the white
-     * level will change accordingly. This key is similar to
-     * {@link CameraCharacteristics#SENSOR_INFO_WHITE_LEVEL android.sensor.info.whiteLevel}, but specifies the camera device
-     * estimated white level for each frame.</p>
-     * <p>This key will be available if {@link CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS android.sensor.opticalBlackRegions} is
-     * available or the camera device advertises this key via
-     * {@link android.hardware.camera2.CameraCharacteristics#getAvailableCaptureRequestKeys }.</p>
-     * <p><b>Range of valid values:</b><br>
-     * &gt;= 0</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CameraCharacteristics#SENSOR_BLACK_LEVEL_PATTERN
-     * @see CameraCharacteristics#SENSOR_INFO_WHITE_LEVEL
-     * @see CameraCharacteristics#SENSOR_OPTICAL_BLACK_REGIONS
-     * @see CaptureRequest#SENSOR_SENSITIVITY
-     */
-    @PublicKey
-    public static final Key<Integer> SENSOR_DYNAMIC_WHITE_LEVEL =
-            new Key<Integer>("android.sensor.dynamicWhiteLevel", int.class);
-
-    /**
      * <p>Quality of lens shading correction applied
      * to the image data.</p>
      * <p>When set to OFF mode, no lens shading correction will be applied by the
@@ -3682,21 +3429,10 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * <p>The shading map is a low-resolution floating-point map
      * that lists the coefficients used to correct for vignetting, for each
      * Bayer color channel.</p>
-     * <p>The map provided here is the same map that is used by the camera device to
-     * correct both color shading and vignetting for output non-RAW images.</p>
-     * <p>When there is no lens shading correction applied to RAW
-     * output images ({@link CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED android.sensor.info.lensShadingApplied} <code>==</code>
-     * false), this map is the complete lens shading correction
-     * map; when there is some lens shading correction applied to
-     * the RAW output image ({@link CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED android.sensor.info.lensShadingApplied}<code>==</code> true), this map reports the remaining lens shading
-     * correction map that needs to be applied to get shading
-     * corrected images that match the camera device's output for
-     * non-RAW formats.</p>
-     * <p>For a complete shading correction map, the least shaded
-     * section of the image will have a gain factor of 1; all
-     * other sections will have gains above 1.</p>
+     * <p>The least shaded section of the image should have a gain factor
+     * of 1; all other sections should have gains above 1.</p>
      * <p>When {@link CaptureRequest#COLOR_CORRECTION_MODE android.colorCorrection.mode} = TRANSFORM_MATRIX, the map
-     * will take into account the colorCorrection settings.</p>
+     * must take into account the colorCorrection settings.</p>
      * <p>The shading map is for the entire active pixel array, and is not
      * affected by the crop region specified in the request. Each shading map
      * entry is the value of the shading compensation map over a specific
@@ -3708,8 +3444,8 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * <p>The channel order is [R, Geven, Godd, B], where Geven is the green
      * channel for the even rows of a Bayer pattern, and Godd is the odd rows.
      * The shading map is stored in a fully interleaved format.</p>
-     * <p>The shading map will generally have on the order of 30-40 rows and columns,
-     * and will be smaller than 64x64.</p>
+     * <p>The shading map should have on the order of 30-40 rows and columns,
+     * and must be smaller than 64x64.</p>
      * <p>As an example, given a very small map defined as:</p>
      * <pre><code>width,height = [ 4, 3 ]
      * values =
@@ -3722,13 +3458,13 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </code></pre>
      * <p>The low-resolution scaling map images for each channel are
      * (displayed using nearest-neighbor interpolation):</p>
-     * <p><img alt="Red lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/red_shading.png" />
-     * <img alt="Green (even rows) lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/green_e_shading.png" />
-     * <img alt="Green (odd rows) lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/green_o_shading.png" />
-     * <img alt="Blue lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/blue_shading.png" /></p>
+     * <p><img alt="Red lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/red_shading.png" />
+     * <img alt="Green (even rows) lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/green_e_shading.png" />
+     * <img alt="Green (odd rows) lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/green_o_shading.png" />
+     * <img alt="Blue lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/blue_shading.png" /></p>
      * <p>As a visualization only, inverting the full-color map to recover an
      * image of a gray wall (using bicubic interpolation for visual quality) as captured by the sensor gives:</p>
-     * <p><img alt="Image of a uniform white wall (inverse shading map)" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/inv_shading.png" /></p>
+     * <p><img alt="Image of a uniform white wall (inverse shading map)" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/inv_shading.png" /></p>
      * <p><b>Range of valid values:</b><br>
      * Each gain factor is &gt;= 1</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
@@ -3738,7 +3474,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *
      * @see CaptureRequest#COLOR_CORRECTION_MODE
      * @see CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL
-     * @see CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED
      */
     @PublicKey
     public static final Key<android.hardware.camera2.params.LensShadingMap> STATISTICS_LENS_SHADING_CORRECTION_MAP =
@@ -3746,23 +3481,12 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
 
     /**
      * <p>The shading map is a low-resolution floating-point map
-     * that lists the coefficients used to correct for vignetting and color shading,
-     * for each Bayer color channel of RAW image data.</p>
-     * <p>The map provided here is the same map that is used by the camera device to
-     * correct both color shading and vignetting for output non-RAW images.</p>
-     * <p>When there is no lens shading correction applied to RAW
-     * output images ({@link CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED android.sensor.info.lensShadingApplied} <code>==</code>
-     * false), this map is the complete lens shading correction
-     * map; when there is some lens shading correction applied to
-     * the RAW output image ({@link CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED android.sensor.info.lensShadingApplied}<code>==</code> true), this map reports the remaining lens shading
-     * correction map that needs to be applied to get shading
-     * corrected images that match the camera device's output for
-     * non-RAW formats.</p>
-     * <p>For a complete shading correction map, the least shaded
-     * section of the image will have a gain factor of 1; all
-     * other sections will have gains above 1.</p>
+     * that lists the coefficients used to correct for vignetting, for each
+     * Bayer color channel of RAW image data.</p>
+     * <p>The least shaded section of the image should have a gain factor
+     * of 1; all other sections should have gains above 1.</p>
      * <p>When {@link CaptureRequest#COLOR_CORRECTION_MODE android.colorCorrection.mode} = TRANSFORM_MATRIX, the map
-     * will take into account the colorCorrection settings.</p>
+     * must take into account the colorCorrection settings.</p>
      * <p>The shading map is for the entire active pixel array, and is not
      * affected by the crop region specified in the request. Each shading map
      * entry is the value of the shading compensation map over a specific
@@ -3775,8 +3499,8 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * channel for the even rows of a Bayer pattern, and Godd is the odd rows.
      * The shading map is stored in a fully interleaved format, and its size
      * is provided in the camera static metadata by android.lens.info.shadingMapSize.</p>
-     * <p>The shading map will generally have on the order of 30-40 rows and columns,
-     * and will be smaller than 64x64.</p>
+     * <p>The shading map should have on the order of 30-40 rows and columns,
+     * and must be smaller than 64x64.</p>
      * <p>As an example, given a very small map defined as:</p>
      * <pre><code>android.lens.info.shadingMapSize = [ 4, 3 ]
      * android.statistics.lensShadingMap =
@@ -3789,14 +3513,14 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * </code></pre>
      * <p>The low-resolution scaling map images for each channel are
      * (displayed using nearest-neighbor interpolation):</p>
-     * <p><img alt="Red lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/red_shading.png" />
-     * <img alt="Green (even rows) lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/green_e_shading.png" />
-     * <img alt="Green (odd rows) lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/green_o_shading.png" />
-     * <img alt="Blue lens shading map" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/blue_shading.png" /></p>
+     * <p><img alt="Red lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/red_shading.png" />
+     * <img alt="Green (even rows) lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/green_e_shading.png" />
+     * <img alt="Green (odd rows) lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/green_o_shading.png" />
+     * <img alt="Blue lens shading map" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/blue_shading.png" /></p>
      * <p>As a visualization only, inverting the full-color map to recover an
      * image of a gray wall (using bicubic interpolation for visual quality)
      * as captured by the sensor gives:</p>
-     * <p><img alt="Image of a uniform white wall (inverse shading map)" src="/reference/images/camera2/metadata/android.statistics.lensShadingMap/inv_shading.png" /></p>
+     * <p><img alt="Image of a uniform white wall (inverse shading map)" src="../../../../images/camera2/metadata/android.statistics.lensShadingMap/inv_shading.png" /></p>
      * <p>Note that the RAW image data might be subject to lens shading
      * correction not reported on this map. Query
      * {@link CameraCharacteristics#SENSOR_INFO_LENS_SHADING_APPLIED android.sensor.info.lensShadingApplied} to see if RAW image data has subject
@@ -3839,8 +3563,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *
      * @see CaptureRequest#COLOR_CORRECTION_GAINS
      * @deprecated
-     * <p>Never fully implemented or specified; do not use</p>
-
      * @hide
      */
     @Deprecated
@@ -3865,8 +3587,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * regardless of the android.control.* current values.</p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      * @deprecated
-     * <p>Never fully implemented or specified; do not use</p>
-
      * @hide
      */
     @Deprecated
@@ -3977,86 +3697,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
             new Key<Integer>("android.statistics.lensShadingMapMode", int.class);
 
     /**
-     * <p>A control for selecting whether OIS position information is included in output
-     * result metadata.</p>
-     * <p><b>Possible values:</b>
-     * <ul>
-     *   <li>{@link #STATISTICS_OIS_DATA_MODE_OFF OFF}</li>
-     *   <li>{@link #STATISTICS_OIS_DATA_MODE_ON ON}</li>
-     * </ul></p>
-     * <p><b>Available values for this device:</b><br>
-     * {@link CameraCharacteristics#STATISTICS_INFO_AVAILABLE_OIS_DATA_MODES android.statistics.info.availableOisDataModes}</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CameraCharacteristics#STATISTICS_INFO_AVAILABLE_OIS_DATA_MODES
-     * @see #STATISTICS_OIS_DATA_MODE_OFF
-     * @see #STATISTICS_OIS_DATA_MODE_ON
-     */
-    @PublicKey
-    public static final Key<Integer> STATISTICS_OIS_DATA_MODE =
-            new Key<Integer>("android.statistics.oisDataMode", int.class);
-
-    /**
-     * <p>An array of timestamps of OIS samples, in nanoseconds.</p>
-     * <p>The array contains the timestamps of OIS samples. The timestamps are in the same
-     * timebase as and comparable to {@link CaptureResult#SENSOR_TIMESTAMP android.sensor.timestamp}.</p>
-     * <p><b>Units</b>: nanoseconds</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CaptureResult#SENSOR_TIMESTAMP
-     * @hide
-     */
-    public static final Key<long[]> STATISTICS_OIS_TIMESTAMPS =
-            new Key<long[]>("android.statistics.oisTimestamps", long[].class);
-
-    /**
-     * <p>An array of shifts of OIS samples, in x direction.</p>
-     * <p>The array contains the amount of shifts in x direction, in pixels, based on OIS samples.
-     * A positive value is a shift from left to right in active array coordinate system. For
-     * example, if the optical center is (1000, 500) in active array coordinates, a shift of
-     * (3, 0) puts the new optical center at (1003, 500).</p>
-     * <p>The number of shifts must match the number of timestamps in
-     * android.statistics.oisTimestamps.</p>
-     * <p><b>Units</b>: Pixels in active array.</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     * @hide
-     */
-    public static final Key<float[]> STATISTICS_OIS_X_SHIFTS =
-            new Key<float[]>("android.statistics.oisXShifts", float[].class);
-
-    /**
-     * <p>An array of shifts of OIS samples, in y direction.</p>
-     * <p>The array contains the amount of shifts in y direction, in pixels, based on OIS samples.
-     * A positive value is a shift from top to bottom in active array coordinate system. For
-     * example, if the optical center is (1000, 500) in active array coordinates, a shift of
-     * (0, 5) puts the new optical center at (1000, 505).</p>
-     * <p>The number of shifts must match the number of timestamps in
-     * android.statistics.oisTimestamps.</p>
-     * <p><b>Units</b>: Pixels in active array.</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     * @hide
-     */
-    public static final Key<float[]> STATISTICS_OIS_Y_SHIFTS =
-            new Key<float[]>("android.statistics.oisYShifts", float[].class);
-
-    /**
-     * <p>An array of OIS samples.</p>
-     * <p>Each OIS sample contains the timestamp and the amount of shifts in x and y direction,
-     * in pixels, of the OIS sample.</p>
-     * <p>A positive value for a shift in x direction is a shift from left to right in active array
-     * coordinate system. For example, if the optical center is (1000, 500) in active array
-     * coordinates, a shift of (3, 0) puts the new optical center at (1003, 500).</p>
-     * <p>A positive value for a shift in y direction is a shift from top to bottom in active array
-     * coordinate system. For example, if the optical center is (1000, 500) in active array
-     * coordinates, a shift of (0, 5) puts the new optical center at (1000, 505).</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     */
-    @PublicKey
-    @SyntheticKey
-    public static final Key<android.hardware.camera2.params.OisSample[]> STATISTICS_OIS_SAMPLES =
-            new Key<android.hardware.camera2.params.OisSample[]>("android.statistics.oisSamples", android.hardware.camera2.params.OisSample[].class);
-
-    /**
      * <p>Tonemapping / contrast / gamma curve for the blue
      * channel, to use when {@link CaptureRequest#TONEMAP_MODE android.tonemap.mode} is
      * CONTRAST_CURVE.</p>
@@ -4107,19 +3747,17 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * of points can be less than max (that is, the request doesn't have to
      * always provide a curve with number of points equivalent to
      * {@link CameraCharacteristics#TONEMAP_MAX_CURVE_POINTS android.tonemap.maxCurvePoints}).</p>
-     * <p>For devices with MONOCHROME capability, only red channel is used. Green and blue channels
-     * are ignored.</p>
      * <p>A few examples, and their corresponding graphical mappings; these
      * only specify the red channel and the precision is limited to 4
      * digits, for conciseness.</p>
      * <p>Linear mapping:</p>
      * <pre><code>android.tonemap.curveRed = [ 0, 0, 1.0, 1.0 ]
      * </code></pre>
-     * <p><img alt="Linear mapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/linear_tonemap.png" /></p>
+     * <p><img alt="Linear mapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/linear_tonemap.png" /></p>
      * <p>Invert mapping:</p>
      * <pre><code>android.tonemap.curveRed = [ 0, 1.0, 1.0, 0 ]
      * </code></pre>
-     * <p><img alt="Inverting mapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/inverse_tonemap.png" /></p>
+     * <p><img alt="Inverting mapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/inverse_tonemap.png" /></p>
      * <p>Gamma 1/2.2 mapping, with 16 control points:</p>
      * <pre><code>android.tonemap.curveRed = [
      *   0.0000, 0.0000, 0.0667, 0.2920, 0.1333, 0.4002, 0.2000, 0.4812,
@@ -4127,7 +3765,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   0.5333, 0.7515, 0.6000, 0.7928, 0.6667, 0.8317, 0.7333, 0.8685,
      *   0.8000, 0.9035, 0.8667, 0.9370, 0.9333, 0.9691, 1.0000, 1.0000 ]
      * </code></pre>
-     * <p><img alt="Gamma = 1/2.2 tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/gamma_tonemap.png" /></p>
+     * <p><img alt="Gamma = 1/2.2 tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/gamma_tonemap.png" /></p>
      * <p>Standard sRGB gamma mapping, per IEC 61966-2-1:1999, with 16 control points:</p>
      * <pre><code>android.tonemap.curveRed = [
      *   0.0000, 0.0000, 0.0667, 0.2864, 0.1333, 0.4007, 0.2000, 0.4845,
@@ -4135,7 +3773,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   0.5333, 0.7569, 0.6000, 0.7977, 0.6667, 0.8360, 0.7333, 0.8721,
      *   0.8000, 0.9063, 0.8667, 0.9389, 0.9333, 0.9701, 1.0000, 1.0000 ]
      * </code></pre>
-     * <p><img alt="sRGB tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
+     * <p><img alt="sRGB tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
      * <p><b>Range of valid values:</b><br>
      * 0-1 on both input and output coordinates, normalized
      * as a floating-point value such that 0 == black and 1 == white.</p>
@@ -4171,19 +3809,17 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * of points can be less than max (that is, the request doesn't have to
      * always provide a curve with number of points equivalent to
      * {@link CameraCharacteristics#TONEMAP_MAX_CURVE_POINTS android.tonemap.maxCurvePoints}).</p>
-     * <p>For devices with MONOCHROME capability, only red channel is used. Green and blue channels
-     * are ignored.</p>
      * <p>A few examples, and their corresponding graphical mappings; these
      * only specify the red channel and the precision is limited to 4
      * digits, for conciseness.</p>
      * <p>Linear mapping:</p>
      * <pre><code>curveRed = [ (0, 0), (1.0, 1.0) ]
      * </code></pre>
-     * <p><img alt="Linear mapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/linear_tonemap.png" /></p>
+     * <p><img alt="Linear mapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/linear_tonemap.png" /></p>
      * <p>Invert mapping:</p>
      * <pre><code>curveRed = [ (0, 1.0), (1.0, 0) ]
      * </code></pre>
-     * <p><img alt="Inverting mapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/inverse_tonemap.png" /></p>
+     * <p><img alt="Inverting mapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/inverse_tonemap.png" /></p>
      * <p>Gamma 1/2.2 mapping, with 16 control points:</p>
      * <pre><code>curveRed = [
      *   (0.0000, 0.0000), (0.0667, 0.2920), (0.1333, 0.4002), (0.2000, 0.4812),
@@ -4191,7 +3827,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   (0.5333, 0.7515), (0.6000, 0.7928), (0.6667, 0.8317), (0.7333, 0.8685),
      *   (0.8000, 0.9035), (0.8667, 0.9370), (0.9333, 0.9691), (1.0000, 1.0000) ]
      * </code></pre>
-     * <p><img alt="Gamma = 1/2.2 tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/gamma_tonemap.png" /></p>
+     * <p><img alt="Gamma = 1/2.2 tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/gamma_tonemap.png" /></p>
      * <p>Standard sRGB gamma mapping, per IEC 61966-2-1:1999, with 16 control points:</p>
      * <pre><code>curveRed = [
      *   (0.0000, 0.0000), (0.0667, 0.2864), (0.1333, 0.4007), (0.2000, 0.4845),
@@ -4199,7 +3835,7 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      *   (0.5333, 0.7569), (0.6000, 0.7977), (0.6667, 0.8360), (0.7333, 0.8721),
      *   (0.8000, 0.9063), (0.8667, 0.9389), (0.9333, 0.9701), (1.0000, 1.0000) ]
      * </code></pre>
-     * <p><img alt="sRGB tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
+     * <p><img alt="sRGB tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
      * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
      * <p><b>Full capability</b> -
      * Present on all camera devices that report being {@link CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL_FULL HARDWARE_LEVEL_FULL} devices in the
@@ -4289,9 +3925,9 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
      * PRESET_CURVE</p>
      * <p>The tonemap curve will be defined by specified standard.</p>
      * <p>sRGB (approximated by 16 control points):</p>
-     * <p><img alt="sRGB tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
+     * <p><img alt="sRGB tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/srgb_tonemap.png" /></p>
      * <p>Rec. 709 (approximated by 16 control points):</p>
-     * <p><img alt="Rec. 709 tonemapping curve" src="/reference/images/camera2/metadata/android.tonemap.curveRed/rec709_tonemap.png" /></p>
+     * <p><img alt="Rec. 709 tonemapping curve" src="../../../../images/camera2/metadata/android.tonemap.curveRed/rec709_tonemap.png" /></p>
      * <p>Note that above figures show a 16 control points approximation of preset
      * curves. Camera devices may apply a different approximation to the curve.</p>
      * <p><b>Possible values:</b>
@@ -4464,49 +4100,6 @@ public class CaptureResult extends CameraMetadata<CaptureResult.Key<?>> {
     @PublicKey
     public static final Key<Float> REPROCESS_EFFECTIVE_EXPOSURE_FACTOR =
             new Key<Float>("android.reprocess.effectiveExposureFactor", float.class);
-
-    /**
-     * <p>Mode of operation for the lens distortion correction block.</p>
-     * <p>The lens distortion correction block attempts to improve image quality by fixing
-     * radial, tangential, or other geometric aberrations in the camera device's optics.  If
-     * available, the {@link CameraCharacteristics#LENS_DISTORTION android.lens.distortion} field documents the lens's distortion parameters.</p>
-     * <p>OFF means no distortion correction is done.</p>
-     * <p>FAST/HIGH_QUALITY both mean camera device determined distortion correction will be
-     * applied. HIGH_QUALITY mode indicates that the camera device will use the highest-quality
-     * correction algorithms, even if it slows down capture rate. FAST means the camera device
-     * will not slow down capture rate when applying correction. FAST may be the same as OFF if
-     * any correction at all would slow down capture rate.  Every output stream will have a
-     * similar amount of enhancement applied.</p>
-     * <p>The correction only applies to processed outputs such as YUV, JPEG, or DEPTH16; it is not
-     * applied to any RAW output.  Metadata coordinates such as face rectangles or metering
-     * regions are also not affected by correction.</p>
-     * <p>Applications enabling distortion correction need to pay extra attention when converting
-     * image coordinates between corrected output buffers and the sensor array. For example, if
-     * the app supports tap-to-focus and enables correction, it then has to apply the distortion
-     * model described in {@link CameraCharacteristics#LENS_DISTORTION android.lens.distortion} to the image buffer tap coordinates to properly
-     * calculate the tap position on the sensor active array to be used with
-     * {@link CaptureRequest#CONTROL_AF_REGIONS android.control.afRegions}. The same applies in reverse to detected face rectangles if
-     * they need to be drawn on top of the corrected output buffers.</p>
-     * <p><b>Possible values:</b>
-     * <ul>
-     *   <li>{@link #DISTORTION_CORRECTION_MODE_OFF OFF}</li>
-     *   <li>{@link #DISTORTION_CORRECTION_MODE_FAST FAST}</li>
-     *   <li>{@link #DISTORTION_CORRECTION_MODE_HIGH_QUALITY HIGH_QUALITY}</li>
-     * </ul></p>
-     * <p><b>Available values for this device:</b><br>
-     * {@link CameraCharacteristics#DISTORTION_CORRECTION_AVAILABLE_MODES android.distortionCorrection.availableModes}</p>
-     * <p><b>Optional</b> - This value may be {@code null} on some devices.</p>
-     *
-     * @see CaptureRequest#CONTROL_AF_REGIONS
-     * @see CameraCharacteristics#DISTORTION_CORRECTION_AVAILABLE_MODES
-     * @see CameraCharacteristics#LENS_DISTORTION
-     * @see #DISTORTION_CORRECTION_MODE_OFF
-     * @see #DISTORTION_CORRECTION_MODE_FAST
-     * @see #DISTORTION_CORRECTION_MODE_HIGH_QUALITY
-     */
-    @PublicKey
-    public static final Key<Integer> DISTORTION_CORRECTION_MODE =
-            new Key<Integer>("android.distortionCorrection.mode", int.class);
 
     /*~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~
      * End generated code

@@ -18,8 +18,6 @@ package android.databinding.testapp;
 import android.databinding.DataBindingComponent;
 import android.databinding.DataBindingUtil;
 import android.databinding.testapp.adapter.InstanceAdapter;
-import android.databinding.testapp.adapter.NameClashAdapter;
-import android.databinding.testapp.adapter.NameClashAdapter.MyAdapter;
 import android.databinding.testapp.databinding.IncludeInstanceAdapterBinding;
 import android.databinding.testapp.databinding.InstanceAdapterBinding;
 import android.test.UiThreadTest;
@@ -38,26 +36,6 @@ public class InstanceAdapterTest extends BaseDataBinderTest<InstanceAdapterBindi
     private void initNormal() {
         DataBindingUtil.setDefaultComponent(new TestComponent() {
             private InstanceAdapter mInstanceAdapter = new InstanceAdapter("Hello %s %s %s %s");
-
-            @Override
-            public MyAdapter getMyAdapter1() {
-                return null;
-            }
-
-            @Override
-            public android.databinding.testapp.adapter2.NameClashAdapter.MyAdapter getMyAdapter2() {
-                return null;
-            }
-
-            @Override
-            public NameClashAdapter getNameClashAdapter1() {
-                return null;
-            }
-
-            @Override
-            public android.databinding.testapp.adapter2.NameClashAdapter getNameClashAdapter2() {
-                return null;
-            }
 
             @Override
             public InstanceAdapter getInstanceAdapter() {

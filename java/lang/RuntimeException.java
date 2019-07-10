@@ -1,119 +1,72 @@
 /*
- * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang;
 
 /**
- * {@code RuntimeException} is the superclass of those
- * exceptions that can be thrown during the normal operation of the
- * Java Virtual Machine.
- *
- * <p>{@code RuntimeException} and its subclasses are <em>unchecked
- * exceptions</em>.  Unchecked exceptions do <em>not</em> need to be
- * declared in a method or constructor's {@code throws} clause if they
- * can be thrown by the execution of the method or constructor and
- * propagate outside the method or constructor boundary.
- *
- * @author  Frank Yellin
- * @jls 11.2 Compile-Time Checking of Exceptions
- * @since   JDK1.0
+ * {@code RuntimeException} is the superclass of all classes that represent
+ * exceptional conditions which occur as a result of executing an application in
+ * the VM. Unlike checked exceptions (exceptions where the type
+ * doesn't extend {@code RuntimeException} or {@link Error}), the compiler does
+ * not require code to handle runtime exceptions.
  */
 public class RuntimeException extends Exception {
-    static final long serialVersionUID = -7034897190745766939L;
 
-    /** Constructs a new runtime exception with {@code null} as its
-     * detail message.  The cause is not initialized, and may subsequently be
-     * initialized by a call to {@link #initCause}.
+    private static final long serialVersionUID = -7034897190745766939L;
+
+    /**
+     * Constructs a new {@code RuntimeException} that includes the current stack
+     * trace.
      */
     public RuntimeException() {
-        super();
-    }
-
-    /** Constructs a new runtime exception with the specified detail message.
-     * The cause is not initialized, and may subsequently be initialized by a
-     * call to {@link #initCause}.
-     *
-     * @param   message   the detail message. The detail message is saved for
-     *          later retrieval by the {@link #getMessage()} method.
-     */
-    public RuntimeException(String message) {
-        super(message);
     }
 
     /**
-     * Constructs a new runtime exception with the specified detail message and
-     * cause.  <p>Note that the detail message associated with
-     * {@code cause} is <i>not</i> automatically incorporated in
-     * this runtime exception's detail message.
+     * Constructs a new {@code RuntimeException} with the current stack trace
+     * and the specified detail message.
      *
-     * @param  message the detail message (which is saved for later retrieval
-     *         by the {@link #getMessage()} method).
-     * @param  cause the cause (which is saved for later retrieval by the
-     *         {@link #getCause()} method).  (A <tt>null</tt> value is
-     *         permitted, and indicates that the cause is nonexistent or
-     *         unknown.)
-     * @since  1.4
+     * @param detailMessage
+     *            the detail message for this exception.
      */
-    public RuntimeException(String message, Throwable cause) {
-        super(message, cause);
+    public RuntimeException(String detailMessage) {
+        super(detailMessage);
     }
 
-    /** Constructs a new runtime exception with the specified cause and a
-     * detail message of <tt>(cause==null ? null : cause.toString())</tt>
-     * (which typically contains the class and detail message of
-     * <tt>cause</tt>).  This constructor is useful for runtime exceptions
-     * that are little more than wrappers for other throwables.
+   /**
+     * Constructs a new {@code RuntimeException} with the current stack trace,
+     * the specified detail message and the specified cause.
      *
-     * @param  cause the cause (which is saved for later retrieval by the
-     *         {@link #getCause()} method).  (A <tt>null</tt> value is
-     *         permitted, and indicates that the cause is nonexistent or
-     *         unknown.)
-     * @since  1.4
+     * @param detailMessage
+     *            the detail message for this exception.
+     * @param throwable
+     *            the cause of this exception.
      */
-    public RuntimeException(Throwable cause) {
-        super(cause);
+    public RuntimeException(String detailMessage, Throwable throwable) {
+        super(detailMessage, throwable);
     }
 
     /**
-     * Constructs a new runtime exception with the specified detail
-     * message, cause, suppression enabled or disabled, and writable
-     * stack trace enabled or disabled.
+     * Constructs a new {@code RuntimeException} with the current stack trace
+     * and the specified cause.
      *
-     * @param  message the detail message.
-     * @param cause the cause.  (A {@code null} value is permitted,
-     * and indicates that the cause is nonexistent or unknown.)
-     * @param enableSuppression whether or not suppression is enabled
-     *                          or disabled
-     * @param writableStackTrace whether or not the stack trace should
-     *                           be writable
-     *
-     * @since 1.7
+     * @param throwable
+     *            the cause of this exception.
      */
-    protected RuntimeException(String message, Throwable cause,
-                               boolean enableSuppression,
-                               boolean writableStackTrace) {
-        super(message, cause, enableSuppression, writableStackTrace);
+    public RuntimeException(Throwable throwable) {
+        super(throwable);
     }
 }

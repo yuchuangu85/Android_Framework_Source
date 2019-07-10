@@ -21,6 +21,8 @@ import android.view.View;
 import android.databinding.testapp.BR;
 import android.widget.TextView;
 
+import org.apache.commons.lang3.StringUtils;
+
 public class MultiArgTestAdapter {
 
     public static String join(BaseMultiBindingClass... classes) {

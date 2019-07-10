@@ -24,8 +24,6 @@ import android.graphics.Bitmap;
  */
 class CommandParams {
     CommandDetails mCmdDet;
-    // Variable to track if an optional icon load has failed.
-    boolean mLoadIconFailed = false;
 
     CommandParams(CommandDetails cmdDet) {
         mCmdDet = cmdDet;
@@ -147,15 +145,6 @@ class CallSetupParams extends CommandParams {
             return true;
         }
         return false;
-    }
-}
-
-class LanguageParams extends CommandParams {
-    String mLanguage;
-
-    LanguageParams(CommandDetails cmdDet, String lang) {
-        super(cmdDet);
-        mLanguage = lang;
     }
 }
 

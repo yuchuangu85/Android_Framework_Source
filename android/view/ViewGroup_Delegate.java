@@ -50,14 +50,12 @@ public class ViewGroup_Delegate {
             // the outline obtained is correct.
             child.setBackgroundBounds();
             ViewOutlineProvider outlineProvider = child.getOutlineProvider();
-            if (outlineProvider != null) {
-                Outline outline = child.mAttachInfo.mTmpOutline;
-                outlineProvider.getOutline(child, outline);
-                if (outline.mPath != null || (outline.mRect != null && !outline.mRect.isEmpty())) {
-                    int restoreTo = transformCanvas(thisVG, canvas, child);
-                    drawShadow(thisVG, canvas, child, outline);
-                    canvas.restoreToCount(restoreTo);
-                }
+            Outline outline = child.mAttachInfo.mTmpOutline;
+            outlineProvider.getOutline(child, outline);
+            if (outline.mPath != null || (outline.mRect != null && !outline.mRect.isEmpty())) {
+                int restoreTo = transformCanvas(thisVG, canvas, child);
+                drawShadow(thisVG, canvas, child, outline);
+                canvas.restoreToCount(restoreTo);
             }
         }
         return thisVG.drawChild_Original(canvas, child, drawingTime);
@@ -66,34 +64,32 @@ public class ViewGroup_Delegate {
     private static void drawShadow(ViewGroup parent, Canvas canvas, View child,
             Outline outline) {
         float elevation = getElevation(child, parent);
-        if(outline.mMode == Outline.MODE_ROUND_RECT && outline.mRect != null) {
-            RectShadowPainter.paintShadow(outline, elevation, canvas, child.getAlpha());
+        if(outline.mRect != null) {
+            RectShadowPainter.paintShadow(outline, elevation, canvas);
             return;
         }
         BufferedImage shadow = null;
         if (outline.mPath != null) {
-            shadow = getPathShadow(outline, canvas, elevation, child.getAlpha());
+            shadow = getPathShadow(outline, canvas, elevation);
         }
         if (shadow == null) {
             return;
         }
         Bitmap bitmap = Bitmap_Delegate.createBitmap(shadow, false,
                 Density.getEnum(canvas.getDensity()));
-        canvas.save();
         Rect clipBounds = canvas.getClipBounds();
         Rect newBounds = new Rect(clipBounds);
         newBounds.inset((int)-elevation, (int)-elevation);
         canvas.clipRect(newBounds, Op.REPLACE);
         canvas.drawBitmap(bitmap, 0, 0, null);
-        canvas.restore();
+        canvas.clipRect(clipBounds, Op.REPLACE);
     }
 
     private static float getElevation(View child, ViewGroup parent) {
         return child.getZ() - parent.getZ();
     }
 
-    private static BufferedImage getPathShadow(Outline outline, Canvas canvas, float elevation,
-            float alpha) {
+    private static BufferedImage getPathShadow(Outline outline, Canvas canvas, float elevation) {
         Rect clipBounds = canvas.getClipBounds();
         if (clipBounds.isEmpty()) {
           return null;
@@ -103,7 +99,7 @@ public class ViewGroup_Delegate {
         Graphics2D graphics = image.createGraphics();
         graphics.draw(Path_Delegate.getDelegate(outline.mPath.mNativePath).getJavaShape());
         graphics.dispose();
-        return ShadowPainter.createDropShadow(image, (int) elevation, alpha);
+        return ShadowPainter.createDropShadow(image, (int) elevation);
     }
 
     // Copied from android.view.View#draw(Canvas, ViewGroup, long) and removed code paths
@@ -146,11 +142,11 @@ public class ViewGroup_Delegate {
                         canvas.concat(transformToApply.getMatrix());
                         canvas.translate(transX, transY);
                     }
-                }
-                if (!childHasIdentityMatrix) {
-                    canvas.translate(-transX, -transY);
-                    canvas.concat(child.getMatrix());
-                    canvas.translate(transX, transY);
+                    if (!childHasIdentityMatrix) {
+                        canvas.translate(-transX, -transY);
+                        canvas.concat(child.getMatrix());
+                        canvas.translate(transX, transY);
+                    }
                 }
 
             }

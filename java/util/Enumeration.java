@@ -1,79 +1,54 @@
 /*
- * Copyright (c) 1994, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
 /**
- * An object that implements the Enumeration interface generates a
- * series of elements, one at a time. Successive calls to the
- * <code>nextElement</code> method return successive elements of the
- * series.
- * <p>
- * For example, to print all elements of a <tt>Vector&lt;E&gt;</tt> <i>v</i>:
- * <pre>
- *   for (Enumeration&lt;E&gt; e = v.elements(); e.hasMoreElements();)
- *       System.out.println(e.nextElement());</pre>
- * <p>
- * Methods are provided to enumerate through the elements of a
- * vector, the keys of a hashtable, and the values in a hashtable.
- * Enumerations are also used to specify the input streams to a
- * <code>SequenceInputStream</code>.
- * <p>
- * NOTE: The functionality of this interface is duplicated by the Iterator
- * interface.  In addition, Iterator adds an optional remove operation, and
- * has shorter method names.  New implementations should consider using
- * Iterator in preference to Enumeration.
+ * A legacy iteration interface.
  *
- * @see     java.util.Iterator
- * @see     java.io.SequenceInputStream
- * @see     java.util.Enumeration#nextElement()
- * @see     java.util.Hashtable
- * @see     java.util.Hashtable#elements()
- * @see     java.util.Hashtable#keys()
- * @see     java.util.Vector
- * @see     java.util.Vector#elements()
+ * <p>New code should use {@link Iterator} instead. {@code Iterator} replaces the
+ * enumeration interface and adds a way to remove elements from a collection.
  *
- * @author  Lee Boynton
- * @since   JDK1.0
+ * <p>If you <i>have</i> an {@code Enumeration} and want a {@code Collection}, you
+ * can use {@link Collections#list} to get a {@code List}.
+ *
+ * <p>If you <i>need</i> an {@code Enumeration} for a legacy API and have a
+ * {@code Collection}, you can use {@link Collections#enumeration}.
+ *
+ * @version 1.0
+ * @see Iterator
  */
 public interface Enumeration<E> {
-    /**
-     * Tests if this enumeration contains more elements.
-     *
-     * @return  <code>true</code> if and only if this enumeration object
-     *           contains at least one more element to provide;
-     *          <code>false</code> otherwise.
-     */
-    boolean hasMoreElements();
 
     /**
-     * Returns the next element of this enumeration if this enumeration
-     * object has at least one more element to provide.
+     * Returns whether this {@code Enumeration} has more elements.
      *
-     * @return     the next element of this enumeration.
-     * @exception  NoSuchElementException  if no more elements exist.
+     * @return {@code true} if there are more elements, {@code false} otherwise.
+     * @see #nextElement
      */
-    E nextElement();
+    public boolean hasMoreElements();
+
+    /**
+     * Returns the next element in this {@code Enumeration}.
+     *
+     * @return the next element..
+     * @throws NoSuchElementException
+     *             if there are no more elements.
+     * @see #hasMoreElements
+     */
+    public E nextElement();
 }

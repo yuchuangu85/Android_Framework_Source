@@ -1,410 +1,225 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
 
 import java.security.Principal;
+import java.security.cert.Certificate;
+import javax.security.cert.X509Certificate;
 
 /**
- * In SSL, sessions are used to describe an ongoing relationship between
- * two entities.  Each SSL connection involves one session at a time, but
- * that session may be used on many connections between those entities,
- * simultaneously or sequentially.  The session used on a connection may
- * also be replaced by a different session.  Sessions are created, or
- * rejoined, as part of the SSL handshaking protocol. Sessions may be
- * invalidated due to policies affecting security or resource usage,
- * or by an application explicitly calling <code>invalidate</code>.
- * Session management policies are typically used to tune performance.
- *
- * <P> In addition to the standard session attributes, SSL sessions expose
- * these read-only attributes:  <UL>
- *
- *      <LI> <em>Peer Identity.</em>  Sessions are between a particular
- *      client and a particular server.  The identity of the peer may
- *      have been established as part of session setup.  Peers are
- *      generally identified by X.509 certificate chains.
- *
- *      <LI> <em>Cipher Suite Name.</em>  Cipher suites describe the
- *      kind of cryptographic protection that's used by connections
- *      in a particular session.
- *
- *      <LI> <em>Peer Host.</em>  All connections in a session are
- *      between the same two hosts.  The address of the host on the other
- *      side of the connection is available.
- *
- *      </UL>
- *
- * <P> Sessions may be explicitly invalidated.  Invalidation may also
- * be done implicitly, when faced with certain kinds of errors.
- *
- * @since 1.4
- * @author David Brownell
+ * The interface representing an SSL session.
  */
 public interface SSLSession {
 
     /**
-     * Returns the identifier assigned to this Session.
+     * Returns the maximum size that an application buffer can be for this
+     * session.
      *
-     * @return the Session identifier
+     * @return the maximum application buffer size.
      */
-    public byte[] getId();
-
+    public int getApplicationBufferSize();
 
     /**
-     * Returns the context in which this session is bound.
-     * <P>
-     * This context may be unavailable in some environments,
-     * in which case this method returns null.
-     * <P>
-     * If the context is available and there is a
-     * security manager installed, the caller may require
-     * permission to access it or a security exception may be thrown.
-     * In a Java environment, the security manager's
-     * <code>checkPermission</code> method is called with a
-     * <code>SSLPermission("getSSLSessionContext")</code> permission.
+     * Returns the name of the cipher suite used in this session.
      *
-     * @throws SecurityException if the calling thread does not have
-     *         permission to get SSL session context.
-     * @return the session context used for this session, or null
-     * if the context is unavailable.
-     */
-    public SSLSessionContext getSessionContext();
-
-
-    /**
-     * Returns the time at which this Session representation was created,
-     * in milliseconds since midnight, January 1, 1970 UTC.
-     *
-     * @return the time this Session was created
-     */
-    public long getCreationTime();
-
-
-    /**
-     * Returns the last time this Session representation was accessed by the
-     * session level infrastructure, in milliseconds since
-     * midnight, January 1, 1970 UTC.
-     * <P>
-     * Access indicates a new connection being established using session data.
-     * Application level operations, such as getting or setting a value
-     * associated with the session, are not reflected in this access time.
-     *
-     * <P> This information is particularly useful in session management
-     * policies.  For example, a session manager thread could leave all
-     * sessions in a given context which haven't been used in a long time;
-     * or, the sessions might be sorted according to age to optimize some task.
-     *
-     * @return the last time this Session was accessed
-     */
-    public long getLastAccessedTime();
-
-
-    /**
-     * Invalidates the session.
-     * <P>
-     * Future connections will not be able to
-     * resume or join this session.  However, any existing connection
-     * using this session can continue to use the session until the
-     * connection is closed.
-     *
-     * @see #isValid()
-     */
-    public void invalidate();
-
-
-    /**
-     * Returns whether this session is valid and available for resuming or
-     * joining.
-     *
-     * @return true if this session may be rejoined.
-     * @see #invalidate()
-     *
-     * @since 1.5
-     */
-    public boolean isValid();
-
-
-    /**
-     *
-     * Binds the specified <code>value</code> object into the
-     * session's application layer data
-     * with the given <code>name</code>.
-     * <P>
-     * Any existing binding using the same <code>name</code> is
-     * replaced.  If the new (or existing) <code>value</code> implements the
-     * <code>SSLSessionBindingListener</code> interface, the object
-     * represented by <code>value</code> is notified appropriately.
-     * <p>
-     * For security reasons, the same named values may not be
-     * visible across different access control contexts.
-     *
-     * @param name the name to which the data object will be bound.
-     *          This may not be null.
-     * @param value the data object to be bound. This may not be null.
-     * @throws IllegalArgumentException if either argument is null.
-     */
-    public void putValue(String name, Object value);
-
-
-    /**
-     * Returns the object bound to the given name in the session's
-     * application layer data.  Returns null if there is no such binding.
-     * <p>
-     * For security reasons, the same named values may not be
-     * visible across different access control contexts.
-     *
-     * @param name the name of the binding to find.
-     * @return the value bound to that name, or null if the binding does
-     *          not exist.
-     * @throws IllegalArgumentException if the argument is null.
-     */
-    public Object getValue(String name);
-
-
-    /**
-     * Removes the object bound to the given name in the session's
-     * application layer data.  Does nothing if there is no object
-     * bound to the given name.  If the bound existing object
-     * implements the <code>SessionBindingListener</code> interface,
-     * it is notified appropriately.
-     * <p>
-     * For security reasons, the same named values may not be
-     * visible across different access control contexts.
-     *
-     * @param name the name of the object to remove visible
-     *          across different access control contexts
-     * @throws IllegalArgumentException if the argument is null.
-     */
-    public void removeValue(String name);
-
-
-    /**
-     * Returns an array of the names of all the application layer
-     * data objects bound into the Session.
-     * <p>
-     * For security reasons, the same named values may not be
-     * visible across different access control contexts.
-     *
-     * @return a non-null (possibly empty) array of names of the objects
-     *  bound to this Session.
-     */
-    public String [] getValueNames();
-
-    /**
-     * Returns the identity of the peer which was established as part
-     * of defining the session.
-     * <P>
-     * Note: This method can be used only when using certificate-based
-     * cipher suites; using it with non-certificate-based cipher suites,
-     * such as Kerberos, will throw an SSLPeerUnverifiedException.
-     *
-     * @return an ordered array of peer certificates,
-     *          with the peer's own certificate first followed by any
-     *          certificate authorities.
-     * @exception SSLPeerUnverifiedException if the peer's identity has not
-     *          been verified
-     * @see #getPeerPrincipal()
-     */
-    public java.security.cert.Certificate [] getPeerCertificates()
-            throws SSLPeerUnverifiedException;
-
-    /**
-     * Returns the certificate(s) that were sent to the peer during
-     * handshaking.
-     * <P>
-     * Note: This method is useful only when using certificate-based
-     * cipher suites.
-     * <P>
-     * When multiple certificates are available for use in a
-     * handshake, the implementation chooses what it considers the
-     * "best" certificate chain available, and transmits that to
-     * the other side.  This method allows the caller to know
-     * which certificate chain was actually used.
-     *
-     * @return an ordered array of certificates,
-     * with the local certificate first followed by any
-     * certificate authorities.  If no certificates were sent,
-     * then null is returned.
-     *
-     * @see #getLocalPrincipal()
-     */
-    public java.security.cert.Certificate [] getLocalCertificates();
-
-    /**
-     * Returns the identity of the peer which was identified as part
-     * of defining the session.
-     * <P>
-     * Note: This method can be used only when using certificate-based
-     * cipher suites; using it with non-certificate-based cipher suites,
-     * such as Kerberos, will throw an SSLPeerUnverifiedException.
-     *
-     * <p><em>Note: this method exists for compatibility with previous
-     * releases. New applications should use
-     * {@link #getPeerCertificates} instead.</em></p>
-     *
-     * @return an ordered array of peer X.509 certificates,
-     *          with the peer's own certificate first followed by any
-     *          certificate authorities.  (The certificates are in
-     *          the original JSSE certificate
-     *          {@link javax.security.cert.X509Certificate} format.)
-     * @exception SSLPeerUnverifiedException if the peer's identity
-     *          has not been verified
-     * @see #getPeerPrincipal()
-     */
-    public javax.security.cert.X509Certificate [] getPeerCertificateChain()
-            throws SSLPeerUnverifiedException;
-
-    /**
-     * Returns the identity of the peer which was established as part of
-     * defining the session.
-     *
-     * @return the peer's principal. Returns an X500Principal of the
-     * end-entity certiticate for X509-based cipher suites, and
-     * KerberosPrincipal for Kerberos cipher suites.
-     *
-     * @throws SSLPeerUnverifiedException if the peer's identity has not
-     *          been verified
-     *
-     * @see #getPeerCertificates()
-     * @see #getLocalPrincipal()
-     *
-     * @since 1.5
-     */
-    public Principal getPeerPrincipal()
-            throws SSLPeerUnverifiedException;
-
-    /**
-     * Returns the principal that was sent to the peer during handshaking.
-     *
-     * @return the principal sent to the peer. Returns an X500Principal
-     * of the end-entity certificate for X509-based cipher suites, and
-     * KerberosPrincipal for Kerberos cipher suites. If no principal was
-     * sent, then null is returned.
-     *
-     * @see #getLocalCertificates()
-     * @see #getPeerPrincipal()
-     *
-     * @since 1.5
-     */
-    public Principal getLocalPrincipal();
-
-    /**
-     * Returns the name of the SSL cipher suite which is used for all
-     * connections in the session.
-     *
-     * <P> This defines the level of protection
-     * provided to the data sent on the connection, including the kind
-     * of encryption used and most aspects of how authentication is done.
-     *
-     * @return the name of the session's cipher suite
+     * @return the name of the cipher suite used in this session.
      */
     public String getCipherSuite();
 
     /**
-     * Returns the standard name of the protocol used for all
-     * connections in the session.
+     * Returns the time this session was created, in milliseconds since midnight
+     * January 1st 1970 UTC.
      *
-     * <P> This defines the protocol used in the connection.
-     *
-     * @return the standard name of the protocol used for all
-     * connections in the session.
+     * @return the time the session was created.
      */
-    public String getProtocol();
+    public long getCreationTime();
 
     /**
-     * Returns the host name of the peer in this session.
-     * <P>
-     * For the server, this is the client's host;  and for
-     * the client, it is the server's host. The name may not be
-     * a fully qualified host name or even a host name at all as
-     * it may represent a string encoding of the peer's network address.
-     * If such a name is desired, it might
-     * be resolved through a name service based on the value returned
-     * by this method.
-     * <P>
-     * This value is not authenticated and should not be relied upon.
-     * It is mainly used as a hint for <code>SSLSession</code> caching
-     * strategies.
+     * Returns this sessions identifier.
      *
-     * @return  the host name of the peer host, or null if no information
-     *          is available.
+     * @return this sessions identifier.
+     */
+    public byte[] getId();
+
+    /**
+     * Returns the time this session was last accessed, in milliseconds since
+     * midnight January 1st 1970 UTC.
+     *
+     * @return the time this session was last accessed.
+     */
+    public long getLastAccessedTime();
+
+    /**
+     * Returns the list of certificates that were used to identify the local
+     * side to the peer during the handshake.
+     *
+     * @return the list of certificates, ordered from local certificate to
+     *         CA's certificates.
+     */
+    public Certificate[] getLocalCertificates();
+
+    /**
+     * Returns the principal used to identify the local side to the peer during
+     * the handshake.
+     *
+     * @return the principal used to identify the local side.
+     */
+    public Principal getLocalPrincipal();
+
+    /**
+     * Returns the maximum size that a network buffer can be for this session.
+     *
+     * @return the maximum network buffer size.
+     */
+    public int getPacketBufferSize();
+
+    /**
+     * Returns the list of certificates the peer used to identify itself during
+     * the handshake.
+     * <p>
+     * Note: this method exists for compatility reasons, use
+     * {@link #getPeerCertificates()} instead.
+     *
+     * @return the list of certificates, ordered from the identity certificate to
+     *         the CA's certificates
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer is not verified.
+     */
+    public X509Certificate[] getPeerCertificateChain() throws SSLPeerUnverifiedException;
+
+    /**
+     * Returns the list of certificates the peer used to identify itself during
+     * the handshake.
+     *
+     * @return the list of certificates, ordered from the identity certificate to
+     *         the CA's certificates.
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer is not verified.
+     */
+    public Certificate[] getPeerCertificates() throws SSLPeerUnverifiedException;
+
+    /**
+     * Returns the host name of the peer of this session. The host name is not
+     * authenticated.
+     *
+     * @return the host name of the peer of this session, or {@code null} if no
+     *         host name is available.
      */
     public String getPeerHost();
 
     /**
-     * Returns the port number of the peer in this session.
-     * <P>
-     * For the server, this is the client's port number;  and for
-     * the client, it is the server's port number.
-     * <P>
-     * This value is not authenticated and should not be relied upon.
-     * It is mainly used as a hint for <code>SSLSession</code> caching
-     * strategies.
+     * Returns the port number of the peer of this session. The port number is
+     * not authenticated.
      *
-     * @return  the port number of the peer host, or -1 if no information
-     *          is available.
-     *
-     * @since 1.5
+     * @return the port number of the peer, of {@code -1} is no port number is
+     *         available.
      */
     public int getPeerPort();
 
     /**
-     * Gets the current size of the largest SSL/TLS packet that is expected
-     * when using this session.
-     * <P>
-     * A <code>SSLEngine</code> using this session may generate SSL/TLS
-     * packets of any size up to and including the value returned by this
-     * method. All <code>SSLEngine</code> network buffers should be sized
-     * at least this large to avoid insufficient space problems when
-     * performing <code>wrap</code> and <code>unwrap</code> calls.
+     * Returns the principal identifying the peer during the handshake.
      *
-     * @return  the current maximum expected network packet size
-     *
-     * @see SSLEngine#wrap(ByteBuffer, ByteBuffer)
-     * @see SSLEngine#unwrap(ByteBuffer, ByteBuffer)
-     *
-     * @since 1.5
+     * @return the principal identifying the peer.
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer has not been verified.
      */
-    public int getPacketBufferSize();
-
+    public Principal getPeerPrincipal() throws SSLPeerUnverifiedException;
 
     /**
-     * Gets the current size of the largest application data that is
-     * expected when using this session.
-     * <P>
-     * <code>SSLEngine</code> application data buffers must be large
-     * enough to hold the application data from any inbound network
-     * application data packet received.  Typically, outbound
-     * application data buffers can be of any size.
+     * Returns the protocol name that is used for all connections in this
+     * session.
      *
-     * @return  the current maximum expected application packet size
-     *
-     * @see SSLEngine#wrap(ByteBuffer, ByteBuffer)
-     * @see SSLEngine#unwrap(ByteBuffer, ByteBuffer)
-     *
-     * @since 1.5
+     * @return the protocol name that is used for all connections in this
+     *         session.
      */
-    public int getApplicationBufferSize();
+    public String getProtocol();
+
+    /**
+     * Returns the context of this session, or null if no context is available.
+     */
+    public SSLSessionContext getSessionContext();
+
+    /**
+     * Returns the object bound to the specified name in this session's
+     * application layer data.
+     *
+     * @param name
+     *            the name of the bound value.
+     * @return the value bound to the specified name, or {@code null} if the
+     *         specified name does not exist or is not accessible in the current
+     *         access control context.
+     * @throws IllegalArgumentException
+     *             if {@code name} is {@code null}.
+     */
+    public Object getValue(String name);
+
+    /**
+     * Returns the list of the object names bound to this session's application
+     * layer data..
+     * <p>
+     * Depending on the current access control context, the list of object names
+     * may be different.
+     *
+     * @return the list of the object names bound to this session's application
+     *         layer data.
+     */
+    public String[] getValueNames();
+
+    /**
+     * Invalidates this session.
+     * <p>
+     * No new connections can be created, but any existing connection remains
+     * valid until it is closed.
+     */
+    public void invalidate();
+
+    /**
+     * Returns whether this session is valid.
+     *
+     * @return {@code true} if this session is valid, otherwise {@code false}.
+     */
+    public boolean isValid();
+
+    /**
+     * Binds the specified object under the specified name in this session's
+     * application layer data.
+     * <p>
+     * For bindings (new or existing) implementing the
+     * {@code SSLSessionBindingListener} interface the object will be notified.
+     *
+     * @param name
+     *            the name to bind the object to.
+     * @param value
+     *            the object to bind.
+     * @throws IllegalArgumentException
+     *             if either {@code name} or {@code value} is {@code null}.
+     */
+    public void putValue(String name, Object value);
+
+    /**
+     * Removes the binding for the specified name in this session's application
+     * layer data. If the existing binding implements the
+     * {@code SSLSessionBindingListener} interface the object will be notified.
+     *
+     * @param name
+     *            the binding to remove.
+     * @throws IllegalArgumentException
+     *             if {@code name} is {@code null}.
+     */
+    public void removeValue(String name);
 }

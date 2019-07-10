@@ -16,14 +16,13 @@
 
 package android.widget;
 
-import android.annotation.Nullable;
 import android.database.DataSetObserver;
 import android.view.View;
 import android.view.ViewGroup;
 
 /**
  * An Adapter object acts as a bridge between an {@link AdapterView} and the
- * underlying(相关的) data for that view. The Adapter provides access(使用权) to the data items.
+ * underlying data for that view. The Adapter provides access to the data items.
  * The Adapter is also responsible for making a {@link android.view.View} for
  * each item in the data set.
  * 
@@ -76,7 +75,6 @@ public interface Adapter {
      * underlying data.
      * 
      * @return True if the same id always refers to the same object.
-     *          如果返回True,则相同的id永远指向同一个对象
      */
     boolean hasStableIds();
     
@@ -85,7 +83,7 @@ public interface Adapter {
      * create a View manually or inflate it from an XML layout file. When the View is inflated, the
      * parent View (GridView, ListView...) will apply default layout parameters unless you use
      * {@link android.view.LayoutInflater#inflate(int, android.view.ViewGroup, boolean)}
-     * to specify a root view and to prevent(防止) attachment(依附) to the root.
+     * to specify a root view and to prevent attachment to the root.
      * 
      * @param position The position of the item within the adapter's data set of the item whose view
      *        we want.
@@ -95,7 +93,7 @@ public interface Adapter {
      *        Heterogeneous lists can specify their number of view types, so that this View is
      *        always of the right type (see {@link #getViewTypeCount()} and
      *        {@link #getItemViewType(int)}).
-     * @param parent The parent that this view will eventually(最终) be attached to
+     * @param parent The parent that this view will eventually be attached to
      * @return A View corresponding to the data at the specified position.
      */
     View getView(int position, View convertView, ViewGroup parent);
@@ -132,7 +130,8 @@ public interface Adapter {
      * type of View for all items, this method should return 1.
      * </p>
      * <p>
-     * This method will only be called when the adapter is set on the {@link AdapterView}.
+     * This method will only be called when when the adapter is set on the
+     * the {@link AdapterView}.
      * </p>
      * 
      * @return The number of types of Views that will be created by this adapter
@@ -148,22 +147,5 @@ public interface Adapter {
       * adapters might want a different behavior.
       */
      boolean isEmpty();
-
-    /**
-     * Gets a string representation of the adapter data that can help
-     * {@link android.service.autofill.AutofillService} autofill the view backed by the adapter.
-     *
-     * <p>
-     * It should only be set (i.e., non-{@code null} if the values do not represent PII
-     * (Personally Identifiable Information - sensitive data such as email addresses,
-     * credit card numbers, passwords, etc...). For
-     * example, it's ok to return a list of month names, but not a list of usernames. A good rule of
-     * thumb is that if the adapter data comes from static resources, such data is not PII - see
-     * {@link android.view.ViewStructure#setDataIsSensitive(boolean)} for more info.
-     *
-     * @return {@code null} by default, unless implementations override it.
-     */
-    default @Nullable CharSequence[] getAutofillOptions() {
-        return null;
-    }
 }
+

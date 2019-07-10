@@ -1,491 +1,251 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.net;
 
-import java.util.Map;
-import java.util.List;
-import java.util.Collections;
-import java.util.Comparator;
 import java.io.IOException;
-import sun.util.logging.PlatformLogger;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 /**
- * CookieManager provides a concrete implementation of {@link CookieHandler},
- * which separates the storage of cookies from the policy surrounding accepting
- * and rejecting cookies. A CookieManager is initialized with a {@link CookieStore}
- * which manages storage, and a {@link CookiePolicy} object, which makes
- * policy decisions on cookie acceptance/rejection.
+ * This class provides a concrete implementation of CookieHandler. It separates
+ * the storage of cookies from the policy which decides to accept or deny
+ * cookies. The constructor can have two arguments: a CookieStore and a
+ * CookiePolicy. The former is in charge of cookie storage and the latter makes
+ * decision on acceptance/rejection.
  *
- * <p> The HTTP cookie management in java.net package looks like:
- * <blockquote>
- * <pre>{@code
- *                  use
- * CookieHandler <------- HttpURLConnection
- *       ^
- *       | impl
- *       |         use
- * CookieManager -------> CookiePolicy
- *             |   use
- *             |--------> HttpCookie
- *             |              ^
- *             |              | use
- *             |   use        |
- *             |--------> CookieStore
- *                            ^
- *                            | impl
- *                            |
- *                  Internal in-memory implementation
- * }</pre>
- * <ul>
- *   <li>
- *     CookieHandler is at the core of cookie management. User can call
- *     CookieHandler.setDefault to set a concrete CookieHanlder implementation
- *     to be used.
- *   </li>
- *   <li>
- *     CookiePolicy.shouldAccept will be called by CookieManager.put to see whether
- *     or not one cookie should be accepted and put into cookie store. User can use
- *     any of three pre-defined CookiePolicy, namely ACCEPT_ALL, ACCEPT_NONE and
- *     ACCEPT_ORIGINAL_SERVER, or user can define his own CookiePolicy implementation
- *     and tell CookieManager to use it.
- *   </li>
- *   <li>
- *     CookieStore is the place where any accepted HTTP cookie is stored in.
- *     If not specified when created, a CookieManager instance will use an internal
- *     in-memory implementation. Or user can implements one and tell CookieManager
- *     to use it.
- *   </li>
- *   <li>
- *     Currently, only CookieStore.add(URI, HttpCookie) and CookieStore.get(URI)
- *     are used by CookieManager. Others are for completeness and might be needed
- *     by a more sophisticated CookieStore implementation, e.g. a NetscapeCookieSotre.
- *   </li>
- * </ul>
- * </blockquote>
+ * CookieHandler is in the center of cookie management. User can make use of
+ * CookieHandler.setDefault to set a CookieManager as the default one used.
  *
- * <p>There're various ways user can hook up his own HTTP cookie management behavior, e.g.
- * <blockquote>
- * <ul>
- *   <li>Use CookieHandler.setDefault to set a brand new {@link CookieHandler} implementation
- *   <li>Let CookieManager be the default {@link CookieHandler} implementation,
- *       but implement user's own {@link CookieStore} and {@link CookiePolicy}
- *       and tell default CookieManager to use them:
- *     <blockquote><pre>
- *       // this should be done at the beginning of an HTTP session
- *       CookieHandler.setDefault(new CookieManager(new MyCookieStore(), new MyCookiePolicy()));
- *     </pre></blockquote>
- *   <li>Let CookieManager be the default {@link CookieHandler} implementation, but
- *       use customized {@link CookiePolicy}:
- *     <blockquote><pre>
- *       // this should be done at the beginning of an HTTP session
- *       CookieHandler.setDefault(new CookieManager());
- *       // this can be done at any point of an HTTP session
- *       ((CookieManager)CookieHandler.getDefault()).setCookiePolicy(new MyCookiePolicy());
- *     </pre></blockquote>
- * </ul>
- * </blockquote>
+ * CookieManager.put uses CookiePolicy.shouldAccept to decide whether to put
+ * some cookies into a cookie store. Three built-in CookiePolicy is defined:
+ * ACCEPT_ALL, ACCEPT_NONE and ACCEPT_ORIGINAL_SERVER. Users can also customize
+ * the policy by implementing CookiePolicy. Any accepted HTTP cookie is stored
+ * in CookieStore and users can also have their own implementation. Up to now,
+ * Only add(URI, HttpCookie) and get(URI) are used by CookieManager. Other
+ * methods in this class may probably be used in a more complicated
+ * implementation.
  *
- * <p>The implementation conforms to <a href="http://www.ietf.org/rfc/rfc2965.txt">RFC 2965</a>, section 3.3.
+ * There are many ways to customize user's own HTTP cookie management:
  *
- * @see CookiePolicy
- * @author Edward Wang
+ * First, call CookieHandler.setDefault to set a new CookieHandler
+ * implementation. Second, call CookieHandler.getDefault to use CookieManager.
+ * The CookiePolicy and CookieStore used are customized. Third, use the
+ * customized CookiePolicy and the CookieStore.
+ *
+ * This implementation conforms to <a href="http://www.ietf.org/rfc/rfc2965.txt">RFC 2965</a> section 3.3.
+ *
  * @since 1.6
  */
-public class CookieManager extends CookieHandler
-{
-    /* ---------------- Fields -------------- */
+public class CookieManager extends CookieHandler {
+    private CookieStore store;
 
-    private CookiePolicy policyCallback;
+    private CookiePolicy policy;
 
+    private static final String VERSION_ZERO_HEADER = "Set-cookie";
 
-    private CookieStore cookieJar = null;
-
-
-    /* ---------------- Ctors -------------- */
+    private static final String VERSION_ONE_HEADER = "Set-cookie2";
 
     /**
-     * Create a new cookie manager.
+     * Constructs a new cookie manager.
      *
-     * <p>This constructor will create new cookie manager with default
-     * cookie store and accept policy. The effect is same as
-     * {@code CookieManager(null, null)}.
+     * The invocation of this constructor is the same as the invocation of
+     * CookieManager(null, null).
+     *
      */
     public CookieManager() {
         this(null, null);
     }
 
-
     /**
-     * Create a new cookie manager with specified cookie store and cookie policy.
+     * Constructs a new cookie manager using a specified cookie store and a
+     * cookie policy.
      *
-     * @param store     a {@code CookieStore} to be used by cookie manager.
-     *                  if {@code null}, cookie manager will use a default one,
-     *                  which is an in-memory CookieStore implementation.
-     * @param cookiePolicy      a {@code CookiePolicy} instance
-     *                          to be used by cookie manager as policy callback.
-     *                          if {@code null}, ACCEPT_ORIGINAL_SERVER will
-     *                          be used.
+     * @param store
+     *            a CookieStore to be used by cookie manager. The manager will
+     *            use a default one if the arg is null.
+     * @param cookiePolicy
+     *            a CookiePolicy to be used by cookie manager
+     *            ACCEPT_ORIGINAL_SERVER will be used if the arg is null.
      */
-    public CookieManager(CookieStore store,
-                         CookiePolicy cookiePolicy)
-    {
-        // use default cookie policy if not specify one
-        policyCallback = (cookiePolicy == null) ? CookiePolicy.ACCEPT_ORIGINAL_SERVER
-                                                : cookiePolicy;
-
-        // if not specify CookieStore to use, use default one
-        if (store == null) {
-            cookieJar = new InMemoryCookieStore();
-        } else {
-            cookieJar = store;
-        }
+    public CookieManager(CookieStore store, CookiePolicy cookiePolicy) {
+        this.store = store == null ? new CookieStoreImpl() : store;
+        policy = cookiePolicy == null ? CookiePolicy.ACCEPT_ORIGINAL_SERVER
+                : cookiePolicy;
     }
 
-
-    /* ---------------- Public operations -------------- */
-
     /**
-     * To set the cookie policy of this cookie manager.
+     * Searches and gets all cookies in the cache by the specified uri in the
+     * request header.
      *
-     * <p> A instance of {@code CookieManager} will have
-     * cookie policy ACCEPT_ORIGINAL_SERVER by default. Users always
-     * can call this method to set another cookie policy.
-     *
-     * @param cookiePolicy      the cookie policy. Can be {@code null}, which
-     *                          has no effects on current cookie policy.
+     * @param uri
+     *            the specified uri to search for
+     * @param requestHeaders
+     *            a list of request headers
+     * @return a map that record all such cookies, the map is unchangeable
+     * @throws IOException
+     *             if some error of I/O operation occurs
      */
-    public void setCookiePolicy(CookiePolicy cookiePolicy) {
-        if (cookiePolicy != null) policyCallback = cookiePolicy;
-    }
-
-
-    /**
-     * To retrieve current cookie store.
-     *
-     * @return  the cookie store currently used by cookie manager.
-     */
-    public CookieStore getCookieStore() {
-        return cookieJar;
-    }
-
-
-    public Map<String, List<String>>
-        get(URI uri, Map<String, List<String>> requestHeaders)
-        throws IOException
-    {
-        // pre-condition check
+    @Override
+    public Map<String, List<String>> get(URI uri,
+            Map<String, List<String>> requestHeaders) throws IOException {
         if (uri == null || requestHeaders == null) {
-            throw new IllegalArgumentException("Argument is null");
+            throw new IllegalArgumentException();
         }
 
-        Map<String, List<String>> cookieMap =
-                        new java.util.HashMap<String, List<String>>();
-        // if there's no default CookieStore, no way for us to get any cookie
-        if (cookieJar == null)
-            return Collections.unmodifiableMap(cookieMap);
-
-        boolean secureLink = "https".equalsIgnoreCase(uri.getScheme());
-        List<HttpCookie> cookies = new java.util.ArrayList<HttpCookie>();
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
-        /*
-        String path = uri.getPath();
-        if (path == null || path.isEmpty()) {
-            path = "/";
-        }
-        */
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
-        for (HttpCookie cookie : cookieJar.get(uri)) {
-            // apply path-matches rule (RFC 2965 sec. 3.3.4)
-            // and check for the possible "secure" tag (i.e. don't send
-            // 'secure' cookies over unsecure links)
-            if (pathMatches(uri, cookie) &&
-                    (secureLink || !cookie.getSecure())) {
-                // BEGIN Android-removed: App compat: b/25897688 InMemoryCookieStore ignores scheme.
-                /*
-                if (cookie.isHttpOnly()) {
-                    String s = uri.getScheme();
-                    if (!"http".equalsIgnoreCase(s) && !"https".equalsIgnoreCase(s)) {
-                        continue;
-                    }
-                }
-                */
-                // END Android-removed: App compat: b/25897688 InMemoryCookieStore ignores scheme.
-
-                // Let's check the authorize port list if it exists
-                String ports = cookie.getPortlist();
-                if (ports != null && !ports.isEmpty()) {
-                    int port = uri.getPort();
-                    if (port == -1) {
-                        port = "https".equals(uri.getScheme()) ? 443 : 80;
-                    }
-                    if (isInPortList(ports, port)) {
-                        cookies.add(cookie);
-                    }
-                } else {
-                    cookies.add(cookie);
-                }
+        List<HttpCookie> result = new ArrayList<HttpCookie>();
+        for (HttpCookie cookie : store.get(uri)) {
+            if (HttpCookie.pathMatches(cookie, uri)
+                    && HttpCookie.secureMatches(cookie, uri)
+                    && HttpCookie.portMatches(cookie, uri)) {
+                result.add(cookie);
             }
         }
-        // Android-added: b/25897688 A fix to return empty map if cookies list is empty
+
+        return cookiesToHeaders(result);
+    }
+
+    private static Map<String, List<String>> cookiesToHeaders(List<HttpCookie> cookies) {
         if (cookies.isEmpty()) {
             return Collections.emptyMap();
         }
 
-        // apply sort rule (RFC 2965 sec. 3.3.4)
-        List<String> cookieHeader = sortByPath(cookies);
+        StringBuilder result = new StringBuilder();
 
-        cookieMap.put("Cookie", cookieHeader);
-        return Collections.unmodifiableMap(cookieMap);
-    }
-
-    public void
-        put(URI uri, Map<String, List<String>> responseHeaders)
-        throws IOException
-    {
-        // pre-condition check
-        if (uri == null || responseHeaders == null) {
-            throw new IllegalArgumentException("Argument is null");
-        }
-
-
-        // if there's no default CookieStore, no need to remember any cookie
-        if (cookieJar == null)
-            return;
-
-    PlatformLogger logger = PlatformLogger.getLogger("java.net.CookieManager");
-        for (String headerKey : responseHeaders.keySet()) {
-            // RFC 2965 3.2.2, key must be 'Set-Cookie2'
-            // we also accept 'Set-Cookie' here for backward compatibility
-            if (headerKey == null
-                || !(headerKey.equalsIgnoreCase("Set-Cookie2")
-                     || headerKey.equalsIgnoreCase("Set-Cookie")
-                    )
-                )
-            {
-                continue;
-            }
-
-            for (String headerValue : responseHeaders.get(headerKey)) {
-                try {
-                    List<HttpCookie> cookies;
-                    try {
-                        cookies = HttpCookie.parse(headerValue);
-                    } catch (IllegalArgumentException e) {
-                        // Bogus header, make an empty list and log the error
-                        cookies = java.util.Collections.emptyList();
-                        if (logger.isLoggable(PlatformLogger.Level.SEVERE)) {
-                            logger.severe("Invalid cookie for " + uri + ": " + headerValue);
-                        }
-                    }
-                    for (HttpCookie cookie : cookies) {
-                        if (cookie.getPath() == null) {
-                            // If no path is specified, then by default
-                            // the path is the directory of the page/doc
-                            String path = uri.getPath();
-                            if (!path.endsWith("/")) {
-                                int i = path.lastIndexOf("/");
-                                if (i > 0) {
-                                    path = path.substring(0, i + 1);
-                                } else {
-                                    path = "/";
-                                }
-                            }
-                            cookie.setPath(path);
-                        // Android-added: b/25763487 A fix to verify cookie URI before removal
-                        } else {
-                            // Validate existing path
-                            if (!pathMatches(uri, cookie)) {
-                                continue;
-                            }
-                        }
-
-                        // As per RFC 2965, section 3.3.1:
-                        // Domain  Defaults to the effective request-host.  (Note that because
-                        // there is no dot at the beginning of effective request-host,
-                        // the default Domain can only domain-match itself.)
-                        if (cookie.getDomain() == null) {
-                            String host = uri.getHost();
-                            if (host != null && !host.contains("."))
-                                host += ".local";
-                            cookie.setDomain(host);
-                        }
-                        String ports = cookie.getPortlist();
-                        if (ports != null) {
-                            int port = uri.getPort();
-                            if (port == -1) {
-                                port = "https".equals(uri.getScheme()) ? 443 : 80;
-                            }
-                            if (ports.isEmpty()) {
-                                // Empty port list means this should be restricted
-                                // to the incoming URI port
-                                cookie.setPortlist("" + port );
-                                if (shouldAcceptInternal(uri, cookie)) {
-                                    cookieJar.add(uri, cookie);
-                                }
-                            } else {
-                                // Only store cookies with a port list
-                                // IF the URI port is in that list, as per
-                                // RFC 2965 section 3.3.2
-                                if (isInPortList(ports, port) &&
-                                        shouldAcceptInternal(uri, cookie)) {
-                                    cookieJar.add(uri, cookie);
-                                }
-                            }
-                        } else {
-                            if (shouldAcceptInternal(uri, cookie)) {
-                                cookieJar.add(uri, cookie);
-                            }
-                        }
-                    }
-                } catch (IllegalArgumentException e) {
-                    // invalid set-cookie header string
-                    // no-op
-                }
-            }
-        }
-    }
-
-
-    /* ---------------- Private operations -------------- */
-
-    // to determine whether or not accept this cookie
-    private boolean shouldAcceptInternal(URI uri, HttpCookie cookie) {
-        try {
-            return policyCallback.shouldAccept(uri, cookie);
-        } catch (Exception ignored) { // pretect against malicious callback
-            return false;
-        }
-    }
-
-
-    static private boolean isInPortList(String lst, int port) {
-        int i = lst.indexOf(",");
-        int val = -1;
-        while (i > 0) {
-            try {
-                val = Integer.parseInt(lst.substring(0, i));
-                if (val == port) {
-                    return true;
-                }
-            } catch (NumberFormatException numberFormatException) {
-            }
-            lst = lst.substring(i+1);
-            i = lst.indexOf(",");
-        }
-        if (!lst.isEmpty()) {
-            try {
-                val = Integer.parseInt(lst);
-                if (val == port) {
-                    return true;
-                }
-            } catch (NumberFormatException numberFormatException) {
-            }
-        }
-        return false;
-    }
-
-    // Android-changed: b/25763487 Cookie path matching logic in OpenJDK was wrong
-    /**
-     * Return true iff. the path from {@code cookie} matches the path from {@code uri}.
-     */
-    private static boolean pathMatches(URI uri, HttpCookie cookie) {
-        return normalizePath(uri.getPath()).startsWith(normalizePath(cookie.getPath()));
-    }
-
-    private static String normalizePath(String path) {
-        if (path == null) {
-            path = "";
-        }
-
-        if (!path.endsWith("/")) {
-            path = path + "/";
-        }
-
-        return path;
-    }
-
-
-    /*
-     * sort cookies with respect to their path: those with more specific Path attributes
-     * precede those with less specific, as defined in RFC 2965 sec. 3.3.4
-     */
-    private List<String> sortByPath(List<HttpCookie> cookies) {
-        Collections.sort(cookies, new CookiePathComparator());
-
-        // BEGIN Android-changed: Netscape cookie spec and RFC 2965 have different format
-        // of Cookie header; RFC 2965 requires a leading $Version="1" string while Netscape does not
-        // The workaround here is to add a $Version="1" string in advance
-        final StringBuilder result = new StringBuilder();
+        // If all cookies are version 1, add a version 1 header. No header for version 0 cookies.
         int minVersion = 1;
         for (HttpCookie cookie : cookies) {
-            if (cookie.getVersion() < minVersion) {
-                minVersion = cookie.getVersion();
-            }
+            minVersion = Math.min(minVersion, cookie.getVersion());
         }
-
         if (minVersion == 1) {
             result.append("$Version=\"1\"; ");
         }
 
-        for (int i = 0; i < cookies.size(); ++i) {
-            if (i != 0) {
-                result.append("; ");
-            }
-
-            result.append(cookies.get(i).toString());
+        result.append(cookies.get(0).toString());
+        for (int i = 1; i < cookies.size(); i++) {
+            result.append("; ").append(cookies.get(i).toString());
         }
 
-        List<String> cookieHeader = new java.util.ArrayList<String>();
-        cookieHeader.add(result.toString());
-        // END Android-changed: Netscape cookie spec and RFC 2965 have different format
-        return cookieHeader;
+        return Collections.singletonMap("Cookie", Collections.singletonList(result.toString()));
     }
 
-
-    static class CookiePathComparator implements Comparator<HttpCookie> {
-        public int compare(HttpCookie c1, HttpCookie c2) {
-            if (c1 == c2) return 0;
-            if (c1 == null) return -1;
-            if (c2 == null) return 1;
-
-            // path rule only applies to the cookies with same name
-            if (!c1.getName().equals(c2.getName())) return 0;
-
-            // Android-changed: normalize before comparison
-            final String c1Path = normalizePath(c1.getPath());
-            final String c2Path = normalizePath(c2.getPath());
-
-            // those with more specific Path attributes precede those with less specific
-            if (c1Path.startsWith(c2Path))
-                return -1;
-            else if (c2Path.startsWith(c1Path))
-                return 1;
-            else
-                return 0;
+    /**
+     * Sets cookies according to uri and responseHeaders
+     *
+     * @param uri
+     *            the specified uri
+     * @param responseHeaders
+     *            a list of request headers
+     * @throws IOException
+     *             if some error of I/O operation occurs
+     */
+    @Override
+    public void put(URI uri, Map<String, List<String>> responseHeaders) throws IOException {
+        if (uri == null || responseHeaders == null) {
+            throw new IllegalArgumentException();
         }
+
+        // parse and construct cookies according to the map
+        List<HttpCookie> cookies = parseCookie(responseHeaders);
+        for (HttpCookie cookie : cookies) {
+
+            // if the cookie doesn't have a domain, set one. The policy will do validation.
+            if (cookie.getDomain() == null) {
+                cookie.setDomain(uri.getHost());
+            }
+
+            // if the cookie doesn't have a path, set one. If it does, validate it.
+            if (cookie.getPath() == null) {
+                cookie.setPath(pathToCookiePath(uri.getPath()));
+            } else if (!HttpCookie.pathMatches(cookie, uri)) {
+                continue;
+            }
+
+            // if the cookie has the placeholder port list "", set the port. Otherwise validate it.
+            if ("".equals(cookie.getPortlist())) {
+                cookie.setPortlist(Integer.toString(uri.getEffectivePort()));
+            } else if (cookie.getPortlist() != null && !HttpCookie.portMatches(cookie, uri)) {
+                continue;
+            }
+
+            // if the cookie conforms to the policy, add it into the store
+            if (policy.shouldAccept(uri, cookie)) {
+                store.add(uri, cookie);
+            }
+        }
+    }
+
+    /**
+     * Returns a cookie-safe path by truncating everything after the last "/".
+     * When request path like "/foo/bar.html" yields a cookie, that cookie's
+     * default path is "/foo/".
+     */
+    static String pathToCookiePath(String path) {
+        if (path == null) {
+            return "/";
+        }
+        int lastSlash = path.lastIndexOf('/'); // -1 yields the empty string
+        return path.substring(0, lastSlash + 1);
+    }
+
+    private static List<HttpCookie> parseCookie(Map<String, List<String>> responseHeaders) {
+        List<HttpCookie> cookies = new ArrayList<HttpCookie>();
+        for (Map.Entry<String, List<String>> entry : responseHeaders.entrySet()) {
+            String key = entry.getKey();
+            // Only "Set-cookie" and "Set-cookie2" pair will be parsed
+            if (key != null && (key.equalsIgnoreCase(VERSION_ZERO_HEADER)
+                    || key.equalsIgnoreCase(VERSION_ONE_HEADER))) {
+                // parse list elements one by one
+                for (String cookieStr : entry.getValue()) {
+                    try {
+                        for (HttpCookie cookie : HttpCookie.parse(cookieStr)) {
+                            cookies.add(cookie);
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // this string is invalid, jump to the next one.
+                    }
+                }
+            }
+        }
+        return cookies;
+    }
+
+    /**
+     * Sets the cookie policy of this cookie manager.
+     *
+     * ACCEPT_ORIGINAL_SERVER is the default policy for CookieManager.
+     *
+     * @param cookiePolicy
+     *            the cookie policy. if null, the original policy will not be
+     *            changed.
+     */
+    public void setCookiePolicy(CookiePolicy cookiePolicy) {
+        if (cookiePolicy != null) {
+            policy = cookiePolicy;
+        }
+    }
+
+    /**
+     * Gets current cookie store.
+     *
+     * @return the cookie store currently used by cookie manager.
+     */
+    public CookieStore getCookieStore() {
+        return store;
     }
 }

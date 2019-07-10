@@ -26,7 +26,6 @@ import android.os.Message;
 import android.os.SystemClock;
 import android.util.Slog;
 import android.util.TimeUtils;
-import android.util.proto.ProtoOutputStream;
 
 import java.io.PrintWriter;
 
@@ -83,6 +82,10 @@ final class WirelessChargerDetector {
 
     // The minimum number of samples that must be collected.
     private static final int MIN_SAMPLES = 3;
+
+    // Upper bound on the battery charge percentage in order to consider turning
+    // the screen on when the device starts charging wirelessly.
+    private static final int WIRELESS_CHARGER_TURN_ON_BATTERY_LEVEL_LIMIT = 95;
 
     // To detect movement, we compute the angle between the gravity vector
     // at rest and the current gravity vector.  This field specifies the
@@ -167,53 +170,16 @@ final class WirelessChargerDetector {
         }
     }
 
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long wcdToken = proto.start(fieldId);
-        synchronized (mLock) {
-            proto.write(WirelessChargerDetectorProto.IS_POWERED_WIRELESSLY, mPoweredWirelessly);
-            proto.write(WirelessChargerDetectorProto.IS_AT_REST, mAtRest);
-
-            final long restVectorToken = proto.start(WirelessChargerDetectorProto.REST);
-            proto.write(WirelessChargerDetectorProto.VectorProto.X, mRestX);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Y, mRestY);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Z, mRestZ);
-            proto.end(restVectorToken);
-
-            proto.write(
-                    WirelessChargerDetectorProto.IS_DETECTION_IN_PROGRESS, mDetectionInProgress);
-            proto.write(WirelessChargerDetectorProto.DETECTION_START_TIME_MS, mDetectionStartTime);
-            proto.write(
-                    WirelessChargerDetectorProto.IS_MUST_UPDATE_REST_POSITION,
-                    mMustUpdateRestPosition);
-            proto.write(WirelessChargerDetectorProto.TOTAL_SAMPLES, mTotalSamples);
-            proto.write(WirelessChargerDetectorProto.MOVING_SAMPLES, mMovingSamples);
-
-            final long firstSampleVectorToken =
-                    proto.start(WirelessChargerDetectorProto.FIRST_SAMPLE);
-            proto.write(WirelessChargerDetectorProto.VectorProto.X, mFirstSampleX);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Y, mFirstSampleY);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Z, mFirstSampleZ);
-            proto.end(firstSampleVectorToken);
-
-            final long lastSampleVectorToken =
-                    proto.start(WirelessChargerDetectorProto.LAST_SAMPLE);
-            proto.write(WirelessChargerDetectorProto.VectorProto.X, mLastSampleX);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Y, mLastSampleY);
-            proto.write(WirelessChargerDetectorProto.VectorProto.Z, mLastSampleZ);
-            proto.end(lastSampleVectorToken);
-        }
-        proto.end(wcdToken);
-    }
-
     /**
      * Updates the charging state and returns true if docking was detected.
      *
      * @param isPowered True if the device is powered.
      * @param plugType The current plug type.
+     * @param batteryLevel The current battery level.
      * @return True if the device is determined to have just been docked on a wireless
      * charger, after suppressing spurious docking or undocking signals.
      */
-    public boolean update(boolean isPowered, int plugType) {
+    public boolean update(boolean isPowered, int plugType, int batteryLevel) {
         synchronized (mLock) {
             final boolean wasPoweredWirelessly = mPoweredWirelessly;
 
@@ -244,9 +210,13 @@ final class WirelessChargerDetector {
             }
 
             // Report that the device has been docked only if the device just started
-            // receiving power wirelessly and the device is not known to already be at rest
+            // receiving power wirelessly, has a high enough battery level that we
+            // can be assured that charging was not delayed due to the battery previously
+            // having been full, and the device is not known to already be at rest
             // on the wireless charger from earlier.
-            return mPoweredWirelessly && !wasPoweredWirelessly && !mAtRest;
+            return mPoweredWirelessly && !wasPoweredWirelessly
+                    && batteryLevel < WIRELESS_CHARGER_TURN_ON_BATTERY_LEVEL_LIMIT
+                    && !mAtRest;
         }
     }
 

@@ -16,15 +16,13 @@
 
 package android.view;
 
-import android.annotation.RequiresPermission;
-import android.annotation.TestApi;
 import android.content.Context;
 import android.hardware.input.InputDeviceIdentifier;
 import android.hardware.input.InputManager;
-import android.os.NullVibrator;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Vibrator;
+import android.os.NullVibrator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -239,14 +237,6 @@ public final class InputDevice implements Parcelable {
     public static final int SOURCE_TRACKBALL = 0x00010000 | SOURCE_CLASS_TRACKBALL;
 
     /**
-     * The input source is a mouse device whose relative motions should be interpreted as
-     * navigation events.
-     *
-     * @see #SOURCE_CLASS_TRACKBALL
-     */
-    public static final int SOURCE_MOUSE_RELATIVE = 0x00020000 | SOURCE_CLASS_TRACKBALL;
-
-    /**
      * The input source is a touch pad or digitizer tablet that is not
      * associated with a display (unlike {@link #SOURCE_TOUCHSCREEN}).
      *
@@ -264,14 +254,6 @@ public final class InputDevice implements Parcelable {
      * @see #SOURCE_CLASS_NONE
      */
     public static final int SOURCE_TOUCH_NAVIGATION = 0x00200000 | SOURCE_CLASS_NONE;
-
-    /**
-     * The input source is a rotating encoder device whose motions should be interpreted as akin to
-     * those of a scroll wheel.
-     *
-     * @see #SOURCE_CLASS_NONE
-     */
-    public static final int SOURCE_ROTARY_ENCODER = 0x00400000 | SOURCE_CLASS_NONE;
 
     /**
      * The input source is a joystick.
@@ -392,8 +374,6 @@ public final class InputDevice implements Parcelable {
      */
     public static final int KEYBOARD_TYPE_ALPHABETIC = 2;
 
-    private static final int MAX_RANGES = 1000;
-
     public static final Parcelable.Creator<InputDevice> CREATOR =
             new Parcelable.Creator<InputDevice>() {
         public InputDevice createFromParcel(Parcel in) {
@@ -443,14 +423,13 @@ public final class InputDevice implements Parcelable {
         mHasButtonUnderPad = in.readInt() != 0;
         mIdentifier = new InputDeviceIdentifier(mDescriptor, mVendorId, mProductId);
 
-        int numRanges = in.readInt();
-        if (numRanges > MAX_RANGES) {
-            numRanges = MAX_RANGES;
-        }
-
-        for (int i = 0; i < numRanges; i++) {
-            addMotionRange(in.readInt(), in.readInt(), in.readFloat(), in.readFloat(),
-                    in.readFloat(), in.readFloat(), in.readFloat());
+        for (;;) {
+            int axis = in.readInt();
+            if (axis < 0) {
+                break;
+            }
+            addMotionRange(axis, in.readInt(), in.readFloat(), in.readFloat(), in.readFloat(),
+                    in.readFloat(), in.readFloat());
         }
     }
 
@@ -770,36 +749,6 @@ public final class InputDevice implements Parcelable {
     }
 
     /**
-     * Returns true if input device is enabled.
-     * @return Whether the input device is enabled.
-     */
-    public boolean isEnabled() {
-        return InputManager.getInstance().isInputDeviceEnabled(mId);
-    }
-
-    /**
-     * Enables the input device.
-     *
-     * @hide
-     */
-    @RequiresPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE)
-    @TestApi
-    public void enable() {
-        InputManager.getInstance().enableInputDevice(mId);
-    }
-
-    /**
-     * Disables the input device.
-     *
-     * @hide
-     */
-    @RequiresPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE)
-    @TestApi
-    public void disable() {
-        InputManager.getInstance().disableInputDevice(mId);
-    }
-
-    /**
      * Reports whether the device has a built-in microphone.
      * @return Whether the device has a built-in microphone.
      */
@@ -814,24 +763,6 @@ public final class InputDevice implements Parcelable {
      */
     public boolean hasButtonUnderPad() {
         return mHasButtonUnderPad;
-    }
-
-    /**
-     * Sets the current pointer type.
-     * @param pointerType the type of the pointer icon.
-     * @hide
-     */
-    public void setPointerType(int pointerType) {
-        InputManager.getInstance().setPointerIconType(pointerType);
-    }
-
-    /**
-     * Specifies the current custom pointer.
-     * @param icon the icon data.
-     * @hide
-     */
-    public void setCustomPointerIcon(PointerIcon icon) {
-        InputManager.getInstance().setCustomPointerIcon(icon);
     }
 
     /**
@@ -963,7 +894,6 @@ public final class InputDevice implements Parcelable {
         out.writeInt(mHasButtonUnderPad ? 1 : 0);
 
         final int numRanges = mMotionRanges.size();
-        out.writeInt(numRanges);
         for (int i = 0; i < numRanges; i++) {
             MotionRange range = mMotionRanges.get(i);
             out.writeInt(range.mAxis);
@@ -974,6 +904,7 @@ public final class InputDevice implements Parcelable {
             out.writeFloat(range.mFuzz);
             out.writeFloat(range.mResolution);
         }
+        out.writeInt(-1);
     }
 
     @Override
@@ -1014,7 +945,6 @@ public final class InputDevice implements Parcelable {
         appendSourceDescriptionIfApplicable(description, SOURCE_MOUSE, "mouse");
         appendSourceDescriptionIfApplicable(description, SOURCE_STYLUS, "stylus");
         appendSourceDescriptionIfApplicable(description, SOURCE_TRACKBALL, "trackball");
-        appendSourceDescriptionIfApplicable(description, SOURCE_MOUSE_RELATIVE, "mouse_relative");
         appendSourceDescriptionIfApplicable(description, SOURCE_TOUCHPAD, "touchpad");
         appendSourceDescriptionIfApplicable(description, SOURCE_JOYSTICK, "joystick");
         appendSourceDescriptionIfApplicable(description, SOURCE_GAMEPAD, "gamepad");

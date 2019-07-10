@@ -17,7 +17,6 @@
 package com.android.systemui.statusbar;
 
 import android.content.Context;
-import android.content.res.TypedArray;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
@@ -25,14 +24,10 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.RemoteViews.RemoteView;
 
-import com.android.systemui.R;
-
 @RemoteView
-public class AnimatedImageView extends ImageView {
-    private final boolean mHasOverlappingRendering;
+public class AnimatedImageView extends AlphaOptimizedImageView {
     AnimationDrawable mAnim;
     boolean mAttached;
-    private boolean mAllowAnimation = true;
 
     // Tracks the last image that was set, so that we don't refresh the image if it is exactly
     // the same as the previous one. If this is a resid, we track that. If it's a drawable, we
@@ -40,32 +35,11 @@ public class AnimatedImageView extends ImageView {
     int mDrawableId;
 
     public AnimatedImageView(Context context) {
-        this(context, null);
+        super(context);
     }
 
     public AnimatedImageView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        TypedArray a = context.getTheme().obtainStyledAttributes(attrs,
-                R.styleable.AnimatedImageView, 0, 0);
-
-        try {
-            // Default to true, which is what View.java defaults toA
-            mHasOverlappingRendering = a.getBoolean(
-                    R.styleable.AnimatedImageView_hasOverlappingRendering, true);
-        } finally {
-            a.recycle();
-        }
-    }
-
-    public void setAllowAnimation(boolean allowAnimation) {
-        if (mAllowAnimation != allowAnimation) {
-            mAllowAnimation = allowAnimation;
-            updateAnim();
-            if (!mAllowAnimation && mAnim != null) {
-                // Reset drawable such that we show the first frame whenever we're not animating.
-                mAnim.setVisible(getVisibility() == VISIBLE, true /* restart */);
-            }
-        }
     }
 
     private void updateAnim() {
@@ -75,7 +49,7 @@ public class AnimatedImageView extends ImageView {
         }
         if (drawable instanceof AnimationDrawable) {
             mAnim = (AnimationDrawable) drawable;
-            if (isShown() && mAllowAnimation) {
+            if (isShown()) {
                 mAnim.start();
             }
         } else {
@@ -126,17 +100,12 @@ public class AnimatedImageView extends ImageView {
     protected void onVisibilityChanged(View changedView, int vis) {
         super.onVisibilityChanged(changedView, vis);
         if (mAnim != null) {
-            if (isShown() && mAllowAnimation) {
+            if (isShown()) {
                 mAnim.start();
             } else {
                 mAnim.stop();
             }
         }
-    }
-
-    @Override
-    public boolean hasOverlappingRendering() {
-        return mHasOverlappingRendering;
     }
 }
 

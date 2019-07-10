@@ -16,21 +16,18 @@
 
 package com.android.server.wifi;
 
-import static android.net.NetworkInfo.DetailedState.CONNECTED;
-
-import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.NetworkInfo;
+import static android.net.NetworkInfo.DetailedState.CONNECTED;
+import android.net.TrafficStats;
 import android.net.wifi.WifiManager;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
-import android.text.TextUtils;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 
 import java.io.FileDescriptor;
@@ -39,13 +36,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Polls for traffic stats and notifies the clients
- */
-public class WifiTrafficPoller {
+/* Polls for traffic stats and notifies the clients */
+final class WifiTrafficPoller {
 
-    private static final boolean DBG = false;
-    private static final String TAG = "WifiTrafficPoller";
+    private boolean DBG = false;
+    private boolean VDBG = false;
+
+    private final String TAG = "WifiTrafficPoller";
     /**
      * Interval in milliseconds between polling for traffic
      * statistics
@@ -69,15 +66,12 @@ public class WifiTrafficPoller {
     // the first time
     private AtomicBoolean mScreenOn = new AtomicBoolean(true);
     private final TrafficHandler mTrafficHandler;
-    private final WifiNative mWifiNative;
     private NetworkInfo mNetworkInfo;
+    private final String mInterface;
 
-    private boolean mVerboseLoggingEnabled = false;
-
-    WifiTrafficPoller(@NonNull Context context, @NonNull Looper looper,
-            @NonNull WifiNative wifiNative) {
-        mTrafficHandler = new TrafficHandler(looper);
-        mWifiNative = wifiNative;
+    WifiTrafficPoller(Context context, String iface) {
+        mInterface = iface;
+        mTrafficHandler = new TrafficHandler();
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
@@ -88,16 +82,13 @@ public class WifiTrafficPoller {
                 new BroadcastReceiver() {
                     @Override
                     public void onReceive(Context context, Intent intent) {
-                        if (intent == null) {
-                            return;
-                        }
-                        if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(
-                                intent.getAction())) {
+                        if (intent.getAction().equals(
+                                WifiManager.NETWORK_STATE_CHANGED_ACTION)) {
                             mNetworkInfo = (NetworkInfo) intent.getParcelableExtra(
                                     WifiManager.EXTRA_NETWORK_INFO);
-                        } else if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                        } else if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
                             mScreenOn.set(false);
-                        } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                        } else if (intent.getAction().equals(Intent.ACTION_SCREEN_ON)) {
                             mScreenOn.set(true);
                         }
                         evaluateTrafficStatsPolling();
@@ -105,67 +96,56 @@ public class WifiTrafficPoller {
                 }, filter);
     }
 
-    /** */
-    public void addClient(Messenger client) {
+    void addClient(Messenger client) {
         Message.obtain(mTrafficHandler, ADD_CLIENT, client).sendToTarget();
     }
 
-    /** */
-    public void removeClient(Messenger client) {
+    void removeClient(Messenger client) {
         Message.obtain(mTrafficHandler, REMOVE_CLIENT, client).sendToTarget();
     }
 
     void enableVerboseLogging(int verbose) {
-        if (verbose > 0) {
-            mVerboseLoggingEnabled = true;
+        if (verbose > 0 ) {
+            DBG = true;
         } else {
-            mVerboseLoggingEnabled = false;
+            DBG = false;
         }
     }
 
     private class TrafficHandler extends Handler {
-        public TrafficHandler(Looper looper) {
-            super(looper);
-        }
-
         public void handleMessage(Message msg) {
-            String ifaceName;
             switch (msg.what) {
                 case ENABLE_TRAFFIC_STATS_POLL:
                     mEnableTrafficStatsPoll = (msg.arg1 == 1);
-                    if (mVerboseLoggingEnabled) {
-                        Log.d(TAG, "ENABLE_TRAFFIC_STATS_POLL "
+                    if (DBG) {
+                        Log.e(TAG, "ENABLE_TRAFFIC_STATS_POLL "
                                 + mEnableTrafficStatsPoll + " Token "
                                 + Integer.toString(mTrafficStatsPollToken));
                     }
                     mTrafficStatsPollToken++;
-                    ifaceName = mWifiNative.getClientInterfaceName();
-                    if (mEnableTrafficStatsPoll && !TextUtils.isEmpty(ifaceName)) {
-                        notifyOnDataActivity(ifaceName);
+                    if (mEnableTrafficStatsPoll) {
+                        notifyOnDataActivity();
                         sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
                                 mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
                     }
                     break;
                 case TRAFFIC_STATS_POLL:
-                    if (DBG) {
-                        Log.d(TAG, "TRAFFIC_STATS_POLL "
+                    if (VDBG) {
+                        Log.e(TAG, "TRAFFIC_STATS_POLL "
                                 + mEnableTrafficStatsPoll + " Token "
                                 + Integer.toString(mTrafficStatsPollToken)
                                 + " num clients " + mClients.size());
                     }
                     if (msg.arg1 == mTrafficStatsPollToken) {
-                        ifaceName = mWifiNative.getClientInterfaceName();
-                        if (!TextUtils.isEmpty(ifaceName)) {
-                            notifyOnDataActivity(ifaceName);
-                            sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
-                                    mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
-                        }
+                        notifyOnDataActivity();
+                        sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
+                                mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
                     }
                     break;
                 case ADD_CLIENT:
                     mClients.add((Messenger) msg.obj);
-                    if (mVerboseLoggingEnabled) {
-                        Log.d(TAG, "ADD_CLIENT: "
+                    if (DBG) {
+                        Log.e(TAG, "ADD_CLIENT: "
                                 + Integer.toString(mClients.size()));
                     }
                     break;
@@ -190,16 +170,16 @@ public class WifiTrafficPoller {
         msg.sendToTarget();
     }
 
-    private void notifyOnDataActivity(@NonNull String ifaceName) {
+    private void notifyOnDataActivity() {
         long sent, received;
         long preTxPkts = mTxPkts, preRxPkts = mRxPkts;
         int dataActivity = WifiManager.DATA_ACTIVITY_NONE;
 
-        mTxPkts = mWifiNative.getTxPackets(ifaceName);
-        mRxPkts = mWifiNative.getRxPackets(ifaceName);
+        mTxPkts = TrafficStats.getTxPackets(mInterface);
+        mRxPkts = TrafficStats.getRxPackets(mInterface);
 
-        if (DBG) {
-            Log.d(TAG, " packet count Tx="
+        if (VDBG) {
+            Log.e(TAG, " packet count Tx="
                     + Long.toString(mTxPkts)
                     + " Rx="
                     + Long.toString(mRxPkts));
@@ -217,7 +197,7 @@ public class WifiTrafficPoller {
 
             if (dataActivity != mDataActivity && mScreenOn.get()) {
                 mDataActivity = dataActivity;
-                if (mVerboseLoggingEnabled) {
+                if (DBG) {
                     Log.e(TAG, "notifying of data activity "
                             + Integer.toString(mDataActivity));
                 }

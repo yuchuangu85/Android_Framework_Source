@@ -1,300 +1,292 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util.zip;
 
-import java.io.FilterInputStream;
-import java.io.InputStream;
-import java.io.IOException;
 import java.io.EOFException;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
+import libcore.io.Streams;
 
 /**
- * This class implements a stream filter for uncompressing data in the
- * "deflate" compression format. It is also used as the basis for other
- * decompression filters, such as GZIPInputStream.
+ * This class provides an implementation of {@code FilterInputStream} that
+ * decompresses data that was compressed using the <i>DEFLATE</i> algorithm
+ * (see <a href="http://www.gzip.org/algorithm.txt">specification</a>).
+ * Basically it wraps the {@code Inflater} class and takes care of the
+ * buffering.
  *
- * @see         Inflater
- * @author      David Connelly
+ * @see Inflater
+ * @see DeflaterOutputStream
  */
-public
-class InflaterInputStream extends FilterInputStream {
+public class InflaterInputStream extends FilterInputStream {
+
     /**
-     * Decompressor for this stream.
+     * The inflater used for this stream.
      */
     protected Inflater inf;
 
     /**
-     * Input buffer for decompression.
+     * The input buffer used for decompression.
      */
     protected byte[] buf;
 
     /**
-     * Length of input buffer.
+     * The length of the buffer.
      */
     protected int len;
 
-    // Android-changed: closed is now protected.
-    protected boolean closed = false;
-
-    // this flag is set to true after EOF has reached
-    private boolean reachEOF = false;
+    boolean closed;
 
     /**
-     * Check to make sure that this stream has not been closed
+     * True if this stream's last byte has been returned to the user. This
+     * could be because the underlying stream has been exhausted, or if errors
+     * were encountered while inflating that stream.
      */
-    private void ensureOpen() throws IOException {
-        if (closed) {
-            throw new IOException("Stream closed");
-        }
-    }
+    boolean eof;
 
+    static final int BUF_SIZE = 512;
 
-    /**
-     * Creates a new input stream with the specified decompressor and
-     * buffer size.
-     * @param in the input stream
-     * @param inf the decompressor ("inflater")
-     * @param size the input buffer size
-     * @exception IllegalArgumentException if {@code size <= 0}
-     */
-    public InflaterInputStream(InputStream in, Inflater inf, int size) {
-        super(in);
-        if (in == null || inf == null) {
-            throw new NullPointerException();
-        } else if (size <= 0) {
-            throw new IllegalArgumentException("buffer size <= 0");
-        }
-        this.inf = inf;
-        buf = new byte[size];
-    }
+    int nativeEndBufSize = 0;
 
     /**
-     * Creates a new input stream with the specified decompressor and a
-     * default buffer size.
-     * @param in the input stream
-     * @param inf the decompressor ("inflater")
-     */
-    public InflaterInputStream(InputStream in, Inflater inf) {
-        this(in, inf, 512);
-    }
-
-    // Android-changed: Unconditionally close external inflaters (b/26462400)
-    // boolean usesDefaultInflater = false;
-
-    /**
-     * Creates a new input stream with a default decompressor and buffer size.
-     * @param in the input stream
-     */
-    public InflaterInputStream(InputStream in) {
-        this(in, new Inflater());
-        // Android-changed: Unconditionally close external inflaters (b/26462400)
-        // usesDefaultInflater = true;
-    }
-
-    private byte[] singleByteBuf = new byte[1];
-
-    /**
-     * Reads a byte of uncompressed data. This method will block until
-     * enough input is available for decompression.
-     * @return the byte read, or -1 if end of compressed input is reached
-     * @exception IOException if an I/O error has occurred
-     */
-    public int read() throws IOException {
-        ensureOpen();
-        return read(singleByteBuf, 0, 1) == -1 ? -1 : Byte.toUnsignedInt(singleByteBuf[0]);
-    }
-
-    /**
-     * Reads uncompressed data into an array of bytes. If <code>len</code> is not
-     * zero, the method will block until some input can be decompressed; otherwise,
-     * no bytes are read and <code>0</code> is returned.
-     * @param b the buffer into which the data is read
-     * @param off the start offset in the destination array <code>b</code>
-     * @param len the maximum number of bytes read
-     * @return the actual number of bytes read, or -1 if the end of the
-     *         compressed input is reached or a preset dictionary is needed
-     * @exception  NullPointerException If <code>b</code> is <code>null</code>.
-     * @exception  IndexOutOfBoundsException If <code>off</code> is negative,
-     * <code>len</code> is negative, or <code>len</code> is greater than
-     * <code>b.length - off</code>
-     * @exception ZipException if a ZIP format error has occurred
-     * @exception IOException if an I/O error has occurred
-     */
-    public int read(byte[] b, int off, int len) throws IOException {
-        ensureOpen();
-        if (b == null) {
-            throw new NullPointerException();
-        } else if (off < 0 || len < 0 || len > b.length - off) {
-            throw new IndexOutOfBoundsException();
-        } else if (len == 0) {
-            return 0;
-        }
-        try {
-            int n;
-            while ((n = inf.inflate(b, off, len)) == 0) {
-                if (inf.finished() || inf.needsDictionary()) {
-                    reachEOF = true;
-                    return -1;
-                }
-                if (inf.needsInput()) {
-                    fill();
-                }
-            }
-
-            // Android-changed: Eagerly set reachEOF.
-            if (inf.finished()) {
-                reachEOF = true;
-            }
-
-            return n;
-        } catch (DataFormatException e) {
-            String s = e.getMessage();
-            throw new ZipException(s != null ? s : "Invalid ZLIB data format");
-        }
-    }
-
-    /**
-     * Returns 0 after EOF has been reached, otherwise always return 1.
-     * <p>
-     * Programs should not count on this method to return the actual number
-     * of bytes that could be read without blocking.
+     * This is the most basic constructor. You only need to pass the {@code
+     * InputStream} from which the compressed data is to be read from. Default
+     * settings for the {@code Inflater} and internal buffer are be used. In
+     * particular the Inflater expects a ZLIB header from the input stream.
      *
-     * @return     1 before EOF and 0 after EOF.
-     * @exception  IOException  if an I/O error occurs.
-     *
+     * @param is
+     *            the {@code InputStream} to read data from.
      */
-    public int available() throws IOException {
-        ensureOpen();
-        if (reachEOF) {
-            return 0;
+    public InflaterInputStream(InputStream is) {
+        this(is, new Inflater(), BUF_SIZE);
+    }
+
+    /**
+     * This constructor lets you pass a specifically initialized Inflater,
+     * for example one that expects no ZLIB header.
+     *
+     * @param is
+     *            the {@code InputStream} to read data from.
+     * @param inflater
+     *            the specific {@code Inflater} for decompressing data.
+     */
+    public InflaterInputStream(InputStream is, Inflater inflater) {
+        this(is, inflater, BUF_SIZE);
+    }
+
+    /**
+     * This constructor lets you specify both the {@code Inflater} as well as
+     * the internal buffer size to be used.
+     *
+     * @param is
+     *            the {@code InputStream} to read data from.
+     * @param inflater
+     *            the specific {@code Inflater} for decompressing data.
+     * @param bufferSize
+     *            the size to be used for the internal buffer.
+     */
+    public InflaterInputStream(InputStream is, Inflater inflater, int bufferSize) {
+        super(is);
+        if (is == null) {
+            throw new NullPointerException("is == null");
+        } else if (inflater == null) {
+            throw new NullPointerException("inflater == null");
+        }
+        if (bufferSize <= 0) {
+            throw new IllegalArgumentException("bufferSize <= 0: " + bufferSize);
+        }
+        this.inf = inflater;
+        if (is instanceof ZipFile.RAFStream) {
+            nativeEndBufSize = bufferSize;
         } else {
-            return 1;
+            buf = new byte[bufferSize];
         }
     }
 
-    private byte[] b = new byte[512];
-
     /**
-     * Skips specified number of bytes of uncompressed data.
-     * @param n the number of bytes to skip
-     * @return the actual number of bytes skipped.
-     * @exception IOException if an I/O error has occurred
-     * @exception IllegalArgumentException if {@code n < 0}
+     * Reads a single byte of decompressed data.
+     *
+     * @return the byte read.
+     * @throws IOException
+     *             if an error occurs reading the byte.
      */
-    public long skip(long n) throws IOException {
-        if (n < 0) {
-            throw new IllegalArgumentException("negative skip length");
-        }
-        ensureOpen();
-        int max = (int)Math.min(n, Integer.MAX_VALUE);
-        int total = 0;
-        while (total < max) {
-            int len = max - total;
-            if (len > b.length) {
-                len = b.length;
-            }
-            len = read(b, 0, len);
-            if (len == -1) {
-                reachEOF = true;
-                break;
-            }
-            total += len;
-        }
-        return total;
+    @Override public int read() throws IOException {
+        return Streams.readSingleByte(this);
     }
 
     /**
-     * Closes this input stream and releases any system resources associated
-     * with the stream.
-     * @exception IOException if an I/O error has occurred
+     * Reads up to {@code byteCount} bytes of decompressed data and stores it in
+     * {@code buffer} starting at {@code byteOffset}. Returns the number of uncompressed bytes read,
+     * or -1.
      */
-    public void close() throws IOException {
-        if (!closed) {
-            // Android-changed: Unconditionally close external inflaters (b/26462400)
-            //if (usesDefaultInflater)
-            inf.end();
-            in.close();
-            closed = true;
+    @Override
+    public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        checkClosed();
+        Arrays.checkOffsetAndCount(buffer.length, byteOffset, byteCount);
+
+        if (byteCount == 0) {
+            return 0;
         }
+
+        if (eof) {
+            return -1;
+        }
+
+        do {
+            if (inf.needsInput()) {
+                fill();
+            }
+            // Invariant: if reading returns -1 or throws, eof must be true.
+            // It may also be true if the next read() should return -1.
+            try {
+                int result = inf.inflate(buffer, byteOffset, byteCount);
+                eof = inf.finished();
+                if (result > 0) {
+                    return result;
+                } else if (eof) {
+                    return -1;
+                } else if (inf.needsDictionary()) {
+                    eof = true;
+                    return -1;
+                } else if (len == -1) {
+                    eof = true;
+                    throw new EOFException();
+                    // If result == 0, fill() and try again
+                }
+            } catch (DataFormatException e) {
+                eof = true;
+                if (len == -1) {
+                    throw new EOFException();
+                }
+                throw (IOException) (new IOException().initCause(e));
+            }
+        } while (true);
     }
 
     /**
-     * Fills input buffer with more data to decompress.
-     * @exception IOException if an I/O error has occurred
+     * Fills the input buffer with data to be decompressed.
+     *
+     * @throws IOException
+     *             if an {@code IOException} occurs.
      */
     protected void fill() throws IOException {
-        ensureOpen();
-        len = in.read(buf, 0, buf.length);
-        if (len == -1) {
-            throw new EOFException("Unexpected end of ZLIB input stream");
+        checkClosed();
+        if (nativeEndBufSize > 0) {
+            ZipFile.RAFStream is = (ZipFile.RAFStream) in;
+            len = is.fill(inf, nativeEndBufSize);
+        } else {
+            if ((len = in.read(buf)) > 0) {
+                inf.setInput(buf, 0, len);
+            }
         }
-        inf.setInput(buf, 0, len);
     }
 
     /**
-     * Tests if this input stream supports the <code>mark</code> and
-     * <code>reset</code> methods. The <code>markSupported</code>
-     * method of <code>InflaterInputStream</code> returns
-     * <code>false</code>.
+     * Skips up to {@code byteCount} bytes of uncompressed data.
      *
-     * @return  a <code>boolean</code> indicating if this stream type supports
-     *          the <code>mark</code> and <code>reset</code> methods.
-     * @see     java.io.InputStream#mark(int)
-     * @see     java.io.InputStream#reset()
+     * @param byteCount the number of bytes to skip.
+     * @return the number of uncompressed bytes skipped.
+     * @throws IllegalArgumentException if {@code byteCount < 0}.
+     * @throws IOException if an error occurs skipping.
      */
+    @Override
+    public long skip(long byteCount) throws IOException {
+        if (byteCount < 0) {
+            throw new IllegalArgumentException("byteCount < 0");
+        }
+        return Streams.skipByReading(this, byteCount);
+    }
+
+    /**
+     * Returns 0 when when this stream has exhausted its input; and 1 otherwise.
+     * A result of 1 does not guarantee that further bytes can be returned,
+     * with or without blocking.
+     *
+     * <p>Although consistent with the RI, this behavior is inconsistent with
+     * {@link InputStream#available()}, and violates the <a
+     * href="http://en.wikipedia.org/wiki/Liskov_substitution_principle">Liskov
+     * Substitution Principle</a>. This method should not be used.
+     *
+     * @return 0 if no further bytes are available. Otherwise returns 1,
+     *         which suggests (but does not guarantee) that additional bytes are
+     *         available.
+     * @throws IOException if this stream is closed or an error occurs
+     */
+    @Override
+    public int available() throws IOException {
+        checkClosed();
+        if (eof) {
+            return 0;
+        }
+        return 1;
+    }
+
+    /**
+     * Closes the input stream.
+     *
+     * @throws IOException
+     *             If an error occurs closing the input stream.
+     */
+    @Override
+    public void close() throws IOException {
+        if (!closed) {
+            inf.end();
+            closed = true;
+            eof = true;
+            super.close();
+        }
+    }
+
+    /**
+     * Marks the current position in the stream. This implementation overrides
+     * the super type implementation to do nothing at all.
+     *
+     * @param readlimit
+     *            of no use.
+     */
+    @Override
+    public void mark(int readlimit) {
+        // do nothing
+    }
+
+    /**
+     * This operation is not supported and throws {@code IOException}.
+     */
+    @Override
+    public void reset() throws IOException {
+        throw new IOException();
+    }
+
+    /**
+     * Returns whether the receiver implements {@code mark} semantics. This type
+     * does not support {@code mark()}, so always responds {@code false}.
+     *
+     * @return false, always
+     */
+    @Override
     public boolean markSupported() {
         return false;
     }
 
-    /**
-     * Marks the current position in this input stream.
-     *
-     * <p> The <code>mark</code> method of <code>InflaterInputStream</code>
-     * does nothing.
-     *
-     * @param   readlimit   the maximum limit of bytes that can be read before
-     *                      the mark position becomes invalid.
-     * @see     java.io.InputStream#reset()
-     */
-    public synchronized void mark(int readlimit) {
-    }
-
-    /**
-     * Repositions this stream to the position at the time the
-     * <code>mark</code> method was last called on this input stream.
-     *
-     * <p> The method <code>reset</code> for class
-     * <code>InflaterInputStream</code> does nothing except throw an
-     * <code>IOException</code>.
-     *
-     * @exception  IOException  if this method is invoked.
-     * @see     java.io.InputStream#mark(int)
-     * @see     java.io.IOException
-     */
-    public synchronized void reset() throws IOException {
-        throw new IOException("mark/reset not supported");
+    private void checkClosed() throws IOException {
+        if (closed) {
+            throw new IOException("Stream is closed");
+        }
     }
 }

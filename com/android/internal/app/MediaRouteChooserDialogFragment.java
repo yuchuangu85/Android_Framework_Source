@@ -43,12 +43,8 @@ public class MediaRouteChooserDialogFragment extends DialogFragment {
      * </p>
      */
     public MediaRouteChooserDialogFragment() {
-        int theme = MediaRouteChooserDialog.isLightTheme(getContext())
-                ? android.R.style.Theme_DeviceDefault_Light_Dialog
-                : android.R.style.Theme_DeviceDefault_Dialog;
-
         setCancelable(true);
-        setStyle(STYLE_NORMAL, theme);
+        setStyle(STYLE_NORMAL, android.R.style.Theme_DeviceDefault_Dialog);
     }
 
     public int getRouteTypes() {

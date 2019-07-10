@@ -27,17 +27,6 @@ public class WeirdListeners {
     @BindingAdapter("android:onFoo2")
     public static void setListener(View view, OnFoo2 onFoo) {}
 
-    @BindingAdapter("android:onBar1")
-    public static void setListener(View view, OnBar1 onBar) {}
-
-    @BindingAdapter("android:onBar2")
-    public static void setListener(View view, OnBar2 onBar) {}
-
-    @BindingAdapter({"runnable", "fooId", "barId"})
-    public static void setRunnable(View view, Runnable runnable, int foo, int bar) {
-        runnable.run();
-    }
-
     @TargetApi(VERSION_CODES.ICE_CREAM_SANDWICH)
     public static abstract class OnFoo {
         public abstract void onFoo();
@@ -47,15 +36,5 @@ public class WeirdListeners {
 
     public interface OnFoo2 {
         void onFoo();
-    }
-
-    @TargetApi(VERSION_CODES.ICE_CREAM_SANDWICH)
-    public interface OnBar1 {
-        void onBar();
-    }
-
-    @TargetApi(VERSION_CODES.GINGERBREAD)
-    public interface OnBar2 {
-        boolean onBar(View view);
     }
 }

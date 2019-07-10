@@ -48,8 +48,6 @@ class AndroidKeyStoreBCWorkaroundProvider extends Provider {
     private static final String KEYSTORE_PUBLIC_KEY_CLASS_NAME =
             PACKAGE_NAME + ".AndroidKeyStorePublicKey";
 
-    private static final String DESEDE_SYSTEM_PROPERTY = "ro.hardware.keystore_desede";
-
     AndroidKeyStoreBCWorkaroundProvider() {
         super("AndroidKeyStoreBCWorkaround",
                 1.0,
@@ -94,18 +92,6 @@ class AndroidKeyStoreBCWorkaroundProvider extends Provider {
 
         putSymmetricCipherImpl("AES/CTR/NoPadding",
                 PACKAGE_NAME + ".AndroidKeyStoreUnauthenticatedAESCipherSpi$CTR$NoPadding");
-
-        if ("true".equals(android.os.SystemProperties.get(DESEDE_SYSTEM_PROPERTY))) {
-            putSymmetricCipherImpl("DESede/CBC/NoPadding",
-                PACKAGE_NAME + ".AndroidKeyStore3DESCipherSpi$CBC$NoPadding");
-            putSymmetricCipherImpl("DESede/CBC/PKCS7Padding",
-                PACKAGE_NAME + ".AndroidKeyStore3DESCipherSpi$CBC$PKCS7Padding");
-
-            putSymmetricCipherImpl("DESede/ECB/NoPadding",
-                PACKAGE_NAME + ".AndroidKeyStore3DESCipherSpi$ECB$NoPadding");
-            putSymmetricCipherImpl("DESede/ECB/PKCS7Padding",
-                PACKAGE_NAME + ".AndroidKeyStore3DESCipherSpi$ECB$PKCS7Padding");
-        }
 
         putSymmetricCipherImpl("AES/GCM/NoPadding",
                 PACKAGE_NAME + ".AndroidKeyStoreAuthenticatedAESCipherSpi$GCM$NoPadding");
@@ -207,12 +193,12 @@ class AndroidKeyStoreBCWorkaroundProvider extends Provider {
         putSignatureImpl("NONEwithECDSA",
                 PACKAGE_NAME + ".AndroidKeyStoreECDSASignatureSpi$NONE");
 
-        putSignatureImpl("SHA1withECDSA", PACKAGE_NAME + ".AndroidKeyStoreECDSASignatureSpi$SHA1");
-        put("Alg.Alias.Signature.ECDSA", "SHA1withECDSA");
-        put("Alg.Alias.Signature.ECDSAwithSHA1", "SHA1withECDSA");
+        putSignatureImpl("ECDSA", PACKAGE_NAME + ".AndroidKeyStoreECDSASignatureSpi$SHA1");
+        put("Alg.Alias.Signature.SHA1withECDSA", "ECDSA");
+        put("Alg.Alias.Signature.ECDSAwithSHA1", "ECDSA");
         // iso(1) member-body(2) us(840) ansi-x962(10045) signatures(4) ecdsa-with-SHA1(1)
-        put("Alg.Alias.Signature.1.2.840.10045.4.1", "SHA1withECDSA");
-        put("Alg.Alias.Signature.1.3.14.3.2.26with1.2.840.10045.2.1", "SHA1withECDSA");
+        put("Alg.Alias.Signature.1.2.840.10045.4.1", "ECDSA");
+        put("Alg.Alias.Signature.1.3.14.3.2.26with1.2.840.10045.2.1", "ECDSA");
 
         // iso(1) member-body(2) us(840) ansi-x962(10045) signatures(4) ecdsa-with-SHA2(3)
         putSignatureImpl("SHA224withECDSA",

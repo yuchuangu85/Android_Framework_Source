@@ -49,46 +49,6 @@ public class BackupTransport {
     public static final int TRANSPORT_PACKAGE_REJECTED = -1002;
     public static final int AGENT_ERROR = -1003;
     public static final int AGENT_UNKNOWN = -1004;
-    public static final int TRANSPORT_QUOTA_EXCEEDED = -1005;
-
-    /**
-     * Indicates that the transport cannot accept a diff backup for this package.
-     *
-     * <p>Backup manager should clear its state for this package and immediately retry a
-     * non-incremental backup. This might be used if the transport no longer has data for this
-     * package in its backing store.
-     *
-     * <p>This is only valid when backup manager called {@link
-     * #performBackup(PackageInfo, ParcelFileDescriptor, int)} with {@link #FLAG_INCREMENTAL}.
-     */
-    public static final int TRANSPORT_NON_INCREMENTAL_BACKUP_REQUIRED = -1006;
-
-    // Indicates that operation was initiated by user, not a scheduled one.
-    // Transport should ignore its own moratoriums for call with this flag set.
-    public static final int FLAG_USER_INITIATED = 1;
-
-    /**
-     * For key value backup, indicates that the backup data is a diff from a previous backup. The
-     * transport must apply this diff to an existing backup to build the new backup set.
-     *
-     * @see #performBackup(PackageInfo, ParcelFileDescriptor, int)
-     */
-    public static final int FLAG_INCREMENTAL = 1 << 1;
-
-    /**
-     * For key value backup, indicates that the backup data is a complete set, not a diff from a
-     * previous backup. The transport should clear any previous backup when storing this backup.
-     *
-     * @see #performBackup(PackageInfo, ParcelFileDescriptor, int)
-     */
-    public static final int FLAG_NON_INCREMENTAL = 1 << 2;
-
-    /**
-     * Used as a boolean extra in the binding intent of transports. We pass {@code true} to
-     * notify transports that the current connection is used for registering the transport.
-     */
-    public static final String EXTRA_TRANSPORT_REGISTRATION =
-            "android.app.backup.extra.TRANSPORT_REGISTRATION";
 
     IBackupTransport mBinderImpl = new TransportImpl();
 
@@ -266,41 +226,21 @@ public class BackupTransport {
      * {@link #TRANSPORT_OK}, {@link #finishBackup} will then be called to ensure the data
      * is sent and recorded successfully.
      *
-     * If the backup data is a diff against the previous backup then the flag {@link
-     * BackupTransport#FLAG_INCREMENTAL} will be set. Otherwise, if the data is a complete backup
-     * set then {@link BackupTransport#FLAG_NON_INCREMENTAL} will be set. Before P neither flag will
-     * be set regardless of whether the backup is incremental or not.
-     *
-     * <p>If {@link BackupTransport#FLAG_INCREMENTAL} is set and the transport does not have data
-     * for this package in its storage backend then it cannot apply the incremental diff. Thus it
-     * should return {@link BackupTransport#TRANSPORT_NON_INCREMENTAL_BACKUP_REQUIRED} to indicate
-     * that backup manager should delete its state and retry the package as a non-incremental
-     * backup. Before P, or if this is a non-incremental backup, then this return code is equivalent
-     * to {@link BackupTransport#TRANSPORT_ERROR}.
-     *
      * @param packageInfo The identity of the application whose data is being backed up.
      *   This specifically includes the signature list for the package.
-     * @param inFd Descriptor of file with data that resulted from invoking the application's
+     * @param data The data stream that resulted from invoking the application's
      *   BackupService.doBackup() method.  This may be a pipe rather than a file on
      *   persistent media, so it may not be seekable.
-     * @param flags a combination of {@link BackupTransport#FLAG_USER_INITIATED}, {@link
-     *   BackupTransport#FLAG_NON_INCREMENTAL}, {@link BackupTransport#FLAG_INCREMENTAL}, or 0.
+     * @param wipeAllFirst When true, <i>all</i> backed-up data for the current device/account
+     *   must be erased prior to the storage of the data provided here.  The purpose of this
+     *   is to provide a guarantee that no stale data exists in the restore set when the
+     *   device begins providing incremental backups.
      * @return one of {@link BackupTransport#TRANSPORT_OK} (OK so far),
      *  {@link BackupTransport#TRANSPORT_PACKAGE_REJECTED} (to suppress backup of this
      *  specific package, but allow others to proceed),
-     *  {@link BackupTransport#TRANSPORT_ERROR} (on network error or other failure), {@link
-     *  BackupTransport#TRANSPORT_NON_INCREMENTAL_BACKUP_REQUIRED} (if the transport cannot accept
-     *  an incremental backup for this package), or {@link
-     *  BackupTransport#TRANSPORT_NOT_INITIALIZED} (if the backend dataset has become lost due to
-     *  inactivity purge or some other reason and needs re-initializing)
-     */
-    public int performBackup(PackageInfo packageInfo, ParcelFileDescriptor inFd, int flags) {
-        return performBackup(packageInfo, inFd);
-    }
-
-    /**
-     * Legacy version of {@link #performBackup(PackageInfo, ParcelFileDescriptor, int)} that
-     * doesn't use flags parameter.
+     *  {@link BackupTransport#TRANSPORT_ERROR} (on network error or other failure), or
+     *  {@link BackupTransport#TRANSPORT_NOT_INITIALIZED} (if the backend dataset has
+     *  become lost due to inactivity purge or some other reason and needs re-initializing)
      */
     public int performBackup(PackageInfo packageInfo, ParcelFileDescriptor inFd) {
         return BackupTransport.TRANSPORT_ERROR;
@@ -452,20 +392,10 @@ public class BackupTransport {
      *    close this file descriptor now; otherwise it should be cached for use during
      *    succeeding calls to {@link #sendBackupData(int)}, and closed in response to
      *    {@link #finishBackup()}.
-     * @param flags {@link BackupTransport#FLAG_USER_INITIATED} or 0.
      * @return TRANSPORT_PACKAGE_REJECTED to indicate that the stated application is not
      *    to be backed up; TRANSPORT_OK to indicate that the OS may proceed with delivering
      *    backup data; TRANSPORT_ERROR to indicate a fatal error condition that precludes
      *    performing a backup at this time.
-     */
-    public int performFullBackup(PackageInfo targetPackage, ParcelFileDescriptor socket,
-            int flags) {
-        return performFullBackup(targetPackage, socket);
-    }
-
-    /**
-     * Legacy version of {@link #performFullBackup(PackageInfo, ParcelFileDescriptor, int)} that
-     * doesn't use flags parameter.
      */
     public int performFullBackup(PackageInfo targetPackage, ParcelFileDescriptor socket) {
         return BackupTransport.TRANSPORT_PACKAGE_REJECTED;
@@ -533,30 +463,6 @@ public class BackupTransport {
                 "Transport cancelFullBackup() not implemented");
     }
 
-    /**
-     * Ask the transport whether this app is eligible for backup.
-     *
-     * @param targetPackage The identity of the application.
-     * @param isFullBackup If set, transport should check if app is eligible for full data backup,
-     *   otherwise to check if eligible for key-value backup.
-     * @return Whether this app is eligible for backup.
-     */
-    public boolean isAppEligibleForBackup(PackageInfo targetPackage, boolean isFullBackup) {
-        return true;
-    }
-
-    /**
-     * Ask the transport about current quota for backup size of the package.
-     *
-     * @param packageName ID of package to provide the quota.
-     * @param isFullBackup If set, transport should return limit for full data backup, otherwise
-     *                     for key-value backup.
-     * @return Current limit on backup size in bytes.
-     */
-    public long getBackupQuota(String packageName, boolean isFullBackup) {
-        return Long.MAX_VALUE;
-    }
-
     // ------------------------------------------------------------------------------------
     // Full restore interfaces
 
@@ -614,15 +520,6 @@ public class BackupTransport {
     }
 
     /**
-     * Returns flags with additional information about the transport, which is accessible to the
-     * {@link android.app.backup.BackupAgent}. This allows the agent to decide what to do based on
-     * properties of the transport.
-     */
-    public int getTransportFlags() {
-        return 0;
-    }
-
-    /**
      * Bridge between the actual IBackupTransport implementation and the stable API.  If the
      * binder interface needs to change, we use this layer to translate so that we can
      * (if appropriate) decouple those framework-side changes from the BackupTransport
@@ -671,9 +568,9 @@ public class BackupTransport {
         }
 
         @Override
-        public int performBackup(PackageInfo packageInfo, ParcelFileDescriptor inFd, int flags)
+        public int performBackup(PackageInfo packageInfo, ParcelFileDescriptor inFd)
                 throws RemoteException {
-            return BackupTransport.this.performBackup(packageInfo, inFd, flags);
+            return BackupTransport.this.performBackup(packageInfo, inFd);
         }
 
         @Override
@@ -722,9 +619,8 @@ public class BackupTransport {
         }
 
         @Override
-        public int performFullBackup(PackageInfo targetPackage, ParcelFileDescriptor socket,
-                int flags) throws RemoteException {
-            return BackupTransport.this.performFullBackup(targetPackage, socket, flags);
+        public int performFullBackup(PackageInfo targetPackage, ParcelFileDescriptor socket) throws RemoteException {
+            return BackupTransport.this.performFullBackup(targetPackage, socket);
         }
 
         @Override
@@ -740,22 +636,6 @@ public class BackupTransport {
         @Override
         public void cancelFullBackup() throws RemoteException {
             BackupTransport.this.cancelFullBackup();
-        }
-
-        @Override
-        public boolean isAppEligibleForBackup(PackageInfo targetPackage, boolean isFullBackup)
-                throws RemoteException {
-            return BackupTransport.this.isAppEligibleForBackup(targetPackage, isFullBackup);
-        }
-
-        @Override
-        public long getBackupQuota(String packageName, boolean isFullBackup) {
-            return BackupTransport.this.getBackupQuota(packageName, isFullBackup);
-        }
-
-        @Override
-        public int getTransportFlags() {
-            return BackupTransport.this.getTransportFlags();
         }
 
         @Override

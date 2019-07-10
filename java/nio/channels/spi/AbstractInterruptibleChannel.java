@@ -1,215 +1,135 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.nio.channels.spi;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.InvocationTargetException;
-import java.nio.channels.*;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
-import sun.nio.ch.Interruptible;
-
+import java.nio.channels.AsynchronousCloseException;
+import java.nio.channels.Channel;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.InterruptibleChannel;
 
 /**
- * Base implementation class for interruptible channels.
- *
- * <p> This class encapsulates the low-level machinery required to implement
- * the asynchronous closing and interruption of channels.  A concrete channel
- * class must invoke the {@link #begin begin} and {@link #end end} methods
- * before and after, respectively, invoking an I/O operation that might block
- * indefinitely.  In order to ensure that the {@link #end end} method is always
- * invoked, these methods should be used within a
- * <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block:
- *
- * <blockquote><pre>
- * boolean completed = false;
- * try {
- *     begin();
- *     completed = ...;    // Perform blocking I/O operation
- *     return ...;         // Return result
- * } finally {
- *     end(completed);
- * }</pre></blockquote>
- *
- * <p> The <tt>completed</tt> argument to the {@link #end end} method tells
- * whether or not the I/O operation actually completed, that is, whether it had
- * any effect that would be visible to the invoker.  In the case of an
- * operation that reads bytes, for example, this argument should be
- * <tt>true</tt> if, and only if, some bytes were actually transferred into the
- * invoker's target buffer.
- *
- * <p> A concrete channel class must also implement the {@link
- * #implCloseChannel implCloseChannel} method in such a way that if it is
- * invoked while another thread is blocked in a native I/O operation upon the
- * channel then that operation will immediately return, either by throwing an
- * exception or by returning normally.  If a thread is interrupted or the
- * channel upon which it is blocked is asynchronously closed then the channel's
- * {@link #end end} method will throw the appropriate exception.
- *
- * <p> This class performs the synchronization required to implement the {@link
- * java.nio.channels.Channel} specification.  Implementations of the {@link
- * #implCloseChannel implCloseChannel} method need not synchronize against
- * other threads that might be attempting to close the channel.  </p>
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
- */
+ * {@code AbstractInterruptibleChannel} is the root class for interruptible
+ * channels.
+ * <p>
+ * The basic usage pattern for an interruptible channel is to invoke
+ * {@code begin()} before any I/O operation that potentially blocks
+ * indefinitely, then {@code end(boolean)} after completing the operation. The
+ * argument to the {@code end} method should indicate if the I/O operation has
+ * actually completed so that any change may be visible to the invoker.
+*/
+public abstract class AbstractInterruptibleChannel implements Channel, InterruptibleChannel {
 
-public abstract class AbstractInterruptibleChannel
-    implements Channel, InterruptibleChannel
-{
+    private volatile boolean closed = false;
 
-    private final Object closeLock = new Object();
-    private volatile boolean open = true;
+    volatile boolean interrupted = false;
+
+    private final Runnable interruptAndCloseRunnable = new Runnable() {
+        @Override public void run() {
+            try {
+                interrupted = true;
+                AbstractInterruptibleChannel.this.close();
+            } catch (IOException ignored) {
+            }
+        }
+    };
+
+    protected AbstractInterruptibleChannel() {
+    }
+
+    @Override public synchronized final boolean isOpen() {
+        return !closed;
+    }
 
     /**
-     * Initializes a new instance of this class.
-     */
-    protected AbstractInterruptibleChannel() { }
-
-    /**
-     * Closes this channel.
+     * Closes an open channel. If the channel is already closed then this method
+     * has no effect, otherwise it closes the receiver via the
+     * {@code implCloseChannel} method.
+     * <p>
+     * If an attempt is made to perform an operation on a closed channel then a
+     * {@link java.nio.channels.ClosedChannelException} is thrown.
+     * <p>
+     * If multiple threads attempt to simultaneously close a channel, then only
+     * one thread will run the closure code and the others will be blocked until
+     * the first one completes.
      *
-     * <p> If the channel has already been closed then this method returns
-     * immediately.  Otherwise it marks the channel as closed and then invokes
-     * the {@link #implCloseChannel implCloseChannel} method in order to
-     * complete the close operation.  </p>
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @throws IOException
+     *             if a problem occurs while closing this channel.
+     * @see java.nio.channels.Channel#close()
      */
-    public final void close() throws IOException {
-        synchronized (closeLock) {
-            if (!open)
-                return;
-            open = false;
-            implCloseChannel();
+    @Override public final void close() throws IOException {
+        if (!closed) {
+            synchronized (this) {
+                if (!closed) {
+                    closed = true;
+                    implCloseChannel();
+                }
+            }
         }
     }
 
     /**
-     * Closes this channel.
-     *
-     * <p> This method is invoked by the {@link #close close} method in order
-     * to perform the actual work of closing the channel.  This method is only
-     * invoked if the channel has not yet been closed, and it is never invoked
-     * more than once.
-     *
-     * <p> An implementation of this method must arrange for any other thread
-     * that is blocked in an I/O operation upon this channel to return
-     * immediately, either by throwing an exception or by returning normally.
-     * </p>
-     *
-     * @throws  IOException
-     *          If an I/O error occurs while closing the channel
-     */
-    protected abstract void implCloseChannel() throws IOException;
-
-    public final boolean isOpen() {
-        return open;
-    }
-
-
-    // -- Interruption machinery --
-
-    private Interruptible interruptor;
-    private volatile Thread interrupted;
-
-    /**
-     * Marks the beginning of an I/O operation that might block indefinitely.
-     *
-     * <p> This method should be invoked in tandem with the {@link #end end}
-     * method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block as
-     * shown <a href="#be">above</a>, in order to implement asynchronous
-     * closing and interruption for this channel.  </p>
+     * Indicates the beginning of a code section that includes an I/O operation
+     * that is potentially blocking. After this operation, the application
+     * should invoke the corresponding {@code end(boolean)} method.
      */
     protected final void begin() {
-        if (interruptor == null) {
-            interruptor = new Interruptible() {
-                    public void interrupt(Thread target) {
-                        synchronized (closeLock) {
-                            if (!open)
-                                return;
-                            open = false;
-                            interrupted = target;
-                            try {
-                                AbstractInterruptibleChannel.this.implCloseChannel();
-                            } catch (IOException x) { }
-                        }
-                    }};
-        }
-        blockedOn(interruptor);
-        Thread me = Thread.currentThread();
-        if (me.isInterrupted())
-            interruptor.interrupt(me);
+        Thread.currentThread().pushInterruptAction$(interruptAndCloseRunnable);
     }
 
     /**
-     * Marks the end of an I/O operation that might block indefinitely.
+     * Indicates the end of a code section that has been started with
+     * {@code begin()} and that includes a potentially blocking I/O operation.
      *
-     * <p> This method should be invoked in tandem with the {@link #begin
-     * begin} method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block
-     * as shown <a href="#be">above</a>, in order to implement asynchronous
-     * closing and interruption for this channel.  </p>
-     *
-     * @param  completed
-     *         <tt>true</tt> if, and only if, the I/O operation completed
-     *         successfully, that is, had some effect that would be visible to
-     *         the operation's invoker
-     *
-     * @throws  AsynchronousCloseException
-     *          If the channel was asynchronously closed
-     *
-     * @throws  ClosedByInterruptException
-     *          If the thread blocked in the I/O operation was interrupted
+     * @param success
+     *            pass {@code true} if the blocking operation has succeeded and
+     *            has had a noticeable effect; {@code false} otherwise.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             method is executing.
      */
-    protected final void end(boolean completed)
-        throws AsynchronousCloseException
-    {
-        blockedOn(null);
-        Thread interrupted = this.interrupted;
-        if (interrupted != null && interrupted == Thread.currentThread()) {
-            interrupted = null;
+    protected final void end(boolean success) throws AsynchronousCloseException {
+        Thread.currentThread().popInterruptAction$(interruptAndCloseRunnable);
+        if (interrupted) {
+            interrupted = false;
             throw new ClosedByInterruptException();
         }
-        if (!completed && !open)
+        if (!success && closed) {
             throw new AsynchronousCloseException();
+        }
     }
 
-
-    // -- sun.misc.SharedSecrets --
-    static void blockedOn(Interruptible intr) {         // package-private
-        // Android-changed: Call Thread.currentThread().blockedOn() directly.
-        Thread.currentThread().blockedOn(intr);
-    }
+    /**
+     * Implements the channel closing behavior.
+     * <p>
+     * Closes the channel with a guarantee that the channel is not currently
+     * closed through another invocation of {@code close()} and that the method
+     * is thread-safe.
+     * <p>
+     * Any outstanding threads blocked on I/O operations on this channel must be
+     * released with either a normal return code, or by throwing an
+     * {@code AsynchronousCloseException}.
+     *
+     * @throws IOException
+     *             if a problem occurs while closing the channel.
+     */
+    protected abstract void implCloseChannel() throws IOException;
 }

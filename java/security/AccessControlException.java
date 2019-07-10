@@ -1,80 +1,62 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
 /**
- * <p> This exception is thrown by the AccessController to indicate
- * that a requested access (to a critical system resource such as the
- * file system or the network) is denied.
- *
- * <p> The reason to deny access can vary.  For example, the requested
- * permission might be of an incorrect type,  contain an invalid
- * value, or request access that is not allowed according to the
- * security policy.  Such information should be given whenever
- * possible at the time the exception is thrown.
- *
- * @author Li Gong
- * @author Roland Schemers
+ * {@code AccessControlException} is thrown if the access control infrastructure
+ * denies protected access due to missing permissions.
  */
-
 public class AccessControlException extends SecurityException {
 
     private static final long serialVersionUID = 5138225684096988535L;
 
-    // the permission that caused the exception to be thrown.
-    private Permission perm;
+    private Permission perm; // Named as demanded by Serialized Form.
 
     /**
-     * Constructs an {@code AccessControlException} with the
-     * specified, detailed message.
+     * Constructs a new instance of {@code AccessControlException} with the
+     * given message.
      *
-     * @param   s   the detail message.
+     * @param message
+     *            the detail message for this exception.
      */
-    public AccessControlException(String s) {
-        super(s);
+    public AccessControlException(String message) {
+        super(message);
     }
 
     /**
-     * Constructs an {@code AccessControlException} with the
-     * specified, detailed message, and the requested permission that caused
-     * the exception.
+     * Constructs a new instance of {@code AccessControlException} with the
+     * given message and the requested {@code Permission} which was not granted.
      *
-     * @param   s   the detail message.
-     * @param   p   the permission that caused the exception.
+     * @param message
+     *            the detail message for the exception.
+     * @param perm
+     *            the requested {@code Permission} which was not granted.
      */
-    public AccessControlException(String s, Permission p) {
-        super(s);
-        perm = p;
+    public AccessControlException(String message, Permission perm) {
+        super(message);
+        this.perm = perm;
     }
 
     /**
-     * Gets the Permission object associated with this exception, or
-     * null if there was no corresponding Permission object.
+     * Returns the requested permission that caused this Exception or {@code
+     * null} if there is no corresponding {@code Permission}.
      *
-     * @return the Permission object.
+     * @return the requested permission that caused this Exception, maybe {@code null}.
      */
     public Permission getPermission() {
         return perm;

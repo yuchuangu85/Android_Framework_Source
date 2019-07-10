@@ -1,486 +1,373 @@
 /*
- * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
 import java.security.AlgorithmParameters;
-import java.security.Provider;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.security.Key;
-import java.security.Security;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
-import java.security.InvalidKeyException;
-import java.security.InvalidAlgorithmParameterException;
+import java.security.Provider;
+import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
-
-import sun.security.jca.GetInstance.Instance;
+import java.util.Arrays;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * This class provides the functionality of an exemption mechanism, examples
- * of which are <i>key recovery</i>, <i>key weakening</i>, and
- * <i>key escrow</i>.
- *
- * <p>Applications or applets that use an exemption mechanism may be granted
- * stronger encryption capabilities than those which don't.
- *
- * @since 1.4
+ * This class implements the functionality of an exemption mechanism such as
+ * <i>key recovery</i>, <i>key weakening</i>, or <i>key escrow</i>.
  */
-
 public class ExemptionMechanism {
 
-    // The provider
-    private Provider provider;
+    // Used to access common engine functionality
+    private static final Engine ENGINE = new Engine("ExemptionMechanism");
 
-    // The provider implementation (delegate)
-    private ExemptionMechanismSpi exmechSpi;
+    // Store used provider
+    private final Provider provider;
 
-    // The name of the exemption mechanism.
-    private String mechanism;
+    // Store used spi implementation
+    private final ExemptionMechanismSpi spiImpl;
 
-    // Flag which indicates whether this ExemptionMechanism
-    // result is generated successfully.
-    private boolean done = false;
+    // Store mechanism name
+    private final String mechanism;
 
-    // State information
-    private boolean initialized = false;
+    // Store state (initialized or not)
+    private boolean isInit;
 
-    // Store away the key at init() time for later comparison.
-    private Key keyStored = null;
+    // Store initKey value
+    private Key initKey;
+
+    // Indicates if blob generated successfully
+    private boolean generated;
 
     /**
-     * Creates a ExemptionMechanism object.
+     * Creates a {@code ExemptionMechanism} instance.
      *
-     * @param exmechSpi the delegate
-     * @param provider the provider
-     * @param mechanism the exemption mechanism
+     * @param exmechSpi
+     *            the implementation delegate.
+     * @param provider
+     *            the associated provider.
+     * @param mechanism
+     *            the name of the mechanism.
      */
     protected ExemptionMechanism(ExemptionMechanismSpi exmechSpi,
-                                 Provider provider,
-                                 String mechanism) {
-        this.exmechSpi = exmechSpi;
-        this.provider = provider;
+            Provider provider, String mechanism) {
         this.mechanism = mechanism;
+        this.spiImpl = exmechSpi;
+        this.provider = provider;
+        isInit = false;
     }
 
     /**
-     * Returns the exemption mechanism name of this
-     * <code>ExemptionMechanism</code> object.
+     * Returns the name of this {@code ExemptionMechanism}.
      *
-     * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this
-     * <code>ExemptionMechanism</code> object.
-     *
-     * @return the exemption mechanism name of this
-     * <code>ExemptionMechanism</code> object.
+     * @return the name of this {@code ExemptionMechanism}.
      */
     public final String getName() {
-        return this.mechanism;
+        return mechanism;
     }
 
     /**
-     * Returns an <code>ExemptionMechanism</code> object that implements the
+     * Returns a new {@code ExemptionMechanism} instance that provides the
      * specified exemption mechanism algorithm.
      *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new ExemptionMechanism object encapsulating the
-     * ExemptionMechanismSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested exemption
-     * mechanism.
-     * See the ExemptionMechanism section in the
-     * <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Exemption">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard exemption mechanism names.
-     *
-     * @return the new <code>ExemptionMechanism</code> object.
-     *
-     * @exception NullPointerException if <code>algorithm</code>
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports an
-     *          ExemptionMechanismSpi implementation for the
-     *          specified algorithm.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested exemption mechanism.
+     * @return the new {@code ExemptionMechanism} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available by any provider.
+     * @throws NullPointerException
+     *             if the algorithm parameter is {@code null}.
      */
     public static final ExemptionMechanism getInstance(String algorithm)
             throws NoSuchAlgorithmException {
-        Instance instance = JceSecurity.getInstance("ExemptionMechanism",
-                ExemptionMechanismSpi.class, algorithm);
-        return new ExemptionMechanism((ExemptionMechanismSpi)instance.impl,
-                instance.provider, algorithm);
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        Engine.SpiAndProvider sap = ENGINE.getInstance(algorithm, null);
+        return new ExemptionMechanism((ExemptionMechanismSpi) sap.spi, sap.provider, algorithm);
     }
 
-
     /**
-     * Returns an <code>ExemptionMechanism</code> object that implements the
-     * specified exemption mechanism algorithm.
+     * Returns a new {@code ExemptionMechansm} instance that provides the
+     * specified exemption mechanism algorithm from the specified provider.
      *
-     * <p> A new ExemptionMechanism object encapsulating the
-     * ExemptionMechanismSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-
-     * @param algorithm the standard name of the requested exemption mechanism.
-     * See the ExemptionMechanism section in the
-     * <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Exemption">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard exemption mechanism names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new <code>ExemptionMechanism</code> object.
-     *
-     * @exception NullPointerException if <code>algorithm</code>
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if an ExemptionMechanismSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null or empty.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested exemption mechanism.
+     * @param provider
+     *            the name of the provider that is providing the algorithm.
+     * @return the new {@code ExemptionMechanism} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not provided by the specified
+     *             provider.
+     * @throws NoSuchProviderException
+     *             if the specified provider is not available.
+     * @throws NullPointerException
+     *             if the algorithm parameter is {@code null}.
+     * @throws IllegalArgumentException
+     *             if the provider parameter is {@code null}.
      */
     public static final ExemptionMechanism getInstance(String algorithm,
             String provider) throws NoSuchAlgorithmException,
             NoSuchProviderException {
-        Instance instance = JceSecurity.getInstance("ExemptionMechanism",
-                ExemptionMechanismSpi.class, algorithm, provider);
-        return new ExemptionMechanism((ExemptionMechanismSpi)instance.impl,
-                instance.provider, algorithm);
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        Provider impProvider = Security.getProvider(provider);
+        if (impProvider == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        return getInstance(algorithm, impProvider);
     }
 
     /**
-     * Returns an <code>ExemptionMechanism</code> object that implements the
-     * specified exemption mechanism algorithm.
+     * Returns a new {@code ExemptionMechanism} instance that provides the
+     * specified exemption mechanism algorithm from the specified provider.
+     * The {@code provider} supplied does not have to be registered.
      *
-     * <p> A new ExemptionMechanism object encapsulating the
-     * ExemptionMechanismSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param algorithm the standard name of the requested exemption mechanism.
-     * See the ExemptionMechanism section in the
-     * <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Exemption">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard exemption mechanism names.
-     *
-     * @param provider the provider.
-     *
-     * @return the new <code>ExemptionMechanism</code> object.
-     *
-     * @exception NullPointerException if <code>algorithm</code>
-     *          is null.
-     *
-     * @exception NoSuchAlgorithmException if an ExemptionMechanismSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested exemption mechanism.
+     * @param provider
+     *            the provider that is providing the algorithm.
+     * @return the new {@code ExemptionMechanism} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not provided by the specified
+     *             provider.
+     * @throws NullPointerException
+     *             if the algorithm parameter is {@code null}.
+     * @throws IllegalArgumentException
+     *             if the provider parameter is {@code null}.
      */
     public static final ExemptionMechanism getInstance(String algorithm,
             Provider provider) throws NoSuchAlgorithmException {
-        Instance instance = JceSecurity.getInstance("ExemptionMechanism",
-                ExemptionMechanismSpi.class, algorithm, provider);
-        return new ExemptionMechanism((ExemptionMechanismSpi)instance.impl,
-                instance.provider, algorithm);
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        Object spi = ENGINE.getInstance(algorithm, provider, null);
+        return new ExemptionMechanism((ExemptionMechanismSpi) spi, provider, algorithm);
     }
 
     /**
-     * Returns the provider of this <code>ExemptionMechanism</code> object.
+     * Returns the provider of this {@code ExemptionMechanism} instance.
      *
-     * @return the provider of this <code>ExemptionMechanism</code> object.
+     * @return the provider of this {@code ExemptionMechanism} instance.
      */
     public final Provider getProvider() {
-        return this.provider;
+        return provider;
     }
 
     /**
-     * Returns whether the result blob has been generated successfully by this
-     * exemption mechanism.
+     * Returns whether the result blob for this {@code ExemptionMechanism}
+     * instance has been generated successfully and that the specified key is
+     * the same as the one that was used to initialize and generate.
      *
-     * <p>The method also makes sure that the key passed in is the same as
-     * the one this exemption mechanism used in initializing and generating
-     * phases.
-     *
-     * @param key the key the crypto is going to use.
-     *
-     * @return whether the result blob of the same key has been generated
-     * successfully by this exemption mechanism; false if <code>key</code>
-     * is null.
-     *
-     * @exception ExemptionMechanismException if problem(s) encountered
-     * while determining whether the result blob has been generated successfully
-     * by this exemption mechanism object.
+     * @param key
+     *            the key to verify.
+     * @return whether the result blob for this {@code ExemptionMechanism}
+     *         instance has been generated successfully.
+     * @throws ExemptionMechanismException
+     *             if an error occurs while determining whether the result blob
+     *             has been generated successfully.
      */
     public final boolean isCryptoAllowed(Key key)
             throws ExemptionMechanismException {
-        boolean ret = false;
-        if (done && (key != null)) {
-            // Check if the key passed in is the same as the one
-            // this exemption mechanism used.
-            ret = keyStored.equals(key);
+
+        if (generated
+                && (initKey.equals(key) || Arrays.equals(initKey.getEncoded(),
+                        key.getEncoded()))) {
+            return true;
         }
-        return ret;
-     }
+        return false;
+    }
 
     /**
-     * Returns the length in bytes that an output buffer would need to be in
-     * order to hold the result of the next
-     * {@link #genExemptionBlob(byte[]) genExemptionBlob}
-     * operation, given the input length <code>inputLen</code> (in bytes).
+     * Returns the size in bytes for the output buffer needed to hold the output
+     * of the next {@link #genExemptionBlob} call, given the specified {@code
+     * inputLen} (in bytes).
      *
-     * <p>The actual output length of the next
-     * {@link #genExemptionBlob(byte[]) genExemptionBlob}
-     * call may be smaller than the length returned by this method.
-     *
-     * @param inputLen the input length (in bytes)
-     *
-     * @return the required output buffer size (in bytes)
-     *
-     * @exception IllegalStateException if this exemption mechanism is in a
-     * wrong state (e.g., has not yet been initialized)
+     * @param inputLen
+     *            the specified input length (in bytes).
+     * @return the size in bytes for the output buffer.
+     * @throws IllegalStateException
+     *             if this {@code ExemptionMechanism} instance is not
+     *             initialized.
      */
     public final int getOutputSize(int inputLen) throws IllegalStateException {
-        if (!initialized) {
-            throw new IllegalStateException(
-                "ExemptionMechanism not initialized");
+        if (!isInit) {
+            throw new IllegalStateException("ExemptionMechanism is not initialized");
         }
-        if (inputLen < 0) {
-            throw new IllegalArgumentException(
-                "Input size must be equal to " + "or greater than zero");
-        }
-        return exmechSpi.engineGetOutputSize(inputLen);
+        return spiImpl.engineGetOutputSize(inputLen);
     }
 
     /**
-     * Initializes this exemption mechanism with a key.
+     * Initializes this {@code ExemptionMechanism} instance with the
+     * specified key.
      *
-     * <p>If this exemption mechanism requires any algorithm parameters
-     * that cannot be derived from the given <code>key</code>, the
-     * underlying exemption mechanism implementation is supposed to
-     * generate the required parameters itself (using provider-specific
-     * default values); in the case that algorithm parameters must be
-     * specified by the caller, an <code>InvalidKeyException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
+     * @param key
+     *            the key to initialize this instance with.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
-    public final void init(Key key)
-            throws InvalidKeyException, ExemptionMechanismException {
-        done = false;
-        initialized = false;
-
-        keyStored = key;
-        exmechSpi.engineInit(key);
-        initialized = true;
+    public final void init(Key key) throws InvalidKeyException,
+            ExemptionMechanismException {
+        generated = false;
+        spiImpl.engineInit(key);
+        initKey = key;
+        isInit = true;
     }
 
     /**
-     * Initializes this exemption mechanism with a key and a set of algorithm
-     * parameters.
+     * Initializes this {@code ExemptionMechanism} instance with the
+     * specified key and algorithm parameters.
      *
-     * <p>If this exemption mechanism requires any algorithm parameters
-     * and <code>params</code> is null, the underlying exemption
-     * mechanism implementation is supposed to generate the required
-     * parameters itself (using provider-specific default values); in the case
-     * that algorithm parameters must be specified by the caller, an
-     * <code>InvalidAlgorithmParameterException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
+     * @param key
+     *            the key to initialize this instance with.
+     * @param param
+     *            the parameters for this exemption mechanism algorithm.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws InvalidAlgorithmParameterException
+     *             if the parameters cannot be used to initialize this
+     *             mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
-    public final void init(Key key, AlgorithmParameterSpec params)
+    public final void init(Key key, AlgorithmParameters param)
             throws InvalidKeyException, InvalidAlgorithmParameterException,
             ExemptionMechanismException {
-        done = false;
-        initialized = false;
-
-        keyStored = key;
-        exmechSpi.engineInit(key, params);
-        initialized = true;
+        generated = false;
+        spiImpl.engineInit(key, param);
+        initKey = key;
+        isInit = true;
     }
 
     /**
-     * Initializes this exemption mechanism with a key and a set of algorithm
-     * parameters.
+     * Initializes this {@code ExemptionMechanism} instance with the
+     * specified key and algorithm parameters.
      *
-     * <p>If this exemption mechanism requires any algorithm parameters
-     * and <code>params</code> is null, the underlying exemption mechanism
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default values); in the case that algorithm
-     * parameters must be specified by the caller, an
-     * <code>InvalidAlgorithmParameterException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
+     * @param key
+     *            the key to initialize this instance with.
+     * @param param
+     *            the parameters for this exemption mechanism algorithm.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws InvalidAlgorithmParameterException
+     *             the the parameters cannot be used to initialize this
+     *             mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
-    public final void init(Key key, AlgorithmParameters params)
+    public final void init(Key key, AlgorithmParameterSpec param)
             throws InvalidKeyException, InvalidAlgorithmParameterException,
             ExemptionMechanismException {
-        done = false;
-        initialized = false;
-
-        keyStored = key;
-        exmechSpi.engineInit(key, params);
-        initialized = true;
+        generated = false;
+        spiImpl.engineInit(key, param);
+        initKey = key;
+        isInit = true;
     }
 
     /**
-     * Generates the exemption mechanism key blob.
+     * Generates the result key blob for this exemption mechanism.
      *
-     * @return the new buffer with the result key blob.
-     *
-     * @exception IllegalStateException if this exemption mechanism is in
-     * a wrong state (e.g., has not been initialized).
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of generating.
+     * @return the result key blob for this exemption mechanism.
+     * @throws IllegalStateException
+     *             if this {@code ExemptionMechanism} instance is not
+     *             initialized.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during generation.
      */
     public final byte[] genExemptionBlob() throws IllegalStateException,
             ExemptionMechanismException {
-        if (!initialized) {
-            throw new IllegalStateException(
-                "ExemptionMechanism not initialized");
+        if (!isInit) {
+            throw new IllegalStateException("ExemptionMechanism is not initialized");
         }
-        byte[] blob = exmechSpi.engineGenExemptionBlob();
-        done = true;
-        return blob;
+        generated = false;
+        byte[] result = spiImpl.engineGenExemptionBlob();
+        generated = true;
+        return result;
     }
 
     /**
-     * Generates the exemption mechanism key blob, and stores the result in
-     * the <code>output</code> buffer.
+     * Generates the result key blob for this exemption mechanism and stores it
+     * into the {@code output} buffer.
      *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * @param output the buffer for the result
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this exemption mechanism is in
-     * a wrong state (e.g., has not been initialized).
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of generating.
+     * @param output
+     *            the output buffer for the result key blob.
+     * @return the number of bytes written to the {@code output} buffer.
+     * @throws IllegalStateException
+     *             if this {@code ExemptionMechanism} instance is not
+     *             initialized.
+     * @throws ShortBufferException
+     *             if the provided buffer is too small for the result key blob.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during generation.
      */
     public final int genExemptionBlob(byte[] output)
             throws IllegalStateException, ShortBufferException,
             ExemptionMechanismException {
-        if (!initialized) {
-            throw new IllegalStateException
-            ("ExemptionMechanism not initialized");
-        }
-        int n = exmechSpi.engineGenExemptionBlob(output, 0);
-        done = true;
-        return n;
+        return genExemptionBlob(output, 0);
     }
 
     /**
-     * Generates the exemption mechanism key blob, and stores the result in
-     * the <code>output</code> buffer, starting at <code>outputOffset</code>
-     * inclusive.
+     * Generates the result key blob for this exemption mechanism and stores it
+     * into the {@code output} buffer at offset {@code outputOffset}.
      *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this exemption mechanism is in
-     * a wrong state (e.g., has not been initialized).
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of generating.
+     * @param output
+     *            the output buffer for the result key blob.
+     * @param outputOffset
+     *            the offset in the output buffer to start.
+     * @return the number of bytes written to the {@code output} buffer.
+     * @throws IllegalStateException
+     *             if this {@code ExemptionMechanism} instance is not
+     *             initialized.
+     * @throws ShortBufferException
+     *             if the provided buffer is too small for the result key blob.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during generation.
      */
     public final int genExemptionBlob(byte[] output, int outputOffset)
             throws IllegalStateException, ShortBufferException,
             ExemptionMechanismException {
-        if (!initialized) {
-            throw new IllegalStateException
-            ("ExemptionMechanism not initialized");
+        if (!isInit) {
+            throw new IllegalStateException("ExemptionMechanism is not initialized");
         }
-        int n = exmechSpi.engineGenExemptionBlob(output, outputOffset);
-        done = true;
-        return n;
+        generated = false;
+        int len = spiImpl.engineGenExemptionBlob(output, outputOffset);
+        generated = true;
+        return len;
     }
 
-    // Android-removed: Unnecessary finalize() method.
-    // OpenJDK 9 also removed the method.
-    /*
-    protected void finalize() {
-        keyStored = null;
-        // Are there anything else we could do?
+    @Override protected void finalize() {
+        try {
+            super.finalize();
+        } catch (Throwable t) {
+            // for consistency with the RI, we must override Object.finalize() to
+            // remove the throws clause.
+            throw new AssertionError(t);
+        }
     }
-    */
 }

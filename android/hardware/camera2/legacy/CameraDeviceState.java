@@ -70,14 +70,12 @@ public class CameraDeviceState {
      * CameraDeviceStateListener callbacks to be called after state transitions.
      */
     public interface CameraDeviceStateListener {
-        void onError(int errorCode, Object errorArg, RequestHolder holder);
+        void onError(int errorCode, RequestHolder holder);
         void onConfiguring();
         void onIdle();
         void onBusy();
         void onCaptureStarted(RequestHolder holder, long timestamp);
         void onCaptureResult(CameraMetadataNative result, RequestHolder holder);
-        void onRequestQueueEmpty();
-        void onRepeatingRequestError(long lastFrameNumber, int repeatingRequestId);
     }
 
     /**
@@ -164,12 +162,11 @@ public class CameraDeviceState {
      * @param captureError Report a recoverable error for a single buffer or result using a valid
      *                     error code for {@code ICameraDeviceCallbacks}, or
      *                     {@link #NO_CAPTURE_ERROR}.
-     * @param captureErrorArg An argument for some error captureError codes.
      * @return {@code false} if an error has occurred.
      */
     public synchronized boolean setCaptureResult(final RequestHolder request,
-            final CameraMetadataNative result,
-            final int captureError, final Object captureErrorArg) {
+                                             final CameraMetadataNative result,
+                                             final int captureError) {
         if (mCurrentState != STATE_CAPTURING) {
             Log.e(TAG, "Cannot receive result while in state: " + mCurrentState);
             mCurrentError = CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DEVICE;
@@ -182,7 +179,7 @@ public class CameraDeviceState {
                 mCurrentHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        mCurrentListener.onError(captureError, captureErrorArg, request);
+                        mCurrentListener.onError(captureError, request);
                     }
                 });
             } else {
@@ -195,43 +192,6 @@ public class CameraDeviceState {
             }
         }
         return mCurrentError == NO_CAPTURE_ERROR;
-    }
-
-    public synchronized boolean setCaptureResult(final RequestHolder request,
-            final CameraMetadataNative result) {
-        return setCaptureResult(request, result, NO_CAPTURE_ERROR, /*errorArg*/null);
-    }
-
-    /**
-     * Set repeating request error.
-     *
-     * <p>Repeating request has been stopped due to an error such as abandoned output surfaces.</p>
-     *
-     * @param lastFrameNumber Frame number of the last repeating request before it is stopped.
-     * @param repeatingRequestId The ID of the repeating request being stopped
-     */
-    public synchronized void setRepeatingRequestError(final long lastFrameNumber,
-            final int repeatingRequestId) {
-        mCurrentHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mCurrentListener.onRepeatingRequestError(lastFrameNumber, repeatingRequestId);
-            }
-        });
-    }
-
-    /**
-     * Indicate that request queue (non-repeating) becomes empty.
-     *
-     * <p> Send notification that all non-repeating requests have been sent to camera device. </p>
-     */
-    public synchronized void setRequestQueueEmpty() {
-        mCurrentHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mCurrentListener.onRequestQueueEmpty();
-            }
-        });
     }
 
     /**
@@ -279,7 +239,7 @@ public class CameraDeviceState {
                     mCurrentHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            mCurrentListener.onError(mCurrentError, /*errorArg*/null, mCurrentRequest);
+                            mCurrentListener.onError(mCurrentError, mCurrentRequest);
                         }
                     });
                 }
@@ -339,7 +299,7 @@ public class CameraDeviceState {
                         mCurrentHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                mCurrentListener.onError(error, /*errorArg*/null, mCurrentRequest);
+                                mCurrentListener.onError(error, mCurrentRequest);
                             }
                         });
                     } else {

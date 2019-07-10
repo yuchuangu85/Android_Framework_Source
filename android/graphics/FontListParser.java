@@ -16,8 +16,6 @@
 
 package android.graphics;
 
-import android.graphics.fonts.FontVariationAxis;
-import android.text.FontConfig;
 import android.util.Xml;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -27,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * Parser for font config files.
@@ -36,8 +33,48 @@ import java.util.regex.Pattern;
  */
 public class FontListParser {
 
+    public static class Config {
+        Config() {
+            families = new ArrayList<Family>();
+            aliases = new ArrayList<Alias>();
+        }
+        public List<Family> families;
+        public List<Alias> aliases;
+    }
+
+    public static class Font {
+        Font(String fontName, int weight, boolean isItalic) {
+            this.fontName = fontName;
+            this.weight = weight;
+            this.isItalic = isItalic;
+        }
+        public String fontName;
+        public int weight;
+        public boolean isItalic;
+    }
+
+    public static class Alias {
+        public String name;
+        public String toName;
+        public int weight;
+    }
+
+    public static class Family {
+        public Family(String name, List<Font> fonts, String lang, String variant) {
+            this.name = name;
+            this.fonts = fonts;
+            this.lang = lang;
+            this.variant = variant;
+        }
+
+        public String name;
+        public List<Font> fonts;
+        public String lang;
+        public String variant;
+    }
+
     /* Parse fallback list (no names) */
-    public static FontConfig parse(InputStream in) throws XmlPullParserException, IOException {
+    public static Config parse(InputStream in) throws XmlPullParserException, IOException {
         try {
             XmlPullParser parser = Xml.newPullParser();
             parser.setInput(in, null);
@@ -48,107 +85,59 @@ public class FontListParser {
         }
     }
 
-    private static FontConfig readFamilies(XmlPullParser parser)
+    private static Config readFamilies(XmlPullParser parser)
             throws XmlPullParserException, IOException {
-        List<FontConfig.Family> families = new ArrayList<>();
-        List<FontConfig.Alias> aliases = new ArrayList<>();
-
+        Config config = new Config();
         parser.require(XmlPullParser.START_TAG, null, "familyset");
         while (parser.next() != XmlPullParser.END_TAG) {
             if (parser.getEventType() != XmlPullParser.START_TAG) continue;
-            String tag = parser.getName();
-            if (tag.equals("family")) {
-                families.add(readFamily(parser));
-            } else if (tag.equals("alias")) {
-                aliases.add(readAlias(parser));
+            if (parser.getName().equals("family")) {
+                config.families.add(readFamily(parser));
+            } else if (parser.getName().equals("alias")) {
+                config.aliases.add(readAlias(parser));
             } else {
                 skip(parser);
             }
         }
-        return new FontConfig(families.toArray(new FontConfig.Family[families.size()]),
-                aliases.toArray(new FontConfig.Alias[aliases.size()]));
+        return config;
     }
 
-    private static FontConfig.Family readFamily(XmlPullParser parser)
-            throws XmlPullParserException, IOException {
-        final String name = parser.getAttributeValue(null, "name");
-        final String lang = parser.getAttributeValue(null, "lang");
-        final String[] langs = lang == null ? null : lang.split("\\s+");
-        final String variant = parser.getAttributeValue(null, "variant");
-        final List<FontConfig.Font> fonts = new ArrayList<FontConfig.Font>();
-        while (parser.next() != XmlPullParser.END_TAG) {
-            if (parser.getEventType() != XmlPullParser.START_TAG) continue;
-            final String tag = parser.getName();
-            if (tag.equals("font")) {
-                fonts.add(readFont(parser));
-            } else {
-                skip(parser);
-            }
-        }
-        int intVariant = FontConfig.Family.VARIANT_DEFAULT;
-        if (variant != null) {
-            if (variant.equals("compact")) {
-                intVariant = FontConfig.Family.VARIANT_COMPACT;
-            } else if (variant.equals("elegant")) {
-                intVariant = FontConfig.Family.VARIANT_ELEGANT;
-            }
-        }
-        return new FontConfig.Family(name, fonts.toArray(new FontConfig.Font[fonts.size()]), langs,
-                intVariant);
-    }
-
-    /** Matches leading and trailing XML whitespace. */
-    private static final Pattern FILENAME_WHITESPACE_PATTERN =
-            Pattern.compile("^[ \\n\\r\\t]+|[ \\n\\r\\t]+$");
-
-    private static FontConfig.Font readFont(XmlPullParser parser)
-            throws XmlPullParserException, IOException {
-        String indexStr = parser.getAttributeValue(null, "index");
-        int index = indexStr == null ? 0 : Integer.parseInt(indexStr);
-        List<FontVariationAxis> axes = new ArrayList<FontVariationAxis>();
-        String weightStr = parser.getAttributeValue(null, "weight");
-        int weight = weightStr == null ? 400 : Integer.parseInt(weightStr);
-        boolean isItalic = "italic".equals(parser.getAttributeValue(null, "style"));
-        String fallbackFor = parser.getAttributeValue(null, "fallbackFor");
-        StringBuilder filename = new StringBuilder();
-        while (parser.next() != XmlPullParser.END_TAG) {
-            if (parser.getEventType() == XmlPullParser.TEXT) {
-                filename.append(parser.getText());
-            }
-            if (parser.getEventType() != XmlPullParser.START_TAG) continue;
-            String tag = parser.getName();
-            if (tag.equals("axis")) {
-                axes.add(readAxis(parser));
-            } else {
-                skip(parser);
-            }
-        }
-        String sanitizedName = FILENAME_WHITESPACE_PATTERN.matcher(filename).replaceAll("");
-        return new FontConfig.Font(sanitizedName, index,
-                axes.toArray(new FontVariationAxis[axes.size()]), weight, isItalic, fallbackFor);
-    }
-
-    private static FontVariationAxis readAxis(XmlPullParser parser)
-            throws XmlPullParserException, IOException {
-        String tagStr = parser.getAttributeValue(null, "tag");
-        String styleValueStr = parser.getAttributeValue(null, "stylevalue");
-        skip(parser);  // axis tag is empty, ignore any contents and consume end tag
-        return new FontVariationAxis(tagStr, Float.parseFloat(styleValueStr));
-    }
-
-    private static FontConfig.Alias readAlias(XmlPullParser parser)
+    private static Family readFamily(XmlPullParser parser)
             throws XmlPullParserException, IOException {
         String name = parser.getAttributeValue(null, "name");
-        String toName = parser.getAttributeValue(null, "to");
+        String lang = parser.getAttributeValue(null, "lang");
+        String variant = parser.getAttributeValue(null, "variant");
+        List<Font> fonts = new ArrayList<Font>();
+        while (parser.next() != XmlPullParser.END_TAG) {
+            if (parser.getEventType() != XmlPullParser.START_TAG) continue;
+            String tag = parser.getName();
+            if (tag.equals("font")) {
+                String weightStr = parser.getAttributeValue(null, "weight");
+                int weight = weightStr == null ? 400 : Integer.parseInt(weightStr);
+                boolean isItalic = "italic".equals(parser.getAttributeValue(null, "style"));
+                String filename = parser.nextText();
+                String fullFilename = "/system/fonts/" + filename;
+                fonts.add(new Font(fullFilename, weight, isItalic));
+            } else {
+                skip(parser);
+            }
+        }
+        return new Family(name, fonts, lang, variant);
+    }
+
+    private static Alias readAlias(XmlPullParser parser)
+            throws XmlPullParserException, IOException {
+        Alias alias = new Alias();
+        alias.name = parser.getAttributeValue(null, "name");
+        alias.toName = parser.getAttributeValue(null, "to");
         String weightStr = parser.getAttributeValue(null, "weight");
-        int weight;
         if (weightStr == null) {
-            weight = 400;
+            alias.weight = 400;
         } else {
-            weight = Integer.parseInt(weightStr);
+            alias.weight = Integer.parseInt(weightStr);
         }
         skip(parser);  // alias tag is empty, ignore any contents and consume end tag
-        return new FontConfig.Alias(name, toName, weight);
+        return alias;
     }
 
     private static void skip(XmlPullParser parser) throws XmlPullParserException, IOException {

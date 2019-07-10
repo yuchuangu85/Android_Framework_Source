@@ -16,7 +16,6 @@
 
 package com.android.server;
 
-import android.os.StrictMode;
 import android.os.SystemProperties;
 import android.util.Log;
 import android.util.Slog;
@@ -51,24 +50,16 @@ public final class NetworkManagementSocketTagger extends SocketTagger {
         SocketTagger.set(new NetworkManagementSocketTagger());
     }
 
-    public static int setThreadSocketStatsTag(int tag) {
-        final int old = threadSocketTags.get().statsTag;
+    public static void setThreadSocketStatsTag(int tag) {
         threadSocketTags.get().statsTag = tag;
-        return old;
     }
 
     public static int getThreadSocketStatsTag() {
         return threadSocketTags.get().statsTag;
     }
 
-    public static int setThreadSocketStatsUid(int uid) {
-        final int old = threadSocketTags.get().statsUid;
+    public static void setThreadSocketStatsUid(int uid) {
         threadSocketTags.get().statsUid = uid;
-        return old;
-    }
-
-    public static int getThreadSocketStatsUid() {
-        return threadSocketTags.get().statsUid;
     }
 
     @Override
@@ -77,9 +68,6 @@ public final class NetworkManagementSocketTagger extends SocketTagger {
         if (LOGD) {
             Log.d(TAG, "tagSocket(" + fd.getInt$() + ") with statsTag=0x"
                     + Integer.toHexString(options.statsTag) + ", statsUid=" + options.statsUid);
-        }
-        if (options.statsTag == -1 && StrictMode.vmUntaggedSocketEnabled()) {
-            StrictMode.onUntaggedSocket();
         }
         // TODO: skip tagging when options would be no-op
         tagSocketFd(fd, options.statsTag, options.statsUid);

@@ -1,53 +1,54 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
 /**
- * Thrown when serialization or deserialization is not active.
- *
- * @author  unascribed
- * @since   JDK1.1
+ * Signals that a serialization-related method has been invoked in the wrong
+ * place. Some methods in {@code ObjectInputStream} and {@code
+ * ObjectOutputStream} can only be called from a nested call to readObject() or
+ * writeObject(). Any attempt to call them from another context will cause a
+ * {@code NotActiveException} to be thrown. The list of methods that are
+ * protected this way is:
+ * <ul>
+ * <li>{@link ObjectInputStream#defaultReadObject()}</li>
+ * <li>{@link ObjectInputStream#registerValidation(ObjectInputValidation, int)}</li>
+ * <li>{@link ObjectOutputStream#defaultWriteObject()}</li>
+ * </ul>
  */
 public class NotActiveException extends ObjectStreamException {
 
     private static final long serialVersionUID = -3893467273049808895L;
 
     /**
-     * Constructor to create a new NotActiveException with the reason given.
-     *
-     * @param reason  a String describing the reason for the exception.
+     * Constructs a new {@code NotActiveException} with its stack trace filled
+     * in.
      */
-    public NotActiveException(String reason) {
-        super(reason);
+    public NotActiveException() {
     }
 
     /**
-     * Constructor to create a new NotActiveException without a reason.
+     * Constructs a new {@code NotActiveException} with its stack trace and
+     * detail message filled in.
+     *
+     * @param detailMessage
+     *            the detail message for this exception.
      */
-    public NotActiveException() {
-        super();
+    public NotActiveException(String detailMessage) {
+        super(detailMessage);
     }
 }

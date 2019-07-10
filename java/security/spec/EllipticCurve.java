@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.spec;
@@ -29,168 +21,186 @@ import java.math.BigInteger;
 import java.util.Arrays;
 
 /**
- * This immutable class holds the necessary values needed to represent
- * an elliptic curve.
- *
- * @see ECField
- * @see ECFieldFp
- * @see ECFieldF2m
- *
- * @author Valerie Peng
- *
- * @since 1.5
+ * An Elliptic Curve with its necessary values.
  */
 public class EllipticCurve {
 
+    // Underlying finite field
     private final ECField field;
+
+    // The first coefficient of the equation defining this elliptic curve
     private final BigInteger a;
+
+    // The second coefficient of the equation defining this elliptic curve
     private final BigInteger b;
+
+    // Bytes used during this elliptic curve generation,
+    // if it was generated randomly
     private final byte[] seed;
 
-    // Check coefficient c is a valid element in ECField field.
-    private static void checkValidity(ECField field, BigInteger c,
-        String cName) {
-        // can only perform check if field is ECFieldFp or ECFieldF2m.
-        if (field instanceof ECFieldFp) {
-            BigInteger p = ((ECFieldFp)field).getP();
-            if (p.compareTo(c) != 1) {
-                throw new IllegalArgumentException(cName + " is too large");
-            } else if (c.signum() < 0) {
-                throw new IllegalArgumentException(cName + " is negative");
+    // Hash code
+    private volatile int hash;
+
+    /**
+     * Creates a new {@code EllipticCurve} with the specified field,
+     * coefficients and seed.
+     *
+     * @param field
+     *            the finite field of this elliptic curve.
+     * @param a
+     *            the coefficient {@code a}.
+     * @param b
+     *            the coefficient {@code b}.
+     * @param seed
+     *            the seed used for the generation of the curve.
+     * @throws IllegalArgumentException
+     *             if the specified coefficients are not in the specified field.
+     */
+    public EllipticCurve(ECField field, BigInteger a, BigInteger b, byte[] seed) {
+        this.field = field;
+        if (this.field == null) {
+            throw new NullPointerException("field == null");
+        }
+        this.a = a;
+        if (this.a == null) {
+            throw new NullPointerException("a == null");
+        }
+        this.b = b;
+        if (this.b == null) {
+            throw new NullPointerException("b == null");
+        }
+        // make defensive copy
+        if (seed == null) {
+            this.seed = null;
+        } else {
+            this.seed = new byte[seed.length];
+            System.arraycopy(seed, 0, this.seed, 0, this.seed.length);
+        }
+        // check parameters for ECFieldFp and ECFieldF2m.
+        // Check invariant: a and b must be in the field.
+        // Check conditions for custom ECField are not specified.
+        if (this.field instanceof ECFieldFp) {
+            BigInteger p = ((ECFieldFp) this.field).getP();
+            if (this.a.signum() < 0 || this.a.compareTo(p) >= 0) {
+                throw new IllegalArgumentException("the a is not in the field");
             }
-        } else if (field instanceof ECFieldF2m) {
-            int m = ((ECFieldF2m)field).getM();
-            if (c.bitLength() > m) {
-                throw new IllegalArgumentException(cName + " is too large");
+            if (this.b.signum() < 0 || this.b.compareTo(p) >= 0) {
+                throw new IllegalArgumentException("the b is not in the field");
+            }
+        } else if (this.field instanceof ECFieldF2m) {
+            int fieldSizeInBits = this.field.getFieldSize();
+            if (!(this.a.bitLength() <= fieldSizeInBits)) {
+                throw new IllegalArgumentException("the a is not in the field");
+            }
+            if (!(this.b.bitLength() <= fieldSizeInBits)) {
+                throw new IllegalArgumentException("the b is not in the field");
             }
         }
     }
 
     /**
-     * Creates an elliptic curve with the specified elliptic field
-     * {@code field} and the coefficients {@code a} and
-     * {@code b}.
-     * @param field the finite field that this elliptic curve is over.
-     * @param a the first coefficient of this elliptic curve.
-     * @param b the second coefficient of this elliptic curve.
-     * @exception NullPointerException if {@code field},
-     * {@code a}, or {@code b} is null.
-     * @exception IllegalArgumentException if {@code a}
-     * or {@code b} is not null and not in {@code field}.
+     * Creates a new {@code EllipticCurve} with the specified field and
+     * coefficients.
+     *
+     * @param field
+     *            the finite field of this elliptic curve.
+     * @param a
+     *            the coefficient {@code a}.
+     * @param b
+     *            the coefficient {@code b}.
+     * @throws IllegalArgumentException
+     *             if the specified coefficients are not in the specified field.
      */
-    public EllipticCurve(ECField field, BigInteger a,
-                         BigInteger b) {
+    public EllipticCurve(ECField field, BigInteger a, BigInteger b) {
         this(field, a, b, null);
     }
 
     /**
-     * Creates an elliptic curve with the specified elliptic field
-     * {@code field}, the coefficients {@code a} and
-     * {@code b}, and the {@code seed} used for curve generation.
-     * @param field the finite field that this elliptic curve is over.
-     * @param a the first coefficient of this elliptic curve.
-     * @param b the second coefficient of this elliptic curve.
-     * @param seed the bytes used during curve generation for later
-     * validation. Contents of this array are copied to protect against
-     * subsequent modification.
-     * @exception NullPointerException if {@code field},
-     * {@code a}, or {@code b} is null.
-     * @exception IllegalArgumentException if {@code a}
-     * or {@code b} is not null and not in {@code field}.
-     */
-    public EllipticCurve(ECField field, BigInteger a,
-                         BigInteger b, byte[] seed) {
-        if (field == null) {
-            throw new NullPointerException("field is null");
-        }
-        if (a == null) {
-            throw new NullPointerException("first coefficient is null");
-        }
-        if (b == null) {
-            throw new NullPointerException("second coefficient is null");
-        }
-        checkValidity(field, a, "first coefficient");
-        checkValidity(field, b, "second coefficient");
-        this.field = field;
-        this.a = a;
-        this.b = b;
-        if (seed != null) {
-            this.seed = seed.clone();
-        } else {
-            this.seed = null;
-        }
-    }
-
-    /**
-     * Returns the finite field {@code field} that this
-     * elliptic curve is over.
-     * @return the field {@code field} that this curve
-     * is over.
-     */
-    public ECField getField() {
-        return field;
-    }
-
-    /**
-     * Returns the first coefficient {@code a} of the
-     * elliptic curve.
-     * @return the first coefficient {@code a}.
+     * Returns the coefficient {@code a} of this elliptic curve.
+     *
+     * @return the coefficient {@code a} of this elliptic curve.
      */
     public BigInteger getA() {
         return a;
     }
 
     /**
-     * Returns the second coefficient {@code b} of the
-     * elliptic curve.
-     * @return the second coefficient {@code b}.
+     * Returns the coefficient {@code b} of this elliptic curve.
+     *
+     * @return the coefficient {@code b} of this elliptic curve.
      */
     public BigInteger getB() {
         return b;
     }
 
     /**
-     * Returns the seeding bytes {@code seed} used
-     * during curve generation. May be null if not specified.
-     * @return the seeding bytes {@code seed}. A new
-     * array is returned each time this method is called.
+     * Returns the finite field of this elliptic curve.
+     *
+     * @return the finite field of this elliptic curve.
+     */
+    public ECField getField() {
+        return field;
+    }
+
+    /**
+     * Returns a copy of the seed that was used to generate this elliptic curve.
+     *
+     * @return a copy of the seed that was used to generate this elliptic curve,
+     *         or {@code null} if none specified.
      */
     public byte[] getSeed() {
-        if (seed == null) return null;
-        else return seed.clone();
-    }
-
-    /**
-     * Compares this elliptic curve for equality with the
-     * specified object.
-     * @param obj the object to be compared.
-     * @return true if {@code obj} is an instance of
-     * EllipticCurve and the field, A, and B match, false otherwise.
-     */
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj instanceof EllipticCurve) {
-            EllipticCurve curve = (EllipticCurve) obj;
-            if ((field.equals(curve.field)) &&
-                (a.equals(curve.a)) &&
-                (b.equals(curve.b))) {
-                    return true;
-            }
+        if (seed == null) {
+            return null;
+        } else {
+            // return copy
+            byte[] ret = new byte[seed.length];
+            System.arraycopy(seed, 0, ret, 0, ret.length);
+            return ret;
         }
-        return false;
     }
 
     /**
-     * Returns a hash code value for this elliptic curve.
-     * @return a hash code value computed from the hash codes of the field, A,
-     * and B, as follows:
-     * <pre>{@code
-     *     (field.hashCode() << 6) + (a.hashCode() << 4) + (b.hashCode() << 2)
-     * }</pre>
+     * Returns whether the specified object equals to this elliptic curve.
+     *
+     * @param other
+     *            the object to compare.
+     * @return {@code true} if the specified object is equal to this elliptic
+     *         curve, otherwise {@code false}.
+     */
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof EllipticCurve)) {
+            return false;
+        }
+        EllipticCurve otherEc = (EllipticCurve) other;
+        return this.field.equals(otherEc.field) && this.a.equals(otherEc.a)
+                && this.b.equals(otherEc.b)
+                && Arrays.equals(this.seed, otherEc.seed);
+    }
+
+    /**
+     * Returns the hashcode of this elliptic curve.
+     *
+     * @return the hashcode of this elliptic curve.
      */
     public int hashCode() {
-        return (field.hashCode() << 6 +
-            (a.hashCode() << 4) +
-            (b.hashCode() << 2));
+        // hash init is delayed
+        if (hash == 0) {
+            int hash0 = 11;
+            hash0 = hash0 * 31 + field.hashCode();
+            hash0 = hash0 * 31 + a.hashCode();
+            hash0 = hash0 * 31 + b.hashCode();
+            if (seed != null) {
+                for (int i = 0; i < seed.length; i++) {
+                    hash0 = hash0 * 31 + seed[i];
+                }
+            } else {
+                hash0 = hash0 * 31;
+            }
+            hash = hash0;
+        }
+        return hash;
     }
 }

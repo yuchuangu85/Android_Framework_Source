@@ -16,8 +16,8 @@
 
 package benchmarks;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -27,15 +27,13 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
-public final class BufferedZipFileBenchmark {
+public final class BufferedZipFileBenchmark extends SimpleBenchmark {
     @Param({"128", "1024", "8192", "65536"}) int compressedSize;
     @Param({"4", "32", "128"}) int readSize;
 
     private File file;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
-        System.setProperty("java.io.tmpdir", "/data/local/tmp");
+    @Override protected void setUp() throws Exception {
         file = File.createTempFile(getClass().getName(), ".zip");
         file.deleteOnExit();
 

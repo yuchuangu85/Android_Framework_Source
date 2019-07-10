@@ -16,16 +16,12 @@
 
 package android.view.inputmethod;
 
-import android.annotation.Nullable;
 import android.os.Bundle;
-import android.os.LocaleList;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.Printer;
-
-import java.util.Arrays;
 
 /**
  * An EditorInfo describes several attributes of a text editing object
@@ -33,54 +29,6 @@ import java.util.Arrays;
  * importantly the type of text content it contains and the current cursor position.
  */
 public class EditorInfo implements InputType, Parcelable {
-    /**
-     * Masks for {@link inputType}
-     *
-     * <pre>
-     * |-------|-------|-------|-------|
-     *                              1111 TYPE_MASK_CLASS
-     *                      11111111     TYPE_MASK_VARIATION
-     *          111111111111             TYPE_MASK_FLAGS
-     * |-------|-------|-------|-------|
-     *                                   TYPE_NULL
-     * |-------|-------|-------|-------|
-     *                                 1 TYPE_CLASS_TEXT
-     *                             1     TYPE_TEXT_VARIATION_URI
-     *                            1      TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-     *                            11     TYPE_TEXT_VARIATION_EMAIL_SUBJECT
-     *                           1       TYPE_TEXT_VARIATION_SHORT_MESSAGE
-     *                           1 1     TYPE_TEXT_VARIATION_LONG_MESSAGE
-     *                           11      TYPE_TEXT_VARIATION_PERSON_NAME
-     *                           111     TYPE_TEXT_VARIATION_POSTAL_ADDRESS
-     *                          1        TYPE_TEXT_VARIATION_PASSWORD
-     *                          1  1     TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-     *                          1 1      TYPE_TEXT_VARIATION_WEB_EDIT_TEXT
-     *                          1 11     TYPE_TEXT_VARIATION_FILTER
-     *                          11       TYPE_TEXT_VARIATION_PHONETIC
-     *                          11 1     TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
-     *                          111      TYPE_TEXT_VARIATION_WEB_PASSWORD
-     *                     1             TYPE_TEXT_FLAG_CAP_CHARACTERS
-     *                    1              TYPE_TEXT_FLAG_CAP_WORDS
-     *                   1               TYPE_TEXT_FLAG_CAP_SENTENCES
-     *                  1                TYPE_TEXT_FLAG_AUTO_CORRECT
-     *                 1                 TYPE_TEXT_FLAG_AUTO_COMPLETE
-     *                1                  TYPE_TEXT_FLAG_MULTI_LINE
-     *               1                   TYPE_TEXT_FLAG_IME_MULTI_LINE
-     *              1                    TYPE_TEXT_FLAG_NO_SUGGESTIONS
-     * |-------|-------|-------|-------|
-     *                                1  TYPE_CLASS_NUMBER
-     *                             1     TYPE_NUMBER_VARIATION_PASSWORD
-     *                     1             TYPE_NUMBER_FLAG_SIGNED
-     *                    1              TYPE_NUMBER_FLAG_DECIMAL
-     * |-------|-------|-------|-------|
-     *                                11 TYPE_CLASS_PHONE
-     * |-------|-------|-------|-------|
-     *                               1   TYPE_CLASS_DATETIME
-     *                             1     TYPE_DATETIME_VARIATION_DATE
-     *                            1      TYPE_DATETIME_VARIATION_TIME
-     * |-------|-------|-------|-------|</pre>
-     */
-
     /**
      * The content type of the text box, whose bits are defined by
      * {@link InputType}.
@@ -153,26 +101,6 @@ public class EditorInfo implements InputType, Parcelable {
      * can be returned to the app if it sets {@link #IME_FLAG_NAVIGATE_PREVIOUS}.
      */
     public static final int IME_ACTION_PREVIOUS = 0x00000007;
-
-    /**
-     * Flag of {@link #imeOptions}: used to request that the IME should not update any personalized
-     * data such as typing history and personalized language model based on what the user typed on
-     * this text editing object.  Typical use cases are:
-     * <ul>
-     *     <li>When the application is in a special mode, where user's activities are expected to be
-     *     not recorded in the application's history.  Some web browsers and chat applications may
-     *     have this kind of modes.</li>
-     *     <li>When storing typing history does not make much sense.  Specifying this flag in typing
-     *     games may help to avoid typing history from being filled up with words that the user is
-     *     less likely to type in their daily life.  Another example is that when the application
-     *     already knows that the expected input is not a valid word (e.g. a promotion code that is
-     *     not a valid word in any natural language).</li>
-     * </ul>
-     *
-     * <p>Applications need to be aware that the flag is not a guarantee, and some IMEs may not
-     * respect it.</p>
-     */
-    public static final int IME_FLAG_NO_PERSONALIZED_LEARNING = 0x1000000;
 
     /**
      * Flag of {@link #imeOptions}: used to request that the IME never go
@@ -274,32 +202,6 @@ public class EditorInfo implements InputType, Parcelable {
      * Generic unspecified type for {@link #imeOptions}.
      */
     public static final int IME_NULL = 0x00000000;
-
-    /**
-     * Masks for {@link imeOptions}
-     *
-     * <pre>
-     * |-------|-------|-------|-------|
-     *                              1111 IME_MASK_ACTION
-     * |-------|-------|-------|-------|
-     *                                   IME_ACTION_UNSPECIFIED
-     *                                 1 IME_ACTION_NONE
-     *                                1  IME_ACTION_GO
-     *                                11 IME_ACTION_SEARCH
-     *                               1   IME_ACTION_SEND
-     *                               1 1 IME_ACTION_NEXT
-     *                               11  IME_ACTION_DONE
-     *                               111 IME_ACTION_PREVIOUS
-     *         1                         IME_FLAG_NO_PERSONALIZED_LEARNING
-     *        1                          IME_FLAG_NO_FULLSCREEN
-     *       1                           IME_FLAG_NAVIGATE_PREVIOUS
-     *      1                            IME_FLAG_NAVIGATE_NEXT
-     *     1                             IME_FLAG_NO_EXTRACT_UI
-     *    1                              IME_FLAG_NO_ACCESSORY_ACTION
-     *   1                               IME_FLAG_NO_ENTER_ACTION
-     *  1                                IME_FLAG_FORCE_ASCII
-     * |-------|-------|-------|-------|</pre>
-     */
 
     /**
      * Extended type information for the editor, to help the IME better
@@ -438,40 +340,6 @@ public class EditorInfo implements InputType, Parcelable {
     public Bundle extras;
 
     /**
-     * List of the languages that the user is supposed to switch to no matter what input method
-     * subtype is currently used.  This special "hint" can be used mainly for, but not limited to,
-     * multilingual users who want IMEs to switch language context automatically.
-     *
-     * <p>{@code null} means that no special language "hint" is needed.</p>
-     *
-     * <p><strong>Editor authors:</strong> Specify this only when you are confident that the user
-     * will switch to certain languages in this context no matter what input method subtype is
-     * currently selected.  Otherwise, keep this {@code null}.  Explicit user actions and/or
-     * preferences would be good signals to specify this special "hint",  For example, a chat
-     * application may be able to put the last used language at the top of {@link #hintLocales}
-     * based on whom the user is going to talk, by remembering what language is used in the last
-     * conversation.  Do not specify {@link android.widget.TextView#getTextLocales()} only because
-     * it is used for text rendering.</p>
-     *
-     * @see android.widget.TextView#setImeHintLocales(LocaleList)
-     * @see android.widget.TextView#getImeHintLocales()
-     */
-    @Nullable
-    public LocaleList hintLocales = null;
-
-
-    /**
-     * List of acceptable MIME types for
-     * {@link InputConnection#commitContent(InputContentInfo, int, Bundle)}.
-     *
-     * <p>{@code null} or an empty array means that
-     * {@link InputConnection#commitContent(InputContentInfo, int, Bundle)} is not supported in this
-     * editor.</p>
-     */
-    @Nullable
-    public String[] contentMimeTypes = null;
-
-    /**
      * Ensure that the data in this EditorInfo is compatible with an application
      * that was developed against the given target API version.  This can
      * impact the following input types:
@@ -525,8 +393,6 @@ public class EditorInfo implements InputType, Parcelable {
                 + " fieldId=" + fieldId
                 + " fieldName=" + fieldName);
         pw.println(prefix + "extras=" + extras);
-        pw.println(prefix + "hintLocales=" + hintLocales);
-        pw.println(prefix + "contentMimeTypes=" + Arrays.toString(contentMimeTypes));
     }
 
     /**
@@ -550,12 +416,6 @@ public class EditorInfo implements InputType, Parcelable {
         dest.writeInt(fieldId);
         dest.writeString(fieldName);
         dest.writeBundle(extras);
-        if (hintLocales != null) {
-            hintLocales.writeToParcel(dest, flags);
-        } else {
-            LocaleList.getEmptyLocaleList().writeToParcel(dest, flags);
-        }
-        dest.writeStringArray(contentMimeTypes);
     }
 
     /**
@@ -579,9 +439,6 @@ public class EditorInfo implements InputType, Parcelable {
                     res.fieldId = source.readInt();
                     res.fieldName = source.readString();
                     res.extras = source.readBundle();
-                    LocaleList hintLocales = LocaleList.CREATOR.createFromParcel(source);
-                    res.hintLocales = hintLocales.isEmpty() ? null : hintLocales;
-                    res.contentMimeTypes = source.readStringArray();
                     return res;
                 }
 

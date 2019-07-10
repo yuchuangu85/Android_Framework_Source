@@ -16,7 +16,6 @@
 
 package android.nfc;
 
-import android.annotation.SystemService;
 import android.content.Context;
 
 /**
@@ -35,9 +34,9 @@ import android.content.Context;
  * <a href="{@docRoot}guide/topics/nfc/index.html">Near Field Communication</a> developer guide.</p>
  * </div>
  *
+ * @see Context#getSystemService
  * @see NfcAdapter#getDefaultAdapter(android.content.Context)
  */
-@SystemService(Context.NFC_SERVICE)
 public final class NfcManager {
     private final NfcAdapter mAdapter;
 

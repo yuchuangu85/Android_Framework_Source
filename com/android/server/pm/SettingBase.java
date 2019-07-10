@@ -18,8 +18,6 @@ package com.android.server.pm;
 
 import android.content.pm.ApplicationInfo;
 
-import com.android.server.pm.permission.PermissionsState;
-
 abstract class SettingBase {
     int pkgFlags;
     int pkgPrivateFlags;
@@ -32,19 +30,10 @@ abstract class SettingBase {
         mPermissionsState = new PermissionsState();
     }
 
-    SettingBase(SettingBase orig) {
-        mPermissionsState = new PermissionsState();
-        doCopy(orig);
-    }
-
-    public void copyFrom(SettingBase orig) {
-        doCopy(orig);
-    }
-
-    private void doCopy(SettingBase orig) {
-        pkgFlags = orig.pkgFlags;
-        pkgPrivateFlags = orig.pkgPrivateFlags;
-        mPermissionsState.copyFrom(orig.mPermissionsState);
+    SettingBase(SettingBase base) {
+        pkgFlags = base.pkgFlags;
+        pkgPrivateFlags = base.pkgPrivateFlags;
+        mPermissionsState = new PermissionsState(base.mPermissionsState);
     }
 
     public PermissionsState getPermissionsState() {
@@ -60,10 +49,6 @@ abstract class SettingBase {
     void setPrivateFlags(int pkgPrivateFlags) {
         this.pkgPrivateFlags = pkgPrivateFlags
                 & (ApplicationInfo.PRIVATE_FLAG_PRIVILEGED
-                | ApplicationInfo.PRIVATE_FLAG_OEM
-                | ApplicationInfo.PRIVATE_FLAG_VENDOR
-                | ApplicationInfo.PRIVATE_FLAG_PRODUCT
-                | ApplicationInfo.PRIVATE_FLAG_FORWARD_LOCK
-                | ApplicationInfo.PRIVATE_FLAG_REQUIRED_FOR_SYSTEM_USER);
+                        | ApplicationInfo.PRIVATE_FLAG_FORWARD_LOCK);
     }
 }

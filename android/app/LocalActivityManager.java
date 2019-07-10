@@ -16,15 +16,12 @@
 
 package android.app;
 
-import android.app.ActivityThread.ActivityClientRecord;
-import android.app.servertransaction.PendingTransactionActions;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.os.Binder;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Window;
-
 import com.android.internal.content.ReferrerIntent;
 
 import java.util.ArrayList;
@@ -143,26 +140,11 @@ public class LocalActivityManager {
             }
             r.window = r.activity.getWindow();
             r.instanceState = null;
-
-            final ActivityClientRecord clientRecord = mActivityThread.getActivityClient(r);
-            final PendingTransactionActions pendingActions;
-
-            if (!r.activity.mFinished) {
-                // This matches pending actions set in ActivityThread#handleLaunchActivity
-                pendingActions = new PendingTransactionActions();
-                pendingActions.setOldState(clientRecord.state);
-                pendingActions.setRestoreInstanceState(true);
-                pendingActions.setCallOnPostCreate(true);
-            } else {
-                pendingActions = null;
-            }
-
-            mActivityThread.handleStartActivity(clientRecord, pendingActions);
             r.curState = STARTED;
             
             if (desiredState == RESUMED) {
                 if (localLOGV) Log.v(TAG, r.id + ": resuming");
-                mActivityThread.performResumeActivity(r, true, "moveToState-INITIALIZING");
+                mActivityThread.performResumeActivity(r, true);
                 r.curState = RESUMED;
             }
             
@@ -179,13 +161,13 @@ public class LocalActivityManager {
             case CREATED:
                 if (desiredState == STARTED) {
                     if (localLOGV) Log.v(TAG, r.id + ": restarting");
-                    mActivityThread.performRestartActivity(r, true /* start */);
+                    mActivityThread.performRestartActivity(r);
                     r.curState = STARTED;
                 }
                 if (desiredState == RESUMED) {
                     if (localLOGV) Log.v(TAG, r.id + ": restarting and resuming");
-                    mActivityThread.performRestartActivity(r, true /* start */);
-                    mActivityThread.performResumeActivity(r, true, "moveToState-CREATED");
+                    mActivityThread.performRestartActivity(r);
+                    mActivityThread.performResumeActivity(r, true);
                     r.curState = RESUMED;
                 }
                 return;
@@ -194,13 +176,13 @@ public class LocalActivityManager {
                 if (desiredState == RESUMED) {
                     // Need to resume it...
                     if (localLOGV) Log.v(TAG, r.id + ": resuming");
-                    mActivityThread.performResumeActivity(r, true, "moveToState-STARTED");
+                    mActivityThread.performResumeActivity(r, true);
                     r.instanceState = null;
                     r.curState = RESUMED;
                 }
                 if (desiredState == CREATED) {
                     if (localLOGV) Log.v(TAG, r.id + ": stopping");
-                    mActivityThread.performStopActivity(r, false, "moveToState-STARTED");
+                    mActivityThread.performStopActivity(r, false);
                     r.curState = CREATED;
                 }
                 return;
@@ -215,7 +197,7 @@ public class LocalActivityManager {
                     if (localLOGV) Log.v(TAG, r.id + ": pausing");
                     performPause(r, mFinishing);
                     if (localLOGV) Log.v(TAG, r.id + ": stopping");
-                    mActivityThread.performStopActivity(r, false, "moveToState-RESUMED");
+                    mActivityThread.performStopActivity(r, false);
                     r.curState = CREATED;
                 }
                 return;
@@ -223,9 +205,9 @@ public class LocalActivityManager {
     }
     
     private void performPause(LocalActivityRecord r, boolean finishing) {
-        final boolean needState = r.instanceState == null;
-        final Bundle instanceState = mActivityThread.performPauseActivity(r, finishing,
-                "performPause", null /* pendingActions */);
+        boolean needState = r.instanceState == null;
+        Bundle instanceState = mActivityThread.performPauseActivity(r,
+                finishing, needState);
         if (needState) {
             r.instanceState = instanceState;
         }
@@ -332,7 +314,7 @@ public class LocalActivityManager {
                     ArrayList<ReferrerIntent> intents = new ArrayList<>(1);
                     intents.add(new ReferrerIntent(intent, mParent.getPackageName()));
                     if (localLOGV) Log.v(TAG, r.id + ": new intent");
-                    mActivityThread.performNewIntents(r, intents, false /* andPause */);
+                    mActivityThread.performNewIntents(r, intents);
                     r.intent = intent;
                     moveToState(r, mCurState);
                     if (mSingleMode) {
@@ -379,8 +361,7 @@ public class LocalActivityManager {
             performPause(r, finish);
         }
         if (localLOGV) Log.v(TAG, r.id + ": destroying");
-        mActivityThread.performDestroyActivity(r, finish, 0 /* configChanges */,
-                false /* getNonConfigInstance */, "LocalActivityManager::performDestroy");
+        mActivityThread.performDestroyActivity(r, finish);
         r.activity = null;
         r.window = null;
         if (finish) {
@@ -644,8 +625,7 @@ public class LocalActivityManager {
         for (int i=0; i<N; i++) {
             LocalActivityRecord r = mActivityArray.get(i);
             if (localLOGV) Log.v(TAG, r.id + ": destroying");
-            mActivityThread.performDestroyActivity(r, finishing, 0 /* configChanges */,
-                    false /* getNonConfigInstance */, "LocalActivityManager::dispatchDestroy");
+            mActivityThread.performDestroyActivity(r, finishing);
         }
         mActivities.clear();
         mActivityArray.clear();

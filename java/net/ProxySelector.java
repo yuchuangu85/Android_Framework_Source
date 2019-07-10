@@ -1,165 +1,130 @@
-/*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.net;
 
 import java.io.IOException;
 import java.util.List;
-import sun.security.util.SecurityConstants;
 
 /**
- * Selects the proxy server to use, if any, when connecting to the
- * network resource referenced by a URL. A proxy selector is a
- * concrete sub-class of this class and is registered by invoking the
- * {@link java.net.ProxySelector#setDefault setDefault} method. The
- * currently registered proxy selector can be retrieved by calling
- * {@link java.net.ProxySelector#getDefault getDefault} method.
+ * Selects the proxy server to use, if any, when connecting to a given URL.
  *
- * <p> When a proxy selector is registered, for instance, a subclass
- * of URLConnection class should call the {@link #select select}
- * method for each URL request so that the proxy selector can decide
- * if a direct, or proxied connection should be used. The {@link
- * #select select} method returns an iterator over a collection with
- * the preferred connection approach.
+ * <h3>System Properties</h3>
+ * <p>The default proxy selector is configured by system properties.
  *
- * <p> If a connection cannot be established to a proxy (PROXY or
- * SOCKS) servers then the caller should call the proxy selector's
- * {@link #connectFailed connectFailed} method to notify the proxy
- * selector that the proxy server is unavailable. </p>
+ * <table border="1" cellpadding="3" cellspacing="0">
+ * <tr class="TableHeadingColor"><th colspan="4">Hostname patterns</th></tr>
+ * <tr><th>URL scheme</th><th>property name</th><th>description</th><th>default</th></tr>
+ * <tr><td>ftp</td><td>ftp.nonProxyHosts</td><td>Hostname pattern for FTP servers to connect to
+ *     directly (without a proxy).</td><td></td></tr>
+ * <tr><td>http</td><td>http.nonProxyHosts</td><td>Hostname pattern for HTTP servers to connect to
+ *     directly (without a proxy).</td><td></td></tr>
+ * <tr><td>https</td><td>https.nonProxyHosts</td><td>Hostname pattern for HTTPS servers to connect
+ *     to directly (without a proxy).</td><td></td></tr>
+ * <tr><td colspan="4"><br></td></tr>
  *
- * <P>The default proxy selector does enforce a
- * <a href="doc-files/net-properties.html#Proxies">set of System Properties</a>
- * related to proxy settings.</P>
+ * <tr class="TableHeadingColor"><th colspan="4">{@linkplain Proxy.Type#HTTP HTTP Proxies}</th></tr>
+ * <tr><th>URL scheme</th><th>property name</th><th>description</th><th>default</th></tr>
+ * <tr><td rowspan="2">ftp</td><td>ftp.proxyHost</td><td>Hostname of the HTTP proxy server used for
+ *     FTP requests.</td><td></td></tr>
+ * <tr><td>ftp.proxyPort</td><td>Port number of the HTTP proxy server used for FTP
+ *     requests.</td><td>80</td></tr>
+ * <tr><td rowspan="2">http</td><td>http.proxyHost</td><td>Hostname of the HTTP proxy server used
+ *     for HTTP requests.</td><td></td></tr>
+ * <tr><td>http.proxyPort</td><td>Port number of the HTTP proxy server used for HTTP
+ *     requests.</td><td>80</td></tr>
+ * <tr><td rowspan="2">https</td><td>https.proxyHost</td><td>Hostname of the HTTP proxy server used
+ *     for HTTPS requests.</td><td></td></tr>
+ * <tr><td>https.proxyPort</td><td>Port number of the HTTP proxy server used for HTTPS
+ *     requests.</td><td>443</td></tr>
+ * <tr><td rowspan="2">ftp, http or https</td><td>proxyHost</td><td>Hostname of the HTTP proxy
+ *     server used for FTP, HTTP and HTTPS requests.</td><td></td></tr>
+ * <tr><td>proxyPort</td><td>Port number of the HTTP proxy server.</td><td>80 for FTP and HTTP
+ *     <br>443 for HTTPS</td></tr>
+ * <tr><td colspan="4"><br></td></tr>
  *
- * @author Yingxian Wang
- * @author Jean-Christophe Collet
- * @since 1.5
+ * <tr class="TableHeadingColor"><th colspan="4">{@linkplain Proxy.Type#SOCKS SOCKS
+ *     Proxies}</th></tr>
+ * <tr><th>URL scheme</th><th>property name</th><th>description</th><th>default</th></tr>
+ * <tr><td rowspan="2">ftp, http, https or socket</td><td>socksProxyHost</td><td>Hostname of the
+ *     SOCKS proxy server used for FTP, HTTP, HTTPS and raw sockets.<br>Raw socket URLs are of the
+ *     form <code>socket://<i>host</i>:<i>port</i></code></td><td></td></tr>
+ * <tr><td>socksProxyPort</td><td>Port number of the SOCKS proxy server.</td><td>1080</td></tr>
+ * </table>
+ *
+ * <p>Hostname patterns specify which hosts should be connected to directly,
+ * ignoring any other proxy system properties. If the URL's host matches the
+ * corresponding hostname pattern, {@link Proxy#NO_PROXY} is returned.
+ *
+ * <p>The format of a hostname pattern is a list of hostnames that are
+ * separated by {@code |} and that use {@code *} as a wildcard. For example,
+ * setting the {@code http.nonProxyHosts} property to {@code
+ * *.android.com|*.kernel.org} will cause requests to {@code
+ * http://developer.android.com} to be made without a proxy.
+ *
+ * <p>The default proxy selector always returns exactly one proxy. If no proxy
+ * is applicable, {@link Proxy#NO_PROXY} is returned. If multiple proxies are
+ * applicable, such as when both the {@code proxyHost} and {@code
+ * socksProxyHost} system properties are set, the result is the property listed
+ * earliest in the table above.
+ *
+ * <h3>Alternatives</h3>
+ * <p>To request a URL without involving the system proxy selector, explicitly
+ * specify a proxy or {@link Proxy#NO_PROXY} using {@link
+ * URL#openConnection(Proxy)}.
+ *
+ * <p>Use {@link ProxySelector#setDefault(ProxySelector)} to install a custom
+ * proxy selector.
  */
 public abstract class ProxySelector {
-    /**
-     * The system wide proxy selector that selects the proxy server to
-     * use, if any, when connecting to a remote object referenced by
-     * an URL.
-     *
-     * @see #setDefault(ProxySelector)
-     */
-    private static ProxySelector theProxySelector;
 
-    static {
-        try {
-            Class<?> c = Class.forName("sun.net.spi.DefaultProxySelector");
-            if (c != null && ProxySelector.class.isAssignableFrom(c)) {
-                theProxySelector = (ProxySelector) c.newInstance();
-            }
-        } catch (Exception e) {
-            theProxySelector = null;
-        }
-    }
+    private static ProxySelector defaultSelector = new ProxySelectorImpl();
 
     /**
-     * Gets the system-wide proxy selector.
-     *
-     * @throws  SecurityException
-     *          If a security manager has been installed and it denies
-     * {@link NetPermission}{@code ("getProxySelector")}
-     * @see #setDefault(ProxySelector)
-     * @return the system-wide {@code ProxySelector}
-     * @since 1.5
+     * Returns the default proxy selector, or null if none exists.
      */
     public static ProxySelector getDefault() {
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            sm.checkPermission(SecurityConstants.GET_PROXYSELECTOR_PERMISSION);
-        }
-        return theProxySelector;
+        return defaultSelector;
     }
 
     /**
-     * Sets (or unsets) the system-wide proxy selector.
-     *
-     * Note: non-standard protocol handlers may ignore this setting.
-     *
-     * @param ps The HTTP proxy selector, or
-     *          {@code null} to unset the proxy selector.
-     *
-     * @throws  SecurityException
-     *          If a security manager has been installed and it denies
-     * {@link NetPermission}{@code ("setProxySelector")}
-     *
-     * @see #getDefault()
-     * @since 1.5
+     * Sets the default proxy selector. If {@code selector} is null, the current
+     * proxy selector will be removed.
      */
-    public static void setDefault(ProxySelector ps) {
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            sm.checkPermission(SecurityConstants.SET_PROXYSELECTOR_PERMISSION);
-        }
-        theProxySelector = ps;
+    public static void setDefault(ProxySelector selector) {
+        defaultSelector = selector;
     }
 
     /**
-     * Selects all the applicable proxies based on the protocol to
-     * access the resource with and a destination address to access
-     * the resource at.
-     * The format of the URI is defined as follow:
-     * <UL>
-     * <LI>http URI for http connections</LI>
-     * <LI>https URI for https connections
-     * <LI>{@code socket://host:port}<br>
-     *     for tcp client sockets connections</LI>
-     * </UL>
+     * Returns the proxy servers to use on connections to {@code uri}. This list
+     * will contain {@link Proxy#NO_PROXY} if no proxy server should be used.
      *
-     * @param   uri
-     *          The URI that a connection is required to
-     *
-     * @return  a List of Proxies. Each element in the
-     *          the List is of type
-     *          {@link java.net.Proxy Proxy};
-     *          when no proxy is available, the list will
-     *          contain one element of type
-     *          {@link java.net.Proxy Proxy}
-     *          that represents a direct connection.
-     * @throws IllegalArgumentException if the argument is null
+     * @throws IllegalArgumentException if {@code uri} is null.
      */
     public abstract List<Proxy> select(URI uri);
 
     /**
-     * Called to indicate that a connection could not be established
-     * to a proxy/socks server. An implementation of this method can
-     * temporarily remove the proxies or reorder the sequence of
-     * proxies returned by {@link #select(URI)}, using the address
-     * and the IOException caught when trying to connect.
+     * Notifies this {@code ProxySelector} that a connection to the proxy server
+     * could not be established.
      *
-     * @param   uri
-     *          The URI that the proxy at sa failed to serve.
-     * @param   sa
-     *          The socket address of the proxy/SOCKS server
-     *
-     * @param   ioe
-     *          The I/O exception thrown when the connect failed.
-     * @throws IllegalArgumentException if either argument is null
+     * @param uri the URI to which the connection could not be established.
+     * @param address the address of the proxy.
+     * @param failure the exception which was thrown during connection
+     *     establishment.
+     * @throws IllegalArgumentException if any argument is null.
      */
-    public abstract void connectFailed(URI uri, SocketAddress sa, IOException ioe);
+    public abstract void connectFailed(URI uri, SocketAddress address, IOException failure);
 }

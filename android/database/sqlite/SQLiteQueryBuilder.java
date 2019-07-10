@@ -31,7 +31,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * This is a convenience class that helps build SQL queries to be sent to
+ * This is a convience class that helps build SQL queries to be sent to
  * {@link SQLiteDatabase} objects.
  */
 public class SQLiteQueryBuilder
@@ -386,7 +386,8 @@ public class SQLiteQueryBuilder
             // in both the wrapped and original forms.
             String sqlForValidation = buildQuery(projectionIn, "(" + selection + ")", groupBy,
                     having, sortOrder, limit);
-            db.validateSql(sqlForValidation, cancellationSignal); // will throw if query is invalid
+            validateQuerySql(db, sqlForValidation,
+                    cancellationSignal); // will throw if query is invalid
         }
 
         String sql = buildQuery(
@@ -400,6 +401,16 @@ public class SQLiteQueryBuilder
                 mFactory, sql, selectionArgs,
                 SQLiteDatabase.findEditTable(mTables),
                 cancellationSignal); // will throw if query is invalid
+    }
+
+    /**
+     * Verifies that a SQL SELECT statement is valid by compiling it.
+     * If the SQL statement is not valid, this method will throw a {@link SQLiteException}.
+     */
+    private void validateQuerySql(SQLiteDatabase db, String sql,
+            CancellationSignal cancellationSignal) {
+        db.getThreadSession().prepare(sql,
+                db.getThreadDefaultConnectionFlags(true /*readOnly*/), cancellationSignal, null);
     }
 
     /**

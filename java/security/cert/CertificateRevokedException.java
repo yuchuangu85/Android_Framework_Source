@@ -1,247 +1,155 @@
 /*
- * Copyright (c) 2007, 2014, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Copyright 2014 The Android Open Source Project
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.security.cert;
 
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import javax.security.auth.x500.X500Principal;
-
-import sun.security.util.ObjectIdentifier;
-import sun.security.x509.InvalidityDateExtension;
+import org.apache.harmony.security.x509.InvalidityDate;
 
 /**
- * An exception that indicates an X.509 certificate is revoked. A
- * {@code CertificateRevokedException} contains additional information
- * about the revoked certificate, such as the date on which the
- * certificate was revoked and the reason it was revoked.
+ * Exception that is thrown when a certificate is invalid because it has been
+ * revoked.
  *
- * @author Sean Mullan
  * @since 1.7
- * @see CertPathValidatorException
+ * @hide
  */
 public class CertificateRevokedException extends CertificateException {
 
     private static final long serialVersionUID = 7839996631571608627L;
 
-    /**
-     * @serial the date on which the certificate was revoked
-     */
-    private Date revocationDate;
-    /**
-     * @serial the revocation reason
-     */
+    private final Date revocationDate;
+
     private final CRLReason reason;
-    /**
-     * @serial the {@code X500Principal} that represents the name of the
-     * authority that signed the certificate's revocation status information
-     */
+
     private final X500Principal authority;
 
+    // Maps may not be serializable, so serialize it manually.
     private transient Map<String, Extension> extensions;
 
     /**
-     * Constructs a {@code CertificateRevokedException} with
-     * the specified revocation date, reason code, authority name, and map
-     * of extensions.
-     *
-     * @param revocationDate the date on which the certificate was revoked. The
-     *    date is copied to protect against subsequent modification.
-     * @param reason the revocation reason
-     * @param extensions a map of X.509 Extensions. Each key is an OID String
-     *    that maps to the corresponding Extension. The map is copied to
-     *    prevent subsequent modification.
-     * @param authority the {@code X500Principal} that represents the name
-     *    of the authority that signed the certificate's revocation status
-     *    information
-     * @throws NullPointerException if {@code revocationDate},
-     *    {@code reason}, {@code authority}, or
-     *    {@code extensions} is {@code null}
+     * @param revocationDate date the certificate was revoked
+     * @param reason reason the certificate was revoked if available
+     * @param authority authority that revoked the certificate
+     * @param extensions X.509 extensions associated with this revocation
      */
     public CertificateRevokedException(Date revocationDate, CRLReason reason,
-        X500Principal authority, Map<String, Extension> extensions) {
-        if (revocationDate == null || reason == null || authority == null ||
-            extensions == null) {
-            throw new NullPointerException();
-        }
-        this.revocationDate = new Date(revocationDate.getTime());
+            X500Principal authority, Map<String, Extension> extensions) {
+        this.revocationDate = revocationDate;
         this.reason = reason;
         this.authority = authority;
-        // make sure Map only contains correct types
-        this.extensions = Collections.checkedMap(new HashMap<>(),
-                                                 String.class, Extension.class);
-        this.extensions.putAll(extensions);
+        this.extensions = extensions;
     }
 
     /**
-     * Returns the date on which the certificate was revoked. A new copy is
-     * returned each time the method is invoked to protect against subsequent
-     * modification.
-     *
-     * @return the revocation date
-     */
-    public Date getRevocationDate() {
-        return (Date) revocationDate.clone();
-    }
-
-    /**
-     * Returns the reason the certificate was revoked.
-     *
-     * @return the revocation reason
-     */
-    public CRLReason getRevocationReason() {
-        return reason;
-    }
-
-    /**
-     * Returns the name of the authority that signed the certificate's
-     * revocation status information.
-     *
-     * @return the {@code X500Principal} that represents the name of the
-     *     authority that signed the certificate's revocation status information
+     * Returns the principal of the authority that issued the revocation.
      */
     public X500Principal getAuthorityName() {
         return authority;
     }
 
     /**
-     * Returns the invalidity date, as specified in the Invalidity Date
-     * extension of this {@code CertificateRevokedException}. The
-     * invalidity date is the date on which it is known or suspected that the
-     * private key was compromised or that the certificate otherwise became
-     * invalid. This implementation calls {@code getExtensions()} and
-     * checks the returned map for an entry for the Invalidity Date extension
-     * OID ("2.5.29.24"). If found, it returns the invalidity date in the
-     * extension; otherwise null. A new Date object is returned each time the
-     * method is invoked to protect against subsequent modification.
-     *
-     * @return the invalidity date, or {@code null} if not specified
-     */
-    public Date getInvalidityDate() {
-        Extension ext = getExtensions().get("2.5.29.24");
-        if (ext == null) {
-            return null;
-        } else {
-            try {
-                Date invalidity = InvalidityDateExtension.toImpl(ext).get("DATE");
-                return new Date(invalidity.getTime());
-            } catch (IOException ioe) {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Returns a map of X.509 extensions containing additional information
-     * about the revoked certificate, such as the Invalidity Date
-     * Extension. Each key is an OID String that maps to the corresponding
-     * Extension.
-     *
-     * @return an unmodifiable map of X.509 extensions, or an empty map
-     *    if there are no extensions
+     * X.509 extensions that are associated with this revocation.
      */
     public Map<String, Extension> getExtensions() {
         return Collections.unmodifiableMap(extensions);
     }
 
-    @Override
+    /**
+     * Returns the date when the certificate was known to become invalid if
+     * available.
+     */
+    public Date getInvalidityDate() {
+        if (extensions == null) {
+            return null;
+        }
+
+        Extension invalidityDateExtension = extensions.get("2.5.29.24");
+        if (invalidityDateExtension == null) {
+            return null;
+        }
+
+        try {
+            InvalidityDate invalidityDate = new InvalidityDate(invalidityDateExtension.getValue());
+            return invalidityDate.getDate();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the detail message of the thrown exception.
+     */
     public String getMessage() {
-        return "Certificate has been revoked, reason: "
-               + reason + ", revocation date: " + revocationDate
-               + ", authority: " + authority + ", extension OIDs: "
-               + extensions.keySet();
+        StringBuffer sb = new StringBuffer("Certificate was revoked");
+        if (revocationDate != null) {
+            sb.append(" on ").append(revocationDate.toString());
+        }
+        if (reason != null) {
+            sb.append(" due to ").append(reason);
+        }
+        return sb.toString();
     }
 
     /**
-     * Serialize this {@code CertificateRevokedException} instance.
-     *
-     * @serialData the size of the extensions map (int), followed by all of
-     * the extensions in the map, in no particular order. For each extension,
-     * the following data is emitted: the OID String (Object), the criticality
-     * flag (boolean), the length of the encoded extension value byte array
-     * (int), and the encoded extension value bytes.
+     * Returns the date the certificate was revoked.
      */
-    private void writeObject(ObjectOutputStream oos) throws IOException {
-        // Write out the non-transient fields
-        // (revocationDate, reason, authority)
-        oos.defaultWriteObject();
-
-        // Write out the size (number of mappings) of the extensions map
-        oos.writeInt(extensions.size());
-
-        // For each extension in the map, the following are emitted (in order):
-        // the OID String (Object), the criticality flag (boolean), the length
-        // of the encoded extension value byte array (int), and the encoded
-        // extension value byte array. The extensions themselves are emitted
-        // in no particular order.
-        for (Map.Entry<String, Extension> entry : extensions.entrySet()) {
-            Extension ext = entry.getValue();
-            oos.writeObject(ext.getId());
-            oos.writeBoolean(ext.isCritical());
-            byte[] extVal = ext.getValue();
-            oos.writeInt(extVal.length);
-            oos.write(extVal);
-        }
+    public Date getRevocationDate() {
+        return (Date) revocationDate.clone();
     }
 
     /**
-     * Deserialize the {@code CertificateRevokedException} instance.
+     * Returns the reason the certificate was revoked if available.
      */
-    private void readObject(ObjectInputStream ois)
-        throws IOException, ClassNotFoundException {
-        // Read in the non-transient fields
-        // (revocationDate, reason, authority)
-        ois.defaultReadObject();
+    public CRLReason getRevocationReason() {
+        return reason;
+    }
 
-        // Defensively copy the revocation date
-        revocationDate = new Date(revocationDate.getTime());
+    private void readObject(ObjectInputStream stream) throws IOException, ClassNotFoundException {
+        stream.defaultReadObject();
 
-        // Read in the size (number of mappings) of the extensions map
-        // and create the extensions map
-        int size = ois.readInt();
-        if (size == 0) {
-            extensions = Collections.emptyMap();
-        } else {
-            extensions = new HashMap<String, Extension>(size);
-        }
-
-        // Read in the extensions and put the mappings in the extensions map
+        int size = stream.readInt();
+        extensions = new HashMap<String, Extension>(size);
         for (int i = 0; i < size; i++) {
-            String oid = (String) ois.readObject();
-            boolean critical = ois.readBoolean();
-            int length = ois.readInt();
-            byte[] extVal = new byte[length];
-            ois.readFully(extVal);
-            Extension ext = sun.security.x509.Extension.newExtension
-                (new ObjectIdentifier(oid), critical, extVal);
-            extensions.put(oid, ext);
+            String oid = (String) stream.readObject();
+            boolean critical = stream.readBoolean();
+            int valueLen = stream.readInt();
+            byte[] value = new byte[valueLen];
+            stream.read(value);
+            extensions.put(oid,
+                    new org.apache.harmony.security.x509.Extension(oid, critical, value));
+        }
+    }
+
+    private void writeObject(ObjectOutputStream stream) throws IOException {
+        stream.defaultWriteObject();
+
+        stream.writeInt(extensions.size());
+        for (Extension e : extensions.values()) {
+            stream.writeObject(e.getId());
+            stream.writeBoolean(e.isCritical());
+            byte[] value = e.getValue();
+            stream.writeInt(value.length);
+            stream.write(value);
         }
     }
 }

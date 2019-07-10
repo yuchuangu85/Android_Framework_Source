@@ -23,16 +23,12 @@ import android.databinding.tool.reflection.TypeUtil;
 
 import java.util.List;
 
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 
 class AnnotationMethod extends ModelMethod {
@@ -40,7 +36,6 @@ class AnnotationMethod extends ModelMethod {
     final DeclaredType mDeclaringType;
     final ExecutableElement mExecutableElement;
     int mApiLevel = -1; // calculated on demand
-    ModelClass mReceiverType;
 
     public AnnotationMethod(DeclaredType declaringType, ExecutableElement executableElement) {
         mDeclaringType = declaringType;
@@ -51,46 +46,7 @@ class AnnotationMethod extends ModelMethod {
 
     @Override
     public ModelClass getDeclaringClass() {
-        if (mReceiverType == null) {
-            mReceiverType = findReceiverType(mDeclaringType);
-            if (mReceiverType == null) {
-                mReceiverType = new AnnotationClass(mDeclaringType);
-            }
-        }
-        return mReceiverType;
-    }
-
-    // TODO: When going to Java 1.8, use mExecutableElement.getReceiverType()
-    private ModelClass findReceiverType(DeclaredType subType) {
-        List<? extends TypeMirror> supers = getTypeUtils().directSupertypes(subType);
-        for (TypeMirror superType : supers) {
-            if (superType.getKind() == TypeKind.DECLARED) {
-                DeclaredType declaredType = (DeclaredType) superType;
-                ModelClass inSuper = findReceiverType(declaredType);
-                if (inSuper != null) {
-                    return inSuper;
-                } else if (hasExecutableMethod(declaredType)) {
-                    return new AnnotationClass(declaredType);
-                }
-            }
-        }
-        return null;
-    }
-
-    private boolean hasExecutableMethod(DeclaredType declaredType) {
-        Elements elementUtils = getElementUtils();
-        TypeElement enclosing = (TypeElement) mExecutableElement.getEnclosingElement();
-        TypeElement typeElement = (TypeElement) declaredType.asElement();
-        for (Element element : typeElement.getEnclosedElements()) {
-            if (element.getKind() == ElementKind.METHOD) {
-                ExecutableElement executableElement = (ExecutableElement) element;
-                if (executableElement.equals(mExecutableElement) ||
-                        elementUtils.overrides(mExecutableElement, executableElement, enclosing)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return new AnnotationClass(mDeclaringType);
     }
 
     @Override
@@ -127,11 +83,6 @@ class AnnotationMethod extends ModelMethod {
     }
 
     @Override
-    public boolean isProtected() {
-        return mExecutableElement.getModifiers().contains(Modifier.PROTECTED);
-    }
-
-    @Override
     public boolean isStatic() {
         return mExecutableElement.getModifiers().contains(Modifier.STATIC);
     }
@@ -162,14 +113,6 @@ class AnnotationMethod extends ModelMethod {
     @Override
     public boolean isVarArgs() {
         return mExecutableElement.isVarArgs();
-    }
-
-    private static Types getTypeUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getTypeUtils();
-    }
-
-    private static Elements getElementUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getElementUtils();
     }
 
     @Override

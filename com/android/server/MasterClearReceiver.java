@@ -16,7 +16,6 @@
 
 package com.android.server;
 
-import android.app.PendingIntent;
 import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -24,8 +23,6 @@ import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.RecoverySystem;
 import android.os.storage.StorageManager;
-import android.provider.Settings;
-import android.telephony.euicc.EuiccManager;
 import android.util.Log;
 import android.util.Slog;
 import android.view.WindowManager;
@@ -33,13 +30,9 @@ import android.view.WindowManager;
 import com.android.internal.R;
 
 import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 public class MasterClearReceiver extends BroadcastReceiver {
     private static final String TAG = "MasterClear";
-    private boolean mWipeExternalStorage;
-    private boolean mWipeEsims;
 
     @Override
     public void onReceive(final Context context, final Intent intent) {
@@ -49,21 +42,11 @@ public class MasterClearReceiver extends BroadcastReceiver {
                 return;
             }
         }
-        if (Intent.ACTION_MASTER_CLEAR.equals(intent.getAction())) {
-            Slog.w(TAG, "The request uses the deprecated Intent#ACTION_MASTER_CLEAR, "
-                    + "Intent#ACTION_FACTORY_RESET should be used instead.");
-        }
-        if (intent.hasExtra(Intent.EXTRA_FORCE_MASTER_CLEAR)) {
-            Slog.w(TAG, "The request uses the deprecated Intent#EXTRA_FORCE_MASTER_CLEAR, "
-                    + "Intent#EXTRA_FORCE_FACTORY_RESET should be used instead.");
-        }
 
         final boolean shutdown = intent.getBooleanExtra("shutdown", false);
         final String reason = intent.getStringExtra(Intent.EXTRA_REASON);
-        mWipeExternalStorage = intent.getBooleanExtra(Intent.EXTRA_WIPE_EXTERNAL_STORAGE, false);
-        mWipeEsims = intent.getBooleanExtra(Intent.EXTRA_WIPE_ESIMS, false);
-        final boolean forceWipe = intent.getBooleanExtra(Intent.EXTRA_FORCE_MASTER_CLEAR, false)
-                || intent.getBooleanExtra(Intent.EXTRA_FORCE_FACTORY_RESET, false);
+        final boolean wipeExternalStorage = intent.getBooleanExtra(
+                Intent.EXTRA_WIPE_EXTERNAL_STORAGE, false);
 
         Slog.w(TAG, "!!! FACTORY RESET !!!");
         // The reboot call is blocking, so we need to do it on another thread.
@@ -71,8 +54,7 @@ public class MasterClearReceiver extends BroadcastReceiver {
             @Override
             public void run() {
                 try {
-                    RecoverySystem
-                            .rebootWipeUserData(context, shutdown, reason, forceWipe, mWipeEsims);
+                    RecoverySystem.rebootWipeUserData(context, shutdown, reason);
                     Log.wtf(TAG, "Still running after master clear?!");
                 } catch (IOException e) {
                     Slog.e(TAG, "Can't perform master clear/factory reset", e);
@@ -82,20 +64,20 @@ public class MasterClearReceiver extends BroadcastReceiver {
             }
         };
 
-        if (mWipeExternalStorage || mWipeEsims) {
+        if (wipeExternalStorage) {
             // thr will be started at the end of this task.
-            new WipeDataTask(context, thr).execute();
+            new WipeAdoptableDisksTask(context, thr).execute();
         } else {
             thr.start();
         }
     }
 
-    private class WipeDataTask extends AsyncTask<Void, Void, Void> {
+    private class WipeAdoptableDisksTask extends AsyncTask<Void, Void, Void> {
         private final Thread mChainedTask;
         private final Context mContext;
         private final ProgressDialog mProgressDialog;
 
-        public WipeDataTask(Context context, Thread chainedTask) {
+        public WipeAdoptableDisksTask(Context context, Thread chainedTask) {
             mContext = context;
             mChainedTask = chainedTask;
             mProgressDialog = new ProgressDialog(context);
@@ -112,11 +94,9 @@ public class MasterClearReceiver extends BroadcastReceiver {
         @Override
         protected Void doInBackground(Void... params) {
             Slog.w(TAG, "Wiping adoptable disks");
-            if (mWipeExternalStorage) {
-                StorageManager sm = (StorageManager) mContext.getSystemService(
-                        Context.STORAGE_SERVICE);
-                sm.wipeAdoptableDisks();
-            }
+            StorageManager sm = (StorageManager) mContext.getSystemService(
+                    Context.STORAGE_SERVICE);
+            sm.wipeAdoptableDisks();
             return null;
         }
 

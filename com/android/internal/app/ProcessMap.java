@@ -54,8 +54,4 @@ public class ProcessMap<E> {
     public ArrayMap<String, SparseArray<E>> getMap() {
         return mMap;
     }
-
-    public int size() {
-        return mMap.size();
-    }
 }

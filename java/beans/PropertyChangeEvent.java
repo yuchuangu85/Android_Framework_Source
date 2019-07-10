@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.beans;
@@ -28,139 +20,95 @@ package java.beans;
 import java.util.EventObject;
 
 /**
- * A "PropertyChange" event gets delivered whenever a bean changes a "bound"
- * or "constrained" property.  A PropertyChangeEvent object is sent as an
- * argument to the PropertyChangeListener and VetoableChangeListener methods.
- * <P>
- * Normally PropertyChangeEvents are accompanied by the name and the old
- * and new value of the changed property.  If the new value is a primitive
- * type (such as int or boolean) it must be wrapped as the
- * corresponding java.lang.* Object type (such as Integer or Boolean).
- * <P>
- * Null values may be provided for the old and the new values if their
- * true values are not known.
- * <P>
- * An event source may send a null object as the name to indicate that an
- * arbitrary set of if its properties have changed.  In this case the
- * old and new values should also be null.
+ * An event that indicates that a constraint or a boundary of a property has
+ * changed.
  */
 public class PropertyChangeEvent extends EventObject {
+
     private static final long serialVersionUID = 7042693688939648123L;
 
+    String propertyName;
+
+    Object oldValue;
+
+    Object newValue;
+
+    Object propagationId;
+
     /**
-     * Constructs a new {@code PropertyChangeEvent}.
+     * The constructor used to create a new {@code PropertyChangeEvent}.
      *
-     * @param source        the bean that fired the event
-     * @param propertyName  the programmatic name of the property that was changed
-     * @param oldValue      the old value of the property
-     * @param newValue      the new value of the property
-     *
-     * @throws IllegalArgumentException if {@code source} is {@code null}
+     * @param source
+     *            the changed bean.
+     * @param propertyName
+     *            the changed property, or <code>null</code> to indicate an
+     *            unspecified set of the properties has changed.
+     * @param oldValue
+     *            the previous value of the property, or <code>null</code> if
+     *            the <code>propertyName</code> is <code>null</code> or the
+     *            previous value is unknown.
+     * @param newValue
+     *            the new value of the property, or <code>null</code> if the
+     *            <code>propertyName</code> is <code>null</code> or the new
+     *            value is unknown.
      */
     public PropertyChangeEvent(Object source, String propertyName,
-                               Object oldValue, Object newValue) {
+            Object oldValue, Object newValue) {
         super(source);
+
         this.propertyName = propertyName;
-        this.newValue = newValue;
         this.oldValue = oldValue;
+        this.newValue = newValue;
     }
 
     /**
-     * Gets the programmatic name of the property that was changed.
+     * Returns the name of the property that has changed. If an unspecified set
+     * of properties has changed it returns null.
      *
-     * @return  The programmatic name of the property that was changed.
-     *          May be null if multiple properties have changed.
+     * @return the name of the property that has changed, or null.
      */
     public String getPropertyName() {
         return propertyName;
     }
 
     /**
-     * Gets the new value for the property, expressed as an Object.
+     * Sets the propagationId object.
      *
-     * @return  The new value for the property, expressed as an Object.
-     *          May be null if multiple properties have changed.
-     */
-    public Object getNewValue() {
-        return newValue;
-    }
-
-    /**
-     * Gets the old value for the property, expressed as an Object.
-     *
-     * @return  The old value for the property, expressed as an Object.
-     *          May be null if multiple properties have changed.
-     */
-    public Object getOldValue() {
-        return oldValue;
-    }
-
-    /**
-     * Sets the propagationId object for the event.
-     *
-     * @param propagationId  The propagationId object for the event.
+     * @see #getPropagationId()
      */
     public void setPropagationId(Object propagationId) {
         this.propagationId = propagationId;
     }
 
     /**
-     * The "propagationId" field is reserved for future use.  In Beans 1.0
-     * the sole requirement is that if a listener catches a PropertyChangeEvent
-     * and then fires a PropertyChangeEvent of its own, then it should
-     * make sure that it propagates the propagationId field from its
-     * incoming event to its outgoing event.
+     * Returns the propagationId object. This is reserved for future use. Beans
+     * 1.0 demands that a listener receiving this property and then sending its
+     * own PropertyChangeEvent sets the received propagationId on the new
+     * PropertyChangeEvent's propagationId field.
      *
-     * @return the propagationId object associated with a bound/constrained
-     *          property update.
+     * @return the propagationId object.
      */
     public Object getPropagationId() {
         return propagationId;
     }
 
     /**
-     * name of the property that changed.  May be null, if not known.
-     * @serial
-     */
-    private String propertyName;
-
-    /**
-     * New value for property.  May be null if not known.
-     * @serial
-     */
-    private Object newValue;
-
-    /**
-     * Previous value for property.  May be null if not known.
-     * @serial
-     */
-    private Object oldValue;
-
-    /**
-     * Propagation ID.  May be null.
-     * @serial
-     * @see #getPropagationId
-     */
-    private Object propagationId;
-
-    /**
-     * Returns a string representation of the object.
+     * Returns the old value that the property had. If the old value is unknown
+     * this method returns null.
      *
-     * @return a string representation of the object
-     *
-     * @since 1.7
+     * @return the old property value or null.
      */
-    public String toString() {
-        StringBuilder sb = new StringBuilder(getClass().getName());
-        sb.append("[propertyName=").append(getPropertyName());
-        appendTo(sb);
-        sb.append("; oldValue=").append(getOldValue());
-        sb.append("; newValue=").append(getNewValue());
-        sb.append("; propagationId=").append(getPropagationId());
-        sb.append("; source=").append(getSource());
-        return sb.append("]").toString();
+    public Object getOldValue() {
+        return oldValue;
     }
 
-    void appendTo(StringBuilder sb) {
+    /**
+     * Returns the new value that the property now has. If the new value is
+     * unknown this method returns null.
+     *
+     * @return the old property value or null.
+     */
+    public Object getNewValue() {
+        return newValue;
     }
 }

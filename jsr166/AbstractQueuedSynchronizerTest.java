@@ -29,7 +29,7 @@ public class AbstractQueuedSynchronizerTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(AbstractQueuedSynchronizerTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
@@ -244,33 +244,25 @@ public class AbstractQueuedSynchronizerTest extends JSR166TestCase {
      */
     void assertAwaitTimesOut(ConditionObject c, AwaitMethod awaitMethod) {
         long timeoutMillis = timeoutMillis();
-        long startTime;
+        long startTime = System.nanoTime();
         try {
             switch (awaitMethod) {
             case awaitTimed:
-                startTime = System.nanoTime();
                 assertFalse(c.await(timeoutMillis, MILLISECONDS));
-                assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
                 break;
             case awaitNanos:
-                startTime = System.nanoTime();
                 long nanosTimeout = MILLISECONDS.toNanos(timeoutMillis);
                 long nanosRemaining = c.awaitNanos(nanosTimeout);
                 assertTrue(nanosRemaining <= 0);
-                assertTrue(nanosRemaining > -MILLISECONDS.toNanos(LONG_DELAY_MS));
-                assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
                 break;
             case awaitUntil:
-                // We shouldn't assume that nanoTime and currentTimeMillis
-                // use the same time source, so don't use nanoTime here.
-                java.util.Date delayedDate = delayedDate(timeoutMillis());
                 assertFalse(c.awaitUntil(delayedDate(timeoutMillis)));
-                assertTrue(new java.util.Date().getTime() >= delayedDate.getTime());
                 break;
             default:
                 throw new UnsupportedOperationException();
             }
         } catch (InterruptedException ie) { threadUnexpectedException(ie); }
+        assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
     }
 
     /**

@@ -20,8 +20,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.Rlog;
 
-import java.util.Objects;
-
 /**
  * LTE signal strength related information.
  */
@@ -37,15 +35,50 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
     private int mCqi;
     private int mTimingAdvance;
 
-    /** @hide */
+    /**
+     * Empty constructor
+     *
+     * @hide
+     */
     public CellSignalStrengthLte() {
         setDefaultValues();
     }
 
-    /** @hide */
+    /**
+     * Constructor
+     *
+     * @hide
+     */
     public CellSignalStrengthLte(int signalStrength, int rsrp, int rsrq, int rssnr, int cqi,
             int timingAdvance) {
-        mSignalStrength = signalStrength;
+        initialize(signalStrength, rsrp, rsrq, rssnr, cqi, timingAdvance);
+    }
+
+    /**
+     * Copy constructors
+     *
+     * @param s Source SignalStrength
+     *
+     * @hide
+     */
+    public CellSignalStrengthLte(CellSignalStrengthLte s) {
+        copyFrom(s);
+    }
+
+    /**
+     * Initialize all the values
+     *
+     * @param lteSignalStrength
+     * @param rsrp
+     * @param rsrq
+     * @param rssnr
+     * @param cqi
+     *
+     * @hide
+     */
+    public void initialize(int lteSignalStrength, int rsrp, int rsrq, int rssnr, int cqi,
+            int timingAdvance) {
+        mSignalStrength = lteSignalStrength;
         mRsrp = rsrp;
         mRsrq = rsrq;
         mRssnr = rssnr;
@@ -53,12 +86,25 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
         mTimingAdvance = timingAdvance;
     }
 
-    /** @hide */
-    public CellSignalStrengthLte(CellSignalStrengthLte s) {
-        copyFrom(s);
+    /**
+     * Initialize from the SignalStrength structure.
+     *
+     * @param ss
+     *
+     * @hide
+     */
+    public void initialize(SignalStrength ss, int timingAdvance) {
+        mSignalStrength = ss.getLteSignalStrength();
+        mRsrp = ss.getLteRsrp();
+        mRsrq = ss.getLteRsrq();
+        mRssnr = ss.getLteRssnr();
+        mCqi = ss.getLteCqi();
+        mTimingAdvance = timingAdvance;
     }
 
-    /** @hide */
+    /**
+     * @hide
+     */
     protected void copyFrom(CellSignalStrengthLte s) {
         mSignalStrength = s.mSignalStrength;
         mRsrp = s.mRsrp;
@@ -68,7 +114,9 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
         mTimingAdvance = s.mTimingAdvance;
     }
 
-    /** @hide */
+    /**
+     * @hide
+     */
     @Override
     public CellSignalStrengthLte copy() {
         return new CellSignalStrengthLte(this);
@@ -120,34 +168,6 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
     }
 
     /**
-     * Get reference signal received quality
-     */
-    public int getRsrq() {
-        return mRsrq;
-    }
-
-    /**
-     * Get reference signal signal-to-noise ratio
-     */
-    public int getRssnr() {
-        return mRssnr;
-    }
-
-    /**
-     * Get reference signal received power
-     */
-    public int getRsrp() {
-        return mRsrp;
-    }
-
-    /**
-     * Get channel quality indicator
-     */
-    public int getCqi() {
-        return mCqi;
-    }
-
-    /**
      * Get signal strength as dBm
      */
     @Override
@@ -163,8 +183,7 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
     public int getAsuLevel() {
         int lteAsuLevel = 99;
         int lteDbm = getDbm();
-        if (lteDbm == Integer.MAX_VALUE) lteAsuLevel = 99;
-        else if (lteDbm <= -140) lteAsuLevel = 0;
+        if (lteDbm <= -140) lteAsuLevel = 0;
         else if (lteDbm >= -43) lteAsuLevel = 97;
         else lteAsuLevel = lteDbm + 140;
         if (DBG) log("Lte Asu level: "+lteAsuLevel);
@@ -172,10 +191,8 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
     }
 
     /**
-     * Get the timing advance value for LTE, as a value in range of 0..1282.
-     * Integer.MAX_VALUE is reported when there is no active RRC
-     * connection. Refer to 3GPP 36.213 Sec 4.2.3
-     * @return the LTE timing advance, if available.
+     * Get the timing advance value for LTE.
+     * See 3GPP xxxx
      */
     public int getTimingAdvance() {
         return mTimingAdvance;
@@ -183,7 +200,10 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
 
     @Override
     public int hashCode() {
-        return Objects.hash(mSignalStrength, mRsrp, mRsrq, mRssnr, mCqi, mTimingAdvance);
+        int primeNum = 31;
+        return (mSignalStrength * primeNum) + (mRsrp * primeNum)
+                + (mRsrq * primeNum) + (mRssnr * primeNum) + (mCqi * primeNum)
+                + (mTimingAdvance * primeNum);
     }
 
     @Override
@@ -229,9 +249,8 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
         dest.writeInt(mSignalStrength);
         // Need to multiply rsrp and rsrq by -1
         // to ensure consistency when reading values written here
-        // unless the values are invalid
-        dest.writeInt(mRsrp * (mRsrp != Integer.MAX_VALUE ? -1 : 1));
-        dest.writeInt(mRsrq * (mRsrq != Integer.MAX_VALUE ? -1 : 1));
+        dest.writeInt(mRsrp * -1);
+        dest.writeInt(mRsrq * -1);
         dest.writeInt(mRssnr);
         dest.writeInt(mCqi);
         dest.writeInt(mTimingAdvance);
@@ -244,11 +263,9 @@ public final class CellSignalStrengthLte extends CellSignalStrength implements P
     private CellSignalStrengthLte(Parcel in) {
         mSignalStrength = in.readInt();
         // rsrp and rsrq are written into the parcel as positive values.
-        // Need to convert into negative values unless the values are invalid
-        mRsrp = in.readInt();
-        if (mRsrp != Integer.MAX_VALUE) mRsrp *= -1;
-        mRsrq = in.readInt();
-        if (mRsrq != Integer.MAX_VALUE) mRsrq *= -1;
+        // Need to convert into negative values
+        mRsrp = in.readInt() * -1;
+        mRsrq = in.readInt() * -1;
         mRssnr = in.readInt();
         mCqi = in.readInt();
         mTimingAdvance = in.readInt();

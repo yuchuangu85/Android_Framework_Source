@@ -33,63 +33,36 @@ import java.util.Objects;
 public final class DisconnectCause implements Parcelable {
 
     /** Disconnected because of an unknown or unspecified reason. */
-    public static final int UNKNOWN = TelecomProtoEnums.UNKNOWN; // = 0
+    public static final int UNKNOWN = 0;
     /** Disconnected because there was an error, such as a problem with the network. */
-    public static final int ERROR = TelecomProtoEnums.ERROR; // = 1
+    public static final int ERROR = 1;
     /** Disconnected because of a local user-initiated action, such as hanging up. */
-    public static final int LOCAL = TelecomProtoEnums.LOCAL; // = 2
+    public static final int LOCAL = 2;
     /**
      * Disconnected because of a remote user-initiated action, such as the other party hanging up
      * up.
      */
-    public static final int REMOTE = TelecomProtoEnums.REMOTE; // = 3
+    public static final int REMOTE = 3;
     /** Disconnected because it has been canceled. */
-    public static final int CANCELED = TelecomProtoEnums.CANCELED; // = 4
+    public static final int CANCELED = 4;
     /** Disconnected because there was no response to an incoming call. */
-    public static final int MISSED = TelecomProtoEnums.MISSED; // = 5
+    public static final int MISSED = 5;
     /** Disconnected because the user rejected an incoming call. */
-    public static final int REJECTED = TelecomProtoEnums.REJECTED; // = 6
+    public static final int REJECTED = 6;
     /** Disconnected because the other party was busy. */
-    public static final int BUSY = TelecomProtoEnums.BUSY; // = 7
+    public static final int BUSY = 7;
     /**
      * Disconnected because of a restriction on placing the call, such as dialing in airplane
      * mode.
      */
-    public static final int RESTRICTED = TelecomProtoEnums.RESTRICTED; // = 8
+    public static final int RESTRICTED = 8;
     /** Disconnected for reason not described by other disconnect codes. */
-    public static final int OTHER = TelecomProtoEnums.OTHER; // = 9
+    public static final int OTHER = 9;
     /**
      * Disconnected because the connection manager did not support the call. The call will be tried
      * again without a connection manager. See {@link PhoneAccount#CAPABILITY_CONNECTION_MANAGER}.
      */
-    public static final int CONNECTION_MANAGER_NOT_SUPPORTED =
-            TelecomProtoEnums.CONNECTION_MANAGER_NOT_SUPPORTED; // = 10
-
-    /**
-     * Disconnected because the user did not locally answer the incoming call, but it was answered
-     * on another device where the call was ringing.
-     */
-    public static final int ANSWERED_ELSEWHERE = TelecomProtoEnums.ANSWERED_ELSEWHERE; // = 11
-
-    /**
-     * Disconnected because the call was pulled from the current device to another device.
-     */
-    public static final int CALL_PULLED = TelecomProtoEnums.CALL_PULLED; // = 12
-
-    /**
-     * Reason code (returned via {@link #getReason()}) which indicates that a call could not be
-     * completed because the cellular radio is off or out of service, the device is connected to
-     * a wifi network, but the user has not enabled wifi calling.
-     * @hide
-     */
-    public static final String REASON_WIFI_ON_BUT_WFC_OFF = "REASON_WIFI_ON_BUT_WFC_OFF";
-
-    /**
-     * Reason code (returned via {@link #getReason()}), which indicates that the video telephony
-     * call was disconnected because IMS access is blocked.
-     * @hide
-     */
-    public static final String REASON_IMS_ACCESS_BLOCKED = "REASON_IMS_ACCESS_BLOCKED";
+    public static final int CONNECTION_MANAGER_NOT_SUPPORTED = 10;
 
     private int mDisconnectCode;
     private CharSequence mDisconnectLabel;
@@ -119,8 +92,8 @@ public final class DisconnectCause implements Parcelable {
     /**
      * Creates a new DisconnectCause.
      *
-     * @param code The code for the disconnect cause.
      * @param label The localized label to show to the user to explain the disconnect.
+     * @param code The code for the disconnect cause.
      * @param description The localized description to show to the user to explain the disconnect.
      * @param reason The reason for the disconnect.
      */
@@ -290,12 +263,6 @@ public final class DisconnectCause implements Parcelable {
                 break;
             case CONNECTION_MANAGER_NOT_SUPPORTED:
                 code = "CONNECTION_MANAGER_NOT_SUPPORTED";
-                break;
-            case CALL_PULLED:
-                code = "CALL_PULLED";
-                break;
-            case ANSWERED_ELSEWHERE:
-                code = "ANSWERED_ELSEWHERE";
                 break;
             default:
                 code = "invalid code: " + mDisconnectCode;

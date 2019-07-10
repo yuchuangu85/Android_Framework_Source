@@ -1,56 +1,42 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
-
 /**
- * The class PasswordAuthentication is a data holder that is used by
- * Authenticator.  It is simply a repository for a user name and a password.
+ * This immutable class is a data structure that encapsulates username and
+ * password which is used by the {@code Authenticator} class.
  *
- * @see java.net.Authenticator
- * @see java.net.Authenticator#getPasswordAuthentication()
- *
- * @author  Bill Foote
- * @since   1.2
+ * @see Authenticator
  */
-
 public final class PasswordAuthentication {
 
     private String userName;
+
     private char[] password;
 
     /**
-     * Creates a new {@code PasswordAuthentication} object from the given
-     * user name and password.
+     * Creates an instance of a password authentication with a specified
+     * username and password.
      *
-     * <p> Note that the given user password is cloned before it is stored in
-     * the new {@code PasswordAuthentication} object.
-     *
-     * @param userName the user name
-     * @param password the user's password
+     * @param userName
+     *            the username to store.
+     * @param password
+     *            the associated password to store.
      */
     public PasswordAuthentication(String userName, char[] password) {
         this.userName = userName;
@@ -58,24 +44,22 @@ public final class PasswordAuthentication {
     }
 
     /**
-     * Returns the user name.
+     * Gets a clone of the password stored by this instance. The user is
+     * responsible to finalize the returned array if the password clone is no
+     * longer needed.
      *
-     * @return the user name
+     * @return the copied password.
      */
-    public String getUserName() {
-        return userName;
+    public char[] getPassword() {
+        return password.clone();
     }
 
     /**
-     * Returns the user password.
+     * Gets the username stored by this instance.
      *
-     * <p> Note that this method returns a reference to the password. It is
-     * the caller's responsibility to zero out the password information after
-     * it is no longer needed.
-     *
-     * @return the password
+     * @return the stored username.
      */
-    public char[] getPassword() {
-        return password;
+    public String getUserName() {
+        return userName;
     }
 }

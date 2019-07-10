@@ -21,8 +21,6 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.accounts.Account;
 
-import java.util.Objects;
-
 /**
  * Value type that contains information about a periodic sync.
  */
@@ -146,9 +144,7 @@ public class PeriodicSync implements Parcelable {
             if (!b2.containsKey(key)) {
                 return false;
             }
-            // Null check. According to ContentResolver#validateSyncExtrasBundle null-valued keys
-            // are allowed in the bundle.
-            if (!Objects.equals(b1.get(key), b2.get(key))) {
+            if (!b1.get(key).equals(b2.get(key))) {
                 return false;
             }
         }

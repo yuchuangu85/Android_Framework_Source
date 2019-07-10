@@ -42,12 +42,10 @@ public class ContactsInternal {
     private static final UriMatcher sContactsUriMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
     private static final int CONTACTS_URI_LOOKUP_ID = 1000;
-    private static final int CONTACTS_URI_LOOKUP = 1001;
 
     static {
         // Contacts URI matching table
         final UriMatcher matcher = sContactsUriMatcher;
-        matcher.addURI(ContactsContract.AUTHORITY, "contacts/lookup/*", CONTACTS_URI_LOOKUP);
         matcher.addURI(ContactsContract.AUTHORITY, "contacts/lookup/*/#", CONTACTS_URI_LOOKUP_ID);
     }
 
@@ -59,7 +57,6 @@ public class ContactsInternal {
 
         final int match = sContactsUriMatcher.match(uri);
         switch (match) {
-            case CONTACTS_URI_LOOKUP:
             case CONTACTS_URI_LOOKUP_ID: {
                 if (maybeStartManagedQuickContact(context, intent)) {
                     return; // Request handled by DPM.  Just return here.
@@ -68,7 +65,7 @@ public class ContactsInternal {
             }
         }
         // Launch on the current profile.
-        startQuickContactWithErrorToastForUser(context, intent, context.getUser());
+        startQuickContactWithErrorToastForUser(context, intent, Process.myUserHandle());
     }
 
     public static void startQuickContactWithErrorToastForUser(Context context, Intent intent,
@@ -92,15 +89,8 @@ public class ContactsInternal {
 
         // Decompose into an ID and a lookup key.
         final List<String> pathSegments = uri.getPathSegments();
-        final boolean isContactIdIgnored = pathSegments.size() < 4;
-        final long contactId = isContactIdIgnored
-                ? ContactsContract.Contacts.ENTERPRISE_CONTACT_ID_BASE //contact id will be ignored
-                : ContentUris.parseId(uri);
+        final long contactId = ContentUris.parseId(uri);
         final String lookupKey = pathSegments.get(2);
-        final String directoryIdStr = uri.getQueryParameter(ContactsContract.DIRECTORY_PARAM_KEY);
-        final long directoryId = (directoryIdStr == null)
-                ? ContactsContract.Directory.ENTERPRISE_DIRECTORY_ID_BASE
-                : Long.parseLong(directoryIdStr);
 
         // See if it has a corp lookupkey.
         if (TextUtils.isEmpty(lookupKey)
@@ -109,24 +99,14 @@ public class ContactsInternal {
             return false; // It's not a corp lookup key.
         }
 
-        if (!ContactsContract.Contacts.isEnterpriseContactId(contactId)) {
-            throw new IllegalArgumentException("Invalid enterprise contact id: " + contactId);
-        }
-        if (!ContactsContract.Directory.isEnterpriseDirectoryId(directoryId)) {
-            throw new IllegalArgumentException("Invalid enterprise directory id: " + directoryId);
-        }
-
         // Launch Quick Contact on the managed profile, if the policy allows.
         final DevicePolicyManager dpm = context.getSystemService(DevicePolicyManager.class);
         final String actualLookupKey = lookupKey.substring(
                 ContactsContract.Contacts.ENTERPRISE_CONTACT_LOOKUP_PREFIX.length());
         final long actualContactId =
                 (contactId - ContactsContract.Contacts.ENTERPRISE_CONTACT_ID_BASE);
-        final long actualDirectoryId = (directoryId
-                - ContactsContract.Directory.ENTERPRISE_DIRECTORY_ID_BASE);
 
-        dpm.startManagedQuickContact(actualLookupKey, actualContactId, isContactIdIgnored,
-                actualDirectoryId, originalIntent);
+        dpm.startManagedQuickContact(actualLookupKey, actualContactId, originalIntent);
         return true;
     }
 }

@@ -16,12 +16,8 @@
 
 package com.android.internal.inputmethod;
 
-import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_IS_TEXT_EDITOR;
-import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_VIEW_HAS_FOCUS;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.UserIdInt;
 import android.app.AppOpsManager;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -29,24 +25,17 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
-import android.os.Build;
-import android.os.LocaleList;
 import android.os.RemoteException;
 import android.provider.Settings;
+import android.provider.Settings.SettingNotFoundException;
 import android.text.TextUtils;
-import android.text.TextUtils.SimpleStringSplitter;
-import android.util.ArrayMap;
-import android.util.ArraySet;
-import android.util.Log;
 import android.util.Pair;
-import android.util.Printer;
 import android.util.Slog;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodSubtype;
 import android.view.textservice.SpellCheckerInfo;
 import android.view.textservice.TextServicesManager;
 
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.ArrayList;
@@ -72,11 +61,6 @@ public class InputMethodUtils {
     private static final String TAG_ENABLED_WHEN_DEFAULT_IS_NOT_ASCII_CAPABLE =
             "EnabledWhenDefaultIsNotAsciiCapable";
     private static final String TAG_ASCII_CAPABLE = "AsciiCapable";
-
-    // The string for enabled input method is saved as follows:
-    // example: ("ime0;subtype0;subtype1;subtype2:ime1:ime2;subtype0")
-    private static final char INPUT_METHOD_SEPARATOR = ':';
-    private static final char INPUT_METHOD_SUBTYPE_SEPARATOR = ';';
     /**
      * Used in {@link #getFallbackLocaleForDefaultIme(ArrayList, Context)} to find the fallback IMEs
      * that are mainly used until the system becomes ready. Note that {@link Locale} in this array
@@ -89,23 +73,26 @@ public class InputMethodUtils {
         Locale.UK, // "en_GB"
     };
 
-    // A temporary workaround for the performance concerns in
-    // #getImplicitlyApplicableSubtypesLocked(Resources, InputMethodInfo).
-    // TODO: Optimize all the critical paths including this one.
-    private static final Object sCacheLock = new Object();
-    @GuardedBy("sCacheLock")
-    private static LocaleList sCachedSystemLocales;
-    @GuardedBy("sCacheLock")
-    private static InputMethodInfo sCachedInputMethodInfo;
-    @GuardedBy("sCacheLock")
-    private static ArrayList<InputMethodSubtype> sCachedResult;
-
     private InputMethodUtils() {
         // This utility class is not publicly instantiable.
     }
 
     // ----------------------------------------------------------------------
     // Utilities for debug
+    public static String getStackTrace() {
+        final StringBuilder sb = new StringBuilder();
+        try {
+            throw new RuntimeException();
+        } catch (RuntimeException e) {
+            final StackTraceElement[] frames = e.getStackTrace();
+            // Start at 1 because the first frame is here and we don't care about it
+            for (int j = 1; j < frames.length; ++j) {
+                sb.append(frames[j].toString() + "\n");
+            }
+        }
+        return sb.toString();
+    }
+
     public static String getApiCallStack() {
         String apiCallStack = "";
         try {
@@ -271,6 +258,43 @@ public class InputMethodUtils {
         }
     }
 
+    private static InputMethodListBuilder getMinimumKeyboardSetWithoutSystemLocale(
+            final ArrayList<InputMethodInfo> imis, final Context context,
+            @Nullable final Locale fallbackLocale) {
+        // Before the system becomes ready, we pick up at least one keyboard in the following order.
+        // The first user (device owner) falls into this category.
+        // 1. checkDefaultAttribute: true, locale: fallbackLocale, checkCountry: true
+        // 2. checkDefaultAttribute: false, locale: fallbackLocale, checkCountry: true
+        // 3. checkDefaultAttribute: true, locale: fallbackLocale, checkCountry: false
+        // 4. checkDefaultAttribute: false, locale: fallbackLocale, checkCountry: false
+        // TODO: We should check isAsciiCapable instead of relying on fallbackLocale.
+
+        final InputMethodListBuilder builder = new InputMethodListBuilder();
+        builder.fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
+                true /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
+        if (!builder.isEmpty()) {
+            return builder;
+        }
+        builder.fillImes(imis, context, false /* checkDefaultAttribute */, fallbackLocale,
+                true /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
+        if (!builder.isEmpty()) {
+            return builder;
+        }
+        builder.fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
+                false /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
+        if (!builder.isEmpty()) {
+            return builder;
+        }
+        builder.fillImes(imis, context, false /* checkDefaultAttribute */, fallbackLocale,
+                false /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
+        if (!builder.isEmpty()) {
+            return builder;
+        }
+        Slog.w(TAG, "No software keyboard is found. imis=" + Arrays.toString(imis.toArray())
+                + " fallbackLocale=" + fallbackLocale);
+        return builder;
+    }
+
     private static InputMethodListBuilder getMinimumKeyboardSetWithSystemLocale(
             final ArrayList<InputMethodInfo> imis, final Context context,
             @Nullable final Locale systemLocale, @Nullable final Locale fallbackLocale) {
@@ -320,28 +344,31 @@ public class InputMethodUtils {
         return builder;
     }
 
-    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
-            Context context, ArrayList<InputMethodInfo> imis, boolean onlyMinimum) {
+    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(final Context context,
+            final boolean isSystemReady, final ArrayList<InputMethodInfo> imis) {
         final Locale fallbackLocale = getFallbackLocaleForDefaultIme(imis, context);
-        // We will primarily rely on the system locale, but also keep relying on the fallback locale
-        // as a last resort.
+        if (!isSystemReady) {
+            // When the system is not ready, the system locale is not stable and reliable. Hence
+            // we will pick up IMEs that support software keyboard based on the fallback locale.
+            // Also pick up suitable IMEs regardless of the software keyboard support.
+            // (e.g. Voice IMEs)
+            return getMinimumKeyboardSetWithoutSystemLocale(imis, context, fallbackLocale)
+                    .fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
+                            true /* checkCountry */, SUBTYPE_MODE_ANY)
+                    .build();
+        }
+
+        // When the system is ready, we will primarily rely on the system locale, but also keep
+        // relying on the fallback locale as a last resort.
         // Also pick up suitable IMEs regardless of the software keyboard support (e.g. Voice IMEs),
         // then pick up suitable auxiliary IMEs when necessary (e.g. Voice IMEs with "automatic"
         // subtype)
         final Locale systemLocale = getSystemLocaleFromContext(context);
-        final InputMethodListBuilder builder =
-                getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale);
-        if (!onlyMinimum) {
-            builder.fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
-                    true /* checkCountry */, SUBTYPE_MODE_ANY)
-                    .fillAuxiliaryImes(imis, context);
-        }
-        return builder.build();
-    }
-
-    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
-            Context context, ArrayList<InputMethodInfo> imis) {
-        return getDefaultEnabledImes(context, imis, false /* onlyMinimum */);
+        return getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale)
+                .fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
+                        true /* checkCountry */, SUBTYPE_MODE_ANY)
+                .fillAuxiliaryImes(imis, context)
+                .build();
     }
 
     public static Locale constructLocaleFromString(String localeStr) {
@@ -350,17 +377,17 @@ public class InputMethodUtils {
         }
         // TODO: Use {@link Locale#toLanguageTag()} and {@link Locale#forLanguageTag(languageTag)}.
         String[] localeParams = localeStr.split("_", 3);
-        if (localeParams.length >= 1 && "tl".equals(localeParams[0])) {
-             // Convert a locale whose language is "tl" to one whose language is "fil".
-             // For example, "tl_PH" will get converted to "fil_PH".
-             // Versions of Android earlier than Lollipop did not support three letter language
-             // codes, and used "tl" (Tagalog) as the language string for "fil" (Filipino).
-             // On Lollipop and above, the current three letter version must be used.
-             localeParams[0] = "fil";
-        }
         // The length of localeStr is guaranteed to always return a 1 <= value <= 3
         // because localeStr is not empty.
         if (localeParams.length == 1) {
+            if (localeParams.length >= 1 && "tl".equals(localeParams[0])) {
+                // Convert a locale whose language is "tl" to one whose language is "fil".
+                // For example, "tl_PH" will get converted to "fil_PH".
+                // Versions of Android earlier than Lollipop did not support three letter language
+                // codes, and used "tl" (Tagalog) as the language string for "fil" (Filipino).
+                // On Lollipop and above, the current three letter version must be used.
+                localeParams[0] = "fil";
+            }
             return new Locale(localeParams[0]);
         } else if (localeParams.length == 2) {
             return new Locale(localeParams[0], localeParams[1]);
@@ -401,7 +428,7 @@ public class InputMethodUtils {
     }
 
     public static ArrayList<InputMethodSubtype> getSubtypes(InputMethodInfo imi) {
-        ArrayList<InputMethodSubtype> subtypes = new ArrayList<>();
+        ArrayList<InputMethodSubtype> subtypes = new ArrayList<InputMethodSubtype>();
         final int subtypeCount = imi.getSubtypeCount();
         for (int i = 0; i < subtypeCount; ++i) {
             subtypes.add(imi.getSubtypeAt(i));
@@ -411,7 +438,7 @@ public class InputMethodUtils {
 
     public static ArrayList<InputMethodSubtype> getOverridingImplicitlyEnabledSubtypes(
             InputMethodInfo imi, String mode) {
-        ArrayList<InputMethodSubtype> subtypes = new ArrayList<>();
+        ArrayList<InputMethodSubtype> subtypes = new ArrayList<InputMethodSubtype>();
         final int subtypeCount = imi.getSubtypeCount();
         for (int i = 0; i < subtypeCount; ++i) {
             final InputMethodSubtype subtype = imi.getSubtypeAt(i);
@@ -464,54 +491,19 @@ public class InputMethodUtils {
         return NOT_A_SUBTYPE_ID;
     }
 
-    private static final LocaleUtils.LocaleExtractor<InputMethodSubtype> sSubtypeToLocale =
-            new LocaleUtils.LocaleExtractor<InputMethodSubtype>() {
-                @Override
-                public Locale get(InputMethodSubtype source) {
-                    return source != null ? source.getLocaleObject() : null;
-                }
-            };
-
     @VisibleForTesting
     public static ArrayList<InputMethodSubtype> getImplicitlyApplicableSubtypesLocked(
             Resources res, InputMethodInfo imi) {
-        final LocaleList systemLocales = res.getConfiguration().getLocales();
-
-        synchronized (sCacheLock) {
-            // We intentionally do not use InputMethodInfo#equals(InputMethodInfo) here because
-            // it does not check if subtypes are also identical.
-            if (systemLocales.equals(sCachedSystemLocales) && sCachedInputMethodInfo == imi) {
-                return new ArrayList<>(sCachedResult);
-            }
-        }
-
-        // Note: Only resource info in "res" is used in getImplicitlyApplicableSubtypesLockedImpl().
-        // TODO: Refactor getImplicitlyApplicableSubtypesLockedImpl() so that it can receive
-        // LocaleList rather than Resource.
-        final ArrayList<InputMethodSubtype> result =
-                getImplicitlyApplicableSubtypesLockedImpl(res, imi);
-        synchronized (sCacheLock) {
-            // Both LocaleList and InputMethodInfo are immutable. No need to copy them here.
-            sCachedSystemLocales = systemLocales;
-            sCachedInputMethodInfo = imi;
-            sCachedResult = new ArrayList<>(result);
-        }
-        return result;
-    }
-
-    private static ArrayList<InputMethodSubtype> getImplicitlyApplicableSubtypesLockedImpl(
-            Resources res, InputMethodInfo imi) {
         final List<InputMethodSubtype> subtypes = InputMethodUtils.getSubtypes(imi);
-        final LocaleList systemLocales = res.getConfiguration().getLocales();
-        final String systemLocale = systemLocales.get(0).toString();
-        if (TextUtils.isEmpty(systemLocale)) return new ArrayList<>();
-        final int numSubtypes = subtypes.size();
-
-        // Handle overridesImplicitlyEnabledSubtype mechanism.
-        final HashMap<String, InputMethodSubtype> applicableModeAndSubtypesMap = new HashMap<>();
-        for (int i = 0; i < numSubtypes; ++i) {
+        final String systemLocale = res.getConfiguration().locale.toString();
+        if (TextUtils.isEmpty(systemLocale)) return new ArrayList<InputMethodSubtype>();
+        final String systemLanguage = res.getConfiguration().locale.getLanguage();
+        final HashMap<String, InputMethodSubtype> applicableModeAndSubtypesMap =
+                new HashMap<String, InputMethodSubtype>();
+        final int N = subtypes.size();
+        for (int i = 0; i < N; ++i) {
             // scan overriding implicitly enabled subtypes.
-            final InputMethodSubtype subtype = subtypes.get(i);
+            InputMethodSubtype subtype = subtypes.get(i);
             if (subtype.overridesImplicitlyEnabledSubtype()) {
                 final String mode = subtype.getMode();
                 if (!applicableModeAndSubtypesMap.containsKey(mode)) {
@@ -520,67 +512,58 @@ public class InputMethodUtils {
             }
         }
         if (applicableModeAndSubtypesMap.size() > 0) {
-            return new ArrayList<>(applicableModeAndSubtypesMap.values());
+            return new ArrayList<InputMethodSubtype>(applicableModeAndSubtypesMap.values());
         }
-
-        final HashMap<String, ArrayList<InputMethodSubtype>> nonKeyboardSubtypesMap =
-                new HashMap<>();
-        final ArrayList<InputMethodSubtype> keyboardSubtypes = new ArrayList<>();
-
-        for (int i = 0; i < numSubtypes; ++i) {
+        for (int i = 0; i < N; ++i) {
             final InputMethodSubtype subtype = subtypes.get(i);
+            final String locale = subtype.getLocale();
             final String mode = subtype.getMode();
-            if (SUBTYPE_MODE_KEYBOARD.equals(mode)) {
-                keyboardSubtypes.add(subtype);
-            } else {
-                if (!nonKeyboardSubtypesMap.containsKey(mode)) {
-                    nonKeyboardSubtypesMap.put(mode, new ArrayList<>());
+            final String language = getLanguageFromLocaleString(locale);
+            // When system locale starts with subtype's locale, that subtype will be applicable
+            // for system locale. We need to make sure the languages are the same, to prevent
+            // locales like "fil" (Filipino) being matched by "fi" (Finnish).
+            //
+            // For instance, it's clearly applicable for cases like system locale = en_US and
+            // subtype = en, but it is not necessarily considered applicable for cases like system
+            // locale = en and subtype = en_US.
+            //
+            // We just call systemLocale.startsWith(locale) in this function because there is no
+            // need to find applicable subtypes aggressively unlike
+            // findLastResortApplicableSubtypeLocked.
+            //
+            // TODO: This check is broken. It won't take scripts into account and doesn't
+            // account for the mandatory conversions performed by Locale#toString.
+            if (language.equals(systemLanguage) && systemLocale.startsWith(locale)) {
+                final InputMethodSubtype applicableSubtype = applicableModeAndSubtypesMap.get(mode);
+                // If more applicable subtypes are contained, skip.
+                if (applicableSubtype != null) {
+                    if (systemLocale.equals(applicableSubtype.getLocale())) continue;
+                    if (!systemLocale.equals(locale)) continue;
                 }
-                nonKeyboardSubtypesMap.get(mode).add(subtype);
+                applicableModeAndSubtypesMap.put(mode, subtype);
             }
         }
-
-        final ArrayList<InputMethodSubtype> applicableSubtypes = new ArrayList<>();
-        LocaleUtils.filterByLanguage(keyboardSubtypes, sSubtypeToLocale, systemLocales,
-                applicableSubtypes);
-
-        if (!applicableSubtypes.isEmpty()) {
-            boolean hasAsciiCapableKeyboard = false;
-            final int numApplicationSubtypes = applicableSubtypes.size();
-            for (int i = 0; i < numApplicationSubtypes; ++i) {
-                final InputMethodSubtype subtype = applicableSubtypes.get(i);
-                if (subtype.containsExtraValueKey(TAG_ASCII_CAPABLE)) {
-                    hasAsciiCapableKeyboard = true;
-                    break;
-                }
-            }
-            if (!hasAsciiCapableKeyboard) {
-                final int numKeyboardSubtypes = keyboardSubtypes.size();
-                for (int i = 0; i < numKeyboardSubtypes; ++i) {
-                    final InputMethodSubtype subtype = keyboardSubtypes.get(i);
-                    final String mode = subtype.getMode();
-                    if (SUBTYPE_MODE_KEYBOARD.equals(mode) && subtype.containsExtraValueKey(
-                            TAG_ENABLED_WHEN_DEFAULT_IS_NOT_ASCII_CAPABLE)) {
-                        applicableSubtypes.add(subtype);
-                    }
+        final InputMethodSubtype keyboardSubtype
+                = applicableModeAndSubtypesMap.get(SUBTYPE_MODE_KEYBOARD);
+        final ArrayList<InputMethodSubtype> applicableSubtypes = new ArrayList<InputMethodSubtype>(
+                applicableModeAndSubtypesMap.values());
+        if (keyboardSubtype != null && !keyboardSubtype.containsExtraValueKey(TAG_ASCII_CAPABLE)) {
+            for (int i = 0; i < N; ++i) {
+                final InputMethodSubtype subtype = subtypes.get(i);
+                final String mode = subtype.getMode();
+                if (SUBTYPE_MODE_KEYBOARD.equals(mode) && subtype.containsExtraValueKey(
+                        TAG_ENABLED_WHEN_DEFAULT_IS_NOT_ASCII_CAPABLE)) {
+                    applicableSubtypes.add(subtype);
                 }
             }
         }
-
-        if (applicableSubtypes.isEmpty()) {
+        if (keyboardSubtype == null) {
             InputMethodSubtype lastResortKeyboardSubtype = findLastResortApplicableSubtypeLocked(
                     res, subtypes, SUBTYPE_MODE_KEYBOARD, systemLocale, true);
             if (lastResortKeyboardSubtype != null) {
                 applicableSubtypes.add(lastResortKeyboardSubtype);
             }
         }
-
-        // For each non-keyboard mode, extract subtypes with system locales.
-        for (final ArrayList<InputMethodSubtype> subtypeList : nonKeyboardSubtypesMap.values()) {
-            LocaleUtils.filterByLanguage(subtypeList, sSubtypeToLocale, systemLocales,
-                    applicableSubtypes);
-        }
-
         return applicableSubtypes;
     }
 
@@ -784,81 +767,26 @@ public class InputMethodUtils {
     }
 
     /**
-     * Parses the setting stored input methods and subtypes string value.
-     *
-     * @param inputMethodsAndSubtypesString The input method subtypes value stored in settings.
-     * @return Map from input method ID to set of input method subtypes IDs.
-     */
-    @VisibleForTesting
-    public static ArrayMap<String, ArraySet<String>> parseInputMethodsAndSubtypesString(
-            @Nullable final String inputMethodsAndSubtypesString) {
-
-        final ArrayMap<String, ArraySet<String>> imeMap = new ArrayMap<>();
-        if (TextUtils.isEmpty(inputMethodsAndSubtypesString)) {
-            return imeMap;
-        }
-
-        final SimpleStringSplitter typeSplitter =
-                new SimpleStringSplitter(INPUT_METHOD_SEPARATOR);
-        final SimpleStringSplitter subtypeSplitter =
-                new SimpleStringSplitter(INPUT_METHOD_SUBTYPE_SEPARATOR);
-
-        List<Pair<String, ArrayList<String>>> allImeSettings =
-                InputMethodSettings.buildInputMethodsAndSubtypeList(inputMethodsAndSubtypesString,
-                        typeSplitter,
-                        subtypeSplitter);
-        for (Pair<String, ArrayList<String>> ime : allImeSettings) {
-            ArraySet<String> subtypes = new ArraySet<>();
-            if (ime.second != null) {
-                subtypes.addAll(ime.second);
-            }
-            imeMap.put(ime.first, subtypes);
-        }
-        return imeMap;
-    }
-
-    @NonNull
-    public static String buildInputMethodsAndSubtypesString(
-            @NonNull final ArrayMap<String, ArraySet<String>> map) {
-        // we want to use the canonical InputMethodSettings implementation,
-        // so we convert data structures first.
-        List<Pair<String, ArrayList<String>>> imeMap = new ArrayList<>(4);
-        for (ArrayMap.Entry<String, ArraySet<String>> entry : map.entrySet()) {
-            final String imeName = entry.getKey();
-            final ArraySet<String> subtypeSet = entry.getValue();
-            final ArrayList<String> subtypes = new ArrayList<>(2);
-            if (subtypeSet != null) {
-                subtypes.addAll(subtypeSet);
-            }
-            imeMap.add(new Pair<>(imeName, subtypes));
-        }
-        return InputMethodSettings.buildInputMethodsSettingString(imeMap);
-    }
-
-    /**
      * Utility class for putting and getting settings for InputMethod
      * TODO: Move all putters and getters of settings to this class.
      */
     public static class InputMethodSettings {
+        // The string for enabled input method is saved as follows:
+        // example: ("ime0;subtype0;subtype1;subtype2:ime1:ime2;subtype0")
+        private static final char INPUT_METHOD_SEPARATER = ':';
+        private static final char INPUT_METHOD_SUBTYPE_SEPARATER = ';';
         private final TextUtils.SimpleStringSplitter mInputMethodSplitter =
-                new TextUtils.SimpleStringSplitter(INPUT_METHOD_SEPARATOR);
+                new TextUtils.SimpleStringSplitter(INPUT_METHOD_SEPARATER);
 
         private final TextUtils.SimpleStringSplitter mSubtypeSplitter =
-                new TextUtils.SimpleStringSplitter(INPUT_METHOD_SUBTYPE_SEPARATOR);
+                new TextUtils.SimpleStringSplitter(INPUT_METHOD_SUBTYPE_SEPARATER);
 
         private final Resources mRes;
         private final ContentResolver mResolver;
         private final HashMap<String, InputMethodInfo> mMethodMap;
+        private final ArrayList<InputMethodInfo> mMethodList;
 
-        /**
-         * On-memory data store to emulate when {@link #mCopyOnWrite} is {@code true}.
-         */
-        private final HashMap<String, String> mCopyOnWriteDataStore = new HashMap<>();
-
-        private boolean mCopyOnWrite = false;
-        @NonNull
-        private String mEnabledInputMethodsStrCache = "";
-        @UserIdInt
+        private String mEnabledInputMethodsStrCache;
         private int mCurrentUserId;
         private int[] mCurrentProfileIds = new int[0];
 
@@ -868,7 +796,7 @@ public class InputMethodUtils {
             // Inputmethod and subtypes are saved in the settings as follows:
             // ime0;subtype0;subtype1:ime1;subtype0:ime2:ime3;subtype0;subtype1
             for (String subtypeId: ime.second) {
-                builder.append(INPUT_METHOD_SUBTYPE_SEPARATOR).append(subtypeId);
+                builder.append(INPUT_METHOD_SUBTYPE_SEPARATER).append(subtypeId);
             }
         }
 
@@ -878,7 +806,7 @@ public class InputMethodUtils {
             boolean needsSeparator = false;
             for (Pair<String, ArrayList<String>> ime : allImeSettingsMap) {
                 if (needsSeparator) {
-                    b.append(INPUT_METHOD_SEPARATOR);
+                    b.append(INPUT_METHOD_SEPARATER);
                 }
                 buildEnabledInputMethodsSettingString(b, ime);
                 needsSeparator = true;
@@ -890,7 +818,8 @@ public class InputMethodUtils {
                 String enabledInputMethodsStr,
                 TextUtils.SimpleStringSplitter inputMethodSplitter,
                 TextUtils.SimpleStringSplitter subtypeSplitter) {
-            ArrayList<Pair<String, ArrayList<String>>> imsList = new ArrayList<>();
+            ArrayList<Pair<String, ArrayList<String>>> imsList =
+                    new ArrayList<Pair<String, ArrayList<String>>>();
             if (TextUtils.isEmpty(enabledInputMethodsStr)) {
                 return imsList;
             }
@@ -899,13 +828,13 @@ public class InputMethodUtils {
                 String nextImsStr = inputMethodSplitter.next();
                 subtypeSplitter.setString(nextImsStr);
                 if (subtypeSplitter.hasNext()) {
-                    ArrayList<String> subtypeHashes = new ArrayList<>();
+                    ArrayList<String> subtypeHashes = new ArrayList<String>();
                     // The first element is ime id.
                     String imeId = subtypeSplitter.next();
                     while (subtypeSplitter.hasNext()) {
                         subtypeHashes.add(subtypeSplitter.next());
                     }
-                    imsList.add(new Pair<>(imeId, subtypeHashes));
+                    imsList.add(new Pair<String, ArrayList<String>>(imeId, subtypeHashes));
                 }
             }
             return imsList;
@@ -914,76 +843,20 @@ public class InputMethodUtils {
         public InputMethodSettings(
                 Resources res, ContentResolver resolver,
                 HashMap<String, InputMethodInfo> methodMap, ArrayList<InputMethodInfo> methodList,
-                @UserIdInt int userId, boolean copyOnWrite) {
+                int userId) {
+            setCurrentUserId(userId);
             mRes = res;
             mResolver = resolver;
             mMethodMap = methodMap;
-            switchCurrentUser(userId, copyOnWrite);
+            mMethodList = methodList;
         }
 
-        /**
-         * Must be called when the current user is changed.
-         *
-         * @param userId The user ID.
-         * @param copyOnWrite If {@code true}, for each settings key
-         * (e.g. {@link Settings.Secure#ACTION_INPUT_METHOD_SUBTYPE_SETTINGS}) we use the actual
-         * settings on the {@link Settings.Secure} until we do the first write operation.
-         */
-        public void switchCurrentUser(@UserIdInt int userId, boolean copyOnWrite) {
+        public void setCurrentUserId(int userId) {
             if (DEBUG) {
-                Slog.d(TAG, "--- Switch the current user from " + mCurrentUserId + " to " + userId);
+                Slog.d(TAG, "--- Swtich the current user from " + mCurrentUserId + " to " + userId);
             }
-            if (mCurrentUserId != userId || mCopyOnWrite != copyOnWrite) {
-                mCopyOnWriteDataStore.clear();
-                mEnabledInputMethodsStrCache = "";
-                // TODO: mCurrentProfileIds should be cleared here.
-            }
+            // IMMS settings are kept per user, so keep track of current user
             mCurrentUserId = userId;
-            mCopyOnWrite = copyOnWrite;
-            // TODO: mCurrentProfileIds should be updated here.
-        }
-
-        private void putString(@NonNull final String key, @Nullable final String str) {
-            if (mCopyOnWrite) {
-                mCopyOnWriteDataStore.put(key, str);
-            } else {
-                Settings.Secure.putStringForUser(mResolver, key, str, mCurrentUserId);
-            }
-        }
-
-        @Nullable
-        private String getString(@NonNull final String key, @Nullable final String defaultValue) {
-            final String result;
-            if (mCopyOnWrite && mCopyOnWriteDataStore.containsKey(key)) {
-                result = mCopyOnWriteDataStore.get(key);
-            } else {
-                result = Settings.Secure.getStringForUser(mResolver, key, mCurrentUserId);
-            }
-            return result != null ? result : defaultValue;
-        }
-
-        private void putInt(final String key, final int value) {
-            if (mCopyOnWrite) {
-                mCopyOnWriteDataStore.put(key, String.valueOf(value));
-            } else {
-                Settings.Secure.putIntForUser(mResolver, key, value, mCurrentUserId);
-            }
-        }
-
-        private int getInt(final String key, final int defaultValue) {
-            if (mCopyOnWrite && mCopyOnWriteDataStore.containsKey(key)) {
-                final String result = mCopyOnWriteDataStore.get(key);
-                return result != null ? Integer.parseInt(result) : 0;
-            }
-            return Settings.Secure.getIntForUser(mResolver, key, defaultValue, mCurrentUserId);
-        }
-
-        private void putBoolean(final String key, final boolean value) {
-            putInt(key, value ? 1 : 0);
-        }
-
-        private boolean getBoolean(final String key, final boolean defaultValue) {
-            return getInt(key, defaultValue ? 1 : 0) == 1;
         }
 
         public void setCurrentProfileIds(int[] currentProfileIds) {
@@ -1002,8 +875,14 @@ public class InputMethodUtils {
             }
         }
 
-        public ArrayList<InputMethodInfo> getEnabledInputMethodListLocked() {
+        public List<InputMethodInfo> getEnabledInputMethodListLocked() {
             return createEnabledInputMethodListLocked(
+                    getEnabledInputMethodsAndSubtypeListLocked());
+        }
+
+        public List<Pair<InputMethodInfo, ArrayList<String>>>
+                getEnabledInputMethodAndSubtypeHashCodeListLocked() {
+            return createEnabledInputMethodAndSubtypeHashCodeListLocked(
                     getEnabledInputMethodsAndSubtypeListLocked());
         }
 
@@ -1022,7 +901,8 @@ public class InputMethodUtils {
                 InputMethodInfo imi) {
             List<Pair<String, ArrayList<String>>> imsList =
                     getEnabledInputMethodsAndSubtypeListLocked();
-            ArrayList<InputMethodSubtype> enabledSubtypes = new ArrayList<>();
+            ArrayList<InputMethodSubtype> enabledSubtypes =
+                    new ArrayList<InputMethodSubtype>();
             if (imi != null) {
                 for (Pair<String, ArrayList<String>> imsPair : imsList) {
                     InputMethodInfo info = mMethodMap.get(imsPair.first);
@@ -1043,6 +923,22 @@ public class InputMethodUtils {
             return enabledSubtypes;
         }
 
+        // At the initial boot, the settings for input methods are not set,
+        // so we need to enable IME in that case.
+        public void enableAllIMEsIfThereIsNoEnabledIME() {
+            if (TextUtils.isEmpty(getEnabledInputMethodsStr())) {
+                StringBuilder sb = new StringBuilder();
+                final int N = mMethodList.size();
+                for (int i = 0; i < N; i++) {
+                    InputMethodInfo imi = mMethodList.get(i);
+                    Slog.i(TAG, "Adding: " + imi.getId());
+                    if (i > 0) sb.append(':');
+                    sb.append(imi.getId());
+                }
+                putEnabledInputMethodsStr(sb.toString());
+            }
+        }
+
         public List<Pair<String, ArrayList<String>>> getEnabledInputMethodsAndSubtypeListLocked() {
             return buildInputMethodsAndSubtypeList(getEnabledInputMethodsStr(),
                     mInputMethodSplitter,
@@ -1058,7 +954,7 @@ public class InputMethodUtils {
                 putEnabledInputMethodsStr(id);
             } else {
                 putEnabledInputMethodsStr(
-                        mEnabledInputMethodsStrCache + INPUT_METHOD_SEPARATOR + id);
+                        mEnabledInputMethodsStrCache + INPUT_METHOD_SEPARATER + id);
             }
         }
 
@@ -1079,7 +975,7 @@ public class InputMethodUtils {
                     isRemoved = true;
                 } else {
                     if (needsAppendSeparator) {
-                        builder.append(INPUT_METHOD_SEPARATOR);
+                        builder.append(INPUT_METHOD_SEPARATER);
                     } else {
                         needsAppendSeparator = true;
                     }
@@ -1093,36 +989,44 @@ public class InputMethodUtils {
             return isRemoved;
         }
 
-        private ArrayList<InputMethodInfo> createEnabledInputMethodListLocked(
+        private List<InputMethodInfo> createEnabledInputMethodListLocked(
                 List<Pair<String, ArrayList<String>>> imsList) {
-            final ArrayList<InputMethodInfo> res = new ArrayList<>();
+            final ArrayList<InputMethodInfo> res = new ArrayList<InputMethodInfo>();
             for (Pair<String, ArrayList<String>> ims: imsList) {
                 InputMethodInfo info = mMethodMap.get(ims.first);
-                if (info != null && !info.isVrOnly()) {
+                if (info != null) {
                     res.add(info);
                 }
             }
             return res;
         }
 
-        private void putEnabledInputMethodsStr(@Nullable String str) {
+        private List<Pair<InputMethodInfo, ArrayList<String>>>
+                createEnabledInputMethodAndSubtypeHashCodeListLocked(
+                        List<Pair<String, ArrayList<String>>> imsList) {
+            final ArrayList<Pair<InputMethodInfo, ArrayList<String>>> res
+                    = new ArrayList<Pair<InputMethodInfo, ArrayList<String>>>();
+            for (Pair<String, ArrayList<String>> ims : imsList) {
+                InputMethodInfo info = mMethodMap.get(ims.first);
+                if (info != null) {
+                    res.add(new Pair<InputMethodInfo, ArrayList<String>>(info, ims.second));
+                }
+            }
+            return res;
+        }
+
+        private void putEnabledInputMethodsStr(String str) {
+            Settings.Secure.putStringForUser(
+                    mResolver, Settings.Secure.ENABLED_INPUT_METHODS, str, mCurrentUserId);
+            mEnabledInputMethodsStrCache = str;
             if (DEBUG) {
                 Slog.d(TAG, "putEnabledInputMethodStr: " + str);
             }
-            if (TextUtils.isEmpty(str)) {
-                // OK to coalesce to null, since getEnabledInputMethodsStr() can take care of the
-                // empty data scenario.
-                putString(Settings.Secure.ENABLED_INPUT_METHODS, null);
-            } else {
-                putString(Settings.Secure.ENABLED_INPUT_METHODS, str);
-            }
-            // TODO: Update callers of putEnabledInputMethodsStr to make str @NonNull.
-            mEnabledInputMethodsStrCache = (str != null ? str : "");
         }
 
-        @NonNull
         public String getEnabledInputMethodsStr() {
-            mEnabledInputMethodsStrCache = getString(Settings.Secure.ENABLED_INPUT_METHODS, "");
+            mEnabledInputMethodsStrCache = Settings.Secure.getStringForUser(
+                    mResolver, Settings.Secure.ENABLED_INPUT_METHODS, mCurrentUserId);
             if (DEBUG) {
                 Slog.d(TAG, "getEnabledInputMethodsStr: " + mEnabledInputMethodsStrCache
                         + ", " + mCurrentUserId);
@@ -1135,7 +1039,7 @@ public class InputMethodUtils {
             StringBuilder builder = new StringBuilder();
             boolean isImeAdded = false;
             if (!TextUtils.isEmpty(newImeId) && !TextUtils.isEmpty(newSubtypeId)) {
-                builder.append(newImeId).append(INPUT_METHOD_SUBTYPE_SEPARATOR).append(
+                builder.append(newImeId).append(INPUT_METHOD_SUBTYPE_SEPARATER).append(
                         newSubtypeId);
                 isImeAdded = true;
             }
@@ -1146,14 +1050,14 @@ public class InputMethodUtils {
                     subtypeId = NOT_A_SUBTYPE_ID_STR;
                 }
                 if (isImeAdded) {
-                    builder.append(INPUT_METHOD_SEPARATOR);
+                    builder.append(INPUT_METHOD_SEPARATER);
                 } else {
                     isImeAdded = true;
                 }
-                builder.append(imeId).append(INPUT_METHOD_SUBTYPE_SEPARATOR).append(
+                builder.append(imeId).append(INPUT_METHOD_SUBTYPE_SEPARATER).append(
                         subtypeId);
             }
-            // Remove the last INPUT_METHOD_SEPARATOR
+            // Remove the last INPUT_METHOD_SEPARATER
             putSubtypeHistoryStr(builder.toString());
         }
 
@@ -1176,17 +1080,12 @@ public class InputMethodUtils {
             saveSubtypeHistory(subtypeHistory, imeId, subtypeId);
         }
 
-        private void putSubtypeHistoryStr(@NonNull String str) {
+        private void putSubtypeHistoryStr(String str) {
             if (DEBUG) {
                 Slog.d(TAG, "putSubtypeHistoryStr: " + str);
             }
-            if (TextUtils.isEmpty(str)) {
-                // OK to coalesce to null, since getSubtypeHistoryStr() can take care of the empty
-                // data scenario.
-                putString(Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, null);
-            } else {
-                putString(Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, str);
-            }
+            Settings.Secure.putStringForUser(
+                    mResolver, Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, str, mCurrentUserId);
         }
 
         public Pair<String, String> getLastInputMethodAndSubtypeLocked() {
@@ -1219,7 +1118,7 @@ public class InputMethodUtils {
                         if (DEBUG) {
                             Slog.d(TAG, "Enabled subtype found in the history: " + subtypeHashCode);
                         }
-                        return new Pair<>(imeInTheHistory, subtypeHashCode);
+                        return new Pair<String, String>(imeInTheHistory, subtypeHashCode);
                     }
                 }
             }
@@ -1258,7 +1157,7 @@ public class InputMethodUtils {
                             if (s.equals(subtypeHashCode)) {
                                 // If both imeId and subtypeId are enabled, return subtypeId.
                                 try {
-                                    final int hashCode = Integer.parseInt(subtypeHashCode);
+                                    final int hashCode = Integer.valueOf(subtypeHashCode);
                                     // Check whether the subtype id is valid or not
                                     if (isValidSubtypeId(imi, hashCode)) {
                                         return s;
@@ -1280,7 +1179,7 @@ public class InputMethodUtils {
         }
 
         private List<Pair<String, String>> loadInputMethodAndSubtypeHistoryLocked() {
-            ArrayList<Pair<String, String>> imsList = new ArrayList<>();
+            ArrayList<Pair<String, String>> imsList = new ArrayList<Pair<String, String>>();
             final String subtypeHistoryStr = getSubtypeHistoryStr();
             if (TextUtils.isEmpty(subtypeHistoryStr)) {
                 return imsList;
@@ -1297,19 +1196,19 @@ public class InputMethodUtils {
                         subtypeId = mSubtypeSplitter.next();
                         break;
                     }
-                    imsList.add(new Pair<>(imeId, subtypeId));
+                    imsList.add(new Pair<String, String>(imeId, subtypeId));
                 }
             }
             return imsList;
         }
 
-        @NonNull
         private String getSubtypeHistoryStr() {
-            final String history = getString(Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, "");
             if (DEBUG) {
-                Slog.d(TAG, "getSubtypeHistoryStr: " + history);
+                Slog.d(TAG, "getSubtypeHistoryStr: " + Settings.Secure.getStringForUser(
+                        mResolver, Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, mCurrentUserId));
             }
-            return history;
+            return Settings.Secure.getStringForUser(
+                    mResolver, Settings.Secure.INPUT_METHODS_SUBTYPE_HISTORY, mCurrentUserId);
         }
 
         public void putSelectedInputMethod(String imeId) {
@@ -1317,7 +1216,8 @@ public class InputMethodUtils {
                 Slog.d(TAG, "putSelectedInputMethodStr: " + imeId + ", "
                         + mCurrentUserId);
             }
-            putString(Settings.Secure.DEFAULT_INPUT_METHOD, imeId);
+            Settings.Secure.putStringForUser(
+                    mResolver, Settings.Secure.DEFAULT_INPUT_METHOD, imeId, mCurrentUserId);
         }
 
         public void putSelectedSubtype(int subtypeId) {
@@ -1325,16 +1225,23 @@ public class InputMethodUtils {
                 Slog.d(TAG, "putSelectedInputMethodSubtypeStr: " + subtypeId + ", "
                         + mCurrentUserId);
             }
-            putInt(Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, subtypeId);
+            Settings.Secure.putIntForUser(mResolver, Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE,
+                    subtypeId, mCurrentUserId);
         }
 
-        @Nullable
+        public String getDisabledSystemInputMethods() {
+            return Settings.Secure.getStringForUser(
+                    mResolver, Settings.Secure.DISABLED_SYSTEM_INPUT_METHODS, mCurrentUserId);
+        }
+
         public String getSelectedInputMethod() {
-            final String imi = getString(Settings.Secure.DEFAULT_INPUT_METHOD, null);
             if (DEBUG) {
-                Slog.d(TAG, "getSelectedInputMethodStr: " + imi);
+                Slog.d(TAG, "getSelectedInputMethodStr: " + Settings.Secure.getStringForUser(
+                        mResolver, Settings.Secure.DEFAULT_INPUT_METHOD, mCurrentUserId)
+                        + ", " + mCurrentUserId);
             }
-            return imi;
+            return Settings.Secure.getStringForUser(
+                    mResolver, Settings.Secure.DEFAULT_INPUT_METHOD, mCurrentUserId);
         }
 
         public boolean isSubtypeSelected() {
@@ -1342,18 +1249,24 @@ public class InputMethodUtils {
         }
 
         private int getSelectedInputMethodSubtypeHashCode() {
-            return getInt(Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, NOT_A_SUBTYPE_ID);
+            try {
+                return Settings.Secure.getIntForUser(
+                        mResolver, Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, mCurrentUserId);
+            } catch (SettingNotFoundException e) {
+                return NOT_A_SUBTYPE_ID;
+            }
         }
 
         public boolean isShowImeWithHardKeyboardEnabled() {
-            return getBoolean(Settings.Secure.SHOW_IME_WITH_HARD_KEYBOARD, false);
+                return Settings.Secure.getIntForUser(mResolver,
+                        Settings.Secure.SHOW_IME_WITH_HARD_KEYBOARD, 0, mCurrentUserId) == 1;
         }
 
         public void setShowImeWithHardKeyboard(boolean show) {
-            putBoolean(Settings.Secure.SHOW_IME_WITH_HARD_KEYBOARD, show);
+            Settings.Secure.putIntForUser(mResolver, Settings.Secure.SHOW_IME_WITH_HARD_KEYBOARD,
+                    show ? 1 : 0, mCurrentUserId);
         }
 
-        @UserIdInt
         public int getCurrentUserId() {
             return mCurrentUserId;
         }
@@ -1381,19 +1294,12 @@ public class InputMethodUtils {
         public HashMap<InputMethodInfo, List<InputMethodSubtype>>
                 getExplicitlyOrImplicitlyEnabledInputMethodsAndSubtypeListLocked(Context context) {
             HashMap<InputMethodInfo, List<InputMethodSubtype>> enabledInputMethodAndSubtypes =
-                    new HashMap<>();
+                    new HashMap<InputMethodInfo, List<InputMethodSubtype>>();
             for (InputMethodInfo imi: getEnabledInputMethodListLocked()) {
                 enabledInputMethodAndSubtypes.put(
                         imi, getEnabledInputMethodSubtypeListLocked(context, imi, true));
             }
             return enabledInputMethodAndSubtypes;
-        }
-
-        public void dumpLocked(final Printer pw, final String prefix) {
-            pw.println(prefix + "mCurrentUserId=" + mCurrentUserId);
-            pw.println(prefix + "mCurrentProfileIds=" + Arrays.toString(mCurrentProfileIds));
-            pw.println(prefix + "mCopyOnWrite=" + mCopyOnWrite);
-            pw.println(prefix + "mEnabledInputMethodsStrCache=" + mEnabledInputMethodsStrCache);
         }
     }
 
@@ -1523,20 +1429,4 @@ public class InputMethodUtils {
         }
         return locales;
     }
-
-    public static boolean isSoftInputModeStateVisibleAllowed(
-            int targetSdkVersion, int controlFlags) {
-        if (targetSdkVersion < Build.VERSION_CODES.P) {
-            // for compatibility.
-            return true;
-        }
-        if ((controlFlags & CONTROL_WINDOW_VIEW_HAS_FOCUS) == 0) {
-            return false;
-        }
-        if ((controlFlags & CONTROL_WINDOW_IS_TEXT_EDITOR) == 0) {
-            return false;
-        }
-        return true;
-    }
-
 }

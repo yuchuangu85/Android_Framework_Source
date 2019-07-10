@@ -22,7 +22,7 @@ public class AtomicReferenceArrayTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(AtomicReferenceArrayTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**

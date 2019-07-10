@@ -16,11 +16,6 @@
 
 package android.print;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-
-import java.util.Objects;
-
 /**
  * This class represents a print job from the perspective of an
  * application. It contains behavior methods for performing operations
@@ -32,11 +27,11 @@ import java.util.Objects;
  */
 public final class PrintJob {
 
-    private final @NonNull PrintManager mPrintManager;
+    private final PrintManager mPrintManager;
 
-    private @NonNull PrintJobInfo mCachedInfo;
+    private PrintJobInfo mCachedInfo;
 
-    PrintJob(@NonNull PrintJobInfo info, @NonNull PrintManager printManager) {
+    PrintJob(PrintJobInfo info, PrintManager printManager) {
         mCachedInfo = info;
         mPrintManager = printManager;
     }
@@ -46,7 +41,7 @@ public final class PrintJob {
      *
      * @return The id.
      */
-    public @Nullable PrintJobId getId() {
+    public PrintJobId getId() {
         return mCachedInfo.getId();
     }
 
@@ -60,7 +55,7 @@ public final class PrintJob {
      *
      * @return The print job info.
      */
-    public @NonNull PrintJobInfo getInfo() {
+    public PrintJobInfo getInfo() {
         if (isInImmutableState()) {
             return mCachedInfo;
         }
@@ -195,17 +190,11 @@ public final class PrintJob {
             return false;
         }
         PrintJob other = (PrintJob) obj;
-        return Objects.equals(mCachedInfo.getId(), other.mCachedInfo.getId());
+        return mCachedInfo.getId().equals(other.mCachedInfo.getId());
     }
 
     @Override
     public int hashCode() {
-        PrintJobId printJobId = mCachedInfo.getId();
-
-        if (printJobId == null) {
-            return 0;
-        } else {
-            return printJobId.hashCode();
-        }
+        return mCachedInfo.getId().hashCode();
     }
 }

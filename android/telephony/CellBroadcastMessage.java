@@ -173,7 +173,7 @@ public class CellBroadcastMessage implements Parcelable {
                 Telephony.CellBroadcasts.ETWS_WARNING_TYPE);
         if (etwsWarningTypeColumn != -1 && !cursor.isNull(etwsWarningTypeColumn)) {
             int warningType = cursor.getInt(etwsWarningTypeColumn);
-            etwsInfo = new SmsCbEtwsInfo(warningType, false, false, false, null);
+            etwsInfo = new SmsCbEtwsInfo(warningType, false, false, null);
         } else {
             etwsInfo = null;
         }

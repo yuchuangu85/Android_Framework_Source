@@ -1,75 +1,58 @@
-/*
- * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package java.util;
 
 /**
- * FomattableFlags are passed to the {@link Formattable#formatTo
- * Formattable.formatTo()} method and modify the output format for {@linkplain
- * Formattable Formattables}.  Implementations of {@link Formattable} are
- * responsible for interpreting and validating any flags.
+ * FormattableFlags are used as a parameter to
+ * {@link Formattable#formatTo(Formatter, int, int, int)} and change the output
+ * format in {@code Formattable}s. The validation and interpretation of the
+ * flags must be done by the implementations.
  *
- * @since  1.5
+ * @see Formattable
  */
 public class FormattableFlags {
 
-    // Explicit instantiation of this class is prohibited.
-    private FormattableFlags() {}
+    private FormattableFlags(){
+        //prevent this class from being instantiated
+    }
 
     /**
-     * Left-justifies the output.  Spaces (<tt>'&#92;u0020'</tt>) will be added
-     * at the end of the converted value as required to fill the minimum width
-     * of the field.  If this flag is not set then the output will be
+     * Denotes the output is to be left-justified. In order to fill the minimum
+     * width requirement, spaces('\u0020') will be appended at the end of the
+     * specified output element. If no such flag is set, the output is
      * right-justified.
      *
-     * <p> This flag corresponds to <tt>'-'</tt> (<tt>'&#92;u002d'</tt>) in
-     * the format specifier.
+     * The flag corresponds to '-' ('\u002d') in the format specifier.
      */
-    public static final int LEFT_JUSTIFY = 1<<0; // '-'
+    public static final int LEFT_JUSTIFY = 1;
 
     /**
-     * Converts the output to upper case according to the rules of the
-     * {@linkplain java.util.Locale locale} given during creation of the
-     * <tt>formatter</tt> argument of the {@link Formattable#formatTo
-     * formatTo()} method.  The output should be equivalent the following
-     * invocation of {@link String#toUpperCase(java.util.Locale)}
+     * Denotes the output is to be converted to upper case in the way the locale
+     * parameter of Formatter.formatTo() requires. The output has the same
+     * effect as {@code String.toUpperCase(java.util.Locale)}.
      *
-     * <pre>
-     *     out.toUpperCase() </pre>
-     *
-     * <p> This flag corresponds to <tt>'S'</tt> (<tt>'&#92;u0053'</tt>) in
-     * the format specifier.
+     * This flag corresponds to {@code '^' ('\u005e')} in the format specifier.
      */
-    public static final int UPPERCASE = 1<<1;    // 'S'
+    public static final int UPPERCASE = 2;
 
     /**
-     * Requires the output to use an alternate form.  The definition of the
-     * form is specified by the <tt>Formattable</tt>.
+     * Denotes the output is to be formatted in an alternate form. The definition
+     * of the alternate form is determined by the {@code Formattable}.
      *
-     * <p> This flag corresponds to <tt>'#'</tt> (<tt>'&#92;u0023'</tt>) in
-     * the format specifier.
+     * This flag corresponds to {@code '#' ('\u0023')} in the format specifier.
      */
-    public static final int ALTERNATE = 1<<2;    // '#'
+    public static final int ALTERNATE = 4;
 }

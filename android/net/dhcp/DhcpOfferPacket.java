@@ -48,7 +48,7 @@ class DhcpOfferPacket extends DhcpPacket {
         }
 
         return s + " OFFER, ip " + mYourIp + ", mask " + mSubnetMask +
-                dnsServers + ", gateways " + mGateways +
+                dnsServers + ", gateway " + mGateway +
                 " lease time " + mLeaseTime + ", domain " + mDomainName;
     }
 
@@ -81,7 +81,7 @@ class DhcpOfferPacket extends DhcpPacket {
         }
 
         addTlv(buffer, DHCP_SUBNET_MASK, mSubnetMask);
-        addTlv(buffer, DHCP_ROUTER, mGateways);
+        addTlv(buffer, DHCP_ROUTER, mGateway);
         addTlv(buffer, DHCP_DOMAIN_NAME, mDomainName);
         addTlv(buffer, DHCP_BROADCAST_ADDRESS, mBroadcastAddress);
         addTlv(buffer, DHCP_DNS_SERVER, mDnsServers);

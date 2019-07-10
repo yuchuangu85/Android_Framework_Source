@@ -1,136 +1,135 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto.spec;
 
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
 /**
- * This class specifies the parameters used with the
- * <a href="http://www.ietf.org/rfc/rfc2268.txt"><i>RC2</i></a>
- * algorithm.
- *
- * <p> The parameters consist of an effective key size and optionally
- * an 8-byte initialization vector (IV) (only in feedback mode).
- *
- * <p> This class can be used to initialize a <code>Cipher</code> object that
- * implements the <i>RC2</i> algorithm.
- *
- * @author Jan Luehe
- *
- * @since 1.4
+ * The algorithm parameter specification for the <a
+ * href="http://www.ietf.org/rfc/rfc2268.txt">RC2</a> algorithm.
  */
 public class RC2ParameterSpec implements AlgorithmParameterSpec {
 
-    private byte[] iv = null;
-    private int effectiveKeyBits;
+    private final int effectiveKeyBits;
+    private final byte[] iv;
 
     /**
-     * Constructs a parameter set for RC2 from the given effective key size
-     * (in bits).
+     * Creates a new <code>RC2ParameterSpec</code> instance with the specified
+     * effective key length (in bits),
      *
-     * @param effectiveKeyBits the effective key size in bits.
+     * @param effectiveKeyBits
+     *            the effective key length (in bits).
      */
     public RC2ParameterSpec(int effectiveKeyBits) {
         this.effectiveKeyBits = effectiveKeyBits;
+        iv = null;
     }
 
     /**
-     * Constructs a parameter set for RC2 from the given effective key size
-     * (in bits) and an 8-byte IV.
+     * Creates a new <code>RC2ParameterSpec</code> instance with the specified
+     * effective key length (in bits) and <i>initialization vector</i>.
+     * <p>
+     * The size of the <i>initialization vector</i> must be at least 8 bytes
+     * which are copied to protect them against modification.
      *
-     * <p> The bytes that constitute the IV are those between
-     * <code>iv[0]</code> and <code>iv[7]</code> inclusive.
-     *
-     * @param effectiveKeyBits the effective key size in bits.
-     * @param iv the buffer with the 8-byte IV. The first 8 bytes of
-     * the buffer are copied to protect against subsequent modification.
-     * @exception IllegalArgumentException if <code>iv</code> is null.
+     * @param effectiveKeyBits
+     *            the effective key length (in bits).
+     * @param iv
+     *            the initialization vector.
+     * @throws IllegalArgumentException
+     *             if the initialization vector is null or shorter than 8 bytes.
      */
     public RC2ParameterSpec(int effectiveKeyBits, byte[] iv) {
-        this(effectiveKeyBits, iv, 0);
+        if (iv == null) {
+            throw new IllegalArgumentException("iv == null");
+        }
+        if (iv.length < 8) {
+            throw new IllegalArgumentException("iv.length < 8");
+        }
+        this.effectiveKeyBits = effectiveKeyBits;
+        this.iv = new byte[8];
+        System.arraycopy(iv, 0, this.iv, 0, 8);
     }
 
     /**
-     * Constructs a parameter set for RC2 from the given effective key size
-     * (in bits) and IV.
+     * Creates a new <code>RC2ParameterSpec</code> instance with the specified
+     * effective key length (in bits) and <i>initialization vector<i>.
+     * <p>
+     * The size of the <i>initialization vector</i> starting at
+     * <code>offset</code> must be at least 8 bytes which are copied to protect
+     * them against modification.
      *
-     * <p> The IV is taken from <code>iv</code>, starting at
-     * <code>offset</code> inclusive.
-     * The bytes that constitute the IV are those between
-     * <code>iv[offset]</code> and <code>iv[offset+7]</code> inclusive.
-     *
-     * @param effectiveKeyBits the effective key size in bits.
-     * @param iv the buffer with the IV. The first 8 bytes
-     * of the buffer beginning at <code>offset</code> inclusive
-     * are copied to protect against subsequent modification.
-     * @param offset the offset in <code>iv</code> where the 8-byte IV
-     * starts.
-     * @exception IllegalArgumentException if <code>iv</code> is null.
+     * @param effectiveKeyBits
+     *            the effective key length (in bits).
+     * @param iv
+     *            the initialization vector.
+     * @param offset
+     *            the offset in the initialization vector to start at.
+     * @throws IllegalArgumentException
+     *             if the initialization vector is null or starting at
+     *             <code>offset</code> is shorter than 8 bytes.
      */
     public RC2ParameterSpec(int effectiveKeyBits, byte[] iv, int offset) {
-        this.effectiveKeyBits = effectiveKeyBits;
-        if (iv == null) throw new IllegalArgumentException("IV missing");
-        int blockSize = 8;
-        if (iv.length - offset < blockSize) {
-            throw new IllegalArgumentException("IV too short");
+        if (iv == null) {
+            throw new IllegalArgumentException("iv == null");
         }
-        this.iv = new byte[blockSize];
-        System.arraycopy(iv, offset, this.iv, 0, blockSize);
+        if (iv.length - offset < 8) {
+            throw new IllegalArgumentException("iv.length - offset < 8");
+        }
+        this.effectiveKeyBits = effectiveKeyBits;
+        this.iv = new byte[8];
+        System.arraycopy(iv, offset, this.iv, 0, 8);
     }
 
     /**
-     * Returns the effective key size in bits.
+     * Returns the effective key length (in bits).
      *
-     * @return the effective key size in bits.
+     * @return the effective key length (in bits).
      */
     public int getEffectiveKeyBits() {
-        return this.effectiveKeyBits;
+        return effectiveKeyBits;
     }
 
     /**
-     * Returns the IV or null if this parameter set does not contain an IV.
+     * Returns a copy of the initialization vector.
      *
-     * @return the IV or null if this parameter set does not contain an IV.
-     * Returns a new array each time this method is called.
+     * @return a copy of the initialization vector, or null if none specified.
      */
     public byte[] getIV() {
-        return (iv == null? null:iv.clone());
+        if (iv == null) {
+            return null;
+        }
+        byte[] result = new byte[iv.length];
+        System.arraycopy(iv, 0, result, 0, iv.length);
+        return result;
     }
 
-   /**
-     * Tests for equality between the specified object and this
-     * object. Two RC2ParameterSpec objects are considered equal if their
-     * effective key sizes and IVs are equal.
-     * (Two IV references are considered equal if both are <tt>null</tt>.)
+    /**
+     * Compares the specified object to this <code>RC2ParameterSpec</code>
+     * instance.
      *
-     * @param obj the object to test for equality with this object.
-     *
-     * @return true if the objects are considered equal, false if
-     * <code>obj</code> is null or otherwise.
+     * @param obj
+     *            the object to compare.
+     * @return true if the effective key length and the initialization vector of
+     *         both objects are equal, otherwise false.
      */
+    @Override
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
@@ -138,23 +137,25 @@ public class RC2ParameterSpec implements AlgorithmParameterSpec {
         if (!(obj instanceof RC2ParameterSpec)) {
             return false;
         }
-        RC2ParameterSpec other = (RC2ParameterSpec) obj;
-
-        return ((effectiveKeyBits == other.effectiveKeyBits) &&
-                java.util.Arrays.equals(iv, other.iv));
+        RC2ParameterSpec ps = (RC2ParameterSpec) obj;
+        return (effectiveKeyBits == ps.effectiveKeyBits)
+            && (Arrays.equals(iv, ps.iv));
     }
 
     /**
-     * Calculates a hash code value for the object.
-     * Objects that are equal will also have the same hashcode.
+     * Returns the hash code of this <code>RC2ParameterSpec</code> instance.
+     *
+     * @return the hash code.
      */
+    @Override
     public int hashCode() {
-        int retval = 0;
-        if (iv != null) {
-            for (int i = 1; i < iv.length; i++) {
-                retval += iv[i] * i;
-            }
+        int result = effectiveKeyBits;
+        if (iv == null) {
+            return result;
         }
-        return (retval += effectiveKeyBits);
+        for (byte element : iv) {
+            result += element;
+        }
+        return result;
     }
 }

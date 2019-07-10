@@ -17,7 +17,6 @@
 package android.net.wifi;
 
 import android.os.Parcelable;
-import android.annotation.SystemApi;
 import android.os.Parcel;
 
 import java.util.ArrayList;
@@ -26,11 +25,8 @@ import java.util.List;
 /**
  * Describes the Results of a batched set of wifi scans where the firmware performs many
  * scans and stores the timestamped results without waking the main processor each time.
- * @hide
- * @removed
+ * @hide pending review
  */
-@Deprecated
-@SystemApi
 public class BatchedScanResult implements Parcelable {
     private static final String TAG = "BatchedScanResult";
 

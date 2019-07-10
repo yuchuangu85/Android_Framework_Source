@@ -17,10 +17,12 @@
 package com.android.server.wifi;
 
 import android.content.Context;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiScanner;
 import android.util.Log;
-
 import com.android.server.SystemService;
-import com.android.server.wifi.util.WifiAsyncChannel;
+
+import java.util.List;
 
 public final class WifiService extends SystemService {
 
@@ -29,7 +31,7 @@ public final class WifiService extends SystemService {
 
     public WifiService(Context context) {
         super(context);
-        mImpl = new WifiServiceImpl(context, new WifiInjector(context), new WifiAsyncChannel(TAG));
+        mImpl = new WifiServiceImpl(context);
     }
 
     @Override
@@ -43,20 +45,5 @@ public final class WifiService extends SystemService {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
             mImpl.checkAndStartWifi();
         }
-    }
-
-    @Override
-    public void onSwitchUser(int userId) {
-        mImpl.handleUserSwitch(userId);
-    }
-
-    @Override
-    public void onUnlockUser(int userId) {
-        mImpl.handleUserUnlock(userId);
-    }
-
-    @Override
-    public void onStopUser(int userId) {
-        mImpl.handleUserStop(userId);
     }
 }

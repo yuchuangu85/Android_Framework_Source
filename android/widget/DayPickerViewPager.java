@@ -16,15 +16,14 @@
 
 package android.widget;
 
+import com.android.internal.widget.ViewPager;
+
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.View;
 
-import com.android.internal.widget.ViewPager;
-
 import java.util.ArrayList;
-import java.util.function.Predicate;
 
 /**
  * This displays a list of months in a calendar format with selectable days.
@@ -135,38 +134,4 @@ class DayPickerViewPager extends ViewPager {
 
         mMatchParentChildren.clear();
     }
-
-    @Override
-    protected <T extends View> T findViewByPredicateTraversal(Predicate<View> predicate,
-            View childToSkip) {
-        if (predicate.test(this)) {
-            return (T) this;
-        }
-
-        // Always try the selected view first.
-        final DayPickerPagerAdapter adapter = (DayPickerPagerAdapter) getAdapter();
-        final SimpleMonthView current = adapter.getView(getCurrent());
-        if (current != childToSkip && current != null) {
-            final View v = current.findViewByPredicate(predicate);
-            if (v != null) {
-                return (T) v;
-            }
-        }
-
-        final int len = getChildCount();
-        for (int i = 0; i < len; i++) {
-            final View child = getChildAt(i);
-
-            if (child != childToSkip && child != current) {
-                final View v = child.findViewByPredicate(predicate);
-
-                if (v != null) {
-                    return (T) v;
-                }
-            }
-        }
-
-        return null;
-    }
-
 }

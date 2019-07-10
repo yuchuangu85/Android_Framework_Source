@@ -1,26 +1,22 @@
 /*
- * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2007-2008 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy of
+ * the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
  */
 
 package android.view.inputmethod;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.inputmethodservice.InputMethodService;
 import android.os.Bundle;
-import android.os.Handler;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
@@ -31,28 +27,10 @@ import android.view.KeyEvent;
  * cursor, committing text to the text box, and sending raw key events
  * to the application.
  *
- * <p>Starting from API Level {@link android.os.Build.VERSION_CODES#N},
- * the system can deal with the situation where the application directly
- * implements this class but one or more of the following methods are
- * not implemented.</p>
- * <ul>
- *     <li>{@link #getSelectedText(int)}, which was introduced in
- *     {@link android.os.Build.VERSION_CODES#GINGERBREAD}.</li>
- *     <li>{@link #setComposingRegion(int, int)}, which was introduced
- *     in {@link android.os.Build.VERSION_CODES#GINGERBREAD}.</li>
- *     <li>{@link #commitCorrection(CorrectionInfo)}, which was introduced
- *     in {@link android.os.Build.VERSION_CODES#HONEYCOMB}.</li>
- *     <li>{@link #requestCursorUpdates(int)}, which was introduced in
- *     {@link android.os.Build.VERSION_CODES#LOLLIPOP}.</li>
- *     <li>{@link #deleteSurroundingTextInCodePoints(int, int)}, which
- *     was introduced in {@link android.os.Build.VERSION_CODES#N}.</li>
- *     <li>{@link #getHandler()}, which was introduced in
- *     {@link android.os.Build.VERSION_CODES#N}.</li>
- *     <li>{@link #closeConnection()}, which was introduced in
- *     {@link android.os.Build.VERSION_CODES#N}.</li>
- *     <li>{@link #commitContent(InputContentInfo, int, Bundle)}, which was
- *     introduced in {@link android.os.Build.VERSION_CODES#N_MR1}.</li>
- * </ul>
+ * <p>Applications should never directly implement this interface, but
+ * instead subclass from {@link BaseInputConnection}. This will ensure
+ * that the application does not break when new methods are added to
+ * the interface.</p>
  *
  * <h3>Implementing an IME or an editor</h3>
  * <p>Text input is the result of the synergy of two essential components:
@@ -131,13 +109,13 @@ public interface InputConnection {
      * spans. <strong>Editor authors</strong>: you should strive to
      * send text with styles if possible, but it is not required.
      */
-    int GET_TEXT_WITH_STYLES = 0x0001;
+    static final int GET_TEXT_WITH_STYLES = 0x0001;
 
     /**
      * Flag for use with {@link #getExtractedText} to indicate you
      * would like to receive updates when the extracted text changes.
      */
-    int GET_EXTRACTED_TEXT_MONITOR = 0x0001;
+    public static final int GET_EXTRACTED_TEXT_MONITOR = 0x0001;
 
     /**
      * Get <var>n</var> characters of text before the current cursor
@@ -176,7 +154,7 @@ public interface InputConnection {
      * @return the text before the cursor position; the length of the
      * returned text might be less than <var>n</var>.
      */
-    CharSequence getTextBeforeCursor(int n, int flags);
+    public CharSequence getTextBeforeCursor(int n, int flags);
 
     /**
      * Get <var>n</var> characters of text after the current cursor
@@ -215,7 +193,7 @@ public interface InputConnection {
      * @return the text after the cursor position; the length of the
      * returned text might be less than <var>n</var>.
      */
-    CharSequence getTextAfterCursor(int n, int flags);
+    public CharSequence getTextAfterCursor(int n, int flags);
 
     /**
      * Gets the selected text, if any.
@@ -245,11 +223,9 @@ public interface InputConnection {
      * @param flags Supplies additional options controlling how the text is
      * returned. May be either 0 or {@link #GET_TEXT_WITH_STYLES}.
      * @return the text that is currently selected, if any, or null if
-     * no text is selected. In {@link android.os.Build.VERSION_CODES#N} and
-     * later, returns false when the target application does not implement
-     * this method.
+     * no text is selected.
      */
-    CharSequence getSelectedText(int flags);
+    public CharSequence getSelectedText(int flags);
 
     /**
      * Retrieve the current capitalization mode in effect at the
@@ -279,7 +255,7 @@ public interface InputConnection {
      * @return the caps mode flags that are in effect at the current
      * cursor position. See TYPE_TEXT_FLAG_CAPS_* in {@link android.text.InputType}.
      */
-    int getCursorCapsMode(int reqModes);
+    public int getCursorCapsMode(int reqModes);
 
     /**
      * Retrieve the current text in the input connection's editor, and
@@ -314,7 +290,8 @@ public interface InputConnection {
      * longer valid of the editor can't comply with the request for
      * some reason.
      */
-    ExtractedText getExtractedText(ExtractedTextRequest request, int flags);
+    public ExtractedText getExtractedText(ExtractedTextRequest request,
+            int flags);
 
     /**
      * Delete <var>beforeLength</var> characters of text before the
@@ -341,8 +318,8 @@ public interface InputConnection {
      * delete more characters than are in the editor, as that may have
      * ill effects on the application. Calling this method will cause
      * the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on your service after the batch input is over.</p>
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on your service after the batch input is over.</p>
      *
      * <p><strong>Editor authors:</strong> please be careful of race
      * conditions in implementing this call. An IME can make a change
@@ -358,45 +335,14 @@ public interface InputConnection {
      * but be careful to wait until the batch edit is over if one is
      * in progress.</p>
      *
-     * @param beforeLength The number of characters before the cursor to be deleted, in code unit.
-     *        If this is greater than the number of existing characters between the beginning of the
-     *        text and the cursor, then this method does not fail but deletes all the characters in
-     *        that range.
-     * @param afterLength The number of characters after the cursor to be deleted, in code unit.
-     *        If this is greater than the number of existing characters between the cursor and
-     *        the end of the text, then this method does not fail but deletes all the characters in
-     *        that range.
-     * @return true on success, false if the input connection is no longer valid.
+     * @param beforeLength The number of characters to be deleted before the
+     *        current cursor position.
+     * @param afterLength The number of characters to be deleted after the
+     *        current cursor position.
+     * @return true on success, false if the input connection is no longer
+     * valid.
      */
-    boolean deleteSurroundingText(int beforeLength, int afterLength);
-
-    /**
-     * A variant of {@link #deleteSurroundingText(int, int)}. Major differences are:
-     *
-     * <ul>
-     *     <li>The lengths are supplied in code points, not in Java chars or in glyphs.</>
-     *     <li>This method does nothing if there are one or more invalid surrogate pairs in the
-     *     requested range.</li>
-     * </ul>
-     *
-     * <p><strong>Editor authors:</strong> In addition to the requirement in
-     * {@link #deleteSurroundingText(int, int)}, make sure to do nothing when one ore more invalid
-     * surrogate pairs are found in the requested range.</p>
-     *
-     * @see #deleteSurroundingText(int, int)
-     *
-     * @param beforeLength The number of characters before the cursor to be deleted, in code points.
-     *        If this is greater than the number of existing characters between the beginning of the
-     *        text and the cursor, then this method does not fail but deletes all the characters in
-     *        that range.
-     * @param afterLength The number of characters after the cursor to be deleted, in code points.
-     *        If this is greater than the number of existing characters between the cursor and
-     *        the end of the text, then this method does not fail but deletes all the characters in
-     *        that range.
-     * @return true on success, false if the input connection is no longer valid.  Returns
-     * {@code false} when the target application does not implement this method.
-     */
-    boolean deleteSurroundingTextInCodePoints(int beforeLength, int afterLength);
+    public boolean deleteSurroundingText(int beforeLength, int afterLength);
 
     /**
      * Replace the currently composing text with the given text, and
@@ -415,8 +361,8 @@ public interface InputConnection {
      * <p>This is usually called by IMEs to add or remove or change
      * characters in the composing span. Calling this method will
      * cause the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on the current IME after the batch input is over.</p>
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on the current IME after the batch input is over.</p>
      *
      * <p><strong>Editor authors:</strong> please keep in mind the
      * text may be very similar or completely different than what was
@@ -454,7 +400,7 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean setComposingText(CharSequence text, int newCursorPosition);
+    public boolean setComposingText(CharSequence text, int newCursorPosition);
 
     /**
      * Mark a certain region of text as composing text. If there was a
@@ -473,8 +419,8 @@ public interface InputConnection {
      * <p>Since this does not change the contents of the text, editors should not call
      * {@link InputMethodManager#updateSelection(View, int, int, int, int)} and
      * IMEs should not receive
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)}.</p>
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}.
+     * </p>
      *
      * <p>This has no impact on the cursor/selection position. It may
      * result in the cursor being anywhere inside or outside the
@@ -484,10 +430,9 @@ public interface InputConnection {
      * @param start the position in the text at which the composing region begins
      * @param end the position in the text at which the composing region ends
      * @return true on success, false if the input connection is no longer
-     * valid. In {@link android.os.Build.VERSION_CODES#N} and later, false is returned when the
-     * target application does not implement this method.
+     * valid.
      */
-    boolean setComposingRegion(int start, int end);
+    public boolean setComposingRegion(int start, int end);
 
     /**
      * Have the text editor finish whatever composing text is
@@ -506,7 +451,7 @@ public interface InputConnection {
      * @return true on success, false if the input connection
      * is no longer valid.
      */
-    boolean finishComposingText();
+    public boolean finishComposingText();
 
     /**
      * Commit text to the text box and set the new cursor position.
@@ -521,8 +466,8 @@ public interface InputConnection {
      * then {@link #finishComposingText()}.</p>
      *
      * <p>Calling this method will cause the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on the current IME after the batch input is over.
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on the current IME after the batch input is over.
      * <strong>Editor authors</strong>, for this to happen you need to
      * make the changes known to the input method by calling
      * {@link InputMethodManager#updateSelection(View, int, int, int, int)},
@@ -542,7 +487,7 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean commitText(CharSequence text, int newCursorPosition);
+    public boolean commitText(CharSequence text, int newCursorPosition);
 
     /**
      * Commit a completion the user has selected from the possible ones
@@ -568,8 +513,8 @@ public interface InputConnection {
      *
      * <p>Calling this method (with a valid {@link CompletionInfo} object)
      * will cause the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on the current IME after the batch input is over.
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on the current IME after the batch input is over.
      * <strong>Editor authors</strong>, for this to happen you need to
      * make the changes known to the input method by calling
      * {@link InputMethodManager#updateSelection(View, int, int, int, int)},
@@ -580,15 +525,15 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean commitCompletion(CompletionInfo text);
+    public boolean commitCompletion(CompletionInfo text);
 
     /**
      * Commit a correction automatically performed on the raw user's input. A
      * typical example would be to correct typos using a dictionary.
      *
      * <p>Calling this method will cause the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on the current IME after the batch input is over.
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on the current IME after the batch input is over.
      * <strong>Editor authors</strong>, for this to happen you need to
      * make the changes known to the input method by calling
      * {@link InputMethodManager#updateSelection(View, int, int, int, int)},
@@ -597,10 +542,8 @@ public interface InputConnection {
      *
      * @param correctionInfo Detailed information about the correction.
      * @return true on success, false if the input connection is no longer valid.
-     * In {@link android.os.Build.VERSION_CODES#N} and later, returns false
-     * when the target application does not implement this method.
      */
-    boolean commitCorrection(CorrectionInfo correctionInfo);
+    public boolean commitCorrection(CorrectionInfo correctionInfo);
 
     /**
      * Set the selection of the text editor. To set the cursor
@@ -608,8 +551,8 @@ public interface InputConnection {
      *
      * <p>Since this moves the cursor, calling this method will cause
      * the editor to call
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} on the current IME after the batch input is over.
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * on the current IME after the batch input is over.
      * <strong>Editor authors</strong>, for this to happen you need to
      * make the changes known to the input method by calling
      * {@link InputMethodManager#updateSelection(View, int, int, int, int)},
@@ -627,7 +570,7 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean setSelection(int start, int end);
+    public boolean setSelection(int start, int end);
 
     /**
      * Have the editor perform an action it has said it can do.
@@ -641,7 +584,7 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean performEditorAction(int editorAction);
+    public boolean performEditorAction(int editorAction);
 
     /**
      * Perform a context menu action on the field. The given id may be one of:
@@ -651,7 +594,7 @@ public interface InputConnection {
      * {@link android.R.id#paste}, {@link android.R.id#copyUrl},
      * or {@link android.R.id#switchInputMethod}
      */
-    boolean performContextMenuAction(int id);
+    public boolean performContextMenuAction(int id);
 
     /**
      * Tell the editor that you are starting a batch of editor
@@ -661,8 +604,8 @@ public interface InputConnection {
      *
      * <p><strong>IME authors:</strong> use this to avoid getting
      * calls to
-     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int,
-     * int, int)} corresponding to intermediate state. Also, use this to avoid
+     * {@link android.inputmethodservice.InputMethodService#onUpdateSelection(int, int, int, int, int, int)}
+     * corresponding to intermediate state. Also, use this to avoid
      * flickers that may arise from displaying intermediate state. Be
      * sure to call {@link #endBatchEdit} for each call to this, or
      * you may block updates in the editor.</p>
@@ -677,7 +620,7 @@ public interface InputConnection {
      * this method starts a batch edit, that means it will always return true
      * unless the input connection is no longer valid.
      */
-    boolean beginBatchEdit();
+    public boolean beginBatchEdit();
 
     /**
      * Tell the editor that you are done with a batch edit previously
@@ -695,7 +638,7 @@ public interface InputConnection {
      * the latest one (in other words, if the nesting count is > 0), false
      * otherwise or if the input connection is no longer valid.
      */
-    boolean endBatchEdit();
+    public boolean endBatchEdit();
 
     /**
      * Send a key event to the process that is currently attached
@@ -733,7 +676,7 @@ public interface InputConnection {
      * @see KeyCharacterMap#PREDICTIVE
      * @see KeyCharacterMap#ALPHA
      */
-    boolean sendKeyEvent(KeyEvent event);
+    public boolean sendKeyEvent(KeyEvent event);
 
     /**
      * Clear the given meta key pressed states in the given input
@@ -748,24 +691,18 @@ public interface InputConnection {
      * @return true on success, false if the input connection is no longer
      * valid.
      */
-    boolean clearMetaKeyStates(int states);
+    public boolean clearMetaKeyStates(int states);
 
     /**
-     * Called back when the connected IME switches between fullscreen and normal modes.
+     * Called by the IME to tell the client when it switches between
+     * fullscreen and normal modes. This will normally be called for
+     * you by the standard implementation of
+     * {@link android.inputmethodservice.InputMethodService}.
      *
-     * <p>Note: On {@link android.os.Build.VERSION_CODES#O} and later devices, input methods are no
-     * longer allowed to directly call this method at any time. To signal this event in the target
-     * application, input methods should always call
-     * {@link InputMethodService#updateFullscreenMode()} instead. This approach should work on API
-     * {@link android.os.Build.VERSION_CODES#N_MR1} and prior devices.</p>
-     *
-     * @return For editor authors, the return value will always be ignored. For IME authors, this
-     *         always returns {@code true} on {@link android.os.Build.VERSION_CODES#N_MR1} and prior
-     *         devices and {@code false} on {@link android.os.Build.VERSION_CODES#O} and later
-     *         devices.
-     * @see InputMethodManager#isFullscreenMode()
+     * @return true on success, false if the input connection is no longer
+     * valid.
      */
-    boolean reportFullscreenMode(boolean enabled);
+    public boolean reportFullscreenMode(boolean enabled);
 
     /**
      * API to send private commands from an input method to its
@@ -785,7 +722,7 @@ public interface InputConnection {
      * associated editor understood it), false if the input connection is no longer
      * valid.
      */
-    boolean performPrivateCommand(String action, Bundle data);
+    public boolean performPrivateCommand(String action, Bundle data);
 
     /**
      * The editor is requested to call
@@ -793,7 +730,7 @@ public interface InputConnection {
      * once, as soon as possible, regardless of cursor/anchor position changes. This flag can be
      * used together with {@link #CURSOR_UPDATE_MONITOR}.
      */
-    int CURSOR_UPDATE_IMMEDIATE = 1 << 0;
+    public static final int CURSOR_UPDATE_IMMEDIATE = 1 << 0;
 
     /**
      * The editor is requested to call
@@ -804,7 +741,7 @@ public interface InputConnection {
      * This flag can be used together with {@link #CURSOR_UPDATE_IMMEDIATE}.
      * </p>
      */
-    int CURSOR_UPDATE_MONITOR = 1 << 1;
+    public static final int CURSOR_UPDATE_MONITOR = 1 << 1;
 
     /**
      * Called by the input method to ask the editor for calling back
@@ -817,85 +754,6 @@ public interface InputConnection {
      * @return {@code true} if the request is scheduled. {@code false} to indicate that when the
      * application will not call
      * {@link InputMethodManager#updateCursorAnchorInfo(android.view.View, CursorAnchorInfo)}.
-     * In {@link android.os.Build.VERSION_CODES#N} and later, returns {@code false} also when the
-     * target application does not implement this method.
      */
-    boolean requestCursorUpdates(int cursorUpdateMode);
-
-    /**
-     * Called by the {@link InputMethodManager} to enable application developers to specify a
-     * dedicated {@link Handler} on which incoming IPC method calls from input methods will be
-     * dispatched.
-     *
-     * <p>Note: This does nothing when called from input methods.</p>
-     *
-     * @return {@code null} to use the default {@link Handler}.
-     */
-    Handler getHandler();
-
-    /**
-     * Called by the system up to only once to notify that the system is about to invalidate
-     * connection between the input method and the application.
-     *
-     * <p><strong>Editor authors</strong>: You can clear all the nested batch edit right now and
-     * you no longer need to handle subsequent callbacks on this connection, including
-     * {@link #beginBatchEdit()}}.  Note that although the system tries to call this method whenever
-     * possible, there may be a chance that this method is not called in some exceptional
-     * situations.</p>
-     *
-     * <p>Note: This does nothing when called from input methods.</p>
-     */
-    void closeConnection();
-
-    /**
-     * When this flag is used, the editor will be able to request read access to the content URI
-     * contained in the {@link InputContentInfo} object.
-     *
-     * <p>Make sure that the content provider owning the Uri sets the
-     * {@link android.R.styleable#AndroidManifestProvider_grantUriPermissions
-     * grantUriPermissions} attribute in its manifest or included the
-     * {@link android.R.styleable#AndroidManifestGrantUriPermission
-     * &lt;grant-uri-permissions&gt;} tag. Otherwise {@link InputContentInfo#requestPermission()}
-     * can fail.</p>
-     *
-     * <p>Although calling this API is allowed only for the IME that is currently selected, the
-     * client is able to request a temporary read-only access even after the current IME is switched
-     * to any other IME as long as the client keeps {@link InputContentInfo} object.</p>
-     **/
-    int INPUT_CONTENT_GRANT_READ_URI_PERMISSION =
-            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION;  // 0x00000001
-
-    /**
-     * Called by the input method to commit content such as a PNG image to the editor.
-     *
-     * <p>In order to avoid a variety of compatibility issues, this focuses on a simple use case,
-     * where editors and IMEs are expected to work cooperatively as follows:</p>
-     * <ul>
-     *     <li>Editor must keep {@link EditorInfo#contentMimeTypes} equal to {@code null} if it does
-     *     not support this method at all.</li>
-     *     <li>Editor can ignore this request when the MIME type specified in
-     *     {@code inputContentInfo} does not match any of {@link EditorInfo#contentMimeTypes}.
-     *     </li>
-     *     <li>Editor can ignore the cursor position when inserting the provided content.</li>
-     *     <li>Editor can return {@code true} asynchronously, even before it starts loading the
-     *     content.</li>
-     *     <li>Editor should provide a way to delete the content inserted by this method or to
-     *     revert the effect caused by this method.</li>
-     *     <li>IME should not call this method when there is any composing text, in case calling
-     *     this method causes a focus change.</li>
-     *     <li>IME should grant a permission for the editor to read the content. See
-     *     {@link EditorInfo#packageName} about how to obtain the package name of the editor.</li>
-     * </ul>
-     *
-     * @param inputContentInfo Content to be inserted.
-     * @param flags {@link #INPUT_CONTENT_GRANT_READ_URI_PERMISSION} if the content provider
-     * allows {@link android.R.styleable#AndroidManifestProvider_grantUriPermissions
-     * grantUriPermissions} or {@code 0} if the application does not need to call
-     * {@link InputContentInfo#requestPermission()}.
-     * @param opts optional bundle data. This can be {@code null}.
-     * @return {@code true} if this request is accepted by the application, whether the request
-     * is already handled or still being handled in background, {@code false} otherwise.
-     */
-    boolean commitContent(@NonNull InputContentInfo inputContentInfo, int flags,
-            @Nullable Bundle opts);
+    public boolean requestCursorUpdates(int cursorUpdateMode);
 }

@@ -24,7 +24,6 @@ import android.databinding.tool.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 
@@ -35,13 +34,13 @@ import java.util.List;
 public class Scope {
 
     private static ThreadLocal<ScopeEntry> sScopeItems = new ThreadLocal<ScopeEntry>();
-    static List<ScopedException> sDeferredExceptions = new ArrayList<ScopedException>();
+    static List<ScopedException> sDeferredExceptions = new ArrayList<>();
 
     public static void enter(final Location location) {
         enter(new LocationScopeProvider() {
             @Override
             public List<Location> provideScopeLocation() {
-                return Collections.singletonList(location);
+                return Arrays.asList(location);
             }
         });
     }
@@ -163,10 +162,10 @@ public class Scope {
             return null;
         }
         if (locations.size() == 1) {
-            return Collections.singletonList(locations.get(0).toAbsoluteLocation());
+            return Arrays.asList(locations.get(0).toAbsoluteLocation());
         }
         // We have more than 1 location. Depending on the scope, we may or may not want all of them
-        List<Location> chosen = new ArrayList<Location>();
+        List<Location> chosen = new ArrayList<>();
         for (Location location : locations) {
             Location absLocation = location.toAbsoluteLocation();
             if (validatedContained(entry.mParent, absLocation)) {
@@ -186,11 +185,9 @@ public class Scope {
         }
         List<Location> absoluteParents = findAbsoluteLocationFrom(parent,
                 (LocationScopeProvider) provider);
-        if (absoluteParents != null) {
-            for (Location location : absoluteParents) {
-                if (location.contains(absLocation)) {
-                    return true;
-                }
+        for (Location location : absoluteParents) {
+            if (location.contains(absLocation)) {
+                return true;
             }
         }
         return false;

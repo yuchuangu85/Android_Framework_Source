@@ -1,218 +1,126 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio;
 
-import java.io.FileDescriptor;
-import sun.misc.Unsafe;
-
+import android.system.ErrnoException;
+import java.nio.channels.FileChannel.MapMode;
+import libcore.io.Libcore;
+import static android.system.OsConstants.MS_SYNC;
+import static android.system.OsConstants._SC_PAGE_SIZE;
 
 /**
- * A direct byte buffer whose content is a memory-mapped region of a file.
- *
- * <p> Mapped byte buffers are created via the {@link
- * java.nio.channels.FileChannel#map FileChannel.map} method.  This class
- * extends the {@link ByteBuffer} class with operations that are specific to
- * memory-mapped file regions.
- *
- * <p> A mapped byte buffer and the file mapping that it represents remain
- * valid until the buffer itself is garbage-collected.
- *
- * <p> The content of a mapped byte buffer can change at any time, for example
- * if the content of the corresponding region of the mapped file is changed by
- * this program or another.  Whether or not such changes occur, and when they
- * occur, is operating-system dependent and therefore unspecified.
- *
- * <a name="inaccess"></a><p> All or part of a mapped byte buffer may become
- * inaccessible at any time, for example if the mapped file is truncated.  An
- * attempt to access an inaccessible region of a mapped byte buffer will not
- * change the buffer's content and will cause an unspecified exception to be
- * thrown either at the time of the access or at some later time.  It is
- * therefore strongly recommended that appropriate precautions be taken to
- * avoid the manipulation of a mapped file by this program, or by a
- * concurrently running program, except to read or write the file's content.
- *
- * <p> Mapped byte buffers otherwise behave no differently than ordinary direct
- * byte buffers. </p>
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * {@code MappedByteBuffer} is a special kind of direct byte buffer which maps a
+ * region of file to memory.
+ * <p>
+ * {@code MappedByteBuffer} can be created by calling
+ * {@link java.nio.channels.FileChannel#map(java.nio.channels.FileChannel.MapMode, long, long) FileChannel.map}.
+ * Once created, the mapping between the byte buffer and the file region remains
+ * valid until the byte buffer is garbage collected.
+ * <p>
+ * All or part of a {@code MappedByteBuffer}'s content may change or become
+ * inaccessible at any time, since the mapped file region can be modified by
+ * another thread or process at any time. If this happens, the behavior of the
+ * {@code MappedByteBuffer} is undefined.
  */
+public abstract class MappedByteBuffer extends ByteBuffer {
+  final MapMode mapMode;
+  final MemoryBlock block;
 
-public abstract class MappedByteBuffer
-    extends ByteBuffer
-{
+  MappedByteBuffer(MemoryBlock block, int capacity, MapMode mapMode, long effectiveDirectAddress) {
+    super(capacity, effectiveDirectAddress);
+    this.mapMode = mapMode;
+    this.block = block;
+  }
 
-    // This is a little bit backwards: By rights MappedByteBuffer should be a
-    // subclass of DirectByteBuffer, but to keep the spec clear and simple, and
-    // for optimization purposes, it's easier to do it the other way around.
-    // This works because DirectByteBuffer is a package-private class.
+  /**
+   * Returns true if there is a high probability that every page of this buffer is currently
+   * loaded in RAM, meaning that accesses will not cause a page fault. It is impossible to give
+   * a strong guarantee since this is only a snapshot of a dynamic situation.
+   */
+  public final boolean isLoaded() {
+    checkIsMapped();
 
-    // For mapped buffers, a FileDescriptor that may be used for mapping
-    // operations if valid; null if the buffer is not mapped.
-    private final FileDescriptor fd;
-
-    // This should only be invoked by the DirectByteBuffer constructors
-    //
-    MappedByteBuffer(int mark, int pos, int lim, int cap, // package-private
-                     FileDescriptor fd)
-    {
-        super(mark, pos, lim, cap);
-        this.fd = fd;
+    long address = block.toLong();
+    long size = block.getSize();
+    if (size == 0) {
+      return true;
     }
 
-    // Android-added: Additional constructor for use by Android's DirectByteBuffer.
-    MappedByteBuffer(int mark, int pos, int lim, int cap, byte[] buf, int offset) {
-        super(mark, pos, lim, cap, buf, offset);
-        this.fd = null;
-    }
-
-    MappedByteBuffer(int mark, int pos, int lim, int cap) { // package-private
-        super(mark, pos, lim, cap);
-        this.fd = null;
-    }
-
-    private void checkMapped() {
-        if (fd == null)
-            // Can only happen if a luser explicitly casts a direct byte buffer
-            throw new UnsupportedOperationException();
-    }
-
-    // Returns the distance (in bytes) of the buffer from the page aligned address
-    // of the mapping. Computed each time to avoid storing in every direct buffer.
-    private long mappingOffset() {
-        int ps = Bits.pageSize();
-        long offset = address % ps;
-        return (offset >= 0) ? offset : (ps + offset);
-    }
-
-    private long mappingAddress(long mappingOffset) {
-        return address - mappingOffset;
-    }
-
-    private long mappingLength(long mappingOffset) {
-        return (long)capacity() + mappingOffset;
-    }
-
-    /**
-     * Tells whether or not this buffer's content is resident in physical
-     * memory.
-     *
-     * <p> A return value of <tt>true</tt> implies that it is highly likely
-     * that all of the data in this buffer is resident in physical memory and
-     * may therefore be accessed without incurring any virtual-memory page
-     * faults or I/O operations.  A return value of <tt>false</tt> does not
-     * necessarily imply that the buffer's content is not resident in physical
-     * memory.
-     *
-     * <p> The returned value is a hint, rather than a guarantee, because the
-     * underlying operating system may have paged out some of the buffer's data
-     * by the time that an invocation of this method returns.  </p>
-     *
-     * @return  <tt>true</tt> if it is likely that this buffer's content
-     *          is resident in physical memory
-     */
-    public final boolean isLoaded() {
-        checkMapped();
-        if ((address == 0) || (capacity() == 0))
-            return true;
-        long offset = mappingOffset();
-        long length = mappingLength(offset);
-        return isLoaded0(mappingAddress(offset), length, Bits.pageCount(length));
-    }
-
-    // not used, but a potential target for a store, see load() for details.
-    private static byte unused;
-
-    /**
-     * Loads this buffer's content into physical memory.
-     *
-     * <p> This method makes a best effort to ensure that, when it returns,
-     * this buffer's content is resident in physical memory.  Invoking this
-     * method may cause some number of page faults and I/O operations to
-     * occur. </p>
-     *
-     * @return  This buffer
-     */
-    public final MappedByteBuffer load() {
-        checkMapped();
-        if ((address == 0) || (capacity() == 0))
-            return this;
-        long offset = mappingOffset();
-        long length = mappingLength(offset);
-        load0(mappingAddress(offset), length);
-
-        // Read a byte from each page to bring it into memory. A checksum
-        // is computed as we go along to prevent the compiler from otherwise
-        // considering the loop as dead code.
-        Unsafe unsafe = Unsafe.getUnsafe();
-        int ps = Bits.pageSize();
-        int count = Bits.pageCount(length);
-        long a = mappingAddress(offset);
-        byte x = 0;
-        for (int i=0; i<count; i++) {
-            x ^= unsafe.getByte(a);
-            a += ps;
+    try {
+      int pageSize = (int) Libcore.os.sysconf(_SC_PAGE_SIZE);
+      int pageOffset = (int) (address % pageSize);
+      address -= pageOffset;
+      size += pageOffset;
+      int pageCount = (int) ((size + pageSize - 1) / pageSize);
+      byte[] vector = new byte[pageCount];
+      Libcore.os.mincore(address, size, vector);
+      for (int i = 0; i < vector.length; ++i) {
+        if ((vector[i] & 1) != 1) {
+          return false;
         }
-        if (unused != 0)
-            unused = x;
-
-        return this;
+      }
+      return true;
+    } catch (ErrnoException errnoException) {
+      return false;
     }
+  }
 
-    /**
-     * Forces any changes made to this buffer's content to be written to the
-     * storage device containing the mapped file.
-     *
-     * <p> If the file mapped into this buffer resides on a local storage
-     * device then when this method returns it is guaranteed that all changes
-     * made to the buffer since it was created, or since this method was last
-     * invoked, will have been written to that device.
-     *
-     * <p> If the file does not reside on a local device then no such guarantee
-     * is made.
-     *
-     * <p> If this buffer was not mapped in read/write mode ({@link
-     * java.nio.channels.FileChannel.MapMode#READ_WRITE}) then invoking this
-     * method has no effect. </p>
-     *
-     * @return  This buffer
-     */
-    public final MappedByteBuffer force() {
-        checkMapped();
-        if ((address != 0) && (capacity() != 0)) {
-            long offset = mappingOffset();
-            force0(fd, mappingAddress(offset), mappingLength(offset));
-        }
-        return this;
+  /**
+   * Attempts to load every page of this buffer into RAM. See {@link #isLoaded}.
+   * @return this buffer.
+   */
+  public final MappedByteBuffer load() {
+    checkIsMapped();
+
+    try {
+      Libcore.os.mlock(block.toLong(), block.getSize());
+      Libcore.os.munlock(block.toLong(), block.getSize());
+    } catch (ErrnoException ignored) {
     }
+    return this;
+  }
 
-    private native boolean isLoaded0(long address, long length, int pageCount);
-    private native void load0(long address, long length);
-    private native void force0(FileDescriptor fd, long address, long length);
+  /**
+   * Flushes changes made to the in-memory buffer back to the mapped file.
+   * Unless you call this, changes may not be written back until the finalizer
+   * runs. This method waits for the write to complete before returning.
+   *
+   * @return this buffer.
+   */
+  public final MappedByteBuffer force() {
+    checkIsMapped();
+
+    if (mapMode == MapMode.READ_WRITE) {
+      try {
+        Libcore.os.msync(block.toLong(), block.getSize(), MS_SYNC);
+      } catch (ErrnoException errnoException) {
+        // The RI doesn't throw, presumably on the assumption that you can't get into
+        // a state where msync(2) could return an error.
+        throw new AssertionError(errnoException);
+      }
+    }
+    return this;
+  }
+
+  // DirectByteBuffer is a subclass of MappedByteBuffer, but not all DirectByteBuffers
+  // actually correspond to an mmap(2)ed region.
+  private void checkIsMapped() {
+    if (mapMode == null) {
+      throw new UnsupportedOperationException();
+    }
+  }
 }

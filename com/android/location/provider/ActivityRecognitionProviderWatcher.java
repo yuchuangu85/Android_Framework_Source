@@ -28,11 +28,7 @@ import android.util.Log;
 
 /**
  * A watcher class for Activity-Recognition instances.
- *
- * @deprecated use {@link ActivityRecognitionProviderClient} instead.
- * @hide
  */
-@Deprecated
 public class ActivityRecognitionProviderWatcher {
     private static final String TAG = "ActivityRecognitionProviderWatcher";
 

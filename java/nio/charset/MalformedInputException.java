@@ -1,70 +1,58 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.nio.charset;
 
-
 /**
- * Checked exception thrown when an input byte sequence is not legal for given
- * charset, or an input character sequence is not a legal sixteen-bit Unicode
- * sequence.
- *
- * @since 1.4
+ * A {@code MalformedInputException} is thrown when a malformed input is
+ * encountered, for example if a byte sequence is illegal for the given charset.
  */
+public class MalformedInputException extends CharacterCodingException {
 
-public class MalformedInputException
-    extends CharacterCodingException
-{
-
+    /*
+     * This constant is used during deserialization to check the version
+     * which created the serialized object.
+     */
     private static final long serialVersionUID = -3438823399834806194L;
 
+    // the length of the malformed input
     private int inputLength;
 
     /**
-     * Constructs an {@code MalformedInputException} with the given
-     * length.
-     * @param inputLength the length of the input
+     * Constructs a new {@code MalformedInputException}.
+     *
+     * @param length
+     *            the length of the malformed input.
      */
-    public MalformedInputException(int inputLength) {
-        this.inputLength = inputLength;
+    public MalformedInputException(int length) {
+        this.inputLength = length;
     }
 
     /**
-     * Returns the length of the input.
-     * @return the length of the input
+     * Gets the length of the malformed input.
+     *
+     * @return the length of the malformed input.
      */
     public int getInputLength() {
-        return inputLength;
+        return this.inputLength;
     }
 
-    /**
-     * Returns the message.
-     * @return the message
-     */
+    @Override
     public String getMessage() {
-        return "Input length = " + inputLength;
+        return "Length: " + inputLength;
     }
-
 }

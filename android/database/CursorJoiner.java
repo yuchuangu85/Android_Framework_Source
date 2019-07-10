@@ -27,7 +27,7 @@ import java.util.Iterator;
  *
  * <pre>
  * CursorJoiner joiner = new CursorJoiner(cursorA, keyColumnsofA, cursorB, keyColumnsofB);
- * for (CursorJoiner.Result joinerResult : joiner) {
+ * for (CursorJointer.Result joinerResult : joiner) {
  *     switch (joinerResult) {
  *         case LEFT:
  *             // handle case where a row in cursorA is unique

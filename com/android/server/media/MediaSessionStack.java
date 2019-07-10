@@ -17,38 +17,18 @@
 package com.android.server.media;
 
 import android.media.session.MediaController.PlaybackInfo;
-import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
-import android.os.Debug;
+import android.media.session.MediaSession;
 import android.os.UserHandle;
-import android.util.IntArray;
-import android.util.Log;
-import android.util.SparseArray;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Keeps track of media sessions and their priority for notifications, media
  * button dispatch, etc.
- * <p>This class isn't thread-safe. The caller should take care of the synchronization.
  */
-class MediaSessionStack {
-    private static final boolean DEBUG = MediaSessionService.DEBUG;
-    private static final String TAG = "MediaSessionStack";
-
-    /**
-     * Listen the change in the media button session.
-     */
-    interface OnMediaButtonSessionChangedListener {
-        /**
-         * Called when the media button session is changed.
-         */
-        void onMediaButtonSessionChanged(MediaSessionRecord oldMediaButtonSession,
-                MediaSessionRecord newMediaButtonSession);
-    }
-
+public class MediaSessionStack {
     /**
      * These are states that usually indicate the user took an action and should
      * bump priority regardless of the old state.
@@ -67,35 +47,18 @@ class MediaSessionStack {
             PlaybackState.STATE_CONNECTING,
             PlaybackState.STATE_PLAYING };
 
-    /**
-     * Sorted list of the media sessions.
-     * The session of which PlaybackState is changed to ALWAYS_PRIORITY_STATES or
-     * TRANSITION_PRIORITY_STATES comes first.
-     * @see #shouldUpdatePriority
-     */
-    private final List<MediaSessionRecord> mSessions = new ArrayList<MediaSessionRecord>();
+    private final ArrayList<MediaSessionRecord> mSessions = new ArrayList<MediaSessionRecord>();
 
-    private final AudioPlayerStateMonitor mAudioPlayerStateMonitor;
-    private final OnMediaButtonSessionChangedListener mOnMediaButtonSessionChangedListener;
+    private MediaSessionRecord mGlobalPrioritySession;
 
-    /**
-     * The media button session which receives media key events.
-     * It could be null if the previous media buttion session is released.
-     */
-    private MediaSessionRecord mMediaButtonSession;
-
+    // The last record that either entered one of the playing states or was
+    // added.
+    private MediaSessionRecord mLastInterestingRecord;
+    private MediaSessionRecord mCachedButtonReceiver;
+    private MediaSessionRecord mCachedDefault;
     private MediaSessionRecord mCachedVolumeDefault;
-
-    /**
-     * Cache the result of the {@link #getActiveSessions} per user.
-     */
-    private final SparseArray<ArrayList<MediaSessionRecord>> mCachedActiveLists =
-            new SparseArray<>();
-
-    MediaSessionStack(AudioPlayerStateMonitor monitor, OnMediaButtonSessionChangedListener listener) {
-        mAudioPlayerStateMonitor = monitor;
-        mOnMediaButtonSessionChangedListener = listener;
-    }
+    private ArrayList<MediaSessionRecord> mCachedActiveList;
+    private ArrayList<MediaSessionRecord> mCachedTransportControlList;
 
     /**
      * Add a record to the priority tracker.
@@ -104,12 +67,8 @@ class MediaSessionStack {
      */
     public void addSession(MediaSessionRecord record) {
         mSessions.add(record);
-        clearCache(record.getUserId());
-
-        // Update the media button session.
-        // The added session could be the session from the package with the audio playback.
-        // This can happen if an app starts audio playback before creating media session.
-        updateMediaButtonSessionIfNeeded();
+        clearCache();
+        mLastInterestingRecord = record;
     }
 
     /**
@@ -119,159 +78,152 @@ class MediaSessionStack {
      */
     public void removeSession(MediaSessionRecord record) {
         mSessions.remove(record);
-        if (mMediaButtonSession == record) {
-            // When the media button session is removed, nullify the media button session and do not
-            // search for the alternative media session within the app. It's because the alternative
-            // media session might be a dummy which isn't able to handle the media key events.
-            updateMediaButtonSession(null);
+        if (record == mGlobalPrioritySession) {
+            mGlobalPrioritySession = null;
         }
-        clearCache(record.getUserId());
+        clearCache();
     }
 
     /**
-     * Return if the record exists in the priority tracker.
-     */
-    public boolean contains(MediaSessionRecord record) {
-        return mSessions.contains(record);
-    }
-
-    /**
-     * Notify the priority tracker that a session's playback state changed.
+     * Notify the priority tracker that a session's state changed.
      *
      * @param record The record that changed.
      * @param oldState Its old playback state.
      * @param newState Its new playback state.
+     * @return true if the priority order was updated, false otherwise.
      */
-    public void onPlaystateChanged(MediaSessionRecord record, int oldState, int newState) {
+    public boolean onPlaystateChange(MediaSessionRecord record, int oldState, int newState) {
         if (shouldUpdatePriority(oldState, newState)) {
             mSessions.remove(record);
             mSessions.add(0, record);
-            clearCache(record.getUserId());
+            clearCache();
+            // This becomes the last interesting record since it entered a
+            // playing state
+            mLastInterestingRecord = record;
+            return true;
         } else if (!MediaSession.isActiveState(newState)) {
             // Just clear the volume cache when a state goes inactive
             mCachedVolumeDefault = null;
         }
-
-        // In most cases, playback state isn't needed for finding media button session,
-        // but we only use it as a hint if an app has multiple local media sessions.
-        // In that case, we pick the media session whose PlaybackState matches
-        // the audio playback configuration.
-        if (mMediaButtonSession != null && mMediaButtonSession.getUid() == record.getUid()) {
-            MediaSessionRecord newMediaButtonSession =
-                    findMediaButtonSession(mMediaButtonSession.getUid());
-            if (newMediaButtonSession != mMediaButtonSession) {
-                updateMediaButtonSession(newMediaButtonSession);
-            }
-        }
+        return false;
     }
 
     /**
-     * Handle the change in activeness for a session.
+     * Handle any stack changes that need to occur in response to a session
+     * state change. TODO add the old and new session state as params
      *
      * @param record The record that changed.
      */
     public void onSessionStateChange(MediaSessionRecord record) {
+        if ((record.getFlags() & MediaSession.FLAG_EXCLUSIVE_GLOBAL_PRIORITY) != 0) {
+            mGlobalPrioritySession = record;
+        }
         // For now just clear the cache. Eventually we'll selectively clear
         // depending on what changed.
-        clearCache(record.getUserId());
-    }
-
-    /**
-     * Update the media button session if needed.
-     * <p>The media button session is the session that will receive the media button events.
-     * <p>We send the media button events to the lastly played app. If the app has the media
-     * session, the session will receive the media button events.
-     */
-    public void updateMediaButtonSessionIfNeeded() {
-        if (DEBUG) {
-            Log.d(TAG, "updateMediaButtonSessionIfNeeded, callers=" + Debug.getCallers(2));
-        }
-        IntArray audioPlaybackUids = mAudioPlayerStateMonitor.getSortedAudioPlaybackClientUids();
-        for (int i = 0; i < audioPlaybackUids.size(); i++) {
-            MediaSessionRecord mediaButtonSession =
-                    findMediaButtonSession(audioPlaybackUids.get(i));
-            if (mediaButtonSession != null) {
-                // Found the media button session.
-                mAudioPlayerStateMonitor.cleanUpAudioPlaybackUids(mediaButtonSession.getUid());
-                if (mMediaButtonSession != mediaButtonSession) {
-                    updateMediaButtonSession(mediaButtonSession);
-                }
-                return;
-            }
-        }
-    }
-
-    /**
-     * Find the media button session with the given {@param uid}.
-     * If the app has multiple media sessions, the media session whose playback state is not null
-     * and matches the audio playback state becomes the media button session. Otherwise the top
-     * priority session becomes the media button session.
-     *
-     * @return The media button session. Returns {@code null} if the app doesn't have a media
-     *   session.
-     */
-    private MediaSessionRecord findMediaButtonSession(int uid) {
-        MediaSessionRecord mediaButtonSession = null;
-        for (MediaSessionRecord session : mSessions) {
-            if (uid == session.getUid()) {
-                if (session.getPlaybackState() != null && session.isPlaybackActive() ==
-                        mAudioPlayerStateMonitor.isPlaybackActive(session.getUid())) {
-                    // If there's a media session whose PlaybackState matches
-                    // the audio playback state, return it immediately.
-                    return session;
-                }
-                if (mediaButtonSession == null) {
-                    // Among the media sessions whose PlaybackState doesn't match
-                    // the audio playback state, pick the top priority.
-                    mediaButtonSession = session;
-                }
-            }
-        }
-        return mediaButtonSession;
+        clearCache();
     }
 
     /**
      * Get the current priority sorted list of active sessions. The most
      * important session is at index 0 and the least important at size - 1.
      *
-     * @param userId The user to check. It can be {@link UserHandle#USER_ALL} to get all sessions
-     *    for all users in this {@link MediaSessionStack}.
+     * @param userId The user to check.
      * @return All the active sessions in priority order.
      */
     public ArrayList<MediaSessionRecord> getActiveSessions(int userId) {
-        ArrayList<MediaSessionRecord> cachedActiveList = mCachedActiveLists.get(userId);
-        if (cachedActiveList == null) {
-            cachedActiveList = getPriorityList(true, userId);
-            mCachedActiveLists.put(userId, cachedActiveList);
+        if (mCachedActiveList == null) {
+            mCachedActiveList = getPriorityListLocked(true, 0, userId);
         }
-        return cachedActiveList;
+        return mCachedActiveList;
     }
 
     /**
-     * Get the media button session which receives the media button events.
+     * Get the current priority sorted list of active sessions that use
+     * transport controls. The most important session is at index 0 and the
+     * least important at size -1.
      *
-     * @return The media button session or null.
+     * @param userId The user to check.
+     * @return All the active sessions that handle transport controls in
+     *         priority order.
      */
-    public MediaSessionRecord getMediaButtonSession() {
-        return mMediaButtonSession;
+    public ArrayList<MediaSessionRecord> getTransportControlSessions(int userId) {
+        if (mCachedTransportControlList == null) {
+            mCachedTransportControlList = getPriorityListLocked(true,
+                    MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS, userId);
+        }
+        return mCachedTransportControlList;
     }
 
-    private void updateMediaButtonSession(MediaSessionRecord newMediaButtonSession) {
-        MediaSessionRecord oldMediaButtonSession = mMediaButtonSession;
-        mMediaButtonSession = newMediaButtonSession;
-        mOnMediaButtonSessionChangedListener.onMediaButtonSessionChanged(
-                oldMediaButtonSession, newMediaButtonSession);
+    /**
+     * Get the highest priority active session.
+     *
+     * @param userId The user to check.
+     * @return The current highest priority session or null.
+     */
+    public MediaSessionRecord getDefaultSession(int userId) {
+        if (mCachedDefault != null) {
+            return mCachedDefault;
+        }
+        ArrayList<MediaSessionRecord> records = getPriorityListLocked(true, 0, userId);
+        if (records.size() > 0) {
+            return records.get(0);
+        }
+        return null;
     }
 
-    public MediaSessionRecord getDefaultVolumeSession() {
+    /**
+     * Get the highest priority session that can handle media buttons.
+     *
+     * @param userId The user to check.
+     * @param includeNotPlaying Return a non-playing session if nothing else is
+     *            available
+     * @return The default media button session or null.
+     */
+    public MediaSessionRecord getDefaultMediaButtonSession(int userId, boolean includeNotPlaying) {
+        if (mGlobalPrioritySession != null && mGlobalPrioritySession.isActive()) {
+            return mGlobalPrioritySession;
+        }
+        if (mCachedButtonReceiver != null) {
+            return mCachedButtonReceiver;
+        }
+        ArrayList<MediaSessionRecord> records = getPriorityListLocked(true,
+                MediaSession.FLAG_HANDLES_MEDIA_BUTTONS, userId);
+        if (records.size() > 0) {
+            MediaSessionRecord record = records.get(0);
+            if (record.isPlaybackActive(false)) {
+                // Since we're going to send a button event to this record make
+                // it the last interesting one.
+                mLastInterestingRecord = record;
+                mCachedButtonReceiver = record;
+            } else if (mLastInterestingRecord != null) {
+                if (records.contains(mLastInterestingRecord)) {
+                    mCachedButtonReceiver = mLastInterestingRecord;
+                } else {
+                    // That record is no longer used. Clear its reference.
+                    mLastInterestingRecord = null;
+                }
+            }
+            if (includeNotPlaying && mCachedButtonReceiver == null) {
+                // If we really want a record and we didn't find one yet use the
+                // highest priority session even if it's not playing.
+                mCachedButtonReceiver = record;
+            }
+        }
+        return mCachedButtonReceiver;
+    }
+
+    public MediaSessionRecord getDefaultVolumeSession(int userId) {
+        if (mGlobalPrioritySession != null && mGlobalPrioritySession.isActive()) {
+            return mGlobalPrioritySession;
+        }
         if (mCachedVolumeDefault != null) {
             return mCachedVolumeDefault;
         }
-        ArrayList<MediaSessionRecord> records = getPriorityList(true, UserHandle.USER_ALL);
+        ArrayList<MediaSessionRecord> records = getPriorityListLocked(true, 0, userId);
         int size = records.size();
         for (int i = 0; i < size; i++) {
             MediaSessionRecord record = records.get(i);
-            if (record.isPlaybackActive()) {
+            if (record.isPlaybackActive(false)) {
                 mCachedVolumeDefault = record;
                 return record;
             }
@@ -280,7 +232,7 @@ class MediaSessionStack {
     }
 
     public MediaSessionRecord getDefaultRemoteSession(int userId) {
-        ArrayList<MediaSessionRecord> records = getPriorityList(true, userId);
+        ArrayList<MediaSessionRecord> records = getPriorityListLocked(true, 0, userId);
 
         int size = records.size();
         for (int i = 0; i < size; i++) {
@@ -292,11 +244,15 @@ class MediaSessionStack {
         return null;
     }
 
+    public boolean isGlobalPriorityActive() {
+        return mGlobalPrioritySession == null ? false : mGlobalPrioritySession.isActive();
+    }
+
     public void dump(PrintWriter pw, String prefix) {
-        ArrayList<MediaSessionRecord> sortedSessions = getPriorityList(false,
+        ArrayList<MediaSessionRecord> sortedSessions = getPriorityListLocked(false, 0,
                 UserHandle.USER_ALL);
         int count = sortedSessions.size();
-        pw.println(prefix + "Media button session is " + mMediaButtonSession);
+        pw.println(prefix + "Global priority session is " + mGlobalPrioritySession);
         pw.println(prefix + "Sessions Stack - have " + count + " sessions:");
         String indent = prefix + "  ";
         for (int i = 0; i < count; i++) {
@@ -308,22 +264,22 @@ class MediaSessionStack {
 
     /**
      * Get a priority sorted list of sessions. Can filter to only return active
-     * sessions or sessions.
-     * <p>Here's the priority order.
-     * <li>Active sessions whose PlaybackState is active</li>
-     * <li>Active sessions whose PlaybackState is inactive</li>
-     * <li>Inactive sessions</li>
+     * sessions or sessions with specific flags.
      *
      * @param activeOnly True to only return active sessions, false to return
      *            all sessions.
+     * @param withFlags Only return sessions with all the specified flags set. 0
+     *            returns all sessions.
      * @param userId The user to get sessions for. {@link UserHandle#USER_ALL}
      *            will return sessions for all users.
      * @return The priority sorted list of sessions.
      */
-    public ArrayList<MediaSessionRecord> getPriorityList(boolean activeOnly, int userId) {
+    private ArrayList<MediaSessionRecord> getPriorityListLocked(boolean activeOnly, int withFlags,
+            int userId) {
         ArrayList<MediaSessionRecord> result = new ArrayList<MediaSessionRecord>();
-        int lastPlaybackActiveIndex = 0;
+        int lastLocalIndex = 0;
         int lastActiveIndex = 0;
+        int lastPublishedIndex = 0;
 
         int size = mSessions.size();
         for (int i = 0; i < size; i++) {
@@ -333,7 +289,10 @@ class MediaSessionStack {
                 // Filter out sessions for the wrong user
                 continue;
             }
-
+            if ((session.getFlags() & withFlags) != withFlags) {
+                // Filter out sessions with the wrong flags
+                continue;
+            }
             if (!session.isActive()) {
                 if (!activeOnly) {
                     // If we're getting unpublished as well always put them at
@@ -343,11 +302,32 @@ class MediaSessionStack {
                 continue;
             }
 
-            if (session.isPlaybackActive()) {
-                result.add(lastPlaybackActiveIndex++, session);
+            if (session.isSystemPriority()) {
+                // System priority sessions are special and always go at the
+                // front. We expect there to only be one of these at a time.
+                result.add(0, session);
+                lastLocalIndex++;
                 lastActiveIndex++;
+                lastPublishedIndex++;
+            } else if (session.isPlaybackActive(true)) {
+                // TODO this with real local route check
+                if (true) {
+                    // Active local sessions get top priority
+                    result.add(lastLocalIndex, session);
+                    lastLocalIndex++;
+                    lastActiveIndex++;
+                    lastPublishedIndex++;
+                } else {
+                    // Then active remote sessions
+                    result.add(lastActiveIndex, session);
+                    lastActiveIndex++;
+                    lastPublishedIndex++;
+                }
             } else {
-                result.add(lastActiveIndex++, session);
+                // inactive sessions go at the end in order of whoever last did
+                // something.
+                result.add(lastPublishedIndex, session);
+                lastPublishedIndex++;
             }
         }
 
@@ -374,11 +354,11 @@ class MediaSessionStack {
         return false;
     }
 
-    private void clearCache(int userId) {
+    private void clearCache() {
+        mCachedDefault = null;
         mCachedVolumeDefault = null;
-        mCachedActiveLists.remove(userId);
-        // mCachedActiveLists may also include the list of sessions for UserHandle.USER_ALL,
-        // so they also need to be cleared.
-        mCachedActiveLists.remove(UserHandle.USER_ALL);
+        mCachedButtonReceiver = null;
+        mCachedActiveList = null;
+        mCachedTransportControlList = null;
     }
 }

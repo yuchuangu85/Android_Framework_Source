@@ -65,7 +65,6 @@ public final class CookieSyncManager extends WebSyncManager {
 
     private static CookieSyncManager sRef;
     private static boolean sGetInstanceAllowed = false;
-    private static final Object sLock = new Object();
 
     private CookieSyncManager() {
         super(null, null);
@@ -78,14 +77,12 @@ public final class CookieSyncManager extends WebSyncManager {
      *
      * @return CookieSyncManager
      */
-    public static CookieSyncManager getInstance() {
-        synchronized (sLock) {
-            checkInstanceIsAllowed();
-            if (sRef == null) {
-                sRef = new CookieSyncManager();
-            }
-            return sRef;
+    public static synchronized CookieSyncManager getInstance() {
+        checkInstanceIsAllowed();
+        if (sRef == null) {
+            sRef = new CookieSyncManager();
         }
+        return sRef;
     }
 
     /**
@@ -93,14 +90,12 @@ public final class CookieSyncManager extends WebSyncManager {
      * @param context
      * @return CookieSyncManager
      */
-    public static CookieSyncManager createInstance(Context context) {
-        synchronized (sLock) {
-            if (context == null) {
-                throw new IllegalArgumentException("Invalid context argument");
-            }
-            setGetInstanceIsAllowed();
-            return getInstance();
+    public static synchronized CookieSyncManager createInstance(Context context) {
+        if (context == null) {
+            throw new IllegalArgumentException("Invalid context argument");
         }
+        setGetInstanceIsAllowed();
+        return getInstance();
     }
 
     /**

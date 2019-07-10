@@ -17,8 +17,6 @@
 package com.android.server;
 
 import android.os.Handler;
-import android.os.Looper;
-import android.os.Trace;
 
 /**
  * Shared singleton foreground thread for the system.  This is a thread for regular
@@ -29,9 +27,6 @@ import android.os.Trace;
  * to be delayed for a user-noticeable amount of time.
  */
 public final class FgThread extends ServiceThread {
-    private static final long SLOW_DISPATCH_THRESHOLD_MS = 100;
-    private static final long SLOW_DELIVERY_THRESHOLD_MS = 200;
-
     private static FgThread sInstance;
     private static Handler sHandler;
 
@@ -43,23 +38,19 @@ public final class FgThread extends ServiceThread {
         if (sInstance == null) {
             sInstance = new FgThread();
             sInstance.start();
-            final Looper looper = sInstance.getLooper();
-            looper.setTraceTag(Trace.TRACE_TAG_SYSTEM_SERVER);
-            looper.setSlowLogThresholdMs(
-                    SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
             sHandler = new Handler(sInstance.getLooper());
         }
     }
 
     public static FgThread get() {
-        synchronized (FgThread.class) {
+        synchronized (UiThread.class) {
             ensureThreadLocked();
             return sInstance;
         }
     }
 
     public static Handler getHandler() {
-        synchronized (FgThread.class) {
+        synchronized (UiThread.class) {
             ensureThreadLocked();
             return sHandler;
         }

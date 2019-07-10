@@ -58,7 +58,7 @@ import java.lang.ref.WeakReference;
  * The preferred way to perform the inflation of the layout resource is the following:
  *
  * <pre>
- *     ViewStub stub = findViewById(R.id.stub);
+ *     ViewStub stub = (ViewStub) findViewById(R.id.stub);
  *     View inflated = stub.inflate();
  * </pre>
  *
@@ -142,15 +142,9 @@ public final class ViewStub extends View {
      * @see #getInflatedId()
      * @attr ref android.R.styleable#ViewStub_inflatedId
      */
-    @android.view.RemotableViewMethod(asyncImpl = "setInflatedIdAsync")
+    @android.view.RemotableViewMethod
     public void setInflatedId(@IdRes int inflatedId) {
         mInflatedId = inflatedId;
-    }
-
-    /** @hide **/
-    public Runnable setInflatedIdAsync(@IdRes int inflatedId) {
-        mInflatedId = inflatedId;
-        return null;
     }
 
     /**
@@ -182,15 +176,9 @@ public final class ViewStub extends View {
      * @see #inflate()
      * @attr ref android.R.styleable#ViewStub_layout
      */
-    @android.view.RemotableViewMethod(asyncImpl = "setLayoutResourceAsync")
+    @android.view.RemotableViewMethod
     public void setLayoutResource(@LayoutRes int layoutResource) {
         mLayoutResource = layoutResource;
-    }
-
-    /** @hide **/
-    public Runnable setLayoutResourceAsync(@LayoutRes int layoutResource) {
-        mLayoutResource = layoutResource;
-        return null;
     }
 
     /**
@@ -232,7 +220,7 @@ public final class ViewStub extends View {
      * @see #inflate() 
      */
     @Override
-    @android.view.RemotableViewMethod(asyncImpl = "setVisibilityAsync")
+    @android.view.RemotableViewMethod
     public void setVisibility(int visibility) {
         if (mInflatedViewRef != null) {
             View view = mInflatedViewRef.get();
@@ -249,43 +237,6 @@ public final class ViewStub extends View {
         }
     }
 
-    /** @hide **/
-    public Runnable setVisibilityAsync(int visibility) {
-        if (visibility == VISIBLE || visibility == INVISIBLE) {
-            ViewGroup parent = (ViewGroup) getParent();
-            return new ViewReplaceRunnable(inflateViewNoAdd(parent));
-        } else {
-            return null;
-        }
-    }
-
-    private View inflateViewNoAdd(ViewGroup parent) {
-        final LayoutInflater factory;
-        if (mInflater != null) {
-            factory = mInflater;
-        } else {
-            factory = LayoutInflater.from(mContext);
-        }
-        final View view = factory.inflate(mLayoutResource, parent, false);
-
-        if (mInflatedId != NO_ID) {
-            view.setId(mInflatedId);
-        }
-        return view;
-    }
-
-    private void replaceSelfWithView(View view, ViewGroup parent) {
-        final int index = parent.indexOfChild(this);
-        parent.removeViewInLayout(this);
-
-        final ViewGroup.LayoutParams layoutParams = getLayoutParams();
-        if (layoutParams != null) {
-            parent.addView(view, index, layoutParams);
-        } else {
-            parent.addView(view, index);
-        }
-    }
-
     /**
      * Inflates the layout resource identified by {@link #getLayoutResource()}
      * and replaces this StubbedView in its parent by the inflated layout resource.
@@ -299,10 +250,31 @@ public final class ViewStub extends View {
         if (viewParent != null && viewParent instanceof ViewGroup) {
             if (mLayoutResource != 0) {
                 final ViewGroup parent = (ViewGroup) viewParent;
-                final View view = inflateViewNoAdd(parent);
-                replaceSelfWithView(view, parent);
+                final LayoutInflater factory;
+                if (mInflater != null) {
+                    factory = mInflater;
+                } else {
+                    factory = LayoutInflater.from(mContext);
+                }
+                final View view = factory.inflate(mLayoutResource, parent,
+                        false);
 
-                mInflatedViewRef = new WeakReference<>(view);
+                if (mInflatedId != NO_ID) {
+                    view.setId(mInflatedId);
+                }
+
+                final int index = parent.indexOfChild(this);
+                parent.removeViewInLayout(this);
+
+                final ViewGroup.LayoutParams layoutParams = getLayoutParams();
+                if (layoutParams != null) {
+                    parent.addView(view, index, layoutParams);
+                } else {
+                    parent.addView(view, index);
+                }
+
+                mInflatedViewRef = new WeakReference<View>(view);
+
                 if (mInflateListener != null) {
                     mInflateListener.onInflate(this, view);
                 }
@@ -344,19 +316,5 @@ public final class ViewStub extends View {
          * @param inflated The inflated View.
          */
         void onInflate(ViewStub stub, View inflated);
-    }
-
-    /** @hide **/
-    public class ViewReplaceRunnable implements Runnable {
-        public final View view;
-
-        ViewReplaceRunnable(View view) {
-            this.view = view;
-        }
-
-        @Override
-        public void run() {
-            replaceSelfWithView(view, (ViewGroup) getParent());
-        }
     }
 }

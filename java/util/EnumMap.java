@@ -1,813 +1,768 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util;
 
-import java.util.Map.Entry;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.lang.reflect.Array;
 
 /**
- * A specialized {@link Map} implementation for use with enum type keys.  All
- * of the keys in an enum map must come from a single enum type that is
- * specified, explicitly or implicitly, when the map is created.  Enum maps
- * are represented internally as arrays.  This representation is extremely
- * compact and efficient.
- *
- * <p>Enum maps are maintained in the <i>natural order</i> of their keys
- * (the order in which the enum constants are declared).  This is reflected
- * in the iterators returned by the collections views ({@link #keySet()},
- * {@link #entrySet()}, and {@link #values()}).
- *
- * <p>Iterators returned by the collection views are <i>weakly consistent</i>:
- * they will never throw {@link ConcurrentModificationException} and they may
- * or may not show the effects of any modifications to the map that occur while
- * the iteration is in progress.
- *
- * <p>Null keys are not permitted.  Attempts to insert a null key will
- * throw {@link NullPointerException}.  Attempts to test for the
- * presence of a null key or to remove one will, however, function properly.
- * Null values are permitted.
-
- * <P>Like most collection implementations <tt>EnumMap</tt> is not
- * synchronized. If multiple threads access an enum map concurrently, and at
- * least one of the threads modifies the map, it should be synchronized
- * externally.  This is typically accomplished by synchronizing on some
- * object that naturally encapsulates the enum map.  If no such object exists,
- * the map should be "wrapped" using the {@link Collections#synchronizedMap}
- * method.  This is best done at creation time, to prevent accidental
- * unsynchronized access:
- *
- * <pre>
- *     Map&lt;EnumKey, V&gt; m
- *         = Collections.synchronizedMap(new EnumMap&lt;EnumKey, V&gt;(...));
- * </pre>
- *
- * <p>Implementation note: All basic operations execute in constant time.
- * They are likely (though not guaranteed) to be faster than their
- * {@link HashMap} counterparts.
- *
- * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
- * Java Collections Framework</a>.
- *
- * @author Josh Bloch
- * @see EnumSet
- * @since 1.5
+ * An {@code Map} specialized for use with {@code Enum} types as keys.
  */
-public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
-    implements java.io.Serializable, Cloneable
-{
-    /**
-     * The <tt>Class</tt> object for the enum type of all the keys of this map.
-     *
-     * @serial
-     */
-    private final Class<K> keyType;
-
-    /**
-     * All of the values comprising K.  (Cached for performance.)
-     */
-    private transient K[] keyUniverse;
-
-    /**
-     * Array representation of this map.  The ith element is the value
-     * to which universe[i] is currently mapped, or null if it isn't
-     * mapped to anything, or NULL if it's mapped to null.
-     */
-    private transient Object[] vals;
-
-    /**
-     * The number of mappings in this map.
-     */
-    private transient int size = 0;
-
-    /**
-     * Distinguished non-null value for representing null values.
-     */
-    private static final Object NULL = new Object() {
-        public int hashCode() {
-            return 0;
-        }
-
-        public String toString() {
-            return "java.util.EnumMap.NULL";
-        }
-    };
-
-    private Object maskNull(Object value) {
-        return (value == null ? NULL : value);
-    }
-
-    @SuppressWarnings("unchecked")
-    private V unmaskNull(Object value) {
-        return (V)(value == NULL ? null : value);
-    }
-
-    private static final Enum<?>[] ZERO_LENGTH_ENUM_ARRAY = new Enum<?>[0];
-
-    /**
-     * Creates an empty enum map with the specified key type.
-     *
-     * @param keyType the class object of the key type for this enum map
-     * @throws NullPointerException if <tt>keyType</tt> is null
-     */
-    public EnumMap(Class<K> keyType) {
-        this.keyType = keyType;
-        keyUniverse = getKeyUniverse(keyType);
-        vals = new Object[keyUniverse.length];
-    }
-
-    /**
-     * Creates an enum map with the same key type as the specified enum
-     * map, initially containing the same mappings (if any).
-     *
-     * @param m the enum map from which to initialize this enum map
-     * @throws NullPointerException if <tt>m</tt> is null
-     */
-    public EnumMap(EnumMap<K, ? extends V> m) {
-        keyType = m.keyType;
-        keyUniverse = m.keyUniverse;
-        vals = m.vals.clone();
-        size = m.size;
-    }
-
-    /**
-     * Creates an enum map initialized from the specified map.  If the
-     * specified map is an <tt>EnumMap</tt> instance, this constructor behaves
-     * identically to {@link #EnumMap(EnumMap)}.  Otherwise, the specified map
-     * must contain at least one mapping (in order to determine the new
-     * enum map's key type).
-     *
-     * @param m the map from which to initialize this enum map
-     * @throws IllegalArgumentException if <tt>m</tt> is not an
-     *     <tt>EnumMap</tt> instance and contains no mappings
-     * @throws NullPointerException if <tt>m</tt> is null
-     */
-    public EnumMap(Map<K, ? extends V> m) {
-        if (m instanceof EnumMap) {
-            EnumMap<K, ? extends V> em = (EnumMap<K, ? extends V>) m;
-            keyType = em.keyType;
-            keyUniverse = em.keyUniverse;
-            vals = em.vals.clone();
-            size = em.size;
-        } else {
-            if (m.isEmpty())
-                throw new IllegalArgumentException("Specified map is empty");
-            keyType = m.keySet().iterator().next().getDeclaringClass();
-            keyUniverse = getKeyUniverse(keyType);
-            vals = new Object[keyUniverse.length];
-            putAll(m);
-        }
-    }
-
-    // Query Operations
-
-    /**
-     * Returns the number of key-value mappings in this map.
-     *
-     * @return the number of key-value mappings in this map
-     */
-    public int size() {
-        return size;
-    }
-
-    /**
-     * Returns <tt>true</tt> if this map maps one or more keys to the
-     * specified value.
-     *
-     * @param value the value whose presence in this map is to be tested
-     * @return <tt>true</tt> if this map maps one or more keys to this value
-     */
-    public boolean containsValue(Object value) {
-        value = maskNull(value);
-
-        for (Object val : vals)
-            if (value.equals(val))
-                return true;
-
-        return false;
-    }
-
-    /**
-     * Returns <tt>true</tt> if this map contains a mapping for the specified
-     * key.
-     *
-     * @param key the key whose presence in this map is to be tested
-     * @return <tt>true</tt> if this map contains a mapping for the specified
-     *            key
-     */
-    public boolean containsKey(Object key) {
-        return isValidKey(key) && vals[((Enum<?>)key).ordinal()] != null;
-    }
-
-    private boolean containsMapping(Object key, Object value) {
-        return isValidKey(key) &&
-            maskNull(value).equals(vals[((Enum<?>)key).ordinal()]);
-    }
-
-    /**
-     * Returns the value to which the specified key is mapped,
-     * or {@code null} if this map contains no mapping for the key.
-     *
-     * <p>More formally, if this map contains a mapping from a key
-     * {@code k} to a value {@code v} such that {@code (key == k)},
-     * then this method returns {@code v}; otherwise it returns
-     * {@code null}.  (There can be at most one such mapping.)
-     *
-     * <p>A return value of {@code null} does not <i>necessarily</i>
-     * indicate that the map contains no mapping for the key; it's also
-     * possible that the map explicitly maps the key to {@code null}.
-     * The {@link #containsKey containsKey} operation may be used to
-     * distinguish these two cases.
-     */
-    public V get(Object key) {
-        return (isValidKey(key) ?
-                unmaskNull(vals[((Enum<?>)key).ordinal()]) : null);
-    }
-
-    // Modification Operations
-
-    /**
-     * Associates the specified value with the specified key in this map.
-     * If the map previously contained a mapping for this key, the old
-     * value is replaced.
-     *
-     * @param key the key with which the specified value is to be associated
-     * @param value the value to be associated with the specified key
-     *
-     * @return the previous value associated with specified key, or
-     *     <tt>null</tt> if there was no mapping for key.  (A <tt>null</tt>
-     *     return can also indicate that the map previously associated
-     *     <tt>null</tt> with the specified key.)
-     * @throws NullPointerException if the specified key is null
-     */
-    public V put(K key, V value) {
-        typeCheck(key);
-
-        int index = key.ordinal();
-        Object oldValue = vals[index];
-        vals[index] = maskNull(value);
-        if (oldValue == null)
-            size++;
-        return unmaskNull(oldValue);
-    }
-
-    /**
-     * Removes the mapping for this key from this map if present.
-     *
-     * @param key the key whose mapping is to be removed from the map
-     * @return the previous value associated with specified key, or
-     *     <tt>null</tt> if there was no entry for key.  (A <tt>null</tt>
-     *     return can also indicate that the map previously associated
-     *     <tt>null</tt> with the specified key.)
-     */
-    public V remove(Object key) {
-        if (!isValidKey(key))
-            return null;
-        int index = ((Enum<?>)key).ordinal();
-        Object oldValue = vals[index];
-        vals[index] = null;
-        if (oldValue != null)
-            size--;
-        return unmaskNull(oldValue);
-    }
-
-    private boolean removeMapping(Object key, Object value) {
-        if (!isValidKey(key))
-            return false;
-        int index = ((Enum<?>)key).ordinal();
-        if (maskNull(value).equals(vals[index])) {
-            vals[index] = null;
-            size--;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if key is of the proper type to be a key in this
-     * enum map.
-     */
-    private boolean isValidKey(Object key) {
-        if (key == null)
-            return false;
-
-        // Cheaper than instanceof Enum followed by getDeclaringClass
-        Class<?> keyClass = key.getClass();
-        return keyClass == keyType || keyClass.getSuperclass() == keyType;
-    }
-
-    // Bulk Operations
-
-    /**
-     * Copies all of the mappings from the specified map to this map.
-     * These mappings will replace any mappings that this map had for
-     * any of the keys currently in the specified map.
-     *
-     * @param m the mappings to be stored in this map
-     * @throws NullPointerException the specified map is null, or if
-     *     one or more keys in the specified map are null
-     */
-    public void putAll(Map<? extends K, ? extends V> m) {
-        if (m instanceof EnumMap) {
-            EnumMap<?, ?> em = (EnumMap<?, ?>)m;
-            if (em.keyType != keyType) {
-                if (em.isEmpty())
-                    return;
-                throw new ClassCastException(em.keyType + " != " + keyType);
-            }
-
-            for (int i = 0; i < keyUniverse.length; i++) {
-                Object emValue = em.vals[i];
-                if (emValue != null) {
-                    if (vals[i] == null)
-                        size++;
-                    vals[i] = emValue;
-                }
-            }
-        } else {
-            super.putAll(m);
-        }
-    }
-
-    /**
-     * Removes all mappings from this map.
-     */
-    public void clear() {
-        Arrays.fill(vals, null);
-        size = 0;
-    }
-
-    // Views
-
-    /**
-     * This field is initialized to contain an instance of the entry set
-     * view the first time this view is requested.  The view is stateless,
-     * so there's no reason to create more than one.
-     */
-    private transient Set<Map.Entry<K,V>> entrySet;
-
-    /**
-     * Returns a {@link Set} view of the keys contained in this map.
-     * The returned set obeys the general contract outlined in
-     * {@link Map#keySet()}.  The set's iterator will return the keys
-     * in their natural order (the order in which the enum constants
-     * are declared).
-     *
-     * @return a set view of the keys contained in this enum map
-     */
-    public Set<K> keySet() {
-        Set<K> ks = keySet;
-        if (ks == null) {
-            ks = new KeySet();
-            keySet = ks;
-        }
-        return ks;
-    }
-
-    private class KeySet extends AbstractSet<K> {
-        public Iterator<K> iterator() {
-            return new KeyIterator();
-        }
-        public int size() {
-            return size;
-        }
-        public boolean contains(Object o) {
-            return containsKey(o);
-        }
-        public boolean remove(Object o) {
-            int oldSize = size;
-            EnumMap.this.remove(o);
-            return size != oldSize;
-        }
-        public void clear() {
-            EnumMap.this.clear();
-        }
-    }
-
-    /**
-     * Returns a {@link Collection} view of the values contained in this map.
-     * The returned collection obeys the general contract outlined in
-     * {@link Map#values()}.  The collection's iterator will return the
-     * values in the order their corresponding keys appear in map,
-     * which is their natural order (the order in which the enum constants
-     * are declared).
-     *
-     * @return a collection view of the values contained in this map
-     */
-    public Collection<V> values() {
-        Collection<V> vs = values;
-        if (vs == null) {
-            vs = new Values();
-            values = vs;
-        }
-        return vs;
-    }
-
-    private class Values extends AbstractCollection<V> {
-        public Iterator<V> iterator() {
-            return new ValueIterator();
-        }
-        public int size() {
-            return size;
-        }
-        public boolean contains(Object o) {
-            return containsValue(o);
-        }
-        public boolean remove(Object o) {
-            o = maskNull(o);
-
-            for (int i = 0; i < vals.length; i++) {
-                if (o.equals(vals[i])) {
-                    vals[i] = null;
-                    size--;
-                    return true;
-                }
-            }
-            return false;
-        }
-        public void clear() {
-            EnumMap.this.clear();
-        }
-    }
-
-    /**
-     * Returns a {@link Set} view of the mappings contained in this map.
-     * The returned set obeys the general contract outlined in
-     * {@link Map#keySet()}.  The set's iterator will return the
-     * mappings in the order their keys appear in map, which is their
-     * natural order (the order in which the enum constants are declared).
-     *
-     * @return a set view of the mappings contained in this enum map
-     */
-    public Set<Map.Entry<K,V>> entrySet() {
-        Set<Map.Entry<K,V>> es = entrySet;
-        if (es != null)
-            return es;
-        else
-            return entrySet = new EntrySet();
-    }
-
-    private class EntrySet extends AbstractSet<Map.Entry<K,V>> {
-        public Iterator<Map.Entry<K,V>> iterator() {
-            return new EntryIterator();
-        }
-
-        public boolean contains(Object o) {
-            if (!(o instanceof Map.Entry))
-                return false;
-            Map.Entry<?,?> entry = (Map.Entry<?,?>)o;
-            return containsMapping(entry.getKey(), entry.getValue());
-        }
-        public boolean remove(Object o) {
-            if (!(o instanceof Map.Entry))
-                return false;
-            Map.Entry<?,?> entry = (Map.Entry<?,?>)o;
-            return removeMapping(entry.getKey(), entry.getValue());
-        }
-        public int size() {
-            return size;
-        }
-        public void clear() {
-            EnumMap.this.clear();
-        }
-        public Object[] toArray() {
-            return fillEntryArray(new Object[size]);
-        }
-        @SuppressWarnings("unchecked")
-        public <T> T[] toArray(T[] a) {
-            int size = size();
-            if (a.length < size)
-                a = (T[])java.lang.reflect.Array
-                    .newInstance(a.getClass().getComponentType(), size);
-            if (a.length > size)
-                a[size] = null;
-            return (T[]) fillEntryArray(a);
-        }
-        private Object[] fillEntryArray(Object[] a) {
-            int j = 0;
-            for (int i = 0; i < vals.length; i++)
-                if (vals[i] != null)
-                    a[j++] = new AbstractMap.SimpleEntry<>(
-                        keyUniverse[i], unmaskNull(vals[i]));
-            return a;
-        }
-    }
-
-    private abstract class EnumMapIterator<T> implements Iterator<T> {
-        // Lower bound on index of next element to return
-        int index = 0;
-
-        // Index of last returned element, or -1 if none
-        int lastReturnedIndex = -1;
-
-        public boolean hasNext() {
-            while (index < vals.length && vals[index] == null)
-                index++;
-            return index != vals.length;
-        }
-
-        public void remove() {
-            checkLastReturnedIndex();
-
-            if (vals[lastReturnedIndex] != null) {
-                vals[lastReturnedIndex] = null;
-                size--;
-            }
-            lastReturnedIndex = -1;
-        }
-
-        private void checkLastReturnedIndex() {
-            if (lastReturnedIndex < 0)
-                throw new IllegalStateException();
-        }
-    }
-
-    private class KeyIterator extends EnumMapIterator<K> {
-        public K next() {
-            if (!hasNext())
-                throw new NoSuchElementException();
-            lastReturnedIndex = index++;
-            return keyUniverse[lastReturnedIndex];
-        }
-    }
-
-    private class ValueIterator extends EnumMapIterator<V> {
-        public V next() {
-            if (!hasNext())
-                throw new NoSuchElementException();
-            lastReturnedIndex = index++;
-            return unmaskNull(vals[lastReturnedIndex]);
-        }
-    }
-
-    private class EntryIterator extends EnumMapIterator<Map.Entry<K,V>> {
-        private Entry lastReturnedEntry;
-
-        public Map.Entry<K,V> next() {
-            if (!hasNext())
-                throw new NoSuchElementException();
-            lastReturnedEntry = new Entry(index++);
-            return lastReturnedEntry;
-        }
-
-        public void remove() {
-            lastReturnedIndex =
-                ((null == lastReturnedEntry) ? -1 : lastReturnedEntry.index);
-            super.remove();
-            lastReturnedEntry.index = lastReturnedIndex;
-            lastReturnedEntry = null;
-        }
-
-        private class Entry implements Map.Entry<K,V> {
-            private int index;
-
-            private Entry(int index) {
-                this.index = index;
-            }
-
-            public K getKey() {
-                checkIndexForEntryUse();
-                return keyUniverse[index];
-            }
-
-            public V getValue() {
-                checkIndexForEntryUse();
-                return unmaskNull(vals[index]);
-            }
-
-            public V setValue(V value) {
-                checkIndexForEntryUse();
-                V oldValue = unmaskNull(vals[index]);
-                vals[index] = maskNull(value);
-                return oldValue;
-            }
-
-            public boolean equals(Object o) {
-                if (index < 0)
-                    return o == this;
-
-                if (!(o instanceof Map.Entry))
-                    return false;
-
-                Map.Entry<?,?> e = (Map.Entry<?,?>)o;
-                V ourValue = unmaskNull(vals[index]);
-                Object hisValue = e.getValue();
-                return (e.getKey() == keyUniverse[index] &&
-                        (ourValue == hisValue ||
-                         (ourValue != null && ourValue.equals(hisValue))));
-            }
-
-            public int hashCode() {
-                if (index < 0)
-                    return super.hashCode();
-
-                return entryHashCode(index);
-            }
-
-            public String toString() {
-                if (index < 0)
-                    return super.toString();
-
-                return keyUniverse[index] + "="
-                    + unmaskNull(vals[index]);
-            }
-
-            private void checkIndexForEntryUse() {
-                if (index < 0)
-                    throw new IllegalStateException("Entry was removed");
-            }
-        }
-    }
-
-    // Comparison and hashing
-
-    /**
-     * Compares the specified object with this map for equality.  Returns
-     * <tt>true</tt> if the given object is also a map and the two maps
-     * represent the same mappings, as specified in the {@link
-     * Map#equals(Object)} contract.
-     *
-     * @param o the object to be compared for equality with this map
-     * @return <tt>true</tt> if the specified object is equal to this map
-     */
-    public boolean equals(Object o) {
-        if (this == o)
-            return true;
-        if (o instanceof EnumMap)
-            return equals((EnumMap<?,?>)o);
-        if (!(o instanceof Map))
-            return false;
-
-        Map<?,?> m = (Map<?,?>)o;
-        if (size != m.size())
-            return false;
-
-        for (int i = 0; i < keyUniverse.length; i++) {
-            if (null != vals[i]) {
-                K key = keyUniverse[i];
-                V value = unmaskNull(vals[i]);
-                if (null == value) {
-                    if (!((null == m.get(key)) && m.containsKey(key)))
-                       return false;
-                } else {
-                   if (!value.equals(m.get(key)))
-                      return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    private boolean equals(EnumMap<?,?> em) {
-        if (em.keyType != keyType)
-            return size == 0 && em.size == 0;
-
-        // Key types match, compare each value
-        for (int i = 0; i < keyUniverse.length; i++) {
-            Object ourValue =    vals[i];
-            Object hisValue = em.vals[i];
-            if (hisValue != ourValue &&
-                (hisValue == null || !hisValue.equals(ourValue)))
-                return false;
-        }
-        return true;
-    }
-
-    /**
-     * Returns the hash code value for this map.  The hash code of a map is
-     * defined to be the sum of the hash codes of each entry in the map.
-     */
-    public int hashCode() {
-        int h = 0;
-
-        for (int i = 0; i < keyUniverse.length; i++) {
-            if (null != vals[i]) {
-                h += entryHashCode(i);
-            }
-        }
-
-        return h;
-    }
-
-    private int entryHashCode(int index) {
-        return (keyUniverse[index].hashCode() ^ vals[index].hashCode());
-    }
-
-    /**
-     * Returns a shallow copy of this enum map.  (The values themselves
-     * are not cloned.
-     *
-     * @return a shallow copy of this enum map
-     */
-    @SuppressWarnings("unchecked")
-    public EnumMap<K, V> clone() {
-        EnumMap<K, V> result = null;
-        try {
-            result = (EnumMap<K, V>) super.clone();
-        } catch(CloneNotSupportedException e) {
-            throw new AssertionError();
-        }
-        result.vals = result.vals.clone();
-        result.entrySet = null;
-        return result;
-    }
-
-    /**
-     * Throws an exception if e is not of the correct type for this enum set.
-     */
-    private void typeCheck(K key) {
-        Class<?> keyClass = key.getClass();
-        if (keyClass != keyType && keyClass.getSuperclass() != keyType)
-            throw new ClassCastException(keyClass + " != " + keyType);
-    }
-
-    /**
-     * Returns all of the values comprising K.
-     * The result is uncloned, cached, and shared by all callers.
-     */
-    private static <K extends Enum<K>> K[] getKeyUniverse(Class<K> keyType) {
-        // Android-changed: Use getEnumConstantsShared directly instead of going
-        // through SharedSecrets.
-        return keyType.getEnumConstantsShared();
-    }
+public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V> implements
+        Serializable, Cloneable, Map<K, V> {
+
+    // BEGIN android-changed
+    // added implements Map<K, V> for apicheck
+    // END android-changed
 
     private static final long serialVersionUID = 458661240069192865L;
 
-    /**
-     * Save the state of the <tt>EnumMap</tt> instance to a stream (i.e.,
-     * serialize it).
-     *
-     * @serialData The <i>size</i> of the enum map (the number of key-value
-     *             mappings) is emitted (int), followed by the key (Object)
-     *             and value (Object) for each key-value mapping represented
-     *             by the enum map.
-     */
-    private void writeObject(java.io.ObjectOutputStream s)
-        throws java.io.IOException
-    {
-        // Write out the key type and any hidden stuff
-        s.defaultWriteObject();
+    private Class<K> keyType;
 
-        // Write out size (number of Mappings)
-        s.writeInt(size);
+    transient K[] keys;
 
-        // Write out keys and values (alternating)
-        int entriesToBeWritten = size;
-        for (int i = 0; entriesToBeWritten > 0; i++) {
-            if (null != vals[i]) {
-                s.writeObject(keyUniverse[i]);
-                s.writeObject(unmaskNull(vals[i]));
-                entriesToBeWritten--;
+    transient V[] values;
+
+    transient boolean[] hasMapping;
+
+    private transient int mappingsCount;
+
+    transient int enumSize;
+
+    private transient EnumMapEntrySet<K, V> entrySet = null;
+
+    private static class Entry<KT extends Enum<KT>, VT> extends MapEntry<KT, VT> {
+        private final EnumMap<KT, VT> enumMap;
+
+        private final int ordinal;
+
+        Entry(KT theKey, VT theValue, EnumMap<KT, VT> em) {
+            super(theKey, theValue);
+            enumMap = em;
+            ordinal = theKey.ordinal();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (!enumMap.hasMapping[ordinal]) {
+                return false;
+            }
+            boolean isEqual = false;
+            if (object instanceof Map.Entry) {
+                Map.Entry<?, ?> entry = (Map.Entry<?, ?>) object;
+                Object enumKey = entry.getKey();
+                if (key.equals(enumKey)) {
+                    Object theValue = entry.getValue();
+                    if (enumMap.values[ordinal] == null) {
+                        isEqual = (theValue == null);
+                    } else {
+                        isEqual = enumMap.values[ordinal].equals(theValue);
+                    }
+                }
+            }
+            return isEqual;
+        }
+
+        @Override
+        public int hashCode() {
+            return (enumMap.keys[ordinal] == null ? 0 : enumMap.keys[ordinal].hashCode())
+                    ^ (enumMap.values[ordinal] == null ? 0
+                            : enumMap.values[ordinal].hashCode());
+        }
+
+        @Override
+        public KT getKey() {
+            checkEntryStatus();
+            return enumMap.keys[ordinal];
+        }
+
+        @Override
+        public VT getValue() {
+            checkEntryStatus();
+            return enumMap.values[ordinal];
+        }
+
+        @Override
+        public VT setValue(VT value) {
+            checkEntryStatus();
+            return enumMap.put(enumMap.keys[ordinal], value);
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder result = new StringBuilder(enumMap.keys[ordinal].toString());
+            result.append("=");
+            result.append(enumMap.values[ordinal] == null
+                    ? "null" : enumMap.values[ordinal].toString());
+            return result.toString();
+        }
+
+        private void checkEntryStatus() {
+            if (!enumMap.hasMapping[ordinal]) {
+                throw new IllegalStateException();
             }
         }
     }
 
-    /**
-     * Reconstitute the <tt>EnumMap</tt> instance from a stream (i.e.,
-     * deserialize it).
-     */
-    @SuppressWarnings("unchecked")
-    private void readObject(java.io.ObjectInputStream s)
-        throws java.io.IOException, ClassNotFoundException
-    {
-        // Read in the key type and any hidden stuff
-        s.defaultReadObject();
+    private static class EnumMapIterator<E, KT extends Enum<KT>, VT> implements Iterator<E> {
+        int position = 0;
 
-        keyUniverse = getKeyUniverse(keyType);
-        vals = new Object[keyUniverse.length];
+        int prePosition = -1;
 
-        // Read in size (number of Mappings)
-        int size = s.readInt();
+        final EnumMap<KT, VT> enumMap;
 
-        // Read the keys and values, and put the mappings in the HashMap
-        for (int i = 0; i < size; i++) {
-            K key = (K) s.readObject();
-            V value = (V) s.readObject();
-            put(key, value);
+        final MapEntry.Type<E, KT, VT> type;
+
+        EnumMapIterator(MapEntry.Type<E, KT, VT> value, EnumMap<KT, VT> em) {
+            enumMap = em;
+            type = value;
+        }
+
+        public boolean hasNext() {
+            int length = enumMap.enumSize;
+            for (; position < length; position++) {
+                if (enumMap.hasMapping[position]) {
+                    break;
+                }
+            }
+            return position != length;
+        }
+
+        public E next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            prePosition = position++;
+            return type.get(new MapEntry<KT, VT>(enumMap.keys[prePosition],
+                    enumMap.values[prePosition]));
+        }
+
+        public void remove() {
+            checkStatus();
+            if (enumMap.hasMapping[prePosition]) {
+                enumMap.remove(enumMap.keys[prePosition]);
+            }
+            prePosition = -1;
+        }
+
+        @Override
+        public String toString() {
+            if (prePosition == -1) {
+                return super.toString();
+            }
+            return type.get(
+                    new MapEntry<KT, VT>(enumMap.keys[prePosition],
+                            enumMap.values[prePosition])).toString();
+        }
+
+        private void checkStatus() {
+            if (prePosition == -1) {
+                throw new IllegalStateException();
+            }
         }
     }
+
+    private static class EnumMapKeySet<KT extends Enum<KT>, VT> extends
+            AbstractSet<KT> {
+        private final EnumMap<KT, VT> enumMap;
+
+        EnumMapKeySet(EnumMap<KT, VT> em) {
+            enumMap = em;
+        }
+
+        @Override
+        public void clear() {
+            enumMap.clear();
+        }
+
+        @Override
+        public boolean contains(Object object) {
+            return enumMap.containsKey(object);
+        }
+
+        @Override
+        public Iterator<KT> iterator() {
+            return new EnumMapIterator<KT, KT, VT>(
+                    new MapEntry.Type<KT, KT, VT>() {
+                        public KT get(MapEntry<KT, VT> entry) {
+                            return entry.key;
+                        }
+                    }, enumMap);
+        }
+
+        @Override
+        public boolean remove(Object object) {
+            if (contains(object)) {
+                enumMap.remove(object);
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public int size() {
+            return enumMap.size();
+        }
+    }
+
+    private static class EnumMapValueCollection<KT extends Enum<KT>, VT>
+            extends AbstractCollection<VT> {
+        private final EnumMap<KT, VT> enumMap;
+
+        EnumMapValueCollection(EnumMap<KT, VT> em) {
+            enumMap = em;
+        }
+
+        @Override
+        public void clear() {
+            enumMap.clear();
+        }
+
+        @Override
+        public boolean contains(Object object) {
+            return enumMap.containsValue(object);
+        }
+
+        @Override
+        public Iterator<VT> iterator() {
+            return new EnumMapIterator<VT, KT, VT>(
+                    new MapEntry.Type<VT, KT, VT>() {
+                        public VT get(MapEntry<KT, VT> entry) {
+                            return entry.value;
+                        }
+                    }, enumMap);
+        }
+
+        @Override
+        public boolean remove(Object object) {
+            if (object == null) {
+                for (int i = 0; i < enumMap.enumSize; i++) {
+                    if (enumMap.hasMapping[i] && enumMap.values[i] == null) {
+                        enumMap.remove(enumMap.keys[i]);
+                        return true;
+                    }
+                }
+            } else {
+                for (int i = 0; i < enumMap.enumSize; i++) {
+                    if (enumMap.hasMapping[i]
+                            && object.equals(enumMap.values[i])) {
+                        enumMap.remove(enumMap.keys[i]);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public int size() {
+            return enumMap.size();
+        }
+    }
+
+    private static class EnumMapEntryIterator<E, KT extends Enum<KT>, VT>
+            extends EnumMapIterator<E, KT, VT> {
+        EnumMapEntryIterator(MapEntry.Type<E, KT, VT> value, EnumMap<KT, VT> em) {
+            super(value, em);
+        }
+
+        @Override
+        public E next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            prePosition = position++;
+            return type.get(new EnumMap.Entry<KT, VT>(enumMap.keys[prePosition],
+                    enumMap.values[prePosition], enumMap));
+        }
+    }
+
+    private static class EnumMapEntrySet<KT extends Enum<KT>, VT> extends
+            AbstractSet<Map.Entry<KT, VT>> {
+        private final EnumMap<KT, VT> enumMap;
+
+        EnumMapEntrySet(EnumMap<KT, VT> em) {
+            enumMap = em;
+        }
+
+        @Override
+        public void clear() {
+            enumMap.clear();
+        }
+
+        @Override
+        public boolean contains(Object object) {
+            boolean isEqual = false;
+            if (object instanceof Map.Entry) {
+                Object enumKey = ((Map.Entry<?, ?>) object).getKey();
+                Object enumValue = ((Map.Entry<?, ?>) object).getValue();
+                if (enumMap.containsKey(enumKey)) {
+                    VT value = enumMap.get(enumKey);
+                    if (value == null) {
+                        isEqual = enumValue == null;
+                    } else {
+                        isEqual = value.equals(enumValue);
+                    }
+                }
+            }
+            return isEqual;
+        }
+
+        @Override
+        public Iterator<Map.Entry<KT, VT>> iterator() {
+            return new EnumMapEntryIterator<Map.Entry<KT, VT>, KT, VT>(
+                    new MapEntry.Type<Map.Entry<KT, VT>, KT, VT>() {
+                        public Map.Entry<KT, VT> get(MapEntry<KT, VT> entry) {
+                            return entry;
+                        }
+                    }, enumMap);
+        }
+
+        @Override
+        public boolean remove(Object object) {
+            if (contains(object)) {
+                enumMap.remove(((Map.Entry<?, ?>) object).getKey());
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public int size() {
+            return enumMap.size();
+        }
+
+        @Override
+        public Object[] toArray() {
+            Object[] entryArray = new Object[enumMap.size()];
+            return toArray(entryArray);
+        }
+
+        @Override
+        public <T> T[] toArray(T[] array) {
+            int size = enumMap.size();
+            int index = 0;
+            T[] entryArray = array;
+            if (size > array.length) {
+                Class<?> clazz = array.getClass().getComponentType();
+                @SuppressWarnings("unchecked") T[] newArray = (T[]) Array.newInstance(clazz, size);
+                entryArray = newArray;
+            }
+            Iterator<Map.Entry<KT, VT>> iter = iterator();
+            for (; index < size; index++) {
+                Map.Entry<KT, VT> entry = iter.next();
+                @SuppressWarnings("unchecked") T newEntry =
+                        (T) new MapEntry<KT, VT>(entry.getKey(), entry.getValue());
+                entryArray[index] = newEntry;
+            }
+            if (index < array.length) {
+                entryArray[index] = null;
+            }
+            return entryArray;
+        }
+    }
+
+    /**
+     * Constructs an empty {@code EnumMap} using the given key type.
+     *
+     * @param keyType
+     *            the class object giving the type of the keys used by this {@code EnumMap}.
+     * @throws NullPointerException
+     *             if {@code keyType} is {@code null}.
+     */
+    public EnumMap(Class<K> keyType) {
+        initialization(keyType);
+    }
+
+    /**
+     * Constructs an {@code EnumMap} using the same key type as the given {@code EnumMap} and
+     * initially containing the same mappings.
+     *
+     * @param map
+     *            the {@code EnumMap} from which this {@code EnumMap} is initialized.
+     * @throws NullPointerException
+     *             if {@code map} is {@code null}.
+     */
+    public EnumMap(EnumMap<K, ? extends V> map) {
+        initialization(map);
+    }
+
+    /**
+     * Constructs an {@code EnumMap} initialized from the given map. If the given map
+     * is an {@code EnumMap} instance, this constructor behaves in the exactly the same
+     * way as {@link EnumMap#EnumMap(EnumMap)}}. Otherwise, the given map
+     * should contain at least one mapping.
+     *
+     * @param map
+     *            the map from which this {@code EnumMap} is initialized.
+     * @throws IllegalArgumentException
+     *             if {@code map} is not an {@code EnumMap} instance and does not contain
+     *             any mappings.
+     * @throws NullPointerException
+     *             if {@code map} is {@code null}.
+     */
+    public EnumMap(Map<K, ? extends V> map) {
+        if (map instanceof EnumMap) {
+            @SuppressWarnings("unchecked") EnumMap<K, ? extends V> enumMap =
+                    (EnumMap<K, ? extends V>) map;
+            initialization(enumMap);
+        } else {
+            if (map.isEmpty()) {
+                throw new IllegalArgumentException("map is empty");
+            }
+            Iterator<K> iter = map.keySet().iterator();
+            K enumKey = iter.next();
+            // Confirm the key is actually an enum: Throw ClassCastException if not.
+            Enum.class.cast(enumKey);
+            Class<?> clazz = enumKey.getClass();
+            if (!clazz.isEnum()) {
+                // Each enum value can have its own subclass. In this case we want the abstract
+                // super-class which has the values() method.
+                clazz = clazz.getSuperclass();
+            }
+            @SuppressWarnings("unchecked") Class<K> enumClass = (Class<K>) clazz;
+            initialization(enumClass);
+            putAllImpl(map);
+        }
+    }
+
+    /**
+     * Removes all elements from this {@code EnumMap}, leaving it empty.
+     *
+     * @see #isEmpty()
+     * @see #size()
+     */
+    @Override
+    public void clear() {
+        Arrays.fill(values, null);
+        Arrays.fill(hasMapping, false);
+        mappingsCount = 0;
+    }
+
+    /**
+     * Returns a shallow copy of this {@code EnumMap}.
+     *
+     * @return a shallow copy of this {@code EnumMap}.
+     */
+    @Override
+    public EnumMap<K, V> clone() {
+        try {
+            @SuppressWarnings("unchecked") EnumMap<K, V> enumMap = (EnumMap<K, V>) super.clone();
+            enumMap.initialization(this);
+            return enumMap;
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /**
+     * Returns whether this {@code EnumMap} contains the specified key.
+     *
+     * @param key
+     *            the key to search for.
+     * @return {@code true} if this {@code EnumMap} contains the specified key,
+     *         {@code false} otherwise.
+     */
+    @Override
+    public boolean containsKey(Object key) {
+        if (isValidKeyType(key)) {
+            int keyOrdinal = ((Enum) key).ordinal();
+            return hasMapping[keyOrdinal];
+        }
+        return false;
+    }
+
+    /**
+     * Returns whether this {@code EnumMap} contains the specified value.
+     *
+     * @param value
+     *            the value to search for.
+     * @return {@code true} if this {@code EnumMap} contains the specified value,
+     *         {@code false} otherwise.
+     */
+    @Override
+    public boolean containsValue(Object value) {
+        if (value == null) {
+            for (int i = 0; i < enumSize; i++) {
+                if (hasMapping[i] && values[i] == null) {
+                    return true;
+                }
+            }
+        } else {
+            for (int i = 0; i < enumSize; i++) {
+                if (hasMapping[i] && value.equals(values[i])) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns a {@code Set} containing all of the mappings in this {@code EnumMap}. Each mapping is
+     * an instance of {@link Map.Entry}. As the {@code Set} is backed by this {@code EnumMap},
+     * changes in one will be reflected in the other.
+     * <p>
+     * The order of the entries in the set will be the order that the enum keys
+     * were declared in.
+     *
+     * @return a {@code Set} of the mappings.
+     */
+    @Override
+    public Set<Map.Entry<K, V>> entrySet() {
+        if (entrySet == null) {
+            entrySet = new EnumMapEntrySet<K, V>(this);
+        }
+        return entrySet;
+    }
+
+    /**
+     * Compares the argument to the receiver, and returns {@code true} if the
+     * specified {@code Object} is an {@code EnumMap} and both {@code EnumMap}s contain the same mappings.
+     *
+     * @param object
+     *            the {@code Object} to compare with this {@code EnumMap}.
+     * @return boolean {@code true} if {@code object} is the same as this {@code EnumMap},
+     *         {@code false} otherwise.
+     * @see #hashCode()
+     * @see #entrySet()
+     */
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (!(object instanceof EnumMap)) {
+            return super.equals(object);
+        }
+        @SuppressWarnings("unchecked") EnumMap<K, V> enumMap = (EnumMap<K, V>) object;
+        if (keyType != enumMap.keyType || size() != enumMap.size()) {
+            return false;
+        }
+        return Arrays.equals(hasMapping, enumMap.hasMapping)
+                && Arrays.equals(values, enumMap.values);
+    }
+
+    /**
+     * Returns the value of the mapping with the specified key.
+     *
+     * @param key
+     *            the key.
+     * @return the value of the mapping with the specified key, or {@code null}
+     *         if no mapping for the specified key is found.
+     */
+    @Override
+    public V get(Object key) {
+        if (!isValidKeyType(key)) {
+            return null;
+        }
+        int keyOrdinal = ((Enum) key).ordinal();
+        return values[keyOrdinal];
+    }
+
+    /**
+     * Returns a set of the keys contained in this {@code EnumMap}. The {@code Set} is backed by
+     * this {@code EnumMap} so changes to one are reflected in the other. The {@code Set} does not
+     * support adding.
+     * <p>
+     * The order of the set will be the order that the enum keys were declared
+     * in.
+     *
+     * @return a {@code Set} of the keys.
+     */
+    @Override
+    public Set<K> keySet() {
+        if (keySet == null) {
+            keySet = new EnumMapKeySet<K, V>(this);
+        }
+        return keySet;
+    }
+
+    /**
+     * Maps the specified key to the specified value.
+     *
+     * @param key
+     *            the key.
+     * @param value
+     *            the value.
+     * @return the value of any previous mapping with the specified key or
+     *         {@code null} if there was no mapping.
+     * @throws UnsupportedOperationException
+     *                if adding to this map is not supported.
+     * @throws ClassCastException
+     *                if the class of the key or value is inappropriate for this
+     *                map.
+     * @throws IllegalArgumentException
+     *                if the key or value cannot be added to this map.
+     * @throws NullPointerException
+     *                if the key or value is {@code null} and this {@code EnumMap} does not
+     *                support {@code null} keys or values.
+     */
+    @Override
+    public V put(K key, V value) {
+        return putImpl(key, value);
+    }
+
+    /**
+     * Copies every mapping in the specified {@code Map} to this {@code EnumMap}.
+     *
+     * @param map
+     *            the {@code Map} to copy mappings from.
+     * @throws UnsupportedOperationException
+     *                if adding to this {@code EnumMap} is not supported.
+     * @throws ClassCastException
+     *                if the class of a key or value is inappropriate for this
+     *                {@code EnumMap}.
+     * @throws IllegalArgumentException
+     *                if a key or value cannot be added to this map.
+     * @throws NullPointerException
+     *                if a key or value is {@code null} and this {@code EnumMap} does not
+     *                support {@code null} keys or values.
+     */
+    @Override
+    public void putAll(Map<? extends K, ? extends V> map) {
+        putAllImpl(map);
+    }
+
+    /**
+     * Removes a mapping with the specified key from this {@code EnumMap}.
+     *
+     * @param key
+     *            the key of the mapping to remove.
+     * @return the value of the removed mapping or {@code null} if no mapping
+     *         for the specified key was found.
+     * @throws UnsupportedOperationException
+     *                if removing from this {@code EnumMap} is not supported.
+     */
+    @Override
+    public V remove(Object key) {
+        if (!isValidKeyType(key)) {
+            return null;
+        }
+        int keyOrdinal = ((Enum) key).ordinal();
+        if (hasMapping[keyOrdinal]) {
+            hasMapping[keyOrdinal] = false;
+            mappingsCount--;
+        }
+        V oldValue = values[keyOrdinal];
+        values[keyOrdinal] = null;
+        return oldValue;
+    }
+
+    /**
+     * Returns the number of elements in this {@code EnumMap}.
+     *
+     * @return the number of elements in this {@code EnumMap}.
+     */
+    @Override
+    public int size() {
+        return mappingsCount;
+    }
+
+    /**
+     * Returns a {@code Collection} of the values contained in this {@code EnumMap}. The returned
+     * {@code Collection} complies with the general rule specified in
+     * {@link Map#values()}. The {@code Collection}'s {@code Iterator} will return the values
+     * in the their corresponding keys' natural order (the {@code Enum} constants are
+     * declared in this order).
+     * <p>
+     * The order of the values in the collection will be the order that their
+     * corresponding enum keys were declared in.
+     *
+     * @return a collection of the values contained in this {@code EnumMap}.
+     */
+    @Override
+    public Collection<V> values() {
+        if (valuesCollection == null) {
+            valuesCollection = new EnumMapValueCollection<K, V>(this);
+        }
+        return valuesCollection;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void readObject(ObjectInputStream stream) throws IOException,
+            ClassNotFoundException {
+        stream.defaultReadObject();
+        initialization(keyType);
+        int elementCount = stream.readInt();
+        K enumKey;
+        V value;
+        for (int i = elementCount; i > 0; i--) {
+            enumKey = (K) stream.readObject();
+            value = (V) stream.readObject();
+            putImpl(enumKey, value);
+        }
+    }
+
+    private void writeObject(ObjectOutputStream stream) throws IOException {
+        stream.defaultWriteObject();
+        stream.writeInt(mappingsCount);
+        for (Map.Entry<K, V> entry : entrySet()) {
+            stream.writeObject(entry.getKey());
+            stream.writeObject(entry.getValue());
+        }
+    }
+
+    private boolean isValidKeyType(Object key) {
+        return key != null && keyType.isInstance(key);
+    }
+
+    private void initialization(EnumMap<K, ? extends V> enumMap) {
+        keyType = enumMap.keyType;
+        keys = enumMap.keys;
+        enumSize = enumMap.enumSize;
+        values = enumMap.values.clone();
+        hasMapping = enumMap.hasMapping.clone();
+        mappingsCount = enumMap.mappingsCount;
+    }
+
+    private void initialization(Class<K> type) {
+        keyType = type;
+        keys = Enum.getSharedConstants(keyType);
+        enumSize = keys.length;
+        // The value array is actually Object[] for speed of creation. It is treated as a V[]
+        // because it is safe to do so and eliminates unchecked warning suppression throughout.
+        @SuppressWarnings("unchecked") V[] valueArray = (V[]) new Object[enumSize];
+        values = valueArray;
+        hasMapping = new boolean[enumSize];
+    }
+
+    private void putAllImpl(Map<? extends K, ? extends V> map) {
+        for (Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
+            putImpl(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private V putImpl(K key, V value) {
+        if (key == null) {
+            throw new NullPointerException("key == null");
+        }
+        keyType.cast(key); // Called to throw ClassCastException.
+        int keyOrdinal = key.ordinal();
+        if (!hasMapping[keyOrdinal]) {
+            hasMapping[keyOrdinal] = true;
+            mappingsCount++;
+        }
+        V oldValue = values[keyOrdinal];
+        values[keyOrdinal] = value;
+        return oldValue;
+    }
+
 }

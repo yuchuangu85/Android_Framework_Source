@@ -16,8 +16,6 @@
 
 package android.text.style;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -86,15 +84,7 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
 
     private int mFlags;
     private final String[] mSuggestions;
-    /**
-     * Kept for compatibility for apps that rely on invalid locale strings e.g.
-     * {@code new Locale(" an ", " i n v a l i d ", "data")}, which cannot be handled by
-     * {@link #mLanguageTag}.
-     */
-    @NonNull
-    private final String mLocaleStringForCompatibility;
-    @NonNull
-    private final String mLanguageTag;
+    private final String mLocaleString;
     private final String mNotificationTargetClassName;
     private final String mNotificationTargetPackageName;
     private final int mHashCode;
@@ -140,18 +130,14 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
         final int N = Math.min(SUGGESTIONS_MAX_SIZE, suggestions.length);
         mSuggestions = Arrays.copyOf(suggestions, N);
         mFlags = flags;
-        final Locale sourceLocale;
         if (locale != null) {
-            sourceLocale = locale;
+            mLocaleString = locale.toString();
         } else if (context != null) {
-            // TODO: Consider to context.getResources().getResolvedLocale() instead.
-            sourceLocale = context.getResources().getConfiguration().locale;
+            mLocaleString = context.getResources().getConfiguration().locale.toString();
         } else {
             Log.e("SuggestionSpan", "No locale or context specified in SuggestionSpan constructor");
-            sourceLocale = null;
+            mLocaleString = "";
         }
-        mLocaleStringForCompatibility = sourceLocale == null ? "" : sourceLocale.toString();
-        mLanguageTag = sourceLocale == null ? "" : sourceLocale.toLanguageTag();
 
         if (context != null) {
             mNotificationTargetPackageName = context.getPackageName();
@@ -164,8 +150,7 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
         } else {
             mNotificationTargetClassName = "";
         }
-        mHashCode = hashCodeInternal(mSuggestions, mLanguageTag, mLocaleStringForCompatibility,
-                mNotificationTargetClassName);
+        mHashCode = hashCodeInternal(mSuggestions, mLocaleString, mNotificationTargetClassName);
 
         initStyle(context);
     }
@@ -209,8 +194,7 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
     public SuggestionSpan(Parcel src) {
         mSuggestions = src.readStringArray();
         mFlags = src.readInt();
-        mLocaleStringForCompatibility = src.readString();
-        mLanguageTag = src.readString();
+        mLocaleString = src.readString();
         mNotificationTargetClassName = src.readString();
         mNotificationTargetPackageName = src.readString();
         mHashCode = src.readInt();
@@ -230,29 +214,10 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
     }
 
     /**
-     * @deprecated use {@link #getLocaleObject()} instead.
-     * @return the locale of the suggestions. An empty string is returned if no locale is specified.
+     * @return the locale of the suggestions
      */
-    @NonNull
-    @Deprecated
     public String getLocale() {
-        return mLocaleStringForCompatibility;
-    }
-
-    /**
-     * Returns a well-formed BCP 47 language tag representation of the suggestions, as a
-     * {@link Locale} object.
-     *
-     * <p><b>Caveat</b>: The returned object is guaranteed to be a  a well-formed BCP 47 language tag
-     * representation.  For example, this method can return an empty locale rather than returning a
-     * malformed data when this object is initialized with an malformed {@link Locale} object, e.g.
-     * {@code new Locale(" a ", " b c d ", " "}.</p>
-     *
-     * @return the locale of the suggestions. {@code null} is returned if no locale is specified.
-     */
-    @Nullable
-    public Locale getLocaleObject() {
-        return mLanguageTag.isEmpty() ? null : Locale.forLanguageTag(mLanguageTag);
+        return mLocaleString;
     }
 
     /**
@@ -290,8 +255,7 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
     public void writeToParcelInternal(Parcel dest, int flags) {
         dest.writeStringArray(mSuggestions);
         dest.writeInt(mFlags);
-        dest.writeString(mLocaleStringForCompatibility);
-        dest.writeString(mLanguageTag);
+        dest.writeString(mLocaleString);
         dest.writeString(mNotificationTargetClassName);
         dest.writeString(mNotificationTargetPackageName);
         dest.writeInt(mHashCode);
@@ -326,10 +290,10 @@ public class SuggestionSpan extends CharacterStyle implements ParcelableSpan {
         return mHashCode;
     }
 
-    private static int hashCodeInternal(String[] suggestions, @NonNull String languageTag,
-            @NonNull String localeStringForCompatibility, String notificationTargetClassName) {
+    private static int hashCodeInternal(String[] suggestions, String locale,
+            String notificationTargetClassName) {
         return Arrays.hashCode(new Object[] {Long.valueOf(SystemClock.uptimeMillis()), suggestions,
-                languageTag, localeStringForCompatibility, notificationTargetClassName});
+                locale, notificationTargetClassName});
     }
 
     public static final Parcelable.Creator<SuggestionSpan> CREATOR =

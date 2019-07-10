@@ -16,13 +16,17 @@
 
 package android.widget;
 
-import android.annotation.AttrRes;
+import java.util.ArrayList;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.StyleRes;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.Canvas;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.Gravity;
@@ -34,7 +38,6 @@ import android.widget.RemoteViews.RemoteView;
 
 import com.android.internal.R;
 
-import java.util.ArrayList;
 
 /**
  * FrameLayout is designed to block out an area on the screen to display
@@ -72,29 +75,31 @@ public class FrameLayout extends ViewGroup {
     @ViewDebug.ExportedProperty(category = "padding")
     private int mForegroundPaddingBottom = 0;
 
-    private final ArrayList<View> mMatchParentChildren = new ArrayList<>(1);
-
-    public FrameLayout(@NonNull Context context) {
+    private final Rect mSelfBounds = new Rect();
+    private final Rect mOverlayBounds = new Rect();
+    
+    private final ArrayList<View> mMatchParentChildren = new ArrayList<View>(1);
+    
+    public FrameLayout(Context context) {
         super(context);
     }
-
-    public FrameLayout(@NonNull Context context, @Nullable AttributeSet attrs) {
+    
+    public FrameLayout(Context context, @Nullable AttributeSet attrs) {
         this(context, attrs, 0);
     }
 
-    public FrameLayout(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr) {
+    public FrameLayout(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         this(context, attrs, defStyleAttr, 0);
     }
 
-    public FrameLayout(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+    public FrameLayout(
+            Context context, @Nullable AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         final TypedArray a = context.obtainStyledAttributes(
-                attrs, R.styleable.FrameLayout, defStyleAttr, defStyleRes);
-
-        if (a.getBoolean(R.styleable.FrameLayout_measureAllChildren, false)) {
+                attrs, com.android.internal.R.styleable.FrameLayout, defStyleAttr, defStyleRes);
+        
+        if (a.getBoolean(com.android.internal.R.styleable.FrameLayout_measureAllChildren, false)) {
             setMeasureAllChildren(true);
         }
 
@@ -166,6 +171,10 @@ public class FrameLayout extends ViewGroup {
             mPaddingBottom + mForegroundPaddingBottom;
     }
 
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int count = getChildCount();
@@ -255,13 +264,17 @@ public class FrameLayout extends ViewGroup {
             }
         }
     }
-
+ 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         layoutChildren(left, top, right, bottom, false /* no force left gravity */);
     }
 
-    void layoutChildren(int left, int top, int right, int bottom, boolean forceLeftGravity) {
+    void layoutChildren(int left, int top, int right, int bottom,
+                                  boolean forceLeftGravity) {
         final int count = getChildCount();
 
         final int parentLeft = getPaddingLeftWithForeground();
@@ -365,9 +378,12 @@ public class FrameLayout extends ViewGroup {
         return mMeasureAllChildren;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public LayoutParams generateLayoutParams(AttributeSet attrs) {
-        return new FrameLayout.LayoutParams(getContext(), attrs);
+        return new FrameLayout.LayoutParams(getContext(), attrs);        
     }
 
     @Override
@@ -375,21 +391,17 @@ public class FrameLayout extends ViewGroup {
         return false;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     protected boolean checkLayoutParams(ViewGroup.LayoutParams p) {
         return p instanceof LayoutParams;
     }
 
     @Override
-    protected ViewGroup.LayoutParams generateLayoutParams(ViewGroup.LayoutParams lp) {
-        if (sPreserveMarginParamsInLayoutParamConversion) {
-            if (lp instanceof LayoutParams) {
-                return new LayoutParams((LayoutParams) lp);
-            } else if (lp instanceof MarginLayoutParams) {
-                return new LayoutParams((MarginLayoutParams) lp);
-            }
-        }
-        return new LayoutParams(lp);
+    protected ViewGroup.LayoutParams generateLayoutParams(ViewGroup.LayoutParams p) {
+        return new LayoutParams(p);
     }
 
     @Override
@@ -413,36 +425,34 @@ public class FrameLayout extends ViewGroup {
      * Per-child layout information for layouts that support margins.
      * See {@link android.R.styleable#FrameLayout_Layout FrameLayout Layout Attributes}
      * for a list of all child view attributes that this class supports.
-     *
+     * 
      * @attr ref android.R.styleable#FrameLayout_Layout_layout_gravity
      */
     public static class LayoutParams extends MarginLayoutParams {
         /**
-         * Value for {@link #gravity} indicating that a gravity has not been
-         * explicitly specified.
-         */
-        public static final int UNSPECIFIED_GRAVITY = -1;
-
-        /**
          * The gravity to apply with the View to which these layout parameters
          * are associated.
-         * <p>
-         * The default value is {@link #UNSPECIFIED_GRAVITY}, which is treated
-         * by FrameLayout as {@code Gravity.TOP | Gravity.START}.
          *
          * @see android.view.Gravity
+         * 
          * @attr ref android.R.styleable#FrameLayout_Layout_layout_gravity
          */
-        public int gravity = UNSPECIFIED_GRAVITY;
+        public int gravity = -1;
 
-        public LayoutParams(@NonNull Context c, @Nullable AttributeSet attrs) {
+        /**
+         * {@inheritDoc}
+         */
+        public LayoutParams(Context c, AttributeSet attrs) {
             super(c, attrs);
 
-            final TypedArray a = c.obtainStyledAttributes(attrs, R.styleable.FrameLayout_Layout);
-            gravity = a.getInt(R.styleable.FrameLayout_Layout_layout_gravity, UNSPECIFIED_GRAVITY);
+            TypedArray a = c.obtainStyledAttributes(attrs, com.android.internal.R.styleable.FrameLayout_Layout);
+            gravity = a.getInt(com.android.internal.R.styleable.FrameLayout_Layout_layout_gravity, -1);
             a.recycle();
         }
 
+        /**
+         * {@inheritDoc}
+         */
         public LayoutParams(int width, int height) {
             super(width, height);
         }
@@ -452,9 +462,9 @@ public class FrameLayout extends ViewGroup {
          * and weight.
          *
          * @param width the width, either {@link #MATCH_PARENT},
-         *              {@link #WRAP_CONTENT} or a fixed size in pixels
+         *        {@link #WRAP_CONTENT} or a fixed size in pixels
          * @param height the height, either {@link #MATCH_PARENT},
-         *               {@link #WRAP_CONTENT} or a fixed size in pixels
+         *        {@link #WRAP_CONTENT} or a fixed size in pixels
          * @param gravity the gravity
          *
          * @see android.view.Gravity
@@ -464,11 +474,17 @@ public class FrameLayout extends ViewGroup {
             this.gravity = gravity;
         }
 
-        public LayoutParams(@NonNull ViewGroup.LayoutParams source) {
+        /**
+         * {@inheritDoc}
+         */
+        public LayoutParams(ViewGroup.LayoutParams source) {
             super(source);
         }
 
-        public LayoutParams(@NonNull ViewGroup.MarginLayoutParams source) {
+        /**
+         * {@inheritDoc}
+         */
+        public LayoutParams(ViewGroup.MarginLayoutParams source) {
             super(source);
         }
 
@@ -478,7 +494,7 @@ public class FrameLayout extends ViewGroup {
          *
          * @param source The layout params to copy from.
          */
-        public LayoutParams(@NonNull LayoutParams source) {
+        public LayoutParams(LayoutParams source) {
             super(source);
 
             this.gravity = source.gravity;

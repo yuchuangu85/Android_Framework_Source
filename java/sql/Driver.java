@@ -1,156 +1,121 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
-import java.util.logging.Logger;
+import java.util.Properties;
 
 /**
- * The interface that every driver class must implement.
- * <P>The Java SQL framework allows for multiple database drivers.
+ * An interface to a JDBC driver. Instances are returned by {@link DriverManager}.
  *
- * <P>Each driver should supply a class that implements
- * the Driver interface.
- *
- * <P>The DriverManager will try to load as many drivers as it can
- * find and then for any given connection request, it will ask each
- * driver in turn to try to connect to the target URL.
- *
- * <P>It is strongly recommended that each Driver class should be
- * small and standalone so that the Driver class can be loaded and
- * queried without bringing in vast quantities of supporting code.
- *
- * <P>When a Driver class is loaded, it should create an instance of
- * itself and register it with the DriverManager. This means that a
- * user can load and register a driver by calling
- * <pre>
- *   <code>Class.forName("foo.bah.Driver")</code>
- * </pre>
+ * <p>The JDBC driver uses URLs to specify the location of specific data. URL
+ * format typically takes the form " {@code xxxx:yyyy:SpecificData}", where "
+ * {@code xxxx:yyyy}" is referred to as the <i>subprotocol</i> and is normally
+ * the same for all of a particular driver. " {@code SpecificData}" is a string
+ * which identifies the particular data source that the driver should use.
  *
  * @see DriverManager
- * @see Connection
  */
 public interface Driver {
 
     /**
-     * Attempts to make a database connection to the given URL.
-     * The driver should return "null" if it realizes it is the wrong kind
-     * of driver to connect to the given URL.  This will be common, as when
-     * the JDBC driver manager is asked to connect to a given URL it passes
-     * the URL to each loaded driver in turn.
+     * Returns whether the driver thinks that it can open a connection to the
+     * given URL.
      *
-     * <P>The driver should throw an <code>SQLException</code> if it is the right
-     * driver to connect to the given URL but has trouble connecting to
-     * the database.
-     *
-     * <P>The <code>java.util.Properties</code> argument can be used to pass
-     * arbitrary string tag/value pairs as connection arguments.
-     * Normally at least "user" and "password" properties should be
-     * included in the <code>Properties</code> object.
-     *
-     * @param url the URL of the database to which to connect
-     * @param info a list of arbitrary string tag/value pairs as
-     * connection arguments. Normally at least a "user" and
-     * "password" property should be included.
-     * @return a <code>Connection</code> object that represents a
-     *         connection to the URL
-     * @exception SQLException if a database access error occurs
+     * @param url
+     *            the URL to connect to.
+     * @return {@code true} if the driver thinks that is can open a connection
+     *         to the supplied URL, {@code false} otherwise. Typically, the
+     *         driver will respond {@code true} if it thinks that it can handle
+     *         the subprotocol specified by the driver.
+     * @throws SQLException
+     *          if a database error occurs.
      */
-    Connection connect(String url, java.util.Properties info)
-        throws SQLException;
+    public boolean acceptsURL(String url) throws SQLException;
 
     /**
-     * Retrieves whether the driver thinks that it can open a connection
-     * to the given URL.  Typically drivers will return <code>true</code> if they
-     * understand the subprotocol specified in the URL and <code>false</code> if
-     * they do not.
+     * Attempts to make a database connection to a data source specified by a
+     * supplied URL.
      *
-     * @param url the URL of the database
-     * @return <code>true</code> if this driver understands the given URL;
-     *         <code>false</code> otherwise
-     * @exception SQLException if a database access error occurs
+     * @param url
+     *            the URL to connect.
+     * @param info
+     *            some properties that should be used in establishing the
+     *            connection. The properties consist of name/value pairs of
+     *            strings. Normally, a connection to a database requires at
+     *            least two properties - for {@code "user"} and {@code
+     *            "password"} in order to pass authentication to the database.
+     * @return the connection to the database.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    boolean acceptsURL(String url) throws SQLException;
-
+    public Connection connect(String url, Properties info) throws SQLException;
 
     /**
-     * Gets information about the possible properties for this driver.
-     * <P>
-     * The <code>getPropertyInfo</code> method is intended to allow a generic
-     * GUI tool to discover what properties it should prompt
-     * a human for in order to get
-     * enough information to connect to a database.  Note that depending on
-     * the values the human has supplied so far, additional values may become
-     * necessary, so it may be necessary to iterate though several calls
-     * to the <code>getPropertyInfo</code> method.
+     * Gets the driver's major version number.
      *
-     * @param url the URL of the database to which to connect
-     * @param info a proposed list of tag/value pairs that will be sent on
-     *          connect open
-     * @return an array of <code>DriverPropertyInfo</code> objects describing
-     *          possible properties.  This array may be an empty array if
-     *          no properties are required.
-     * @exception SQLException if a database access error occurs
+     * @return the major version number of the driver - typically starts at 1.
      */
-    DriverPropertyInfo[] getPropertyInfo(String url, java.util.Properties info)
-                         throws SQLException;
-
+    public int getMajorVersion();
 
     /**
-     * Retrieves the driver's major version number. Initially this should be 1.
+     * Gets the driver's minor version number.
      *
-     * @return this driver's major version number
+     * @return the minor version number of the driver - typically starts at 0.
      */
-    int getMajorVersion();
+    public int getMinorVersion();
 
     /**
-     * Gets the driver's minor version number. Initially this should be 0.
-     * @return this driver's minor version number
+     * Gets information about possible properties for this driver.
+     * <p>
+     * This method is intended to provide a listing of possible properties that
+     * the client of the driver must supply in order to establish a connection
+     * to a database. Note that the returned array of properties may change
+     * depending on the supplied list of property values.
+     *
+     * @param url
+     *            the URL of the database. An application may call this method
+     *            iteratively as the property list is built up - for example,
+     *            when displaying a dialog to an end-user as part of the
+     *            database login process.
+     * @param info
+     *            a set of tag/value pairs giving data that a user may be
+     *            prompted to provide in order to connect to the database.
+     * @return an array of {@code DriverPropertyInfo} records which provide
+     *         details on which additional properties are required (in addition
+     *         to those supplied in the {@code info} parameter) in order to
+     *         connect to the database.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    int getMinorVersion();
-
+    public DriverPropertyInfo[] getPropertyInfo(String url, Properties info)
+            throws SQLException;
 
     /**
-     * Reports whether this driver is a genuine JDBC
-     * Compliant<sup><font size=-2>TM</font></sup> driver.
-     * A driver may only report <code>true</code> here if it passes the JDBC
-     * compliance tests; otherwise it is required to return <code>false</code>.
-     * <P>
-     * JDBC compliance requires full support for the JDBC API and full support
-     * for SQL 92 Entry Level.  It is expected that JDBC compliant drivers will
-     * be available for all the major commercial databases.
-     * <P>
-     * This method is not intended to encourage the development of non-JDBC
-     * compliant drivers, but is a recognition of the fact that some vendors
-     * are interested in using the JDBC API and framework for lightweight
-     * databases that do not support full database functionality, or for
-     * special databases such as document information retrieval where a SQL
-     * implementation may not be feasible.
-     * @return <code>true</code> if this driver is JDBC Compliant; <code>false</code>
-     *         otherwise
+     * Reports whether this driver is a genuine JDBC CompliantTM driver. The
+     * driver may only return {@code true} if it passes all the JDBC compliance
+     * tests.
+     * <p>
+     * A driver may not be fully compliant if the underlying database has
+     * limited functionality.
+     *
+     * @return {@code true} if the driver is fully JDBC compliant, {@code false}
+     *         otherwise.
      */
-    boolean jdbcCompliant();
+    public boolean jdbcCompliant();
 
 }

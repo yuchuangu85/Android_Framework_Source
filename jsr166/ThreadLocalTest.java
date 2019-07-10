@@ -19,7 +19,7 @@ public class ThreadLocalTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ThreadLocalTest.class);
+    //     return new TestSuite(...);
     // }
 
     static ThreadLocal<Integer> tl = new ThreadLocal<Integer>() {

@@ -100,8 +100,4 @@ public class QSDetailClipper {
             mAnimator = null;
         };
     };
-
-    public void showBackground() {
-        mBackground.showSecondLayer();
-    }
 }

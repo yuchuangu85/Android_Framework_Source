@@ -16,40 +16,30 @@
 
 package android.widget;
 
-import android.annotation.AttrRes;
 import android.annotation.ColorInt;
 import android.annotation.DrawableRes;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.StyleRes;
-import android.annotation.TestApi;
 import android.annotation.Widget;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
-import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.icu.util.Calendar;
-import android.icu.util.TimeZone;
 import android.util.AttributeSet;
 import android.util.Log;
-
 import com.android.internal.R;
 
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 
 /**
- * This class is a calendar widget for displaying and selecting dates. The
- * range of dates supported by this calendar is configurable.
- * <p>
- * The exact appearance and interaction model of this widget may vary between
- * OS versions and themes (e.g. Holo versus Material), but in general a user
- * can select a date by tapping on it and can scroll or fling the calendar to a
- * desired date.
+ * This class is a calendar widget for displaying and selecting dates. The range
+ * of dates supported by this calendar is configurable. A user can select a date
+ * by taping on it and can scroll and fling the calendar to a desired date.
  *
  * @attr ref android.R.styleable#CalendarView_showWeekNumber
  * @attr ref android.R.styleable#CalendarView_firstDayOfWeek
@@ -87,24 +77,22 @@ public class CalendarView extends FrameLayout {
          * @param month The month that was set [0-11].
          * @param dayOfMonth The day of the month that was set.
          */
-        void onSelectedDayChange(@NonNull CalendarView view, int year, int month, int dayOfMonth);
+        public void onSelectedDayChange(CalendarView view, int year, int month, int dayOfMonth);
     }
 
-    public CalendarView(@NonNull Context context) {
+    public CalendarView(Context context) {
         this(context, null);
     }
 
-    public CalendarView(@NonNull Context context, @Nullable AttributeSet attrs) {
+    public CalendarView(Context context, AttributeSet attrs) {
         this(context, attrs, R.attr.calendarViewStyle);
     }
 
-    public CalendarView(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr) {
+    public CalendarView(Context context, AttributeSet attrs, int defStyleAttr) {
         this(context, attrs, defStyleAttr, 0);
     }
 
-    public CalendarView(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+    public CalendarView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         final TypedArray a = context.obtainStyledAttributes(
@@ -334,7 +322,7 @@ public class CalendarView extends FrameLayout {
      *
      * @attr ref android.R.styleable#CalendarView_weekDayTextAppearance
      */
-    public void setWeekDayTextAppearance(@StyleRes int resourceId) {
+    public void setWeekDayTextAppearance(int resourceId) {
         mDelegate.setWeekDayTextAppearance(resourceId);
     }
 
@@ -345,7 +333,7 @@ public class CalendarView extends FrameLayout {
      *
      * @attr ref android.R.styleable#CalendarView_weekDayTextAppearance
      */
-    public @StyleRes int getWeekDayTextAppearance() {
+    public int getWeekDayTextAppearance() {
         return mDelegate.getWeekDayTextAppearance();
     }
 
@@ -356,7 +344,7 @@ public class CalendarView extends FrameLayout {
      *
      * @attr ref android.R.styleable#CalendarView_dateTextAppearance
      */
-    public void setDateTextAppearance(@StyleRes int resourceId) {
+    public void setDateTextAppearance(int resourceId) {
         mDelegate.setDateTextAppearance(resourceId);
     }
 
@@ -367,7 +355,7 @@ public class CalendarView extends FrameLayout {
      *
      * @attr ref android.R.styleable#CalendarView_dateTextAppearance
      */
-    public @StyleRes int getDateTextAppearance() {
+    public int getDateTextAppearance() {
         return mDelegate.getDateTextAppearance();
     }
 
@@ -433,11 +421,9 @@ public class CalendarView extends FrameLayout {
      * Sets whether to show the week number.
      *
      * @param showWeekNumber True to show the week number.
-     * @deprecated No longer used by Material-style CalendarView.
      *
      * @attr ref android.R.styleable#CalendarView_showWeekNumber
      */
-    @Deprecated
     public void setShowWeekNumber(boolean showWeekNumber) {
         mDelegate.setShowWeekNumber(showWeekNumber);
     }
@@ -446,11 +432,9 @@ public class CalendarView extends FrameLayout {
      * Gets whether to show the week number.
      *
      * @return True if showing the week number.
-     * @deprecated No longer used by Material-style CalendarView.
      *
      * @attr ref android.R.styleable#CalendarView_showWeekNumber
      */
-    @Deprecated
     public boolean getShowWeekNumber() {
         return mDelegate.getShowWeekNumber();
     }
@@ -547,19 +531,6 @@ public class CalendarView extends FrameLayout {
         mDelegate.setDate(date, animate, center);
     }
 
-    /**
-     * Retrieves the screen bounds for the specific date in the coordinate system of this
-     * view. If the passed date is being currently displayed, this method returns true and
-     * the caller can query the fields of the passed {@link Rect} object. Otherwise the
-     * method returns false and does not touch the passed {@link Rect} object.
-     *
-     * @hide
-     */
-    @TestApi
-    public boolean getBoundsForDate(long date, Rect outBounds) {
-        return mDelegate.getBoundsForDate(date, outBounds);
-    }
-
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -581,29 +552,36 @@ public class CalendarView extends FrameLayout {
         int getShownWeekCount();
 
         void setSelectedWeekBackgroundColor(@ColorInt int color);
-        @ColorInt int getSelectedWeekBackgroundColor();
+        @ColorInt
+        int getSelectedWeekBackgroundColor();
 
         void setFocusedMonthDateColor(@ColorInt int color);
-        @ColorInt int getFocusedMonthDateColor();
+        @ColorInt
+        int getFocusedMonthDateColor();
 
         void setUnfocusedMonthDateColor(@ColorInt int color);
-        @ColorInt int getUnfocusedMonthDateColor();
+        @ColorInt
+        int getUnfocusedMonthDateColor();
 
         void setWeekNumberColor(@ColorInt int color);
-        @ColorInt int getWeekNumberColor();
+        @ColorInt
+        int getWeekNumberColor();
 
         void setWeekSeparatorLineColor(@ColorInt int color);
-        @ColorInt int getWeekSeparatorLineColor();
+        @ColorInt
+        int getWeekSeparatorLineColor();
 
         void setSelectedDateVerticalBar(@DrawableRes int resourceId);
         void setSelectedDateVerticalBar(Drawable drawable);
         Drawable getSelectedDateVerticalBar();
 
         void setWeekDayTextAppearance(@StyleRes int resourceId);
-        @StyleRes int getWeekDayTextAppearance();
+        @StyleRes
+        int getWeekDayTextAppearance();
 
         void setDateTextAppearance(@StyleRes int resourceId);
-        @StyleRes int getDateTextAppearance();
+        @StyleRes
+        int getDateTextAppearance();
 
         void setMinDate(long minDate);
         long getMinDate();
@@ -620,8 +598,6 @@ public class CalendarView extends FrameLayout {
         void setDate(long date);
         void setDate(long date, boolean animate, boolean center);
         long getDate();
-
-        boolean getBoundsForDate(long date, Rect outBounds);
 
         void setOnDateChangeListener(OnDateChangeListener listener);
 

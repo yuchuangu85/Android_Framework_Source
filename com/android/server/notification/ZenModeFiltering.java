@@ -16,10 +16,7 @@
 
 package com.android.server.notification;
 
-import static android.provider.Settings.Global.ZEN_MODE_OFF;
-
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.media.AudioAttributes;
@@ -32,9 +29,6 @@ import android.service.notification.ZenModeConfig;
 import android.telecom.TelecomManager;
 import android.util.ArrayMap;
 import android.util.Slog;
-
-import com.android.internal.messages.nano.SystemMessageProto;
-import com.android.internal.util.NotificationMessagingUtil;
 
 import java.io.PrintWriter;
 import java.util.Date;
@@ -49,16 +43,9 @@ public class ZenModeFiltering {
     private final Context mContext;
 
     private ComponentName mDefaultPhoneApp;
-    private final NotificationMessagingUtil mMessagingUtil;
 
     public ZenModeFiltering(Context context) {
         mContext = context;
-        mMessagingUtil = new NotificationMessagingUtil(mContext);
-    }
-
-    public ZenModeFiltering(Context context, NotificationMessagingUtil messagingUtil) {
-        mContext = context;
-        mMessagingUtil = messagingUtil;
     }
 
     public void dump(PrintWriter pw, String prefix) {
@@ -94,9 +81,7 @@ public class ZenModeFiltering {
         if (zen == Global.ZEN_MODE_NO_INTERRUPTIONS) return false; // nothing gets through
         if (zen == Global.ZEN_MODE_ALARMS) return false; // not an alarm
         if (zen == Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS) {
-            if (config.allowRepeatCallers && REPEAT_CALLERS.isRepeat(context, extras)) {
-                return true;
-            }
+            if (config.allowRepeatCallers && REPEAT_CALLERS.isRepeat(context, extras)) return true;
             if (!config.allowCalls) return false; // no other calls get through
             if (validator != null) {
                 final float contactAffinity = validator.getContactAffinity(userHandle, extras,
@@ -112,19 +97,8 @@ public class ZenModeFiltering {
                 ? record.sbn.getNotification().extras : null;
     }
 
-    protected void recordCall(NotificationRecord record) {
-        REPEAT_CALLERS.recordCall(mContext, extras(record));
-    }
-
     public boolean shouldIntercept(int zen, ZenModeConfig config, NotificationRecord record) {
-        if (zen == ZEN_MODE_OFF) {
-            return false;
-        }
-        // Make an exception to policy for the notification saying that policy has changed
-        if (NotificationManager.Policy.areAllVisualEffectsSuppressed(config.suppressedVisualEffects)
-                && "android".equals(record.sbn.getPackageName())
-                && SystemMessageProto.SystemMessage.NOTE_ZEN_UPGRADE == record.sbn.getId()) {
-            ZenLog.traceNotIntercepted(record, "systemDndChangedNotification");
+        if (isSystem(record)) {
             return false;
         }
         switch (zen) {
@@ -140,17 +114,13 @@ public class ZenModeFiltering {
                 ZenLog.traceIntercepted(record, "alarmsOnly");
                 return true;
             case Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS:
+                if (isAlarm(record)) {
+                    // Alarms are always priority
+                    return false;
+                }
                 // allow user-prioritized packages through in priority mode
                 if (record.getPackagePriority() == Notification.PRIORITY_MAX) {
                     ZenLog.traceNotIntercepted(record, "priorityApp");
-                    return false;
-                }
-
-                if (isAlarm(record)) {
-                    if (!config.allowAlarms) {
-                        ZenLog.traceIntercepted(record, "!allowAlarms");
-                        return true;
-                    }
                     return false;
                 }
                 if (isCall(record)) {
@@ -186,20 +156,6 @@ public class ZenModeFiltering {
                     }
                     return false;
                 }
-                if (isMedia(record)) {
-                    if (!config.allowMedia) {
-                        ZenLog.traceIntercepted(record, "!allowMedia");
-                        return true;
-                    }
-                    return false;
-                }
-                if (isSystem(record)) {
-                    if (!config.allowSystem) {
-                        ZenLog.traceIntercepted(record, "!allowSystem");
-                        return true;
-                    }
-                    return false;
-                }
                 ZenLog.traceIntercepted(record, "!priority");
                 return true;
             default:
@@ -215,8 +171,13 @@ public class ZenModeFiltering {
         return false;
     }
 
-    protected static boolean isAlarm(NotificationRecord record) {
+    private static boolean isSystem(NotificationRecord record) {
+        return record.isCategory(Notification.CATEGORY_SYSTEM);
+    }
+
+    private static boolean isAlarm(NotificationRecord record) {
         return record.isCategory(Notification.CATEGORY_ALARM)
+                || record.isAudioStream(AudioManager.STREAM_ALARM)
                 || record.isAudioAttributesUsage(AudioAttributes.USAGE_ALARM);
     }
 
@@ -233,18 +194,6 @@ public class ZenModeFiltering {
                 || record.isCategory(Notification.CATEGORY_CALL));
     }
 
-    public boolean isMedia(NotificationRecord record) {
-        AudioAttributes aa = record.getAudioAttributes();
-        return aa != null && AudioAttributes.SUPPRESSIBLE_USAGES.get(aa.getUsage()) ==
-                AudioAttributes.SUPPRESSIBLE_MEDIA;
-    }
-
-    public boolean isSystem(NotificationRecord record) {
-        AudioAttributes aa = record.getAudioAttributes();
-        return aa != null && AudioAttributes.SUPPRESSIBLE_USAGES.get(aa.getUsage()) ==
-                AudioAttributes.SUPPRESSIBLE_SYSTEM;
-    }
-
     private boolean isDefaultPhoneApp(String pkg) {
         if (mDefaultPhoneApp == null) {
             final TelecomManager telecomm =
@@ -256,8 +205,17 @@ public class ZenModeFiltering {
                 && pkg.equals(mDefaultPhoneApp.getPackageName());
     }
 
-    protected boolean isMessage(NotificationRecord record) {
-        return mMessagingUtil.isMessaging(record.sbn);
+    @SuppressWarnings("deprecation")
+    private boolean isDefaultMessagingApp(NotificationRecord record) {
+        final int userId = record.getUserId();
+        if (userId == UserHandle.USER_NULL || userId == UserHandle.USER_ALL) return false;
+        final String defaultApp = Secure.getStringForUser(mContext.getContentResolver(),
+                Secure.SMS_DEFAULT_APPLICATION, userId);
+        return Objects.equals(defaultApp, record.sbn.getPackageName());
+    }
+
+    private boolean isMessage(NotificationRecord record) {
+        return record.isCategory(Notification.CATEGORY_MESSAGE) || isDefaultMessagingApp(record);
     }
 
     private static boolean audienceMatches(int source, float contactAffinity) {
@@ -275,45 +233,28 @@ public class ZenModeFiltering {
     }
 
     private static class RepeatCallers {
-        // Person : time
         private final ArrayMap<String, Long> mCalls = new ArrayMap<>();
         private int mThresholdMinutes;
 
-        private synchronized void recordCall(Context context, Bundle extras) {
-            setThresholdMinutes(context);
-            if (mThresholdMinutes <= 0 || extras == null) return;
-            final String peopleString = peopleString(extras);
-            if (peopleString == null) return;
-            final long now = System.currentTimeMillis();
-            cleanUp(mCalls, now);
-            mCalls.put(peopleString, now);
-        }
-
         private synchronized boolean isRepeat(Context context, Bundle extras) {
-            setThresholdMinutes(context);
-            if (mThresholdMinutes <= 0 || extras == null) return false;
-            final String peopleString = peopleString(extras);
-            if (peopleString == null) return false;
-            final long now = System.currentTimeMillis();
-            cleanUp(mCalls, now);
-            return mCalls.containsKey(peopleString);
-        }
-
-        private synchronized void cleanUp(ArrayMap<String, Long> calls, long now) {
-            final int N = calls.size();
-            for (int i = N - 1; i >= 0; i--) {
-                final long time = mCalls.valueAt(i);
-                if (time > now || (now - time) > mThresholdMinutes * 1000 * 60) {
-                    calls.removeAt(i);
-                }
-            }
-        }
-
-        private void setThresholdMinutes(Context context) {
             if (mThresholdMinutes <= 0) {
                 mThresholdMinutes = context.getResources().getInteger(com.android.internal.R.integer
                         .config_zen_repeat_callers_threshold);
             }
+            if (mThresholdMinutes <= 0 || extras == null) return false;
+            final String peopleString = peopleString(extras);
+            if (peopleString == null) return false;
+            final long now = System.currentTimeMillis();
+            final int N = mCalls.size();
+            for (int i = N - 1; i >= 0; i--) {
+                final long time = mCalls.valueAt(i);
+                if (time > now || (now - time) > mThresholdMinutes * 1000 * 60) {
+                    mCalls.removeAt(i);
+                }
+            }
+            final boolean isRepeat = mCalls.containsKey(peopleString);
+            mCalls.put(peopleString, now);
+            return isRepeat;
         }
 
         private static String peopleString(Bundle extras) {

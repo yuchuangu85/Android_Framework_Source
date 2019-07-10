@@ -51,7 +51,6 @@ public class Sampler extends BaseObj {
 
     Sampler(long id, RenderScript rs) {
         super(id, rs);
-        guard.open("destroy");
     }
 
     /**
@@ -98,17 +97,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler CLAMP_NEAREST(RenderScript rs) {
-        if (rs.mSampler_CLAMP_NEAREST == null) {
-            synchronized (rs) {
-                if (rs.mSampler_CLAMP_NEAREST == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.NEAREST);
-                    b.setMagnification(Value.NEAREST);
-                    b.setWrapS(Value.CLAMP);
-                    b.setWrapT(Value.CLAMP);
-                    rs.mSampler_CLAMP_NEAREST = b.create();
-                }
-            }
+        if(rs.mSampler_CLAMP_NEAREST == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.NEAREST);
+            b.setMagnification(Value.NEAREST);
+            b.setWrapS(Value.CLAMP);
+            b.setWrapT(Value.CLAMP);
+            rs.mSampler_CLAMP_NEAREST = b.create();
         }
         return rs.mSampler_CLAMP_NEAREST;
     }
@@ -122,17 +117,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler CLAMP_LINEAR(RenderScript rs) {
-        if (rs.mSampler_CLAMP_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_CLAMP_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.CLAMP);
-                    b.setWrapT(Value.CLAMP);
-                    rs.mSampler_CLAMP_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_CLAMP_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.CLAMP);
+            b.setWrapT(Value.CLAMP);
+            rs.mSampler_CLAMP_LINEAR = b.create();
         }
         return rs.mSampler_CLAMP_LINEAR;
     }
@@ -146,17 +137,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler CLAMP_LINEAR_MIP_LINEAR(RenderScript rs) {
-        if (rs.mSampler_CLAMP_LINEAR_MIP_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_CLAMP_LINEAR_MIP_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR_MIP_LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.CLAMP);
-                    b.setWrapT(Value.CLAMP);
-                    rs.mSampler_CLAMP_LINEAR_MIP_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_CLAMP_LINEAR_MIP_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR_MIP_LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.CLAMP);
+            b.setWrapT(Value.CLAMP);
+            rs.mSampler_CLAMP_LINEAR_MIP_LINEAR = b.create();
         }
         return rs.mSampler_CLAMP_LINEAR_MIP_LINEAR;
     }
@@ -170,17 +157,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler WRAP_NEAREST(RenderScript rs) {
-        if (rs.mSampler_WRAP_NEAREST == null) {
-            synchronized (rs) {
-                if (rs.mSampler_WRAP_NEAREST == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.NEAREST);
-                    b.setMagnification(Value.NEAREST);
-                    b.setWrapS(Value.WRAP);
-                    b.setWrapT(Value.WRAP);
-                    rs.mSampler_WRAP_NEAREST = b.create();
-                }
-            }
+        if(rs.mSampler_WRAP_NEAREST == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.NEAREST);
+            b.setMagnification(Value.NEAREST);
+            b.setWrapS(Value.WRAP);
+            b.setWrapT(Value.WRAP);
+            rs.mSampler_WRAP_NEAREST = b.create();
         }
         return rs.mSampler_WRAP_NEAREST;
     }
@@ -194,17 +177,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler WRAP_LINEAR(RenderScript rs) {
-        if (rs.mSampler_WRAP_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_WRAP_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.WRAP);
-                    b.setWrapT(Value.WRAP);
-                    rs.mSampler_WRAP_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_WRAP_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.WRAP);
+            b.setWrapT(Value.WRAP);
+            rs.mSampler_WRAP_LINEAR = b.create();
         }
         return rs.mSampler_WRAP_LINEAR;
     }
@@ -218,17 +197,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler WRAP_LINEAR_MIP_LINEAR(RenderScript rs) {
-        if (rs.mSampler_WRAP_LINEAR_MIP_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_WRAP_LINEAR_MIP_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR_MIP_LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.WRAP);
-                    b.setWrapT(Value.WRAP);
-                    rs.mSampler_WRAP_LINEAR_MIP_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_WRAP_LINEAR_MIP_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR_MIP_LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.WRAP);
+            b.setWrapT(Value.WRAP);
+            rs.mSampler_WRAP_LINEAR_MIP_LINEAR = b.create();
         }
         return rs.mSampler_WRAP_LINEAR_MIP_LINEAR;
     }
@@ -242,17 +217,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler MIRRORED_REPEAT_NEAREST(RenderScript rs) {
-        if (rs.mSampler_MIRRORED_REPEAT_NEAREST == null) {
-            synchronized (rs) {
-                if (rs.mSampler_MIRRORED_REPEAT_NEAREST == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.NEAREST);
-                    b.setMagnification(Value.NEAREST);
-                    b.setWrapS(Value.MIRRORED_REPEAT);
-                    b.setWrapT(Value.MIRRORED_REPEAT);
-                    rs.mSampler_MIRRORED_REPEAT_NEAREST = b.create();
-                }
-            }
+        if(rs.mSampler_MIRRORED_REPEAT_NEAREST == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.NEAREST);
+            b.setMagnification(Value.NEAREST);
+            b.setWrapS(Value.MIRRORED_REPEAT);
+            b.setWrapT(Value.MIRRORED_REPEAT);
+            rs.mSampler_MIRRORED_REPEAT_NEAREST = b.create();
         }
         return rs.mSampler_MIRRORED_REPEAT_NEAREST;
     }
@@ -266,17 +237,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler MIRRORED_REPEAT_LINEAR(RenderScript rs) {
-        if (rs.mSampler_MIRRORED_REPEAT_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_MIRRORED_REPEAT_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.MIRRORED_REPEAT);
-                    b.setWrapT(Value.MIRRORED_REPEAT);
-                    rs.mSampler_MIRRORED_REPEAT_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_MIRRORED_REPEAT_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.MIRRORED_REPEAT);
+            b.setWrapT(Value.MIRRORED_REPEAT);
+            rs.mSampler_MIRRORED_REPEAT_LINEAR = b.create();
         }
         return rs.mSampler_MIRRORED_REPEAT_LINEAR;
     }
@@ -290,17 +257,13 @@ public class Sampler extends BaseObj {
      * @return Sampler
      */
     public static Sampler MIRRORED_REPEAT_LINEAR_MIP_LINEAR(RenderScript rs) {
-        if (rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR == null) {
-            synchronized (rs) {
-                if (rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR == null) {
-                    Builder b = new Builder(rs);
-                    b.setMinification(Value.LINEAR_MIP_LINEAR);
-                    b.setMagnification(Value.LINEAR);
-                    b.setWrapS(Value.MIRRORED_REPEAT);
-                    b.setWrapT(Value.MIRRORED_REPEAT);
-                    rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR = b.create();
-                }
-            }
+        if(rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR == null) {
+            Builder b = new Builder(rs);
+            b.setMinification(Value.LINEAR_MIP_LINEAR);
+            b.setMagnification(Value.LINEAR);
+            b.setWrapS(Value.MIRRORED_REPEAT);
+            b.setWrapT(Value.MIRRORED_REPEAT);
+            rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR = b.create();
         }
         return rs.mSampler_MIRRORED_REPEAT_LINEAR_MIP_LINEAR;
     }

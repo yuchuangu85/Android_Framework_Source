@@ -16,67 +16,56 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 
 import com.android.setupwizardlib.view.BottomScrollView;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class BottomScrollViewTest {
+public class BottomScrollViewTest extends AndroidTestCase {
 
     private TestBottomScrollListener mListener;
 
-    @Before
-    public void setUp() throws Exception {
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
         mListener = new TestBottomScrollListener();
     }
 
-    @Test
+    @SmallTest
     public void testNoNeedScroll() {
         createScrollView(20);
-        assertTrue("Scroll should not be required", mListener.mScrolledToBottom);
+        assertTrue("Scroll should not be required", mListener.scrolledToBottom);
     }
 
-    @Test
+    @SmallTest
     public void testNeedScroll() {
         createScrollView(110);
-        assertFalse("Scroll should be required", mListener.mScrolledToBottom);
+        assertFalse("Scroll should be required", mListener.scrolledToBottom);
     }
 
-    @Test
+    @SmallTest
     public void testScrollToBottom() {
         final BottomScrollView bottomScrollView = createScrollView(110);
 
-        assertFalse("Scroll should be required", mListener.mScrolledToBottom);
+        assertFalse("Scroll should be required", mListener.scrolledToBottom);
 
         bottomScrollView.scrollTo(0, 10);
-        assertTrue("Should already be scrolled to bottom", mListener.mScrolledToBottom);
+        assertTrue("Should already be scrolled to bottom", mListener.scrolledToBottom);
     }
 
-    @Test
+    @SmallTest
     public void testScrollThreshold() {
         final BottomScrollView bottomScrollView = createScrollView(110);
         assertEquals("Scroll threshold should be 10", 10, bottomScrollView.getScrollThreshold());
     }
 
     private BottomScrollView createScrollView(final int childHeight) {
-        final Context context = InstrumentationRegistry.getContext();
-        final BottomScrollView bottomScrollView = new TestBottomScrollView(context);
+        final BottomScrollView bottomScrollView = new TestBottomScrollView(getContext());
         bottomScrollView.setBottomScrollListener(mListener);
 
-        final View child = new TestChildView(context, childHeight);
+        final View child = new TestChildView(getContext(), childHeight);
 
         child.measure(0, 0); // TestChildView's measured dimensions doesn't depend on the arguments
         bottomScrollView.addView(child);
@@ -90,7 +79,7 @@ public class BottomScrollViewTest {
         private static final int WIDTH = 10;
         private int mHeight;
 
-        TestChildView(Context context, int height) {
+        public TestChildView(Context context, int height) {
             super(context);
             mHeight = height;
         }
@@ -107,7 +96,7 @@ public class BottomScrollViewTest {
 
     private static class TestBottomScrollView extends BottomScrollView {
 
-        TestBottomScrollView(Context context) {
+        public TestBottomScrollView(Context context) {
             super(context);
         }
 
@@ -121,16 +110,16 @@ public class BottomScrollViewTest {
 
     private static class TestBottomScrollListener implements BottomScrollView.BottomScrollListener {
 
-        boolean mScrolledToBottom = true;
+        boolean scrolledToBottom = true;
 
         @Override
         public void onScrolledToBottom() {
-            mScrolledToBottom = true;
+            scrolledToBottom = true;
         }
 
         @Override
         public void onRequiresScroll() {
-            mScrolledToBottom = false;
+            scrolledToBottom = false;
         }
     }
 }

@@ -1,93 +1,65 @@
 /*
- * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
-
 
 package javax.net.ssl;
 
 import java.util.EventObject;
 
-
 /**
- * This event is propagated to a SSLSessionBindingListener.
- * When a listener object is bound or unbound to an SSLSession by
- * {@link SSLSession#putValue(String, Object)}
- * or {@link SSLSession#removeValue(String)}, objects which
- * implement the SSLSessionBindingListener will be receive an
- * event of this type.  The event's <code>name</code> field is the
- * key in which the listener is being bound or unbound.
- *
- * @see SSLSession
- * @see SSLSessionBindingListener
- *
- * @since 1.4
- * @author Nathan Abramson
- * @author David Brownell
+ * The event sent to an {@code SSLSessionBindingListener} when the listener
+ * object is bound ({@link SSLSession#putValue(String, Object)}) or unbound
+ * ({@link SSLSession#removeValue(String)}) to an {@code SSLSession}.
  */
-public
-class SSLSessionBindingEvent
-extends EventObject
-{
-    private static final long serialVersionUID = 3989172637106345L;
+public class SSLSessionBindingEvent extends EventObject {
+
+    private final String name;
 
     /**
-     * @serial The name to which the object is being bound or unbound
-     */
-    private String name;
-
-    /**
-     * Constructs a new SSLSessionBindingEvent.
+     * Creates a new {@code SSLSessionBindingEvent} for the specified session
+     * indicating a binding event for the specified name.
      *
-     * @param session the SSLSession acting as the source of the event
-     * @param name the name to which the object is being bound or unbound
-     * @exception  IllegalArgumentException  if <code>session</code> is null.
+     * @param session
+     *            the session for which the event occurs.
+     * @param name
+     *            the name of the object being (un)bound.
      */
-    public SSLSessionBindingEvent(SSLSession session, String name)
-    {
+    public SSLSessionBindingEvent(SSLSession session, String name) {
         super(session);
         this.name = name;
     }
 
     /**
-     * Returns the name to which the object is being bound, or the name
-     * from which the object is being unbound.
+     * Returns the name of the binding being added or removed.
      *
-     * @return the name to which the object is being bound or unbound
+     * @return the name of the binding.
      */
-    public String getName()
-    {
+    public String getName() {
         return name;
     }
 
     /**
-     * Returns the SSLSession into which the listener is being bound or
-     * from which the listener is being unbound.
+     * Returns the session to which the binding is added or from which it is
+     * removed.
      *
-     * @return the <code>SSLSession</code>
+     * @return the session to which the binding is added or from which it is
+     *         removed.
      */
-    public SSLSession getSession()
-    {
-        return (SSLSession) getSource();
+    public SSLSession getSession() {
+        return (SSLSession) this.source;
     }
+
 }

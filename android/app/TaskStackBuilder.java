@@ -213,24 +213,24 @@ public class TaskStackBuilder {
      * Start the task stack constructed by this builder.
      * @hide
      */
-    public int startActivities(Bundle options, UserHandle userHandle) {
+    public void startActivities(Bundle options, UserHandle userHandle) {
         if (mIntents.isEmpty()) {
             throw new IllegalStateException(
                     "No intents added to TaskStackBuilder; cannot startActivities");
         }
 
-        return mSourceContext.startActivitiesAsUser(getIntents(), options, userHandle);
+        mSourceContext.startActivitiesAsUser(getIntents(), options, userHandle);
     }
 
     /**
      * Start the task stack constructed by this builder.
      *
      * @param options Additional options for how the Activity should be started.
-     * See {@link android.content.Context#startActivity(Intent, Bundle)}
+     * See {@link android.content.Context#startActivity(Intent, Bundle)
      * Context.startActivity(Intent, Bundle)} for more details.
      */
     public void startActivities(Bundle options) {
-        startActivities(options, mSourceContext.getUser());
+        startActivities(options, new UserHandle(UserHandle.myUserId()));
     }
 
     /**
@@ -259,7 +259,7 @@ public class TaskStackBuilder {
      *              {@link Intent#fillIn(Intent, int)} to control which unspecified parts of the
      *              intent that can be supplied when the actual send happens.
      * @param options Additional options for how the Activity should be started.
-     * See {@link android.content.Context#startActivity(Intent, Bundle)}
+     * See {@link android.content.Context#startActivity(Intent, Bundle)
      * Context.startActivity(Intent, Bundle)} for more details.
      *
      * @return The obtained PendingIntent

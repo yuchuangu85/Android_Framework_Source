@@ -59,9 +59,6 @@ public class SmsCbEtwsInfo implements Parcelable {
     /** Whether or not to activate a popup alert. */
     private final boolean mActivatePopup;
 
-    /** Whether ETWS primary message or not/ */
-    private final boolean mPrimary;
-
     /**
      * 50-byte security information (ETWS primary notification for GSM only). As of Release 10,
      * 3GPP TS 23.041 states that the UE shall ignore the ETWS primary notification timestamp
@@ -73,11 +70,10 @@ public class SmsCbEtwsInfo implements Parcelable {
 
     /** Create a new SmsCbEtwsInfo object with the specified values. */
     public SmsCbEtwsInfo(int warningType, boolean emergencyUserAlert, boolean activatePopup,
-                boolean primary, byte[] warningSecurityInformation) {
+            byte[] warningSecurityInformation) {
         mWarningType = warningType;
         mEmergencyUserAlert = emergencyUserAlert;
         mActivatePopup = activatePopup;
-        mPrimary = primary;
         mWarningSecurityInformation = warningSecurityInformation;
     }
 
@@ -86,7 +82,6 @@ public class SmsCbEtwsInfo implements Parcelable {
         mWarningType = in.readInt();
         mEmergencyUserAlert = (in.readInt() != 0);
         mActivatePopup = (in.readInt() != 0);
-        mPrimary = (in.readInt() != 0);
         mWarningSecurityInformation = in.createByteArray();
     }
 
@@ -101,7 +96,6 @@ public class SmsCbEtwsInfo implements Parcelable {
         dest.writeInt(mWarningType);
         dest.writeInt(mEmergencyUserAlert ? 1 : 0);
         dest.writeInt(mActivatePopup ? 1 : 0);
-        dest.writeInt(mPrimary ? 1 : 0);
         dest.writeByteArray(mWarningSecurityInformation);
     }
 
@@ -127,14 +121,6 @@ public class SmsCbEtwsInfo implements Parcelable {
      */
     public boolean isPopupAlert() {
         return mActivatePopup;
-    }
-
-    /**
-     * Returns the ETWS format flag.
-     * @return true if the message is primary message, otherwise secondary message
-     */
-    public boolean isPrimary() {
-        return mPrimary;
     }
 
     /**

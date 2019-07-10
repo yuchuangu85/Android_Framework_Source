@@ -34,7 +34,7 @@ import java.util.List;
 /**
  * HeadsetProfile handles Bluetooth HFP and Headset profiles.
  */
-public class HeadsetProfile implements LocalBluetoothProfile {
+public final class HeadsetProfile implements LocalBluetoothProfile {
     private static final String TAG = "HeadsetProfile";
     private static boolean V = true;
 
@@ -90,11 +90,6 @@ public class HeadsetProfile implements LocalBluetoothProfile {
 
     public boolean isProfileReady() {
         return mIsProfileReady;
-    }
-
-    @Override
-    public int getProfileId() {
-        return BluetoothProfile.HEADSET;
     }
 
     HeadsetProfile(Context context, LocalBluetoothAdapter adapter,
@@ -156,26 +151,6 @@ public class HeadsetProfile implements LocalBluetoothProfile {
             }
         }
         return BluetoothProfile.STATE_DISCONNECTED;
-    }
-
-    public boolean setActiveDevice(BluetoothDevice device) {
-        if (mService == null) return false;
-        return mService.setActiveDevice(device);
-    }
-
-    public BluetoothDevice getActiveDevice() {
-        if (mService == null) return null;
-        return mService.getActiveDevice();
-    }
-
-    public boolean isAudioOn() {
-        if (mService == null) return false;
-        return mService.isAudioOn();
-    }
-
-    public int getAudioState(BluetoothDevice device) {
-        if (mService == null) return BluetoothHeadset.STATE_AUDIO_DISCONNECTED;
-        return mService.getAudioState(device);
     }
 
     public boolean isPreferred(BluetoothDevice device) {

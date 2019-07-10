@@ -19,11 +19,14 @@ package android.graphics;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
+import com.android.layoutlib.bridge.impl.GcSnapshot;
 import com.android.ninepatch.NinePatchChunk;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.graphics.drawable.NinePatchDrawable;
 
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -47,7 +50,7 @@ public final class NinePatch_Delegate {
 
     // ---- delegate manager ----
     private static final DelegateManager<NinePatch_Delegate> sManager =
-            new DelegateManager<>(NinePatch_Delegate.class);
+            new DelegateManager<NinePatch_Delegate>(NinePatch_Delegate.class);
 
     // ---- delegate helper data ----
     /**
@@ -59,7 +62,8 @@ public final class NinePatch_Delegate {
      * Using the cache map allows us to not have to deserialize the byte[] back into a
      * {@link NinePatchChunk} every time a rendering is done.
      */
-    private final static Map<byte[], SoftReference<NinePatchChunk>> sChunkCache = new HashMap<>();
+    private final static Map<byte[], SoftReference<NinePatchChunk>> sChunkCache =
+        new HashMap<byte[], SoftReference<NinePatchChunk>>();
 
     // ---- delegate data ----
     private byte[] chunk;
@@ -93,7 +97,7 @@ public final class NinePatch_Delegate {
 
         // get the array and add it to the cache
         byte[] array = baos.toByteArray();
-        sChunkCache.put(array, new SoftReference<>(chunk));
+        sChunkCache.put(array, new SoftReference<NinePatchChunk>(chunk));
         return array;
     }
 
@@ -118,7 +122,7 @@ public final class NinePatch_Delegate {
 
                 // put back the chunk in the cache
                 if (chunk != null) {
-                    sChunkCache.put(array, new SoftReference<>(chunk));
+                    sChunkCache.put(array, new SoftReference<NinePatchChunk>(chunk));
                 }
             } catch (IOException e) {
                 Bridge.getLog().error(LayoutLog.TAG_BROKEN,
@@ -147,6 +151,7 @@ public final class NinePatch_Delegate {
     /*package*/ static boolean isNinePatchChunk(byte[] chunk) {
         NinePatchChunk chunkObject = getChunk(chunk);
         return chunkObject != null;
+
     }
 
     @LayoutlibDelegate
@@ -160,26 +165,81 @@ public final class NinePatch_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nativeFinalize(long nativeNinePatch) {
-        NinePatch_Delegate delegate = sManager.getDelegate(nativeNinePatch);
-        if (delegate != null && delegate.chunk != null) {
-            sChunkCache.remove(delegate.chunk);
-        }
-        sManager.removeJavaReferenceFor(nativeNinePatch);
+    /*package*/ static void nativeFinalize(long chunk) {
+        sManager.removeJavaReferenceFor(chunk);
     }
 
+    @LayoutlibDelegate
+    /*package*/ static void nativeDraw(long canvas_instance, RectF loc, Bitmap bitmap_instance,
+            long chunk, long paint_instance_or_null, int destDensity, int srcDensity) {
+        draw(canvas_instance,
+                (int) loc.left, (int) loc.top, (int) loc.right, (int) loc.bottom,
+                bitmap_instance, chunk, paint_instance_or_null,
+                destDensity, srcDensity);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nativeDraw(long canvas_instance, Rect loc, Bitmap bitmap_instance,
+            long chunk, long paint_instance_or_null, int destDensity, int srcDensity) {
+        draw(canvas_instance,
+                loc.left, loc.top, loc.right, loc.bottom,
+                bitmap_instance, chunk, paint_instance_or_null,
+                destDensity, srcDensity);
+    }
 
     @LayoutlibDelegate
     /*package*/ static long nativeGetTransparentRegion(Bitmap bitmap, long chunk, Rect location) {
         return 0;
     }
 
-    static byte[] getChunk(long nativeNinePatch) {
-        NinePatch_Delegate delegate = sManager.getDelegate(nativeNinePatch);
-        if (delegate != null) {
-            return delegate.chunk;
-        }
-        return null;
-    }
+    // ---- Private Helper methods ----
 
+    private static void draw(long canvas_instance,
+            final int left, final int top, final int right, final int bottom,
+            Bitmap bitmap_instance, long chunk, long paint_instance_or_null,
+            final int destDensity, final int srcDensity) {
+        // get the delegate from the native int.
+        final Bitmap_Delegate bitmap_delegate = Bitmap_Delegate.getDelegate(bitmap_instance);
+        if (bitmap_delegate == null) {
+            return;
+        }
+
+        byte[] c = null;
+        NinePatch_Delegate delegate = sManager.getDelegate(chunk);
+        if (delegate != null) {
+            c = delegate.chunk;
+        }
+        if (c == null) {
+            // not a 9-patch?
+            BufferedImage image = bitmap_delegate.getImage();
+            Canvas_Delegate.native_drawBitmap(null, canvas_instance, bitmap_instance,
+                    0f, 0f, (float)image.getWidth(), (float)image.getHeight(),
+                    (float)left, (float)top, (float)right, (float)bottom,
+                    paint_instance_or_null, destDensity, srcDensity);
+            return;
+        }
+
+        final NinePatchChunk chunkObject = getChunk(c);
+        assert chunkObject != null;
+        if (chunkObject == null) {
+            return;
+        }
+
+        Canvas_Delegate canvas_delegate = Canvas_Delegate.getDelegate(canvas_instance);
+        if (canvas_delegate == null) {
+            return;
+        }
+
+        // this one can be null
+        Paint_Delegate paint_delegate = Paint_Delegate.getDelegate(paint_instance_or_null);
+
+        canvas_delegate.getSnapshot().draw(new GcSnapshot.Drawable() {
+                @Override
+                public void draw(Graphics2D graphics, Paint_Delegate paint) {
+                    chunkObject.draw(bitmap_delegate.getImage(), graphics,
+                            left, top, right - left, bottom - top, destDensity, srcDensity);
+                }
+            }, paint_delegate, true /*compositeOnly*/, false /*forceSrcMode*/);
+
+     }
 }

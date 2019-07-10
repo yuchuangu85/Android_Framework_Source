@@ -22,7 +22,6 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.os.Binder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemProperties;
@@ -346,7 +345,7 @@ public class ApplicationErrorReport implements Parcelable {
             PrintWriter pw = new FastPrintWriter(sw, false, 256);
             tr.printStackTrace(pw);
             pw.flush();
-            stackTrace = sanitizeString(sw.toString());
+            stackTrace = sw.toString();
             exceptionMessage = tr.getMessage();
 
             // Populate fields with the "root cause" exception
@@ -375,34 +374,6 @@ public class ApplicationErrorReport implements Parcelable {
                 throwMethodName = "unknown";
                 throwLineNumber = 0;
             }
-
-            exceptionMessage = sanitizeString(exceptionMessage);
-        }
-
-        /** {@hide} */
-        public void appendStackTrace(String tr) {
-            stackTrace = sanitizeString(stackTrace + tr);
-        }
-
-        /**
-         * Ensure that the string is of reasonable size, truncating from the middle if needed.
-         */
-        private String sanitizeString(String s) {
-            int prefixLength = 10 * 1024;
-            int suffixLength = 10 * 1024;
-            int acceptableLength = prefixLength + suffixLength;
-
-            if (s != null && s.length() > acceptableLength) {
-                String replacement =
-                        "\n[TRUNCATED " + (s.length() - acceptableLength) + " CHARS]\n";
-
-                StringBuilder sb = new StringBuilder(acceptableLength + replacement.length());
-                sb.append(s.substring(0, prefixLength));
-                sb.append(replacement);
-                sb.append(s.substring(s.length() - suffixLength));
-                return sb.toString();
-            }
-            return s;
         }
 
         /**
@@ -431,7 +402,7 @@ public class ApplicationErrorReport implements Parcelable {
             dest.writeInt(throwLineNumber);
             dest.writeString(stackTrace);
             int total = dest.dataPosition()-start;
-            if (Binder.CHECK_PARCEL_SIZE && total > 20*1024) {
+            if (total > 20*1024) {
                 Slog.d("Error", "ERR: exClass=" + exceptionClassName);
                 Slog.d("Error", "ERR: exMsg=" + exceptionMessage);
                 Slog.d("Error", "ERR: file=" + throwFileName);
@@ -454,47 +425,6 @@ public class ApplicationErrorReport implements Parcelable {
             pw.println(prefix + "throwLineNumber: " + throwLineNumber);
             pw.println(prefix + "stackTrace: " + stackTrace);
         }
-    }
-
-    /**
-     * Parcelable version of {@link CrashInfo}
-     *
-     * @hide
-     */
-    public static class ParcelableCrashInfo extends CrashInfo implements Parcelable {
-        /**
-         * Create an uninitialized instance of CrashInfo.
-         */
-        public ParcelableCrashInfo() {
-        }
-
-        /**
-         * Create an instance of CrashInfo initialized from an exception.
-         */
-        public ParcelableCrashInfo(Throwable tr) {
-            super(tr);
-        }
-
-        public ParcelableCrashInfo(Parcel in) {
-            super(in);
-        }
-
-        public int describeContents() {
-            return 0;
-        }
-
-        public static final Parcelable.Creator<ParcelableCrashInfo> CREATOR =
-                new Parcelable.Creator<ParcelableCrashInfo>() {
-                    @Override
-                    public ParcelableCrashInfo createFromParcel(Parcel in) {
-                        return new ParcelableCrashInfo(in);
-                    }
-
-                    @Override
-                    public ParcelableCrashInfo[] newArray(int size) {
-                        return new ParcelableCrashInfo[size];
-                    }
-                };
     }
 
     /**

@@ -35,17 +35,17 @@ public class PhoneConstants {
         IDLE, RINGING, OFFHOOK;
     };
 
-    /**
-      * The state of a data connection.
-      * <ul>
-      * <li>CONNECTED = IP traffic should be available</li>
-      * <li>CONNECTING = Currently setting up data connection</li>
-      * <li>DISCONNECTED = IP not available</li>
-      * <li>SUSPENDED = connection is created but IP traffic is
-      *                 temperately not available. i.e. voice call is in place
-      *                 in 2G network</li>
-      * </ul>
-      */
+   /**
+     * The state of a data connection.
+     * <ul>
+     * <li>CONNECTED = IP traffic should be available</li>
+     * <li>CONNECTING = Currently setting up data connection</li>
+     * <li>DISCONNECTED = IP not available</li>
+     * <li>SUSPENDED = connection is created but IP traffic is
+     *                 temperately not available. i.e. voice call is in place
+     *                 in 2G network</li>
+     * </ul>
+     */
     public enum DataState {
         CONNECTED, CONNECTING, DISCONNECTED, SUSPENDED;
     };
@@ -59,9 +59,6 @@ public class PhoneConstants {
     public static final int PHONE_TYPE_SIP = RILConstants.SIP_PHONE;
     public static final int PHONE_TYPE_THIRD_PARTY = RILConstants.THIRD_PARTY_PHONE;
     public static final int PHONE_TYPE_IMS = RILConstants.IMS_PHONE;
-    // Currently this is used only to differentiate CDMA and CDMALTE Phone in GsmCdma* files. For
-    // anything outside of that, a cdma + lte phone is still CDMA_PHONE
-    public static final int PHONE_TYPE_CDMA_LTE = RILConstants.CDMA_LTE_PHONE;
 
     // Modes for LTE_ON_CDMA
     public static final int LTE_ON_CDMA_UNKNOWN = RILConstants.LTE_ON_CDMA_UNKNOWN;
@@ -74,9 +71,6 @@ public class PhoneConstants {
     public static final int PRESENTATION_UNKNOWN = 3;    // no specified or unknown by network
     public static final int PRESENTATION_PAYPHONE = 4;   // show pay phone info
 
-    // Sim activation type
-    public static final int SIM_ACTIVATION_TYPE_VOICE = 0;
-    public static final int SIM_ACTIVATION_TYPE_DATA = 1;
 
     public static final String PHONE_NAME_KEY = "phoneName";
     public static final String FAILURE_REASON_KEY = "reason";
@@ -92,7 +86,6 @@ public class PhoneConstants {
     public static final String NETWORK_UNAVAILABLE_KEY = "networkUnvailable";
     public static final String DATA_NETWORK_ROAMING_KEY = "networkRoaming";
     public static final String PHONE_IN_ECM_STATE = "phoneinECMState";
-    public static final String PHONE_IN_EMERGENCY_CALL = "phoneInEmergencyCall";
 
     public static final String REASON_LINK_PROPERTIES_CHANGED = "linkPropertiesChanged";
 
@@ -143,18 +136,6 @@ public class PhoneConstants {
     /** APN type for Emergency PDN. This is not an IA apn, but is used
      * for access to carrier services in an emergency call situation. */
     public static final String APN_TYPE_EMERGENCY = "emergency";
-    /** Array of all APN types */
-    public static final String[] APN_TYPES = {APN_TYPE_DEFAULT,
-            APN_TYPE_MMS,
-            APN_TYPE_SUPL,
-            APN_TYPE_DUN,
-            APN_TYPE_HIPRI,
-            APN_TYPE_FOTA,
-            APN_TYPE_IMS,
-            APN_TYPE_CBS,
-            APN_TYPE_IA,
-            APN_TYPE_EMERGENCY
-    };
 
     public static final int RIL_CARD_MAX_APPS    = 8;
 
@@ -217,20 +198,4 @@ public class PhoneConstants {
     public static final int AUDIO_OUTPUT_ENABLE_SPEAKER = 0;
     public static final int AUDIO_OUTPUT_DISABLE_SPEAKER = 1;
     public static final int AUDIO_OUTPUT_DEFAULT = AUDIO_OUTPUT_ENABLE_SPEAKER;
-
-    // authContext (parameter P2) when doing SIM challenge,
-    // per 3GPP TS 31.102 (Section 7.1.2)
-    public static final int AUTH_CONTEXT_EAP_SIM = 128;
-    public static final int AUTH_CONTEXT_EAP_AKA = 129;
-    public static final int AUTH_CONTEXT_UNDEFINED = -1;
-
-    /**
-     * Value for the global property CELL_ON
-     *  0: Cell radio is off
-     *  1: Cell radio is on
-     *  2: Cell radio is off because airplane mode is enabled
-     */
-    public static final int CELL_OFF_FLAG = 0;
-    public static final int CELL_ON_FLAG = 1;
-    public static final int CELL_OFF_DUE_TO_AIRPLANE_MODE_FLAG = 2;
 }

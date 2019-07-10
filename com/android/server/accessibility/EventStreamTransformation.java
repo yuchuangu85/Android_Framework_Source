@@ -65,37 +65,14 @@ interface EventStreamTransformation {
      * @param rawEvent The raw motion event.
      * @param policyFlags Policy flags for the event.
      */
-    default void onMotionEvent(MotionEvent event, MotionEvent rawEvent, int policyFlags) {
-        EventStreamTransformation next = getNext();
-        if (next != null) {
-            next.onMotionEvent(event, rawEvent, policyFlags);
-        }
-    }
-
-    /**
-     * Receives a key event.
-     *
-     * @param event The key event.
-     * @param policyFlags Policy flags for the event.
-     */
-    default void onKeyEvent(KeyEvent event, int policyFlags) {
-        EventStreamTransformation next = getNext();
-        if (next != null) {
-            next.onKeyEvent(event, policyFlags);
-        }
-    }
+    public void onMotionEvent(MotionEvent event, MotionEvent rawEvent, int policyFlags);
 
     /**
      * Receives an accessibility event.
      *
      * @param event The accessibility event.
      */
-    default void onAccessibilityEvent(AccessibilityEvent event) {
-        EventStreamTransformation next = getNext();
-        if (next != null) {
-            next.onAccessibilityEvent(event);
-        }
-    };
+    public void onAccessibilityEvent(AccessibilityEvent event);
 
     /**
      * Sets the next transformation.
@@ -105,26 +82,12 @@ interface EventStreamTransformation {
     public void setNext(EventStreamTransformation next);
 
     /**
-     * Gets the next transformation.
-     *
-     * @return The next transformation.
+     * Clears the internal state of this transformation.
      */
-    public EventStreamTransformation getNext();
-
-    /**
-     * Clears internal state associated with events from specific input source.
-     *
-     * @param inputSource The input source class for which transformation state should be cleared.
-     */
-    default void clearEvents(int inputSource) {
-        EventStreamTransformation next = getNext();
-        if (next != null) {
-            next.clearEvents(inputSource);
-        }
-    }
+    public void clear();
 
     /**
      * Destroys this transformation.
      */
-    default void onDestroy() {}
+    public void onDestroy();
 }

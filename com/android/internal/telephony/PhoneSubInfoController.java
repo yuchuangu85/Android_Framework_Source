@@ -18,154 +18,71 @@
 
 package com.android.internal.telephony;
 
-import static android.Manifest.permission.CALL_PRIVILEGED;
-import static android.Manifest.permission.MODIFY_PHONE_STATE;
-import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
-
-import android.app.AppOpsManager;
-import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.telephony.ImsiEncryptionInfo;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
+import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.uicc.IsimRecords;
-import com.android.internal.telephony.uicc.UiccCard;
-import com.android.internal.telephony.uicc.UiccCardApplication;
+import java.lang.NullPointerException;
 
 public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     private static final String TAG = "PhoneSubInfoController";
-    private static final boolean DBG = true;
-    private static final boolean VDBG = false; // STOPSHIP if true
+    private Phone[] mPhone;
 
-    private final Phone[] mPhone;
-    private final Context mContext;
-    private final AppOpsManager mAppOps;
-
-    public PhoneSubInfoController(Context context, Phone[] phone) {
+    public PhoneSubInfoController(Phone[] phone) {
         mPhone = phone;
         if (ServiceManager.getService("iphonesubinfo") == null) {
             ServiceManager.addService("iphonesubinfo", this);
         }
-        mContext = context;
-        mAppOps = (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
     }
 
     public String getDeviceId(String callingPackage) {
-        return getDeviceIdForPhone(SubscriptionManager.getPhoneId(getDefaultSubscription()),
-                callingPackage);
+        return getDeviceIdForPhone(SubscriptionManager.getPhoneId(getDefaultSubscription()));
     }
 
-    public String getDeviceIdForPhone(int phoneId, String callingPackage) {
-        if (!SubscriptionManager.isValidPhoneId(phoneId)) {
-            phoneId = 0;
-        }
-        final Phone phone = mPhone[phoneId];
+    public String getDeviceIdForPhone(int phoneId) {
+        Phone phone = getPhone(phoneId);
         if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, phone.getSubId(), callingPackage, "getDeviceId")) {
-                return null;
-            }
             return phone.getDeviceId();
         } else {
-            loge("getDeviceIdForPhone phone " + phoneId + " is null");
+            Rlog.e(TAG,"getDeviceIdForPhone phone " + phoneId + " is null");
             return null;
         }
     }
 
     public String getNaiForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getNai")) {
-                return null;
-            }
-            return phone.getNai();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getNai(callingPackage);
         } else {
-            loge("getNai phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getNai phoneSubInfoProxy is null" +
+                      " for Subscription:" + subId);
             return null;
         }
     }
 
     public String getImeiForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getImei")) {
-                return null;
-            }
-            return phone.getImei();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getImei(callingPackage);
         } else {
-            loge("getDeviceId phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getDeviceId phoneSubInfoProxy is null" +
+                    " for Subscription:" + subId);
             return null;
         }
     }
-
-    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int subId, int keyType,
-                                                              String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage,
-                    "getCarrierInfoForImsiEncryption")) {
-                return null;
-            }
-            return phone.getCarrierInfoForImsiEncryption(keyType);
-        } else {
-            loge("getCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
-            return null;
-        }
-    }
-
-    public void setCarrierInfoForImsiEncryption(int subId, String callingPackage,
-                                                ImsiEncryptionInfo imsiEncryptionInfo) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            enforceModifyPermission();
-            phone.setCarrierInfoForImsiEncryption(imsiEncryptionInfo);
-        } else {
-            loge("setCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
-            return;
-        }
-    }
-
-    /**
-     *  Resets the Carrier Keys in the database. This involves 2 steps:
-     *  1. Delete the keys from the database.
-     *  2. Send an intent to download new Certificates.
-     *  @param subId
-     *  @param callingPackage
-     */
-    public void resetCarrierKeysForImsiEncryption(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            enforceModifyPermission();
-            phone.resetCarrierKeysForImsiEncryption();
-            return;
-        } else {
-            loge("resetCarrierKeysForImsiEncryption phone is null for Subscription:" + subId);
-            return;
-        }
-    }
-
 
     public String getDeviceSvn(String callingPackage) {
         return getDeviceSvnUsingSubId(getDefaultSubscription(), callingPackage);
     }
 
     public String getDeviceSvnUsingSubId(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getDeviceSvn")) {
-                return null;
-            }
-            return phone.getDeviceSvn();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getDeviceSvn(callingPackage);
         } else {
-            loge("getDeviceSvn phone is null");
+            Rlog.e(TAG,"getDeviceSvn phoneSubInfoProxy is null");
             return null;
         }
     }
@@ -175,15 +92,12 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getSubscriberIdForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getSubscriberId")) {
-                return null;
-            }
-            return phone.getSubscriberId();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getSubscriberId(callingPackage);
         } else {
-            loge("getSubscriberId phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getSubscriberId phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
@@ -196,15 +110,12 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getIccSerialNumberForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getIccSerialNumber")) {
-                return null;
-            }
-            return phone.getIccSerialNumber();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getIccSerialNumber(callingPackage);
         } else {
-            loge("getIccSerialNumber phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getIccSerialNumber phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
@@ -214,16 +125,12 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getLine1NumberForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            // This is open to apps with WRITE_SMS.
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneNumber(
-                    mContext, subId, callingPackage, "getLine1Number")) {
-                return null;
-            }
-            return phone.getLine1Number();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getLine1Number(callingPackage);
         } else {
-            loge("getLine1Number phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getLine1Number phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
@@ -233,15 +140,12 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getLine1AlphaTagForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getLine1AlphaTag")) {
-                return null;
-            }
-            return phone.getLine1AlphaTag();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getLine1AlphaTag(callingPackage);
         } else {
-            loge("getLine1AlphaTag phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getLine1AlphaTag phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
@@ -251,15 +155,12 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getMsisdnForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getMsisdn")) {
-                return null;
-            }
-            return phone.getMsisdn();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getMsisdn(callingPackage);
         } else {
-            loge("getMsisdn phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getMsisdn phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
@@ -269,35 +170,27 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getVoiceMailNumberForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getVoiceMailNumber")) {
-                return null;
-            }
-            String number = PhoneNumberUtils.extractNetworkPortion(phone.getVoiceMailNumber());
-            if (VDBG) log("VM: getVoiceMailNUmber: " + number);
-            return number;
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getVoiceMailNumber(callingPackage);
         } else {
-            loge("getVoiceMailNumber phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getVoiceMailNumber phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
 
-    // TODO: change getCompleteVoiceMailNumber() to require READ_PRIVILEGED_PHONE_STATE
     public String getCompleteVoiceMailNumber() {
         return getCompleteVoiceMailNumberForSubscriber(getDefaultSubscription());
     }
 
     public String getCompleteVoiceMailNumberForSubscriber(int subId) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(CALL_PRIVILEGED, "Requires CALL_PRIVILEGED");
-            String number = phone.getVoiceMailNumber();
-            if (VDBG) log("VM: getCompleteVoiceMailNUmber: " + number);
-            return number;
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getCompleteVoiceMailNumber();
         } else {
-            loge("getCompleteVoiceMailNumber phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getCompleteVoiceMailNumber phoneSubInfoProxy" +
+                      " is null for Subscription:" + subId);
             return null;
         }
     }
@@ -307,51 +200,37 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     public String getVoiceMailAlphaTagForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getVoiceMailAlphaTag")) {
-                return null;
-            }
-            return phone.getVoiceMailAlphaTag();
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        if (phoneSubInfoProxy != null) {
+            return phoneSubInfoProxy.getVoiceMailAlphaTag(callingPackage);
         } else {
-            loge("getVoiceMailAlphaTag phone is null for Subscription:" + subId);
+            Rlog.e(TAG,"getVoiceMailAlphaTag phoneSubInfoProxy is" +
+                      " null for Subscription:" + subId);
             return null;
         }
     }
 
     /**
-     * get Phone object based on subId.
+     * get Phone sub info proxy object based on subId.
      **/
-    private Phone getPhone(int subId) {
+    private PhoneSubInfoProxy getPhoneSubInfoProxy(int subId) {
+
         int phoneId = SubscriptionManager.getPhoneId(subId);
-        if (!SubscriptionManager.isValidPhoneId(phoneId)) {
+
+        try {
+            return getPhone(phoneId).getPhoneSubInfoProxy();
+        } catch (NullPointerException e) {
+            Rlog.e(TAG, "Exception is :" + e.toString() + " For subId :" + subId);
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private PhoneProxy getPhone(int phoneId) {
+        if (phoneId < 0 || phoneId >= TelephonyManager.getDefault().getPhoneCount()) {
             phoneId = 0;
         }
-        return mPhone[phoneId];
-    }
-
-    /**
-     * Make sure caller has either read privileged phone permission or carrier privilege.
-     *
-     * @throws SecurityException if the caller does not have the required permission/privilege
-     */
-    private void enforcePrivilegedPermissionOrCarrierPrivilege(int subId, String message) {
-        int permissionResult = mContext.checkCallingOrSelfPermission(
-                READ_PRIVILEGED_PHONE_STATE);
-        if (permissionResult == PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        if (VDBG) log("No read privileged phone permission, check carrier privilege next.");
-        TelephonyPermissions.enforceCallingOrSelfCarrierPrivilege(subId, message);
-    }
-
-    /**
-     * Make sure caller has modify phone state permission.
-     */
-    private void enforceModifyPermission() {
-        mContext.enforceCallingOrSelfPermission(MODIFY_PHONE_STATE,
-                "Requires MODIFY_PHONE_STATE");
+        return (PhoneProxy) mPhone[phoneId];
     }
 
     private int getDefaultSubscription() {
@@ -359,157 +238,54 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
 
-    /**
-    * get the Isim Impi based on subId
-    */
-    public String getIsimImpi(int subId) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
-                    "Requires READ_PRIVILEGED_PHONE_STATE");
-            IsimRecords isim = phone.getIsimRecords();
-            if (isim != null) {
-                return isim.getIsimImpi();
-            } else {
-                return null;
-            }
-        } else {
-            loge("getIsimImpi phone is null for Subscription:" + subId);
-            return null;
-        }
+    public String getIsimImpi() {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimImpi();
     }
 
-    /**
-    * get the Isim Domain based on subId
-    */
-    public String getIsimDomain(int subId) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
-                    "Requires READ_PRIVILEGED_PHONE_STATE");
-            IsimRecords isim = phone.getIsimRecords();
-            if (isim != null) {
-                return isim.getIsimDomain();
-            } else {
-                return null;
-            }
-        } else {
-            loge("getIsimDomain phone is null for Subscription:" + subId);
-            return null;
-        }
+    public String getIsimDomain() {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimDomain();
     }
 
-    /**
-    * get the Isim Impu based on subId
-    */
-    public String[] getIsimImpu(int subId) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
-                    "Requires READ_PRIVILEGED_PHONE_STATE");
-            IsimRecords isim = phone.getIsimRecords();
-            if (isim != null) {
-                return isim.getIsimImpu();
-            } else {
-                return null;
-            }
-        } else {
-            loge("getIsimImpu phone is null for Subscription:" + subId);
-            return null;
-        }
+    public String[] getIsimImpu() {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimImpu();
     }
 
-    /**
-    * get the Isim Ist based on subId
-    */
-    public String getIsimIst(int subId) throws RemoteException {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
-                    "Requires READ_PRIVILEGED_PHONE_STATE");
-            IsimRecords isim = phone.getIsimRecords();
-            if (isim != null) {
-                return isim.getIsimIst();
-            } else {
-                return null;
-            }
-        } else {
-            loge("getIsimIst phone is null for Subscription:" + subId);
-            return null;
-        }
+    public String getIsimIst() throws RemoteException {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimIst();
     }
 
-    /**
-    * get the Isim Pcscf based on subId
-    */
-    public String[] getIsimPcscf(int subId) throws RemoteException {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            mContext.enforceCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE,
-                    "Requires READ_PRIVILEGED_PHONE_STATE");
-            IsimRecords isim = phone.getIsimRecords();
-            if (isim != null) {
-                return isim.getIsimPcscf();
-            } else {
-                return null;
-            }
-        } else {
-            loge("getIsimPcscf phone is null for Subscription:" + subId);
-            return null;
-        }
+    public String[] getIsimPcscf() throws RemoteException {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimPcscf();
     }
 
-    public String getIccSimChallengeResponse(int subId, int appType, int authType, String data)
+    public String getIsimChallengeResponse(String nonce) throws RemoteException {
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(getDefaultSubscription());
+        return phoneSubInfoProxy.getIsimChallengeResponse(nonce);
+    }
+
+    public String getIccSimChallengeResponse(int subId, int appType, String data)
             throws RemoteException {
-        // TODO(b/73660190): Migrate to
-        // TelephonyPermissions.enforceCallingOrSelfModifyPermissionOrCarrierPrivileges and delete
-        // this helper method.
-        enforcePrivilegedPermissionOrCarrierPrivilege(subId, "getIccSimChallengeResponse");
-        Phone phone = getPhone(subId);
-        UiccCard uiccCard = phone.getUiccCard();
-        if (uiccCard == null) {
-            loge("getIccSimChallengeResponse() UiccCard is null");
-            return null;
-        }
-
-        UiccCardApplication uiccApp = uiccCard.getApplicationByType(appType);
-        if (uiccApp == null) {
-            loge("getIccSimChallengeResponse() no app with specified type -- " +
-                    appType);
-            return null;
-        } else {
-            loge("getIccSimChallengeResponse() found app " + uiccApp.getAid()
-                    + " specified type -- " + appType);
-        }
-
-        if(authType != UiccCardApplication.AUTH_CONTEXT_EAP_SIM &&
-                authType != UiccCardApplication.AUTH_CONTEXT_EAP_AKA) {
-            loge("getIccSimChallengeResponse() unsupported authType: " + authType);
-            return null;
-        }
-
-        return uiccApp.getIccRecords().getIccSimChallengeResponse(authType, data);
+        PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+        return phoneSubInfoProxy.getIccSimChallengeResponse(subId, appType, data);
     }
 
-    public String getGroupIdLevel1ForSubscriber(int subId, String callingPackage) {
-        Phone phone = getPhone(subId);
-        if (phone != null) {
-            if (!TelephonyPermissions.checkCallingOrSelfReadPhoneState(
-                    mContext, subId, callingPackage, "getGroupIdLevel1")) {
-                return null;
-            }
-            return phone.getGroupIdLevel1();
-        } else {
-            loge("getGroupIdLevel1 phone is null for Subscription:" + subId);
-            return null;
-        }
-    }
+     public String getGroupIdLevel1(String callingPackage) {
+         return getGroupIdLevel1ForSubscriber(getDefaultSubscription(), callingPackage);
+     }
 
-    private void log(String s) {
-        Rlog.d(TAG, s);
-    }
-
-    private void loge(String s) {
-        Rlog.e(TAG, s);
-    }
+     public String getGroupIdLevel1ForSubscriber(int subId, String callingPackage) {
+         PhoneSubInfoProxy phoneSubInfoProxy = getPhoneSubInfoProxy(subId);
+         if (phoneSubInfoProxy != null) {
+             return phoneSubInfoProxy.getGroupIdLevel1(callingPackage);
+         } else {
+             Rlog.e(TAG,"getGroupIdLevel1 phoneSubInfoProxy is" +
+                       " null for Subscription:" + subId);
+             return null;
+         }
+     }
 }

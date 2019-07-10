@@ -44,11 +44,9 @@ public class Script extends BaseObj {
         long dInType = 0;
         long dummyAlloc = 0;
         if (ain != null) {
-            Type inType = ain.getType();
-            dInElement = inType.getElement().getDummyElement(mRS);
-            dInType = inType.getDummyType(mRS, dInElement);
-            int xBytesSize = inType.getX() * inType.getElement().getBytesSize();
-            dummyAlloc = mRS.nIncAllocationCreateTyped(ain.getID(mRS), dInType, xBytesSize);
+            dInElement = ain.getType().getElement().getDummyElement(mRS);
+            dInType = ain.getType().getDummyType(mRS, dInElement);
+            dummyAlloc = mRS.nIncAllocationCreateTyped(ain.getID(mRS), dInType);
             ain.setIncAllocID(dummyAlloc);
         }
 
@@ -319,112 +317,6 @@ public class Script extends BaseObj {
     /**
      * Only intended for use by generated reflected code.
      *
-     * @hide
-     */
-    protected void forEach(int slot, Allocation[] ains, Allocation aout,
-                           FieldPacker v) {
-        forEach(slot, ains, aout, v, null);
-    }
-
-    /**
-     * Only intended for use by generated reflected code.
-     *
-     * @hide
-     */
-    protected void forEach(int slot, Allocation[] ains, Allocation aout,
-                           FieldPacker v, LaunchOptions sc) {
-        // TODO: Is this necessary if nScriptForEach calls validate as well?
-        mRS.validate();
-        if (ains != null) {
-            for (Allocation ain : ains) {
-                mRS.validateObject(ain);
-            }
-        }
-        mRS.validateObject(aout);
-
-        if (ains == null && aout == null) {
-            throw new RSIllegalArgumentException(
-                "At least one of ain or aout is required to be non-null.");
-        }
-
-        long[] in_ids;
-        if (ains != null) {
-            in_ids = new long[ains.length];
-            for (int index = 0; index < ains.length; ++index) {
-                in_ids[index] = ains[index].getID(mRS);
-            }
-        } else {
-            in_ids = null;
-        }
-
-        long out_id = 0;
-        if (aout != null) {
-            out_id = aout.getID(mRS);
-        }
-
-        byte[] params = null;
-        if (v != null) {
-            params = v.getData();
-        }
-
-        int[] limits = null;
-        if (sc != null) {
-            limits = new int[6];
-
-            limits[0] = sc.xstart;
-            limits[1] = sc.xend;
-            limits[2] = sc.ystart;
-            limits[3] = sc.yend;
-            limits[4] = sc.zstart;
-            limits[5] = sc.zend;
-        }
-
-        mRS.nScriptForEach(getID(mRS), slot, in_ids, out_id, params, limits);
-    }
-
-    /**
-     * Only intended for use by generated reflected code.  (General reduction)
-     *
-     * @hide
-     */
-    protected void reduce(int slot, Allocation[] ains, Allocation aout, LaunchOptions sc) {
-        mRS.validate();
-        if (ains == null || ains.length < 1) {
-            throw new RSIllegalArgumentException(
-                "At least one input is required.");
-        }
-        if (aout == null) {
-            throw new RSIllegalArgumentException(
-                "aout is required to be non-null.");
-        }
-        for (Allocation ain : ains) {
-            mRS.validateObject(ain);
-        }
-
-        long[] in_ids = new long[ains.length];
-        for (int index = 0; index < ains.length; ++index) {
-            in_ids[index] = ains[index].getID(mRS);
-        }
-        long out_id = aout.getID(mRS);
-
-        int[] limits = null;
-        if (sc != null) {
-            limits = new int[6];
-
-            limits[0] = sc.xstart;
-            limits[1] = sc.xend;
-            limits[2] = sc.ystart;
-            limits[3] = sc.yend;
-            limits[4] = sc.zstart;
-            limits[5] = sc.zend;
-        }
-
-        mRS.nScriptReduce(getID(mRS), slot, in_ids, out_id, limits);
-    }
-
-    /**
-     * Only intended for use by generated reflected code.
-     *
      * @param index
      * @param v
      */
@@ -565,23 +457,7 @@ public class Script extends BaseObj {
 
 
     /**
-     * Class for specifying the specifics about how a kernel will be
-     * launched.
-     *
-     * This class can specify a potential range of cells on which to
-     * run a kernel.  If no set is called for a dimension then this
-     * class will have no impact on that dimension when the kernel
-     * is executed.
-     *
-     * The forEach kernel launch will operate over the intersection of
-     * the dimensions.
-     *
-     * Example:
-     * LaunchOptions with setX(5, 15)
-     * Allocation with dimension X=10, Y=10
-     * The resulting forEach run would execute over:
-     * x = 5 to 9 (inclusive) and
-     * y = 0 to 9 (inclusive).
+     * Class used to specify clipping for a kernel launch.
      *
      */
     public static final class LaunchOptions {
@@ -594,11 +470,11 @@ public class Script extends BaseObj {
         private int strategy;
 
         /**
-         * Set the X range. xstartArg is the lowest coordinate of the range,
-         * and xendArg-1 is the highest coordinate of the range.
+         * Set the X range.  If the end value is set to 0 the X dimension is not
+         * clipped.
          *
          * @param xstartArg Must be >= 0
-         * @param xendArg Must be > xstartArg
+         * @param xendArg Must be >= xstartArg
          *
          * @return LaunchOptions
          */
@@ -612,11 +488,11 @@ public class Script extends BaseObj {
         }
 
         /**
-         * Set the Y range. ystartArg is the lowest coordinate of the range,
-         * and yendArg-1 is the highest coordinate of the range.
+         * Set the Y range.  If the end value is set to 0 the Y dimension is not
+         * clipped.
          *
          * @param ystartArg Must be >= 0
-         * @param yendArg Must be > ystartArg
+         * @param yendArg Must be >= ystartArg
          *
          * @return LaunchOptions
          */
@@ -630,11 +506,11 @@ public class Script extends BaseObj {
         }
 
         /**
-         * Set the Z range. zstartArg is the lowest coordinate of the range,
-         * and zendArg-1 is the highest coordinate of the range.
+         * Set the Z range.  If the end value is set to 0 the Z dimension is not
+         * clipped.
          *
          * @param zstartArg Must be >= 0
-         * @param zendArg Must be > zstartArg
+         * @param zendArg Must be >= zstartArg
          *
          * @return LaunchOptions
          */

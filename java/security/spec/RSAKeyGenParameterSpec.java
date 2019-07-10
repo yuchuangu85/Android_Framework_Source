@@ -1,65 +1,52 @@
 /*
- * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.spec;
 
 import java.math.BigInteger;
-import java.security.spec.AlgorithmParameterSpec;
 
 /**
- * This class specifies the set of parameters used to generate an RSA
- * key pair.
- *
- * @author Jan Luehe
- *
- * @see java.security.KeyPairGenerator#initialize(java.security.spec.AlgorithmParameterSpec)
- *
- * @since 1.3
+ * The parameter specification for generating an RSA key pair.
  */
-
 public class RSAKeyGenParameterSpec implements AlgorithmParameterSpec {
 
-    private int keysize;
-    private BigInteger publicExponent;
-
     /**
-     * The public-exponent value F0 = 3.
+     * The value of the public exponent {@code F0} = 3.
      */
-    public static final BigInteger F0 = BigInteger.valueOf(3);
+    public static final BigInteger F0 = BigInteger.valueOf(3L);
 
     /**
-     * The public exponent-value F4 = 65537.
+     * The value of the public exponent {@code F4} = 65537.
      */
-    public static final BigInteger F4 = BigInteger.valueOf(65537);
+    public static final BigInteger F4 = BigInteger.valueOf(65537L);
+
+    // Key size
+    private final int keysize;
+    // Public Exponent
+    private final BigInteger publicExponent;
 
     /**
-     * Constructs a new {@code RSAParameterSpec} object from the
-     * given keysize and public-exponent value.
+     * Creates a new {@code RSAKeyGenParameterSpec} with the specified key size
+     * and public exponent.
      *
-     * @param keysize the modulus size (specified in number of bits)
-     * @param publicExponent the public exponent
+     * @param keysize
+     *            the size of the modulus (number of bits).
+     * @param publicExponent
+     *            the value of the public exponent.
      */
     public RSAKeyGenParameterSpec(int keysize, BigInteger publicExponent) {
         this.keysize = keysize;
@@ -67,18 +54,18 @@ public class RSAKeyGenParameterSpec implements AlgorithmParameterSpec {
     }
 
     /**
-     * Returns the keysize.
+     * Returns the size of the modulus (number of bits).
      *
-     * @return the keysize.
+     * @return the size of the modulus (number of bits).
      */
     public int getKeysize() {
         return keysize;
     }
 
     /**
-     * Returns the public-exponent value.
+     * Returns the value of the public exponent.
      *
-     * @return the public-exponent value.
+     * @return the value of the public exponent.
      */
     public BigInteger getPublicExponent() {
         return publicExponent;

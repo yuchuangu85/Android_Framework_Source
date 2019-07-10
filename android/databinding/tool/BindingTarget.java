@@ -18,32 +18,31 @@ package android.databinding.tool;
 
 import android.databinding.tool.expr.Expr;
 import android.databinding.tool.expr.ExprModel;
-import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
+import android.databinding.tool.processing.scopes.FileScopeProvider;
 import android.databinding.tool.processing.scopes.LocationScopeProvider;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.store.ResourceBundle;
 import android.databinding.tool.store.SetterStore;
-import android.databinding.tool.store.SetterStore.BindingGetterCall;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class BindingTarget implements LocationScopeProvider {
     List<Binding> mBindings = new ArrayList<Binding>();
-    List<InverseBinding> mInverseBindings = new ArrayList<InverseBinding>();
     ExprModel mModel;
     ModelClass mResolvedClass;
 
     // if this target presents itself in multiple layout files with different view types,
     // it receives an interface type and should use it in the getter instead.
-    ResourceBundle.BindingTargetBundle mBundle;
+    private ResourceBundle.BindingTargetBundle mBundle;
 
     public BindingTarget(ResourceBundle.BindingTargetBundle bundle) {
         mBundle = bundle;
@@ -54,32 +53,11 @@ public class BindingTarget implements LocationScopeProvider {
     }
 
     public void addBinding(String name, Expr expr) {
-        if (SetterStore.get(ModelAnalyzer.getInstance()).isTwoWayEventAttribute(name)) {
-            L.e(ErrorMessages.TWO_WAY_EVENT_ATTRIBUTE, name);
-        }
         mBindings.add(new Binding(this, name, expr));
     }
 
     public String getInterfaceType() {
         return mBundle.getInterfaceType() == null ? mBundle.getFullClassName() : mBundle.getInterfaceType();
-    }
-
-    public InverseBinding addInverseBinding(String name, Expr expr, String bindingClass) {
-        expr.assertIsInvertible();
-        final InverseBinding inverseBinding = new InverseBinding(this, name, expr, bindingClass);
-        mInverseBindings.add(inverseBinding);
-        mBindings.add(new Binding(this, inverseBinding.getEventAttribute(),
-                mModel.twoWayListenerExpr(inverseBinding),
-                inverseBinding.getEventSetter()));
-        return inverseBinding;
-    }
-
-    public InverseBinding addInverseBinding(String name, BindingGetterCall call) {
-        final InverseBinding inverseBinding = new InverseBinding(this, name, call);
-        mInverseBindings.add(inverseBinding);
-        mBindings.add(new Binding(this, inverseBinding.getEventAttribute(),
-                mModel.twoWayListenerExpr(inverseBinding)));
-        return inverseBinding;
     }
 
     @Override
@@ -105,13 +83,8 @@ public class BindingTarget implements LocationScopeProvider {
 
     public ModelClass getResolvedType() {
         if (mResolvedClass == null) {
-            if (mBundle.isBinder()) {
-                mResolvedClass = ModelAnalyzer.getInstance().
-                        findClass(mBundle.getInterfaceType(), mModel.getImports());
-            } else {
-                mResolvedClass = ModelAnalyzer.getInstance().findClass(mBundle.getFullClassName(),
-                        mModel.getImports());
-            }
+            mResolvedClass = ModelAnalyzer.getInstance().findClass(mBundle.getFullClassName(),
+                    mModel.getImports());
         }
         return mResolvedClass;
     }
@@ -133,49 +106,12 @@ public class BindingTarget implements LocationScopeProvider {
         return mBindings;
     }
 
-    public List<InverseBinding> getInverseBindings() {
-        return mInverseBindings;
-    }
-
     public ExprModel getModel() {
         return mModel;
     }
 
     public void setModel(ExprModel model) {
         mModel = model;
-    }
-
-    public void resolveListeners() {
-        for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveListeners();
-            } finally {
-                Scope.exit();
-            }
-        }
-    }
-
-    public void resolveCallbackParams() {
-        for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveCallbackParams();
-            } finally {
-                Scope.exit();
-            }
-        }
-    }
-
-    public void resolveTwoWayExpressions() {
-        for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveTwoWayExpressions();
-            } finally {
-                Scope.exit();
-            }
-        }
     }
 
     /**
@@ -222,7 +158,7 @@ public class BindingTarget implements LocationScopeProvider {
         List<MergedBinding> mergeBindings = new ArrayList<MergedBinding>();
         for (final SetterStore.MultiAttributeSetter setter : multiAttributeSetterCalls) {
             L.d("resolved %s", setter);
-            final List<Binding> mergedBindings = new ArrayList<Binding>();
+            final List<Binding> mergedBindings = new ArrayList<>();
             for (String attribute : setter.attributes) {
                 Binding binding = lookup.get(attribute);
                 Preconditions.checkNotNull(binding, "cannot find binding for %s", attribute);

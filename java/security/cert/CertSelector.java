@@ -1,67 +1,49 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
 
 /**
- * A selector that defines a set of criteria for selecting
- * {@code Certificate}s. Classes that implement this interface
- * are often used to specify which {@code Certificate}s should
- * be retrieved from a {@code CertStore}.
+ * The interface specification to determine whether a {@code
+ * Certificate} meets some criteria.
  * <p>
- * <b>Concurrent Access</b>
- * <p>
- * Unless otherwise specified, the methods defined in this interface are not
- * thread-safe. Multiple threads that need to access a single
- * object concurrently should synchronize amongst themselves and
- * provide the necessary locking. Multiple threads each manipulating
- * separate objects need not synchronize.
+ * The implementations of this interface are typically used to define the
+ * criteria for selecting {@code Certificate}s from a {@code CertStore}.
  *
- * @see Certificate
  * @see CertStore
- * @see CertStore#getCertificates
- *
- * @author      Steve Hanna
- * @since       1.4
+ * @see Certificate
  */
 public interface CertSelector extends Cloneable {
 
     /**
-     * Decides whether a {@code Certificate} should be selected.
+     * Clones this {@code CertSelector} instance.
      *
-     * @param   cert    the {@code Certificate} to be checked
-     * @return  {@code true} if the {@code Certificate}
-     * should be selected, {@code false} otherwise
+     * @return the cloned instance.
      */
-    boolean match(Certificate cert);
+    public Object clone();
 
     /**
-     * Makes a copy of this {@code CertSelector}. Changes to the
-     * copy will not affect the original and vice versa.
+     * Checks whether the defined criteria of this instance match the specified
+     * certificate.
      *
-     * @return a copy of this {@code CertSelector}
+     * @param cert
+     *            the certificate to be evaluated.
+     * @return {@code true} if the certificate matches the criteria, {@code
+     *         false} otherwise.
      */
-    Object clone();
+    public boolean match(Certificate cert);
 }

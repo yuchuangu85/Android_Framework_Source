@@ -166,7 +166,7 @@ public abstract class LauncherActivity extends ListActivity {
                 if (item.icon == null) {
                     item.icon = mIconResizer.createIconThumbnail(item.resolveInfo.loadIcon(getPackageManager()));
                 }
-                text.setCompoundDrawablesRelativeWithIntrinsicBounds(item.icon, null, null, null);
+                text.setCompoundDrawablesWithIntrinsicBounds(item.icon, null, null, null);
             }
         }
 

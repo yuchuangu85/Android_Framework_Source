@@ -29,15 +29,13 @@ import android.view.WindowInsets;
  * with "stickyContainer" and one of its child tagged as "sticky". The sticky container will be
  * drawn when the sticky element hits the top of the view.
  *
- * <p>There are a few things to note:
- * <ol>
- *   <li>The two supported scenarios are StickyHeaderScrollView -> subview (stickyContainer) ->
- *   sticky, and StickyHeaderScrollView -> container -> subview (sticky).
- *   The arrow (->) represents parent/child relationship and must be immediate child.
- *   <li>If fitsSystemWindows is true, then this will offset the sticking position by the height of
- *   the system decorations at the top of the screen.
- *   <li>For versions before Honeycomb, this will behave like a regular ScrollView.
- * </ol>
+ * There are a few things to note:
+ * 1. The two supported scenarios are StickyHeaderScrollView -> subview (stickyContainer) -> sticky,
+ *    and StickyHeaderScrollView -> container -> subview (sticky).
+ *    The arrow (->) represents parent/child relationship and must be immediate child.
+ * 2. If fitsSystemWindows is true, then this will offset the sticking position by the height of
+ *    the system decorations at the top of the screen.
+ * 3. For versions before Honeycomb, this will behave like a regular ScrollView.
  *
  * @see StickyHeaderListView
  */

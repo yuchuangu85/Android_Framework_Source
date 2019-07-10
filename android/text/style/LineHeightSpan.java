@@ -19,42 +19,16 @@ package android.text.style;
 import android.graphics.Paint;
 import android.text.TextPaint;
 
-/**
- * The classes that affect the height of the line should implement this interface.
- */
-public interface LineHeightSpan extends ParagraphStyle, WrapTogetherSpan {
-    /**
-     * Classes that implement this should define how the height is being calculated.
-     *
-     * @param text       the text
-     * @param start      the start of the line
-     * @param end        the end of the line
-     * @param spanstartv the start of the span
-     * @param lineHeight the line height
-     * @param fm         font metrics of the paint, in integers
-     */
+public interface LineHeightSpan
+extends ParagraphStyle, WrapTogetherSpan
+{
     public void chooseHeight(CharSequence text, int start, int end,
-            int spanstartv, int lineHeight,
-            Paint.FontMetricsInt fm);
+                             int spanstartv, int v,
+                             Paint.FontMetricsInt fm);
 
-    /**
-     * The classes that affect the height of the line with respect to density, should implement this
-     * interface.
-     */
     public interface WithDensity extends LineHeightSpan {
-
-        /**
-         * Classes that implement this should define how the height is being calculated.
-         *
-         * @param text       the text
-         * @param start      the start of the line
-         * @param end        the end of the line
-         * @param spanstartv the start of the span
-         * @param lineHeight the line height
-         * @param paint      the paint
-         */
         public void chooseHeight(CharSequence text, int start, int end,
-                int spanstartv, int lineHeight,
-                Paint.FontMetricsInt fm, TextPaint paint);
+                                 int spanstartv, int v,
+                                 Paint.FontMetricsInt fm, TextPaint paint);
     }
 }

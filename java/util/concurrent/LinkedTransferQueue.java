@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -36,15 +7,11 @@
 package java.util.concurrent;
 
 import java.util.AbstractQueue;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Queue;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.Consumer;
 
 // BEGIN android-note
 // removed link to collections framework docs
@@ -83,7 +50,7 @@ import java.util.function.Consumer;
  *
  * @since 1.7
  * @author Doug Lea
- * @param <E> the type of elements held in this queue
+ * @param <E> the type of elements held in this collection
  */
 public class LinkedTransferQueue<E> extends AbstractQueue<E>
     implements TransferQueue<E>, java.io.Serializable {
@@ -215,7 +182,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * of costly-to-reclaim garbage caused by the sequential "next"
      * links of nodes starting at old forgotten head nodes: As first
      * described in detail by Boehm
-     * (http://portal.acm.org/citation.cfm?doid=503272.503282), if a GC
+     * (http://portal.acm.org/citation.cfm?doid=503272.503282) if a GC
      * delays noticing that any arbitrarily old node has become
      * garbage, all newer dead nodes will also be unreclaimed.
      * (Similar issues arise in non-GC environments.)  To cope with
@@ -456,12 +423,12 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
 
         // CAS methods for fields
         final boolean casNext(Node cmp, Node val) {
-            return U.compareAndSwapObject(this, NEXT, cmp, val);
+            return UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
         }
 
         final boolean casItem(Object cmp, Object val) {
             // assert cmp == null || cmp.getClass() != Node.class;
-            return U.compareAndSwapObject(this, ITEM, cmp, val);
+            return UNSAFE.compareAndSwapObject(this, itemOffset, cmp, val);
         }
 
         /**
@@ -469,7 +436,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * only be seen after publication via casNext.
          */
         Node(Object item, boolean isData) {
-            U.putObject(this, ITEM, item); // relaxed write
+            UNSAFE.putObject(this, itemOffset, item); // relaxed write
             this.isData = isData;
         }
 
@@ -478,7 +445,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * only after CASing head field, so uses relaxed write.
          */
         final void forgetNext() {
-            U.putObject(this, NEXT, this);
+            UNSAFE.putObject(this, nextOffset, this);
         }
 
         /**
@@ -491,8 +458,8 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * else we don't care).
          */
         final void forgetContents() {
-            U.putObject(this, ITEM, this);
-            U.putObject(this, WAITER, null);
+            UNSAFE.putObject(this, itemOffset, this);
+            UNSAFE.putObject(this, waiterOffset, null);
         }
 
         /**
@@ -538,19 +505,21 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         private static final long serialVersionUID = -3375979862319811754L;
 
         // Unsafe mechanics
-        private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-        private static final long ITEM;
-        private static final long NEXT;
-        private static final long WAITER;
+        private static final sun.misc.Unsafe UNSAFE;
+        private static final long itemOffset;
+        private static final long nextOffset;
+        private static final long waiterOffset;
         static {
             try {
-                ITEM = U.objectFieldOffset
-                    (Node.class.getDeclaredField("item"));
-                NEXT = U.objectFieldOffset
-                    (Node.class.getDeclaredField("next"));
-                WAITER = U.objectFieldOffset
-                    (Node.class.getDeclaredField("waiter"));
-            } catch (ReflectiveOperationException e) {
+                UNSAFE = sun.misc.Unsafe.getUnsafe();
+                Class<?> k = Node.class;
+                itemOffset = UNSAFE.objectFieldOffset
+                    (k.getDeclaredField("item"));
+                nextOffset = UNSAFE.objectFieldOffset
+                    (k.getDeclaredField("next"));
+                waiterOffset = UNSAFE.objectFieldOffset
+                    (k.getDeclaredField("waiter"));
+            } catch (Exception e) {
                 throw new Error(e);
             }
         }
@@ -567,15 +536,15 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
 
     // CAS methods for fields
     private boolean casTail(Node cmp, Node val) {
-        return U.compareAndSwapObject(this, TAIL, cmp, val);
+        return UNSAFE.compareAndSwapObject(this, tailOffset, cmp, val);
     }
 
     private boolean casHead(Node cmp, Node val) {
-        return U.compareAndSwapObject(this, HEAD, cmp, val);
+        return UNSAFE.compareAndSwapObject(this, headOffset, cmp, val);
     }
 
     private boolean casSweepVotes(int cmp, int val) {
-        return U.compareAndSwapInt(this, SWEEPVOTES, cmp, val);
+        return UNSAFE.compareAndSwapInt(this, sweepVotesOffset, cmp, val);
     }
 
     /*
@@ -585,6 +554,12 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     private static final int ASYNC = 1; // for offer, put, add
     private static final int SYNC  = 2; // for transfer, take
     private static final int TIMED = 3; // for timed poll, tryTransfer
+
+    @SuppressWarnings("unchecked")
+    static <E> E cast(Object item) {
+        // assert item == null || item.getClass() != Node.class;
+        return (E) item;
+    }
 
     /**
      * Implements all queuing methods. See above for explanation.
@@ -622,8 +597,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                                 break;        // unless slack < 2
                         }
                         LockSupport.unpark(p.waiter);
-                        @SuppressWarnings("unchecked") E itemE = (E) item;
-                        return itemE;
+                        return LinkedTransferQueue.<E>cast(item);
                     }
                 }
                 Node n = p.next;
@@ -701,15 +675,15 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             if (item != e) {                  // matched
                 // assert item != s;
                 s.forgetContents();           // avoid garbage
-                @SuppressWarnings("unchecked") E itemE = (E) item;
-                return itemE;
+                return LinkedTransferQueue.<E>cast(item);
             }
-            else if (w.isInterrupted() || (timed && nanos <= 0L)) {
-                unsplice(pred, s);           // try to unlink and cancel
-                if (s.casItem(e, s))         // return normally if lost CAS
-                    return e;
+            if ((w.isInterrupted() || (timed && nanos <= 0)) &&
+                    s.casItem(e, s)) {        // cancel
+                unsplice(pred, s);
+                return e;
             }
-            else if (spins < 0) {            // establish spins at/near front
+
+            if (spins < 0) {                  // establish spins at/near front
                 if ((spins = spinsFor(pred, s.isData)) > 0)
                     randomYields = ThreadLocalRandom.current();
             }
@@ -761,25 +735,32 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     }
 
     /**
-     * Returns the first unmatched data node, or null if none.
-     * Callers must recheck if the returned node's item field is null
-     * or self-linked before using.
+     * Returns the first unmatched node of the given mode, or null if
+     * none.  Used by methods isEmpty, hasWaitingConsumer.
      */
-    final Node firstDataNode() {
-        restartFromHead: for (;;) {
-            for (Node p = head; p != null;) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p)
-                        return p;
-                }
-                else if (item == null)
-                    break;
-                if (p == (p = p.next))
-                    continue restartFromHead;
-            }
-            return null;
+    private Node firstOfMode(boolean isData) {
+        for (Node p = head; p != null; p = succ(p)) {
+            if (!p.isMatched())
+                return (p.isData == isData) ? p : null;
         }
+        return null;
+    }
+
+    /**
+     * Returns the item in the first unmatched node with isData; or
+     * null if none.  Used by peek.
+     */
+    private E firstDataItem() {
+        for (Node p = head; p != null; p = succ(p)) {
+            Object item = p.item;
+            if (p.isData) {
+                if (item != null && item != p)
+                    return LinkedTransferQueue.<E>cast(item);
+            }
+            else if (item == null)
+                return null;
+        }
+        return null;
     }
 
     /**
@@ -787,140 +768,23 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * Used by methods size and getWaitingConsumerCount.
      */
     private int countOfMode(boolean data) {
-        restartFromHead: for (;;) {
-            int count = 0;
-            for (Node p = head; p != null;) {
-                if (!p.isMatched()) {
-                    if (p.isData != data)
-                        return 0;
-                    if (++count == Integer.MAX_VALUE)
-                        break;  // @see Collection.size()
-                }
-                if (p == (p = p.next))
-                    continue restartFromHead;
-            }
-            return count;
-        }
-    }
-
-    public String toString() {
-        String[] a = null;
-        restartFromHead: for (;;) {
-            int charLength = 0;
-            int size = 0;
-            for (Node p = head; p != null;) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p) {
-                        if (a == null)
-                            a = new String[4];
-                        else if (size == a.length)
-                            a = Arrays.copyOf(a, 2 * size);
-                        String s = item.toString();
-                        a[size++] = s;
-                        charLength += s.length();
-                    }
-                } else if (item == null)
+        int count = 0;
+        for (Node p = head; p != null; ) {
+            if (!p.isMatched()) {
+                if (p.isData != data)
+                    return 0;
+                if (++count == Integer.MAX_VALUE) // saturated
                     break;
-                if (p == (p = p.next))
-                    continue restartFromHead;
             }
-
-            if (size == 0)
-                return "[]";
-
-            return Helpers.toString(a, size, charLength);
+            Node n = p.next;
+            if (n != p)
+                p = n;
+            else {
+                count = 0;
+                p = head;
+            }
         }
-    }
-
-    private Object[] toArrayInternal(Object[] a) {
-        Object[] x = a;
-        restartFromHead: for (;;) {
-            int size = 0;
-            for (Node p = head; p != null;) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p) {
-                        if (x == null)
-                            x = new Object[4];
-                        else if (size == x.length)
-                            x = Arrays.copyOf(x, 2 * (size + 4));
-                        x[size++] = item;
-                    }
-                } else if (item == null)
-                    break;
-                if (p == (p = p.next))
-                    continue restartFromHead;
-            }
-            if (x == null)
-                return new Object[0];
-            else if (a != null && size <= a.length) {
-                if (a != x)
-                    System.arraycopy(x, 0, a, 0, size);
-                if (size < a.length)
-                    a[size] = null;
-                return a;
-            }
-            return (size == x.length) ? x : Arrays.copyOf(x, size);
-        }
-    }
-
-    /**
-     * Returns an array containing all of the elements in this queue, in
-     * proper sequence.
-     *
-     * <p>The returned array will be "safe" in that no references to it are
-     * maintained by this queue.  (In other words, this method must allocate
-     * a new array).  The caller is thus free to modify the returned array.
-     *
-     * <p>This method acts as bridge between array-based and collection-based
-     * APIs.
-     *
-     * @return an array containing all of the elements in this queue
-     */
-    public Object[] toArray() {
-        return toArrayInternal(null);
-    }
-
-    /**
-     * Returns an array containing all of the elements in this queue, in
-     * proper sequence; the runtime type of the returned array is that of
-     * the specified array.  If the queue fits in the specified array, it
-     * is returned therein.  Otherwise, a new array is allocated with the
-     * runtime type of the specified array and the size of this queue.
-     *
-     * <p>If this queue fits in the specified array with room to spare
-     * (i.e., the array has more elements than this queue), the element in
-     * the array immediately following the end of the queue is set to
-     * {@code null}.
-     *
-     * <p>Like the {@link #toArray()} method, this method acts as bridge between
-     * array-based and collection-based APIs.  Further, this method allows
-     * precise control over the runtime type of the output array, and may,
-     * under certain circumstances, be used to save allocation costs.
-     *
-     * <p>Suppose {@code x} is a queue known to contain only strings.
-     * The following code can be used to dump the queue into a newly
-     * allocated array of {@code String}:
-     *
-     * <pre> {@code String[] y = x.toArray(new String[0]);}</pre>
-     *
-     * Note that {@code toArray(new Object[0])} is identical in function to
-     * {@code toArray()}.
-     *
-     * @param a the array into which the elements of the queue are to
-     *          be stored, if it is big enough; otherwise, a new array of the
-     *          same runtime type is allocated for this purpose
-     * @return an array containing all of the elements in this queue
-     * @throws ArrayStoreException if the runtime type of the specified array
-     *         is not a supertype of the runtime type of every element in
-     *         this queue
-     * @throws NullPointerException if the specified array is null
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T[] toArray(T[] a) {
-        if (a == null) throw new NullPointerException();
-        return (T[]) toArrayInternal(a);
+        return count;
     }
 
     final class Itr implements Iterator<E> {
@@ -969,8 +833,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 Object item = s.item;
                 if (s.isData) {
                     if (item != null && item != s) {
-                        @SuppressWarnings("unchecked") E itemE = (E) item;
-                        nextItem = itemE;
+                        nextItem = LinkedTransferQueue.<E>cast(item);
                         nextNode = s;
                         return;
                     }
@@ -1017,111 +880,6 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         }
     }
 
-    /** A customized variant of Spliterators.IteratorSpliterator */
-    final class LTQSpliterator<E> implements Spliterator<E> {
-        static final int MAX_BATCH = 1 << 25;  // max batch array size;
-        Node current;       // current node; null until initialized
-        int batch;          // batch size for splits
-        boolean exhausted;  // true when no more nodes
-        LTQSpliterator() {}
-
-        public Spliterator<E> trySplit() {
-            Node p;
-            int b = batch;
-            int n = (b <= 0) ? 1 : (b >= MAX_BATCH) ? MAX_BATCH : b + 1;
-            if (!exhausted &&
-                ((p = current) != null || (p = firstDataNode()) != null) &&
-                p.next != null) {
-                Object[] a = new Object[n];
-                int i = 0;
-                do {
-                    Object e = p.item;
-                    if (e != p && (a[i] = e) != null)
-                        ++i;
-                    if (p == (p = p.next))
-                        p = firstDataNode();
-                } while (p != null && i < n && p.isData);
-                if ((current = p) == null)
-                    exhausted = true;
-                if (i > 0) {
-                    batch = i;
-                    return Spliterators.spliterator
-                        (a, 0, i, (Spliterator.ORDERED |
-                                   Spliterator.NONNULL |
-                                   Spliterator.CONCURRENT));
-                }
-            }
-            return null;
-        }
-
-        @SuppressWarnings("unchecked")
-        public void forEachRemaining(Consumer<? super E> action) {
-            Node p;
-            if (action == null) throw new NullPointerException();
-            if (!exhausted &&
-                ((p = current) != null || (p = firstDataNode()) != null)) {
-                exhausted = true;
-                do {
-                    Object e = p.item;
-                    if (e != null && e != p)
-                        action.accept((E)e);
-                    if (p == (p = p.next))
-                        p = firstDataNode();
-                } while (p != null && p.isData);
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        public boolean tryAdvance(Consumer<? super E> action) {
-            Node p;
-            if (action == null) throw new NullPointerException();
-            if (!exhausted &&
-                ((p = current) != null || (p = firstDataNode()) != null)) {
-                Object e;
-                do {
-                    if ((e = p.item) == p)
-                        e = null;
-                    if (p == (p = p.next))
-                        p = firstDataNode();
-                } while (e == null && p != null && p.isData);
-                if ((current = p) == null)
-                    exhausted = true;
-                if (e != null) {
-                    action.accept((E)e);
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        public long estimateSize() { return Long.MAX_VALUE; }
-
-        public int characteristics() {
-            return Spliterator.ORDERED | Spliterator.NONNULL |
-                Spliterator.CONCURRENT;
-        }
-    }
-
-    /**
-     * Returns a {@link Spliterator} over the elements in this queue.
-     *
-     * <p>The returned spliterator is
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     *
-     * <p>The {@code Spliterator} reports {@link Spliterator#CONCURRENT},
-     * {@link Spliterator#ORDERED}, and {@link Spliterator#NONNULL}.
-     *
-     * @implNote
-     * The {@code Spliterator} implements {@code trySplit} to permit limited
-     * parallelism.
-     *
-     * @return a {@code Spliterator} over the elements in this queue
-     * @since 1.8
-     */
-    public Spliterator<E> spliterator() {
-        return new LTQSpliterator<E>();
-    }
-
     /* -------------- Removal methods -------------- */
 
     /**
@@ -1133,7 +891,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * @param s the node to be unspliced
      */
     final void unsplice(Node pred, Node s) {
-        s.waiter = null; // disable signals
+        s.forgetContents(); // forget unneeded fields
         /*
          * See above for rationale. Briefly: if pred still points to
          * s, try to unlink s.  If s cannot be unlinked, because it is
@@ -1401,8 +1159,12 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * Returns an iterator over the elements in this queue in proper sequence.
      * The elements will be returned in order from first (head) to last (tail).
      *
-     * <p>The returned iterator is
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
+     * <p>The returned iterator is a "weakly consistent" iterator that
+     * will never throw {@link java.util.ConcurrentModificationException
+     * ConcurrentModificationException}, and guarantees to traverse
+     * elements as they existed upon construction of the iterator, and
+     * may (but is not guaranteed to) reflect any modifications
+     * subsequent to construction.
      *
      * @return an iterator over the elements in this queue in proper sequence
      */
@@ -1411,22 +1173,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     }
 
     public E peek() {
-        restartFromHead: for (;;) {
-            for (Node p = head; p != null;) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p) {
-                        @SuppressWarnings("unchecked") E e = (E) item;
-                        return e;
-                    }
-                }
-                else if (item == null)
-                    break;
-                if (p == (p = p.next))
-                    continue restartFromHead;
-            }
-            return null;
-        }
+        return firstDataItem();
     }
 
     /**
@@ -1435,24 +1182,15 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * @return {@code true} if this queue contains no elements
      */
     public boolean isEmpty() {
-        return firstDataNode() == null;
+        for (Node p = head; p != null; p = succ(p)) {
+            if (!p.isMatched())
+                return !p.isData;
+        }
+        return true;
     }
 
     public boolean hasWaitingConsumer() {
-        restartFromHead: for (;;) {
-            for (Node p = head; p != null;) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p)
-                        break;
-                }
-                else if (item == null)
-                    return true;
-                if (p == (p = p.next))
-                    continue restartFromHead;
-            }
-            return false;
-        }
+        return firstOfMode(false) != null;
     }
 
     /**
@@ -1499,16 +1237,15 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * @return {@code true} if this queue contains the specified element
      */
     public boolean contains(Object o) {
-        if (o != null) {
-            for (Node p = head; p != null; p = succ(p)) {
-                Object item = p.item;
-                if (p.isData) {
-                    if (item != null && item != p && o.equals(item))
-                        return true;
-                }
-                else if (item == null)
-                    break;
+        if (o == null) return false;
+        for (Node p = head; p != null; p = succ(p)) {
+            Object item = p.item;
+            if (p.isData) {
+                if (item != null && item != p && o.equals(item))
+                    return true;
             }
+            else if (item == null)
+                break;
         }
         return false;
     }
@@ -1528,8 +1265,6 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     /**
      * Saves this queue to a stream (that is, serializes it).
      *
-     * @param s the stream
-     * @throws java.io.IOException if an I/O error occurs
      * @serialData All of the elements (each an {@code E}) in
      * the proper order, followed by a null
      */
@@ -1544,10 +1279,6 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
 
     /**
      * Reconstitutes this queue from a stream (that is, deserializes it).
-     * @param s the stream
-     * @throws ClassNotFoundException if the class of a serialized object
-     *         could not be found
-     * @throws java.io.IOException if an I/O error occurs
      */
     private void readObject(java.io.ObjectInputStream s)
         throws java.io.IOException, ClassNotFoundException {
@@ -1564,19 +1295,21 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
 
     // Unsafe mechanics
 
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long HEAD;
-    private static final long TAIL;
-    private static final long SWEEPVOTES;
+    private static final sun.misc.Unsafe UNSAFE;
+    private static final long headOffset;
+    private static final long tailOffset;
+    private static final long sweepVotesOffset;
     static {
         try {
-            HEAD = U.objectFieldOffset
-                (LinkedTransferQueue.class.getDeclaredField("head"));
-            TAIL = U.objectFieldOffset
-                (LinkedTransferQueue.class.getDeclaredField("tail"));
-            SWEEPVOTES = U.objectFieldOffset
-                (LinkedTransferQueue.class.getDeclaredField("sweepVotes"));
-        } catch (ReflectiveOperationException e) {
+            UNSAFE = sun.misc.Unsafe.getUnsafe();
+            Class<?> k = LinkedTransferQueue.class;
+            headOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("head"));
+            tailOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("tail"));
+            sweepVotesOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("sweepVotes"));
+        } catch (Exception e) {
             throw new Error(e);
         }
 

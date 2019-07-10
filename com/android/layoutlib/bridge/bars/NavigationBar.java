@@ -19,6 +19,9 @@ package com.android.layoutlib.bridge.bars;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.resources.Density;
 
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -38,18 +41,29 @@ public class NavigationBar extends CustomBar {
     private static final int WIDTH_DEFAULT = 36;
     private static final int WIDTH_SW360 = 40;
     private static final int WIDTH_SW600 = 48;
-    protected static final String LAYOUT_XML = "/bars/navigation_bar.xml";
+    private static final String LAYOUT_XML = "/bars/navigation_bar.xml";
     private static final String LAYOUT_600DP_XML = "/bars/navigation_bar600dp.xml";
 
-    public NavigationBar(BridgeContext context, Density density, int orientation, boolean isRtl,
-      boolean rtlEnabled, int simulatedPlatformVersion) {
-        this(context, density, orientation, isRtl, rtlEnabled, simulatedPlatformVersion,
-          getShortestWidth(context)>= 600 ? LAYOUT_600DP_XML : LAYOUT_XML);
+
+    /**
+     * Constructor to be used when creating the {@link NavigationBar} as a regular control.
+     * This is currently used by the theme editor.
+     */
+    @SuppressWarnings("unused")
+    public NavigationBar(Context context, AttributeSet attrs) {
+        this((BridgeContext) context,
+                Density.getEnum(((BridgeContext) context).getMetrics().densityDpi),
+                LinearLayout.HORIZONTAL, // In this mode, it doesn't need to be render vertically
+                ((BridgeContext) context).getConfiguration().getLayoutDirection() ==
+                        View.LAYOUT_DIRECTION_RTL,
+                (context.getApplicationInfo().flags & ApplicationInfo.FLAG_SUPPORTS_RTL) != 0,
+                0);
     }
 
-    protected NavigationBar(BridgeContext context, Density density, int orientation, boolean isRtl,
-      boolean rtlEnabled, int simulatedPlatformVersion, String layoutPath) {
-        super(context, orientation, layoutPath, "navigation_bar.xml", simulatedPlatformVersion);
+    public NavigationBar(BridgeContext context, Density density, int orientation, boolean isRtl,
+            boolean rtlEnabled, int simulatedPlatformVersion) {
+        super(context, orientation, getShortestWidth(context)>= 600 ? LAYOUT_600DP_XML : LAYOUT_XML,
+                "navigation_bar.xml", simulatedPlatformVersion);
 
         int color = getBarColor(ATTR_COLOR, ATTR_TRANSLUCENT);
         setBackgroundColor(color == 0 ? 0xFF000000 : color);
@@ -103,7 +117,7 @@ public class NavigationBar extends CustomBar {
         view.setLayoutParams(layoutParams);
     }
 
-    protected int getSidePadding(float sw) {
+    private static int getSidePadding(float sw) {
         if (sw >= 400) {
             return PADDING_WIDTH_SW400;
         }

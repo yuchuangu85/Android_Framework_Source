@@ -401,11 +401,12 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
      }
 
     LayoutParams createOrReuseLayoutParams(View v) {
-        final LayoutParams currentLp = v.getLayoutParams();
-        if (currentLp != null) {
-            return currentLp;
+        final ViewGroup.LayoutParams currentLp = v.getLayoutParams();
+        if (currentLp instanceof ViewGroup.LayoutParams) {
+            LayoutParams lp = (LayoutParams) currentLp;
+            return lp;
         }
-        return new LayoutParams(0, 0);
+        return new ViewGroup.LayoutParams(0, 0);
     }
 
     void refreshChildren() {
@@ -975,19 +976,8 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
      * @param intent the intent used to identify the RemoteViewsService for the adapter to
      *        connect to.
      */
-    @android.view.RemotableViewMethod(asyncImpl="setRemoteViewsAdapterAsync")
+    @android.view.RemotableViewMethod
     public void setRemoteViewsAdapter(Intent intent) {
-        setRemoteViewsAdapter(intent, false);
-    }
-
-    /** @hide **/
-    public Runnable setRemoteViewsAdapterAsync(final Intent intent) {
-        return new RemoteViewsAdapter.AsyncRemoteAdapterAction(this, intent);
-    }
-
-    /** @hide **/
-    @Override
-    public void setRemoteViewsAdapter(Intent intent, boolean isAsync) {
         // Ensure that we don't already have a RemoteViewsAdapter that is bound to an existing
         // service handling the specified intent.
         if (mRemoteViewsAdapter != null) {
@@ -1000,7 +990,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
         }
         mDeferNotifyDataSetChanged = false;
         // Otherwise, create a new RemoteViewsAdapter for binding
-        mRemoteViewsAdapter = new RemoteViewsAdapter(getContext(), intent, this, isAsync);
+        mRemoteViewsAdapter = new RemoteViewsAdapter(getContext(), intent, this);
         if (mRemoteViewsAdapter.isDataReady()) {
             setAdapter(mRemoteViewsAdapter);
         }

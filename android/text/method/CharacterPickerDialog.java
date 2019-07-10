@@ -16,24 +16,23 @@
 
 package android.text.method;
 
+import com.android.internal.R;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.Selection;
+import android.text.*;
 import android.view.LayoutInflater;
-import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
+import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.GridView;
-
-import com.android.internal.R;
 
 /**
  * Dialog for choosing accented characters related to a base character.

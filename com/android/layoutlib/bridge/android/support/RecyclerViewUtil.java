@@ -18,11 +18,9 @@ package com.android.layoutlib.bridge.android.support;
 
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
-import com.android.internal.widget.RecyclerView;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.RenderParamsFlags;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
 import com.android.layoutlib.bridge.util.ReflectionUtils.ReflectionException;
 
 import android.annotation.NonNull;
@@ -35,15 +33,17 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.getMethod;
 import static com.android.layoutlib.bridge.util.ReflectionUtils.invoke;
 
 /**
- * Utility class for working with android.support.v7.widget.RecyclerView and
- * androidx.widget.RecyclerView
+ * Utility class for working with android.support.v7.widget.RecyclerView
  */
 public class RecyclerViewUtil {
-    public static final String[] CN_RECYCLER_VIEW = {
-            "android.support.v7.widget.RecyclerView",
-            "androidx.widget.RecyclerView"
-    };
 
+    private static final String RV_PKG_PREFIX = "android.support.v7.widget.";
+    public static final String CN_RECYCLER_VIEW = RV_PKG_PREFIX + "RecyclerView";
+    private static final String CN_LAYOUT_MANAGER = CN_RECYCLER_VIEW + "$LayoutManager";
+    private static final String CN_ADAPTER = CN_RECYCLER_VIEW + "$Adapter";
+
+    // LinearLayoutManager related constants.
+    private static final String CN_LINEAR_LAYOUT_MANAGER = RV_PKG_PREFIX + "LinearLayoutManager";
     private static final Class<?>[] LLM_CONSTRUCTOR_SIGNATURE = new Class<?>[]{Context.class};
 
     /**
@@ -54,21 +54,13 @@ public class RecyclerViewUtil {
      * Any exceptions thrown during the process are logged in {@link Bridge#getLog()}
      */
     public static void setAdapter(@NonNull View recyclerView, @NonNull BridgeContext context,
-            @NonNull LayoutlibCallback layoutlibCallback, int adapterLayout, int itemCount) {
-        String recyclerViewClassName = recyclerView.getClass().getName();
-        String adapterClassName = recyclerViewClassName + "$Adapter";
-        String layoutMgrClassName = recyclerViewClassName + "$LayoutManager";
-
+            @NonNull LayoutlibCallback layoutlibCallback, int adapterLayout) {
         try {
-            setLayoutManager(recyclerView, layoutMgrClassName, context, layoutlibCallback);
-            Object adapter = createAdapter(layoutlibCallback, adapterClassName);
+            setLayoutManager(recyclerView, context, layoutlibCallback);
+            Object adapter = createAdapter(layoutlibCallback);
             if (adapter != null) {
-                setProperty(recyclerView, adapterClassName, adapter, "setAdapter");
+                setProperty(recyclerView, CN_ADAPTER, adapter, "setAdapter");
                 setProperty(adapter, int.class, adapterLayout, "setLayoutId");
-
-                if (itemCount != -1) {
-                    setProperty(adapter, int.class, itemCount, "setItemCount");
-                }
             }
         } catch (ReflectionException e) {
             Throwable cause = getCause(e);
@@ -77,17 +69,13 @@ public class RecyclerViewUtil {
         }
     }
 
-    private static void setLayoutManager(@NonNull View recyclerView,
-            @NonNull String layoutMgrClassName, @NonNull BridgeContext context,
+    private static void setLayoutManager(@NonNull View recyclerView, @NonNull BridgeContext context,
             @NonNull LayoutlibCallback callback) throws ReflectionException {
         if (getLayoutManager(recyclerView) == null) {
-            String linearLayoutMgrClassManager =
-                    recyclerView.getClass().getPackage().getName() + ".LinearLayoutManager";
             // Only set the layout manager if not already set by the recycler view.
-            Object layoutManager =
-                    createLayoutManager(context, linearLayoutMgrClassManager, callback);
+            Object layoutManager = createLayoutManager(context, callback);
             if (layoutManager != null) {
-                setProperty(recyclerView, layoutMgrClassName, layoutManager, "setLayoutManager");
+                setProperty(recyclerView, CN_LAYOUT_MANAGER, layoutManager, "setLayoutManager");
             }
         }
     }
@@ -95,10 +83,10 @@ public class RecyclerViewUtil {
     /** Creates a LinearLayoutManager using the provided context. */
     @Nullable
     private static Object createLayoutManager(@NonNull Context context,
-            @NonNull String linearLayoutMgrClassName, @NonNull LayoutlibCallback callback)
+            @NonNull LayoutlibCallback callback)
             throws ReflectionException {
         try {
-            return callback.loadView(linearLayoutMgrClassName, LLM_CONSTRUCTOR_SIGNATURE,
+            return callback.loadView(CN_LINEAR_LAYOUT_MANAGER, LLM_CONSTRUCTOR_SIGNATURE,
                     new Object[]{context});
         } catch (Exception e) {
             throw new ReflectionException(e);
@@ -111,24 +99,24 @@ public class RecyclerViewUtil {
     }
 
     @Nullable
-    private static Object createAdapter(@NonNull LayoutlibCallback layoutlibCallback,
-            @NonNull String layoutMgrClassName) throws ReflectionException {
+    private static Object createAdapter(@NonNull LayoutlibCallback layoutlibCallback)
+            throws ReflectionException {
         Boolean ideSupport =
                 layoutlibCallback.getFlag(RenderParamsFlags.FLAG_KEY_RECYCLER_VIEW_SUPPORT);
         if (ideSupport != Boolean.TRUE) {
             return null;
         }
         try {
-            return layoutlibCallback.loadClass(layoutMgrClassName, new Class[0], new Object[0]);
+            return layoutlibCallback.loadClass(CN_ADAPTER, new Class[0], new Object[0]);
         } catch (Exception e) {
             throw new ReflectionException(e);
         }
     }
 
     private static void setProperty(@NonNull Object object, @NonNull String propertyClassName,
-            @NonNull Object propertyValue, @NonNull String propertySetter)
+      @NonNull Object propertyValue, @NonNull String propertySetter)
             throws ReflectionException {
-        Class<?> propertyClass = ReflectionUtils.getClassInstance(propertyValue, propertyClassName);
+        Class<?> propertyClass = getClassInstance(propertyValue, propertyClassName);
         setProperty(object, propertyClass, propertyValue, propertySetter);
     }
 
@@ -138,4 +126,22 @@ public class RecyclerViewUtil {
         invoke(getMethod(object.getClass(), propertySetter, propertyClass), object, propertyValue);
     }
 
+    /**
+     * Looks through the class hierarchy of {@code object} at runtime and returns the class matching
+     * the name {@code className}.
+     * <p/>
+     * This is used when we cannot use Class.forName() since the class we want was loaded from a
+     * different ClassLoader.
+     */
+    @NonNull
+    private static Class<?> getClassInstance(@NonNull Object object, @NonNull String className) {
+        Class<?> superClass = object.getClass();
+        while (superClass != null) {
+            if (className.equals(superClass.getName())) {
+                return superClass;
+            }
+            superClass = superClass.getSuperclass();
+        }
+        throw new RuntimeException("invalid object/classname combination.");
+    }
 }

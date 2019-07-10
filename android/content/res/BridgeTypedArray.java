@@ -16,7 +16,6 @@
 
 package android.content.res;
 
-import com.android.ide.common.rendering.api.ArrayResourceValue;
 import com.android.ide.common.rendering.api.AttrResourceValue;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.RenderResources;
@@ -25,19 +24,23 @@ import com.android.ide.common.rendering.api.StyleResourceValue;
 import com.android.internal.util.XmlUtils;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
+import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
+import com.android.layoutlib.bridge.impl.ParserFactory;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
 import android.annotation.Nullable;
 import android.content.res.Resources.Theme;
-import android.graphics.Typeface;
-import android.graphics.Typeface_Accessor;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.LayoutInflater_Delegate;
 import android.view.ViewGroup.LayoutParams;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map;
@@ -66,11 +69,10 @@ import static com.android.ide.common.rendering.api.RenderResources.REFERENCE_UND
  */
 public final class BridgeTypedArray extends TypedArray {
 
-    private final Resources mBridgeResources;
+    private final BridgeResources mBridgeResources;
     private final BridgeContext mContext;
     private final boolean mPlatformFile;
 
-    private final int[] mResourceId;
     private final ResourceValue[] mResourceData;
     private final String[] mNames;
     private final boolean[] mIsFramework;
@@ -80,13 +82,12 @@ public final class BridgeTypedArray extends TypedArray {
     @Nullable
     private int[] mEmptyIds;
 
-    public BridgeTypedArray(Resources resources, BridgeContext context, int len,
+    public BridgeTypedArray(BridgeResources resources, BridgeContext context, int len,
             boolean platformFile) {
-        super(resources);
+        super(resources, null, null, 0);
         mBridgeResources = resources;
         mContext = context;
         mPlatformFile = platformFile;
-        mResourceId = new int[len];
         mResourceData = new ResourceValue[len];
         mNames = new String[len];
         mIsFramework = new boolean[len];
@@ -97,12 +98,9 @@ public final class BridgeTypedArray extends TypedArray {
      * @param index the index of the value in the TypedArray
      * @param name the name of the attribute
      * @param isFramework whether the attribute is in the android namespace.
-     * @param resourceId the reference id of this resource
      * @param value the value of the attribute
      */
-    public void bridgeSetValue(int index, String name, boolean isFramework, int resourceId,
-            ResourceValue value) {
-        mResourceId[index] = resourceId;
+    public void bridgeSetValue(int index, String name, boolean isFramework, ResourceValue value) {
         mResourceData[index] = value;
         mNames[index] = name;
         mIsFramework[index] = isFramework;
@@ -110,7 +108,7 @@ public final class BridgeTypedArray extends TypedArray {
 
     /**
      * Seals the array after all calls to
-     * {@link #bridgeSetValue(int, String, boolean, int, ResourceValue)} have been done.
+     * {@link #bridgeSetValue(int, String, boolean, ResourceValue)} have been done.
      * <p/>This allows to compute the list of non default values, permitting
      * {@link #getIndexCount()} to return the proper value.
      */
@@ -297,7 +295,7 @@ public final class BridgeTypedArray extends TypedArray {
         }
 
         ColorStateList colorStateList = ResourceHelper.getColorStateList(
-                mResourceData[index], mContext, mTheme);
+                mResourceData[index], mContext);
         if (colorStateList != null) {
             return colorStateList.getDefaultColor();
         }
@@ -305,22 +303,64 @@ public final class BridgeTypedArray extends TypedArray {
         return defValue;
     }
 
+    /**
+     * Retrieve the ColorStateList for the attribute at <var>index</var>.
+     * The value may be either a single solid color or a reference to
+     * a color or complex {@link android.content.res.ColorStateList} description.
+     *
+     * @param index Index of attribute to retrieve.
+     *
+     * @return ColorStateList for the attribute, or null if not defined.
+     */
     @Override
     public ColorStateList getColorStateList(int index) {
         if (!hasValue(index)) {
             return null;
         }
 
-        return ResourceHelper.getColorStateList(mResourceData[index], mContext, mTheme);
-    }
+        ResourceValue resValue = mResourceData[index];
+        String value = resValue.getValue();
 
-    @Override
-    public ComplexColor getComplexColor(int index) {
-        if (!hasValue(index)) {
+        if (value == null) {
             return null;
         }
 
-        return ResourceHelper.getComplexColor(mResourceData[index], mContext, mTheme);
+        // let the framework inflate the ColorStateList from the XML file.
+        File f = new File(value);
+        if (f.isFile()) {
+            try {
+                XmlPullParser parser = ParserFactory.create(f);
+
+                BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(
+                        parser, mContext, resValue.isFramework());
+                try {
+                    return ColorStateList.createFromXml(mContext.getResources(), blockParser,
+                            mContext.getTheme());
+                } finally {
+                    blockParser.ensurePopped();
+                }
+            } catch (XmlPullParserException e) {
+                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+                        "Failed to configure parser for " + value, e, null);
+                return null;
+            } catch (Exception e) {
+                // this is an error and not warning since the file existence is checked before
+                // attempting to parse it.
+                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
+                        "Failed to parse file " + value, e, null);
+
+                return null;
+            }
+        }
+
+        try {
+            int color = ResourceHelper.getColor(value);
+            return ColorStateList.valueOf(color);
+        } catch (NumberFormatException e) {
+            Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT, e.getMessage(), e, null);
+        }
+
+        return null;
     }
 
     /**
@@ -590,7 +630,6 @@ public final class BridgeTypedArray extends TypedArray {
         if (value == null) {
             return defValue;
         }
-        value = value.trim();
 
         // if the value is just an integer, return it.
         try {
@@ -600,16 +639,6 @@ public final class BridgeTypedArray extends TypedArray {
             }
         } catch (NumberFormatException e) {
             // pass
-        }
-
-        if (value.startsWith("#")) {
-            // this looks like a color, do not try to parse it
-            return defValue;
-        }
-
-        if (Typeface_Accessor.isSystemFont(value)) {
-            // A system font family value, do not try to parse
-            return defValue;
         }
 
         // Handle the @id/<name>, @+id/<name> and @android:id/<name>
@@ -648,19 +677,8 @@ public final class BridgeTypedArray extends TypedArray {
                 return mContext.getProjectResourceValue(ResourceType.ID, idName, defValue);
             }
         }
-        else if (value.startsWith("@aapt:_aapt")) {
-            return mContext.getLayoutlibCallback().getResourceId(ResourceType.AAPT, value);
-        }
 
-        // not a direct id valid reference. First check if it's an enum (this is a corner case
-        // for attributes that have a reference|enum type), then fallback to resolve
-        // as an ID without prefix.
-        Integer enumValue = resolveEnumAttribute(index);
-        if (enumValue != null) {
-            return enumValue;
-        }
-
-        // Ok, not an enum, resolve as an ID
+        // not a direct id valid reference? resolve it
         Integer idValue;
 
         if (resValue.isFramework()) {
@@ -673,13 +691,6 @@ public final class BridgeTypedArray extends TypedArray {
 
         if (idValue != null) {
             return idValue;
-        }
-
-        if ("text".equals(mNames[index])) {
-            // In a TextView, if the text is set from the attribute android:text, the correct
-            // behaviour is not to find a resourceId for the text, and to return the default value.
-            // So in this case, do not log a warning.
-            return defValue;
         }
 
         Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_RESOLVE,
@@ -716,30 +727,6 @@ public final class BridgeTypedArray extends TypedArray {
         return ResourceHelper.getDrawable(value, mContext, mTheme);
     }
 
-    /**
-     * Version of {@link #getDrawable(int)} that accepts an override density.
-     * @hide
-     */
-    @Override
-    public Drawable getDrawableForDensity(int index, int density) {
-        return getDrawable(index);
-    }
-
-    /**
-     * Retrieve the Typeface for the attribute at <var>index</var>.
-     * @param index Index of attribute to retrieve.
-     *
-     * @return Typeface for the attribute, or null if not defined.
-     */
-    @Override
-    public Typeface getFont(int index) {
-        if (!hasValue(index)) {
-            return null;
-        }
-
-        ResourceValue value = mResourceData[index];
-        return ResourceHelper.getFont(value, mContext, mTheme);
-    }
 
     /**
      * Retrieve the CharSequence[] for the attribute at <var>index</var>.
@@ -753,23 +740,12 @@ public final class BridgeTypedArray extends TypedArray {
      */
     @Override
     public CharSequence[] getTextArray(int index) {
-        if (!hasValue(index)) {
-            return null;
+        String value = getString(index);
+        if (value != null) {
+            return new CharSequence[] { value };
         }
-        ResourceValue resVal = mResourceData[index];
-        if (resVal instanceof ArrayResourceValue) {
-            ArrayResourceValue array = (ArrayResourceValue) resVal;
-            int count = array.getElementCount();
-            return count >= 0 ? Resources_Delegate.fillValues(mBridgeResources, array, new CharSequence[count]) :
-                    null;
-        }
-        int id = getResourceId(index, 0);
-        String resIdMessage = id > 0 ? " (resource id 0x" + Integer.toHexString(id) + ')' : "";
-        assert false :
-                String.format("%1$s in %2$s%3$s is not a valid array resource.", resVal.getValue(),
-                        mNames[index], resIdMessage);
 
-        return new CharSequence[0];
+        return null;
     }
 
     @Override
@@ -797,23 +773,8 @@ public final class BridgeTypedArray extends TypedArray {
      */
     @Override
     public boolean getValue(int index, TypedValue outValue) {
-        // TODO: more switch cases for other types.
-        outValue.type = getType(index);
-        switch (outValue.type) {
-            case TYPE_NULL:
-                return false;
-            case TYPE_STRING:
-                outValue.string = getString(index);
-                return true;
-            case TYPE_REFERENCE:
-                outValue.resourceId = mResourceId[index];
-                return true;
-            default:
-                // For back-compatibility, parse as float.
-                String s = getString(index);
-                return s != null &&
-                        ResourceHelper.parseFloatAttribute(mNames[index], s, outValue, false);
-        }
+        String s = getString(index);
+        return s != null && ResourceHelper.parseFloatAttribute(mNames[index], s, outValue, false);
     }
 
     @Override
@@ -1026,6 +987,7 @@ public final class BridgeTypedArray extends TypedArray {
     }
 
     static TypedArray obtain(Resources res, int len) {
-        return new BridgeTypedArray(res, null, len, true);
+        return res instanceof BridgeResources ?
+                new BridgeTypedArray(((BridgeResources) res), null, len, true) : null;
     }
 }

@@ -1,99 +1,109 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
-/**
- * An exception  thrown as a <code>DataTruncation</code> exception
- * (on writes) or reported as a
- * <code>DataTruncation</code> warning (on reads)
- *  when a data values is unexpectedly truncated for reasons other than its having
- *  execeeded <code>MaxFieldSize</code>.
- *
- * <P>The SQLstate for a <code>DataTruncation</code> during read is <code>01004</code>.
- * <P>The SQLstate for a <code>DataTruncation</code> during write is <code>22001</code>.
- */
+import java.io.Serializable;
 
-public class DataTruncation extends SQLWarning {
+/**
+ * An exception which is thrown when a JDBC driver unexpectedly truncates a data
+ * value either when reading (resulting in warning), or when writing data
+ * (resulting in an error). The {@code SQLState} error code for truncated data
+ * is {@code 01004}.
+ */
+public class DataTruncation extends SQLWarning implements Serializable {
+
+    private static final long serialVersionUID = 6464298989504059473L;
+
+    private int index = 0;
+
+    private boolean parameter = false;
+
+    private boolean read = false;
+
+    private int dataSize = 0;
+
+    private int transferSize = 0;
+
+    private static final String THE_REASON = "Data truncation";
+
+    private static final String THE_SQLSTATE_READ = "01004";
+
+    private static final String THE_SQLSTATE_WRITE = "22001";
+
+    private static final int THE_ERROR_CODE = 0;
 
     /**
-     * Creates a <code>DataTruncation</code> object
-     * with the SQLState initialized
-     * to 01004 when <code>read</code> is set to <code>true</code> and 22001
-     * when <code>read</code> is set to <code>false</code>,
-     * the reason set to "Data truncation", the
-     * vendor code set to 0, and
-     * the other fields set to the given values.
-     * The <code>cause</code> is not initialized, and may subsequently be
-     * initialized by a call to the
-     * {@link Throwable#initCause(java.lang.Throwable)} method.
-     * <p>
+     * Creates the {@code DataTruncation} object. The reason is set to {@code
+     * "Data truncation"}, the error code is set to the {@code
+     * SQLException} default value, and the other fields are set to the values
+     * supplied as arguments.
      *
-     * @param index The index of the parameter or column value
-     * @param parameter true if a parameter value was truncated
-     * @param read true if a read was truncated
-     * @param dataSize the original size of the data
-     * @param transferSize the size after truncation
+     * @param index
+     *            the Index value of the column value or parameter that was
+     *            truncated.
+     * @param parameter
+     *            {@code true} if it was a parameter value that was truncated,
+     *            {@code false} otherwise.
+     * @param read
+     *            {@code true} if the truncation occurred on a read operation,
+     *            {@code false} otherwise.
+     * @param dataSize
+     *            the original size of the truncated data.
+     * @param transferSize
+     *            the size of the data after truncation.
      */
-    public DataTruncation(int index, boolean parameter,
-                          boolean read, int dataSize,
-                          int transferSize) {
-        super("Data truncation", read == true?"01004":"22001");
+    public DataTruncation(int index, boolean parameter, boolean read,
+            int dataSize, int transferSize) {
+        super(THE_REASON, THE_SQLSTATE_READ, THE_ERROR_CODE);
         this.index = index;
         this.parameter = parameter;
         this.read = read;
         this.dataSize = dataSize;
         this.transferSize = transferSize;
-
     }
 
     /**
-     * Creates a <code>DataTruncation</code> object
-     * with the SQLState initialized
-     * to 01004 when <code>read</code> is set to <code>true</code> and 22001
-     * when <code>read</code> is set to <code>false</code>,
-     * the reason set to "Data truncation", the
-     * vendor code set to 0, and
-     * the other fields set to the given values.
-     * <p>
+     * Creates a DataTruncation. The Reason is set to "Data truncation", the
+     * error code is set to the SQLException default value and other fields are
+     * set to the values supplied on this method.
      *
-     * @param index The index of the parameter or column value
-     * @param parameter true if a parameter value was truncated
-     * @param read true if a read was truncated
-     * @param dataSize the original size of the data
-     * @param transferSize the size after truncation
-     * @param cause the underlying reason for this <code>DataTruncation</code>
-     * (which is saved for later retrieval by the <code>getCause()</code> method);
-     * may be null indicating the cause is non-existent or unknown.
+     * @param index
+     *            the Index value of the column value or parameter that was
+     *            truncated
+     * @param parameter
+     *            true if it was a Parameter value that was truncated, false
+     *            otherwise
+     * @param read
+     *            true if the truncation occurred on a read operation, false
+     *            otherwise
+     * @param dataSize
+     *            the original size of the truncated data
+     * @param transferSize
+     *            the size of the data after truncation
+     * @param cause
+     *            the root reason for this DataTruncation
      *
      * @since 1.6
      */
-    public DataTruncation(int index, boolean parameter,
-                          boolean read, int dataSize,
-                          int transferSize, Throwable cause) {
-        super("Data truncation", read == true?"01004":"22001",cause);
+    public DataTruncation(int index, boolean parameter, boolean read,
+            int dataSize, int transferSize, Throwable cause) {
+        super(THE_REASON, read ? THE_SQLSTATE_READ : THE_SQLSTATE_WRITE,
+                THE_ERROR_CODE, cause);
         this.index = index;
         this.parameter = parameter;
         this.read = read;
@@ -102,87 +112,52 @@ public class DataTruncation extends SQLWarning {
     }
 
     /**
-     * Retrieves the index of the column or parameter that was truncated.
+     * Gets the number of bytes of data that should have been read/written.
      *
-     * <P>This may be -1 if the column or parameter index is unknown, in
-     * which case the <code>parameter</code> and <code>read</code> fields should be ignored.
-     *
-     * @return the index of the truncated paramter or column value
-     */
-    public int getIndex() {
-        return index;
-    }
-
-    /**
-     * Indicates whether the value truncated was a parameter value or
-         * a column value.
-     *
-     * @return <code>true</code> if the value truncated was a parameter;
-         *         <code>false</code> if it was a column value
-     */
-    public boolean getParameter() {
-        return parameter;
-    }
-
-    /**
-     * Indicates whether or not the value was truncated on a read.
-     *
-     * @return <code>true</code> if the value was truncated when read from
-         *         the database; <code>false</code> if the data was truncated on a write
-     */
-    public boolean getRead() {
-        return read;
-    }
-
-    /**
-     * Gets the number of bytes of data that should have been transferred.
-     * This number may be approximate if data conversions were being
-     * performed.  The value may be <code>-1</code> if the size is unknown.
-     *
-     * @return the number of bytes of data that should have been transferred
+     * @return the number of bytes that should have been read or written. The
+     *         value is set to {@code -1} if the size is unknown.
      */
     public int getDataSize() {
         return dataSize;
     }
 
     /**
-     * Gets the number of bytes of data actually transferred.
-     * The value may be <code>-1</code> if the size is unknown.
+     * Gets the index of the column or of the parameter that was truncated.
      *
-     * @return the number of bytes of data actually transferred
+     * @return the index number of the column or of the parameter.
+     */
+    public int getIndex() {
+        return index;
+    }
+
+    /**
+     * Gets whether the value truncated was a parameter value or a column value.
+     *
+     * @return {@code true} if the value truncated was a parameter value,
+     *         {@code false} if it was a column value.
+     */
+    public boolean getParameter() {
+        return parameter;
+    }
+
+    /**
+     * Gets whether the value was truncated on a read operation or a write
+     * operation
+     *
+     * @return {@code true} if the value was truncated on a read operation,
+     *         {@code false} otherwise.
+     */
+    public boolean getRead() {
+        return read;
+    }
+
+    /**
+     * Gets the number of bytes of data that was actually read or written.
+     *
+     * @return the number of bytes actually read/written. The value may be set
+     *         to {@code -1} if the size is unknown.
      */
     public int getTransferSize() {
         return transferSize;
     }
-
-        /**
-        * @serial
-        */
-    private int index;
-
-        /**
-        * @serial
-        */
-    private boolean parameter;
-
-        /**
-        * @serial
-        */
-    private boolean read;
-
-        /**
-        * @serial
-        */
-    private int dataSize;
-
-        /**
-        * @serial
-        */
-    private int transferSize;
-
-    /**
-     * @serial
-     */
-    private static final long serialVersionUID = 6464298989504059473L;
-
 }

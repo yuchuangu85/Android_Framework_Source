@@ -19,11 +19,8 @@ package android.hardware.display;
 import android.hardware.SensorManager;
 import android.os.Handler;
 import android.os.PowerManager;
-import android.util.IntArray;
-import android.util.SparseArray;
 import android.view.Display;
 import android.view.DisplayInfo;
-import android.view.SurfaceControl;
 
 /**
  * Display manager local system service interface.
@@ -103,20 +100,10 @@ public abstract class DisplayManagerInternal {
             int displayId, DisplayInfo info);
 
     /**
-     * Get current display info without override from WindowManager.
-     * Current implementation of LogicalDisplay#getDisplayInfoLocked() always returns display info
-     * with overrides from WM if set. This method can be used for getting real display size without
-     * overrides to determine if real changes to display metrics happened.
-     * @param displayId Id of the target display.
-     * @param outInfo {@link DisplayInfo} to fill.
-     */
-    public abstract void getNonOverrideDisplayInfo(int displayId, DisplayInfo outInfo);
-
-    /**
      * Called by the window manager to perform traversals while holding a
      * surface flinger transaction.
      */
-    public abstract void performTraversal(SurfaceControl.Transaction t);
+    public abstract void performTraversalInTransactionFromWindowManager();
 
     /**
      * Tells the display manager about properties of the display that depend on the windows on it.
@@ -160,31 +147,6 @@ public abstract class DisplayManagerInternal {
     public abstract void setDisplayOffsets(int displayId, int x, int y);
 
     /**
-     * Provide a list of UIDs that are present on the display and are allowed to access it.
-     *
-     * @param displayAccessUIDs Mapping displayId -> int array of UIDs.
-     */
-    public abstract void setDisplayAccessUIDs(SparseArray<IntArray> displayAccessUIDs);
-
-    /**
-     * Check if specified UID's content is present on display and should be granted access to it.
-     *
-     * @param uid UID to be checked.
-     * @param displayId id of the display where presence of the content is checked.
-     * */
-    public abstract boolean isUidPresentOnDisplay(int uid, int displayId);
-
-    /**
-     * Persist brightness slider events and ambient brightness stats.
-     */
-    public abstract void persistBrightnessTrackerState();
-
-    /**
-     * Notifies the display manager that resource overlays have changed.
-     */
-    public abstract void onOverlayChanged();
-
-    /**
      * Describes the requested power state of the display.
      *
      * This object is intended to describe the general characteristics of the
@@ -205,8 +167,6 @@ public abstract class DisplayManagerInternal {
         public static final int POLICY_DIM = 2;
         // Policy: Make the screen bright as usual.
         public static final int POLICY_BRIGHT = 3;
-        // Policy: Keep the screen and display optimized for VR mode.
-        public static final int POLICY_VR = 4;
 
         // The basic overall policy to apply: off, doze, dim or bright.
         public int policy;
@@ -215,22 +175,24 @@ public abstract class DisplayManagerInternal {
         // nearby, turning it off temporarily until the object is moved away.
         public boolean useProximitySensor;
 
-        // An override of the screen brightness. Set to -1 is used if there's no override.
-        public int screenBrightnessOverride;
+        // The desired screen brightness in the range 0 (minimum / off) to 255 (brightest).
+        // The display power controller may choose to clamp the brightness.
+        // When auto-brightness is enabled, this field should specify a nominal default
+        // value to use while waiting for the light sensor to report enough data.
+        public int screenBrightness;
 
-        // An override of the screen auto-brightness adjustment factor in the range -1 (dimmer) to
-        // 1 (brighter). Set to Float.NaN if there's no override.
-        public float screenAutoBrightnessAdjustmentOverride;
+        // The screen auto-brightness adjustment factor in the range -1 (dimmer) to 1 (brighter).
+        public float screenAutoBrightnessAdjustment;
+
+        // Set to true if screenBrightness and screenAutoBrightnessAdjustment were both
+        // set by the user as opposed to being programmatically controlled by apps.
+        public boolean brightnessSetByUser;
 
         // If true, enables automatic brightness control.
         public boolean useAutoBrightness;
 
         // If true, scales the brightness to half of desired.
         public boolean lowPowerMode;
-
-        // The factor to adjust the screen brightness in low power mode in the range
-        // 0 (screen off) to 1 (no change)
-        public float screenLowPowerBrightnessFactor;
 
         // If true, applies a brightness boost.
         public boolean boostScreenBrightness;
@@ -252,10 +214,9 @@ public abstract class DisplayManagerInternal {
         public DisplayPowerRequest() {
             policy = POLICY_BRIGHT;
             useProximitySensor = false;
-            screenBrightnessOverride = -1;
+            screenBrightness = PowerManager.BRIGHTNESS_ON;
+            screenAutoBrightnessAdjustment = 0.0f;
             useAutoBrightness = false;
-            screenAutoBrightnessAdjustmentOverride = Float.NaN;
-            screenLowPowerBrightnessFactor = 0.5f;
             blockScreenOn = false;
             dozeScreenBrightness = PowerManager.BRIGHTNESS_DEFAULT;
             dozeScreenState = Display.STATE_UNKNOWN;
@@ -269,17 +230,13 @@ public abstract class DisplayManagerInternal {
             return policy == POLICY_BRIGHT || policy == POLICY_DIM;
         }
 
-        public boolean isVr() {
-            return policy == POLICY_VR;
-        }
-
         public void copyFrom(DisplayPowerRequest other) {
             policy = other.policy;
             useProximitySensor = other.useProximitySensor;
-            screenBrightnessOverride = other.screenBrightnessOverride;
+            screenBrightness = other.screenBrightness;
+            screenAutoBrightnessAdjustment = other.screenAutoBrightnessAdjustment;
+            brightnessSetByUser = other.brightnessSetByUser;
             useAutoBrightness = other.useAutoBrightness;
-            screenAutoBrightnessAdjustmentOverride = other.screenAutoBrightnessAdjustmentOverride;
-            screenLowPowerBrightnessFactor = other.screenLowPowerBrightnessFactor;
             blockScreenOn = other.blockScreenOn;
             lowPowerMode = other.lowPowerMode;
             boostScreenBrightness = other.boostScreenBrightness;
@@ -297,21 +254,15 @@ public abstract class DisplayManagerInternal {
             return other != null
                     && policy == other.policy
                     && useProximitySensor == other.useProximitySensor
-                    && screenBrightnessOverride == other.screenBrightnessOverride
+                    && screenBrightness == other.screenBrightness
+                    && screenAutoBrightnessAdjustment == other.screenAutoBrightnessAdjustment
+                    && brightnessSetByUser == other.brightnessSetByUser
                     && useAutoBrightness == other.useAutoBrightness
-                    && floatEquals(screenAutoBrightnessAdjustmentOverride,
-                            other.screenAutoBrightnessAdjustmentOverride)
-                    && screenLowPowerBrightnessFactor
-                    == other.screenLowPowerBrightnessFactor
                     && blockScreenOn == other.blockScreenOn
                     && lowPowerMode == other.lowPowerMode
                     && boostScreenBrightness == other.boostScreenBrightness
                     && dozeScreenBrightness == other.dozeScreenBrightness
                     && dozeScreenState == other.dozeScreenState;
-        }
-
-        private boolean floatEquals(float f1, float f2) {
-            return f1 == f2 || Float.isNaN(f1) && Float.isNaN(f2);
         }
 
         @Override
@@ -323,11 +274,10 @@ public abstract class DisplayManagerInternal {
         public String toString() {
             return "policy=" + policyToString(policy)
                     + ", useProximitySensor=" + useProximitySensor
-                    + ", screenBrightnessOverride=" + screenBrightnessOverride
+                    + ", screenBrightness=" + screenBrightness
+                    + ", screenAutoBrightnessAdjustment=" + screenAutoBrightnessAdjustment
+                    + ", brightnessSetByUser=" + brightnessSetByUser
                     + ", useAutoBrightness=" + useAutoBrightness
-                    + ", screenAutoBrightnessAdjustmentOverride="
-                    + screenAutoBrightnessAdjustmentOverride
-                    + ", screenLowPowerBrightnessFactor=" + screenLowPowerBrightnessFactor
                     + ", blockScreenOn=" + blockScreenOn
                     + ", lowPowerMode=" + lowPowerMode
                     + ", boostScreenBrightness=" + boostScreenBrightness
@@ -345,8 +295,6 @@ public abstract class DisplayManagerInternal {
                     return "DIM";
                 case POLICY_BRIGHT:
                     return "BRIGHT";
-                case POLICY_VR:
-                    return "VR";
                 default:
                     return Integer.toString(policy);
             }

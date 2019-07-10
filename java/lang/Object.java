@@ -1,236 +1,167 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Copyright (C) 2008 The Android Open Source Project
  *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang;
 
-import dalvik.annotation.optimization.FastNative;
-
 /**
- * Class {@code Object} is the root of the class hierarchy.
- * Every class has {@code Object} as a superclass. All objects,
- * including arrays, implement the methods of this class.
+ * The root class of the Java class hierarchy. All non-primitive types
+ * (including arrays) inherit either directly or indirectly from this class.
  *
- * @author  unascribed
- * @see     java.lang.Class
- * @since   JDK1.0
+ * <a name="writing_equals"><h4>Writing a correct {@code equals} method</h4></a>
+ * <p>Follow this style to write a canonical {@code equals} method:
+ * <pre>
+ *   // Use @Override to avoid accidental overloading.
+ *   &#x0040;Override public boolean equals(Object o) {
+ *     // Return true if the objects are identical.
+ *     // (This is just an optimization, not required for correctness.)
+ *     if (this == o) {
+ *       return true;
+ *     }
+ *
+ *     // Return false if the other object has the wrong type.
+ *     // This type may be an interface depending on the interface's specification.
+ *     if (!(o instanceof MyType)) {
+ *       return false;
+ *     }
+ *
+ *     // Cast to the appropriate type.
+ *     // This will succeed because of the instanceof, and lets us access private fields.
+ *     MyType lhs = (MyType) o;
+ *
+ *     // Check each field. Primitive fields, reference fields, and nullable reference
+ *     // fields are all treated differently.
+ *     return primitiveField == lhs.primitiveField &amp;&amp;
+ *             referenceField.equals(lhs.referenceField) &amp;&amp;
+ *             (nullableField == null ? lhs.nullableField == null
+ *                                    : nullableField.equals(lhs.nullableField));
+ *   }
+ * </pre>
+ * <p>If you override {@code equals}, you should also override {@code hashCode}: equal
+ * instances must have equal hash codes.
+ *
+ * <p>See <i>Effective Java</i> item 8 for much more detail and clarification.
+ *
+ * <a name="writing_hashCode"><h4>Writing a correct {@code hashCode} method</h4></a>
+ * <p>Follow this style to write a canonical {@code hashCode} method:
+ * <pre>
+ *   &#x0040;Override public int hashCode() {
+ *     // Start with a non-zero constant.
+ *     int result = 17;
+ *
+ *     // Include a hash for each field.
+ *     result = 31 * result + (booleanField ? 1 : 0);
+ *
+ *     result = 31 * result + byteField;
+ *     result = 31 * result + charField;
+ *     result = 31 * result + shortField;
+ *     result = 31 * result + intField;
+ *
+ *     result = 31 * result + (int) (longField ^ (longField >>> 32));
+ *
+ *     result = 31 * result + Float.floatToIntBits(floatField);
+ *
+ *     long doubleFieldBits = Double.doubleToLongBits(doubleField);
+ *     result = 31 * result + (int) (doubleFieldBits ^ (doubleFieldBits >>> 32));
+ *
+ *     result = 31 * result + Arrays.hashCode(arrayField);
+ *
+ *     result = 31 * result + referenceField.hashCode();
+ *     result = 31 * result +
+ *         (nullableReferenceField == null ? 0
+ *                                         : nullableReferenceField.hashCode());
+ *
+ *     return result;
+ *   }
+ * </pre>
+ *
+ * <p>If you don't intend your type to be used as a hash key, don't simply rely on the default
+ * {@code hashCode} implementation, because that silently and non-obviously breaks any future
+ * code that does use your type as a hash key. You should throw instead:
+ * <pre>
+ *   &#x0040;Override public int hashCode() {
+ *     throw new UnsupportedOperationException();
+ *   }
+ * </pre>
+ *
+ * <p>See <i>Effective Java</i> item 9 for much more detail and clarification.
+ *
+ * <a name="writing_toString"><h4>Writing a useful {@code toString} method</h4></a>
+ * <p>For debugging convenience, it's common to override {@code toString} in this style:
+ * <pre>
+ *   &#x0040;Override public String toString() {
+ *     return getClass().getName() + "[" +
+ *         "primitiveField=" + primitiveField + ", " +
+ *         "referenceField=" + referenceField + ", " +
+ *         "arrayField=" + Arrays.toString(arrayField) + "]";
+ *   }
+ * </pre>
+ * <p>The set of fields to include is generally the same as those that would be tested
+ * in your {@code equals} implementation.
+ * <p>See <i>Effective Java</i> item 10 for much more detail and clarification.
  */
 public class Object {
 
     private transient Class<?> shadow$_klass_;
     private transient int shadow$_monitor_;
 
+    // Uncomment the following two fields to enable brooks pointers.
+    // Meant to do "#ifdef USE_BROOKS_POINTER ... #endif" but no macros.
+    //
+    // Note names use a 'x' prefix and the _x_rb_ptr_ field is of
+    // type int instead of Object to go with the alphabetical/by-type
+    // field order.
+    // private transient int shadow$_x_rb_ptr_;
+    // private transient int shadow$_x_xpadding_;
+
     /**
-     * Returns the runtime class of this {@code Object}. The returned
-     * {@code Class} object is the object that is locked by {@code
-     * static synchronized} methods of the represented class.
-     *
-     * <p><b>The actual result type is {@code Class<? extends |X|>}
-     * where {@code |X|} is the erasure of the static type of the
-     * expression on which {@code getClass} is called.</b> For
-     * example, no cast is required in this code fragment:</p>
-     *
-     * <p>
-     * {@code Number n = 0;                             }<br>
-     * {@code Class<? extends Number> c = n.getClass(); }
-     * </p>
-     *
-     * @return The {@code Class} object that represents the runtime
-     *         class of this object.
-     * @jls 15.8.2 Class Literals
+     * Constructs a new instance of {@code Object}.
      */
-    public final Class<?> getClass() {
-      return shadow$_klass_;
+    public Object() {
     }
 
     /**
-     * Returns a hash code value for the object. This method is
-     * supported for the benefit of hash tables such as those provided by
-     * {@link java.util.HashMap}.
-     * <p>
-     * The general contract of {@code hashCode} is:
-     * <ul>
-     * <li>Whenever it is invoked on the same object more than once during
-     *     an execution of a Java application, the {@code hashCode} method
-     *     must consistently return the same integer, provided no information
-     *     used in {@code equals} comparisons on the object is modified.
-     *     This integer need not remain consistent from one execution of an
-     *     application to another execution of the same application.
-     * <li>If two objects are equal according to the {@code equals(Object)}
-     *     method, then calling the {@code hashCode} method on each of
-     *     the two objects must produce the same integer result.
-     * <li>It is <em>not</em> required that if two objects are unequal
-     *     according to the {@link java.lang.Object#equals(java.lang.Object)}
-     *     method, then calling the {@code hashCode} method on each of the
-     *     two objects must produce distinct integer results.  However, the
-     *     programmer should be aware that producing distinct integer results
-     *     for unequal objects may improve the performance of hash tables.
-     * </ul>
-     * <p>
-     * As much as is reasonably practical, the hashCode method defined by
-     * class {@code Object} does return distinct integers for distinct
-     * objects. (This is typically implemented by converting the internal
-     * address of the object into an integer, but this implementation
-     * technique is not required by the
-     * Java&trade; programming language.)
+     * Creates and returns a copy of this {@code Object}. The default
+     * implementation returns a so-called "shallow" copy: It creates a new
+     * instance of the same class and then copies the field values (including
+     * object references) from this instance to the new instance. A "deep" copy,
+     * in contrast, would also recursively clone nested objects. A subclass that
+     * needs to implement this kind of cloning should call {@code super.clone()}
+     * to create the new instance and then create deep copies of the nested,
+     * mutable objects.
      *
-     * @return  a hash code value for this object.
-     * @see     java.lang.Object#equals(java.lang.Object)
-     * @see     java.lang.System#identityHashCode
-     */
-    public int hashCode() {
-        return identityHashCode(this);
-    }
-
-    // Android-changed: add a local helper for identityHashCode.
-    // Package-private to be used by j.l.System. We do the implementation here
-    // to avoid Object.hashCode doing a clinit check on j.l.System, and also
-    // to avoid leaking shadow$_monitor_ outside of this class.
-    /* package-private */ static int identityHashCode(Object obj) {
-        int lockWord = obj.shadow$_monitor_;
-        final int lockWordStateMask = 0xC0000000;  // Top 2 bits.
-        final int lockWordStateHash = 0x80000000;  // Top 2 bits are value 2 (kStateHash).
-        final int lockWordHashMask = 0x0FFFFFFF;  // Low 28 bits.
-        if ((lockWord & lockWordStateMask) == lockWordStateHash) {
-            return lockWord & lockWordHashMask;
-        }
-        return identityHashCodeNative(obj);
-    }
-
-    @FastNative
-    private static native int identityHashCodeNative(Object obj);
-
-    /**
-     * Indicates whether some other object is "equal to" this one.
-     * <p>
-     * The {@code equals} method implements an equivalence relation
-     * on non-null object references:
-     * <ul>
-     * <li>It is <i>reflexive</i>: for any non-null reference value
-     *     {@code x}, {@code x.equals(x)} should return
-     *     {@code true}.
-     * <li>It is <i>symmetric</i>: for any non-null reference values
-     *     {@code x} and {@code y}, {@code x.equals(y)}
-     *     should return {@code true} if and only if
-     *     {@code y.equals(x)} returns {@code true}.
-     * <li>It is <i>transitive</i>: for any non-null reference values
-     *     {@code x}, {@code y}, and {@code z}, if
-     *     {@code x.equals(y)} returns {@code true} and
-     *     {@code y.equals(z)} returns {@code true}, then
-     *     {@code x.equals(z)} should return {@code true}.
-     * <li>It is <i>consistent</i>: for any non-null reference values
-     *     {@code x} and {@code y}, multiple invocations of
-     *     {@code x.equals(y)} consistently return {@code true}
-     *     or consistently return {@code false}, provided no
-     *     information used in {@code equals} comparisons on the
-     *     objects is modified.
-     * <li>For any non-null reference value {@code x},
-     *     {@code x.equals(null)} should return {@code false}.
-     * </ul>
-     * <p>
-     * The {@code equals} method for class {@code Object} implements
-     * the most discriminating possible equivalence relation on objects;
-     * that is, for any non-null reference values {@code x} and
-     * {@code y}, this method returns {@code true} if and only
-     * if {@code x} and {@code y} refer to the same object
-     * ({@code x == y} has the value {@code true}).
-     * <p>
-     * Note that it is generally necessary to override the {@code hashCode}
-     * method whenever this method is overridden, so as to maintain the
-     * general contract for the {@code hashCode} method, which states
-     * that equal objects must have equal hash codes.
-     *
-     * @param   obj   the reference object with which to compare.
-     * @return  {@code true} if this object is the same as the obj
-     *          argument; {@code false} otherwise.
-     * @see     #hashCode()
-     * @see     java.util.HashMap
-     */
-    public boolean equals(Object obj) {
-        return (this == obj);
-    }
-
-    /**
-     * Creates and returns a copy of this object.  The precise meaning
-     * of "copy" may depend on the class of the object. The general
-     * intent is that, for any object {@code x}, the expression:
-     * <blockquote>
-     * <pre>
-     * x.clone() != x</pre></blockquote>
-     * will be true, and that the expression:
-     * <blockquote>
-     * <pre>
-     * x.clone().getClass() == x.getClass()</pre></blockquote>
-     * will be {@code true}, but these are not absolute requirements.
-     * While it is typically the case that:
-     * <blockquote>
-     * <pre>
-     * x.clone().equals(x)</pre></blockquote>
-     * will be {@code true}, this is not an absolute requirement.
-     * <p>
-     * By convention, the returned object should be obtained by calling
-     * {@code super.clone}.  If a class and all of its superclasses (except
-     * {@code Object}) obey this convention, it will be the case that
-     * {@code x.clone().getClass() == x.getClass()}.
-     * <p>
-     * By convention, the object returned by this method should be independent
-     * of this object (which is being cloned).  To achieve this independence,
-     * it may be necessary to modify one or more fields of the object returned
-     * by {@code super.clone} before returning it.  Typically, this means
-     * copying any mutable objects that comprise the internal "deep structure"
-     * of the object being cloned and replacing the references to these
-     * objects with references to the copies.  If a class contains only
-     * primitive fields or references to immutable objects, then it is usually
-     * the case that no fields in the object returned by {@code super.clone}
-     * need to be modified.
-     * <p>
-     * The method {@code clone} for class {@code Object} performs a
-     * specific cloning operation. First, if the class of this object does
-     * not implement the interface {@code Cloneable}, then a
-     * {@code CloneNotSupportedException} is thrown. Note that all arrays
-     * are considered to implement the interface {@code Cloneable} and that
-     * the return type of the {@code clone} method of an array type {@code T[]}
-     * is {@code T[]} where T is any reference or primitive type.
-     * Otherwise, this method creates a new instance of the class of this
-     * object and initializes all its fields with exactly the contents of
-     * the corresponding fields of this object, as if by assignment; the
-     * contents of the fields are not themselves cloned. Thus, this method
-     * performs a "shallow copy" of this object, not a "deep copy" operation.
-     * <p>
-     * The class {@code Object} does not itself implement the interface
-     * {@code Cloneable}, so calling the {@code clone} method on an object
-     * whose class is {@code Object} will result in throwing an
-     * exception at run time.
-     *
-     * @return     a clone of this instance.
-     * @throws  CloneNotSupportedException  if the object's class does not
-     *               support the {@code Cloneable} interface. Subclasses
-     *               that override the {@code clone} method can also
-     *               throw this exception to indicate that an instance cannot
-     *               be cloned.
-     * @see java.lang.Cloneable
+     * @return a copy of this object.
+     * @throws CloneNotSupportedException
+     *             if this object's class does not implement the {@code
+     *             Cloneable} interface.
      */
     protected Object clone() throws CloneNotSupportedException {
         if (!(this instanceof Cloneable)) {
@@ -244,339 +175,292 @@ public class Object {
     /*
      * Native helper method for cloning.
      */
-    @FastNative
     private native Object internalClone();
 
-
     /**
-     * Returns a string representation of the object. In general, the
-     * {@code toString} method returns a string that
-     * "textually represents" this object. The result should
-     * be a concise but informative representation that is easy for a
-     * person to read.
-     * It is recommended that all subclasses override this method.
-     * <p>
-     * The {@code toString} method for class {@code Object}
-     * returns a string consisting of the name of the class of which the
-     * object is an instance, the at-sign character `{@code @}', and
-     * the unsigned hexadecimal representation of the hash code of the
-     * object. In other words, this method returns a string equal to the
-     * value of:
-     * <blockquote>
-     * <pre>
-     * getClass().getName() + '@' + Integer.toHexString(hashCode())
-     * </pre></blockquote>
+     * Compares this instance with the specified object and indicates if they
+     * are equal. In order to be equal, {@code o} must represent the same object
+     * as this instance using a class-specific comparison. The general contract
+     * is that this comparison should be reflexive, symmetric, and transitive.
+     * Also, no object reference other than null is equal to null.
      *
-     * @return  a string representation of the object.
+     * <p>The default implementation returns {@code true} only if {@code this ==
+     * o}. See <a href="{@docRoot}reference/java/lang/Object.html#writing_equals">Writing a correct
+     * {@code equals} method</a>
+     * if you intend implementing your own {@code equals} method.
+     *
+     * <p>The general contract for the {@code equals} and {@link
+     * #hashCode()} methods is that if {@code equals} returns {@code true} for
+     * any two objects, then {@code hashCode()} must return the same value for
+     * these objects. This means that subclasses of {@code Object} usually
+     * override either both methods or neither of them.
+     *
+     * @param o
+     *            the object to compare this instance with.
+     * @return {@code true} if the specified object is equal to this {@code
+     *         Object}; {@code false} otherwise.
+     * @see #hashCode
      */
-    public String toString() {
-        return getClass().getName() + "@" + Integer.toHexString(hashCode());
+    public boolean equals(Object o) {
+        return this == o;
     }
 
     /**
-     * Wakes up a single thread that is waiting on this object's
-     * monitor. If any threads are waiting on this object, one of them
-     * is chosen to be awakened. The choice is arbitrary and occurs at
-     * the discretion of the implementation. A thread waits on an object's
-     * monitor by calling one of the {@code wait} methods.
-     * <p>
-     * The awakened thread will not be able to proceed until the current
-     * thread relinquishes the lock on this object. The awakened thread will
-     * compete in the usual manner with any other threads that might be
-     * actively competing to synchronize on this object; for example, the
-     * awakened thread enjoys no reliable privilege or disadvantage in being
-     * the next thread to lock this object.
-     * <p>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. A thread becomes the owner of the
-     * object's monitor in one of three ways:
-     * <ul>
-     * <li>By executing a synchronized instance method of that object.
-     * <li>By executing the body of a {@code synchronized} statement
-     *     that synchronizes on the object.
-     * <li>For objects of type {@code Class,} by executing a
-     *     synchronized static method of that class.
-     * </ul>
-     * <p>
-     * Only one thread at a time can own an object's monitor.
+     * Invoked when the garbage collector has detected that this instance is no longer reachable.
+     * The default implementation does nothing, but this method can be overridden to free resources.
      *
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of this object's monitor.
-     * @see        java.lang.Object#notifyAll()
-     * @see        java.lang.Object#wait()
+     * <p>Note that objects that override {@code finalize} are significantly more expensive than
+     * objects that don't. Finalizers may be run a long time after the object is no longer
+     * reachable, depending on memory pressure, so it's a bad idea to rely on them for cleanup.
+     * Note also that finalizers are run on a single VM-wide finalizer thread,
+     * so doing blocking work in a finalizer is a bad idea. A finalizer is usually only necessary
+     * for a class that has a native peer and needs to call a native method to destroy that peer.
+     * Even then, it's better to provide an explicit {@code close} method (and implement
+     * {@link java.io.Closeable}), and insist that callers manually dispose of instances. This
+     * works well for something like files, but less well for something like a {@code BigInteger}
+     * where typical calling code would have to deal with lots of temporaries. Unfortunately,
+     * code that creates lots of temporaries is the worst kind of code from the point of view of
+     * the single finalizer thread.
+     *
+     * <p>If you <i>must</i> use finalizers, consider at least providing your own
+     * {@link java.lang.ref.ReferenceQueue} and having your own thread process that queue.
+     *
+     * <p>Unlike constructors, finalizers are not automatically chained. You are responsible for
+     * calling {@code super.finalize()} yourself.
+     *
+     * <p>Uncaught exceptions thrown by finalizers are ignored and do not terminate the finalizer
+     * thread.
+     *
+     * See <i>Effective Java</i> Item 7, "Avoid finalizers" for more.
      */
-    @FastNative
+    @FindBugsSuppressWarnings("FI_EMPTY")
+    protected void finalize() throws Throwable {
+    }
+
+    /**
+     * Returns the unique instance of {@link Class} that represents this
+     * object's class. Note that {@code getClass()} is a special case in that it
+     * actually returns {@code Class<? extends Foo>} where {@code Foo} is the
+     * erasure of the type of the expression {@code getClass()} was called upon.
+     * <p>
+     * As an example, the following code actually compiles, although one might
+     * think it shouldn't:
+     * <p>
+     * <pre>{@code
+     *   List<Integer> l = new ArrayList<Integer>();
+     *   Class<? extends List> c = l.getClass();}</pre>
+     *
+     * @return this object's {@code Class} instance.
+     */
+    public final Class<?> getClass() {
+      return shadow$_klass_;
+    }
+
+    /**
+     * Returns an integer hash code for this object. By contract, any two
+     * objects for which {@link #equals} returns {@code true} must return
+     * the same hash code value. This means that subclasses of {@code Object}
+     * usually override both methods or neither method.
+     *
+     * <p>Note that hash values must not change over time unless information used in equals
+     * comparisons also changes.
+     *
+     * <p>See <a href="{@docRoot}reference/java/lang/Object.html#writing_hashCode">Writing a correct
+     * {@code hashCode} method</a>
+     * if you intend implementing your own {@code hashCode} method.
+     *
+     * @return this object's hash code.
+     * @see #equals
+     */
+    public int hashCode() {
+        int lockWord = shadow$_monitor_;
+        final int lockWordStateMask = 0xC0000000;  // Top 2 bits.
+        final int lockWordStateHash = 0x80000000;  // Top 2 bits are value 2 (kStateHash).
+        final int lockWordHashMask = 0x0FFFFFFF;  // Low 28 bits.
+        if ((lockWord & lockWordStateMask) == lockWordStateHash) {
+            return lockWord & lockWordHashMask;
+        }
+        return System.identityHashCode(this);
+    }
+
+    /**
+     * Causes a thread which is waiting on this object's monitor (by means of
+     * calling one of the {@code wait()} methods) to be woken up. If more than
+     * one thread is waiting, one of them is chosen at the discretion of the
+     * VM. The chosen thread will not run immediately. The thread
+     * that called {@code notify()} has to release the object's monitor first.
+     * Also, the chosen thread still has to compete against other threads that
+     * try to synchronize on the same object.
+     *
+     * <p>This method can only be invoked by a thread which owns this object's
+     * monitor. A thread becomes owner of an object's monitor
+     * <ul>
+     * <li>by executing a synchronized method of that object;</li>
+     * <li>by executing the body of a {@code synchronized} statement that
+     * synchronizes on the object;</li>
+     * <li>by executing a synchronized static method if the object is of type
+     * {@code Class}.</li>
+     * </ul>
+     *
+     * @see #notifyAll
+     * @see #wait()
+     * @see #wait(long)
+     * @see #wait(long,int)
+     * @see java.lang.Thread
+     */
     public final native void notify();
 
     /**
-     * Wakes up all threads that are waiting on this object's monitor. A
-     * thread waits on an object's monitor by calling one of the
-     * {@code wait} methods.
-     * <p>
-     * The awakened threads will not be able to proceed until the current
-     * thread relinquishes the lock on this object. The awakened threads
-     * will compete in the usual manner with any other threads that might
-     * be actively competing to synchronize on this object; for example,
-     * the awakened threads enjoy no reliable privilege or disadvantage in
-     * being the next thread to lock this object.
-     * <p>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
+     * Causes all threads which are waiting on this object's monitor (by means
+     * of calling one of the {@code wait()} methods) to be woken up. The threads
+     * will not run immediately. The thread that called {@code notify()} has to
+     * release the object's monitor first. Also, the threads still have to
+     * compete against other threads that try to synchronize on the same object.
      *
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of this object's monitor.
-     * @see        java.lang.Object#notify()
-     * @see        java.lang.Object#wait()
+     * <p>This method can only be invoked by a thread which owns this object's
+     * monitor. A thread becomes owner of an object's monitor
+     * <ul>
+     * <li>by executing a synchronized method of that object;</li>
+     * <li>by executing the body of a {@code synchronized} statement that
+     * synchronizes on the object;</li>
+     * <li>by executing a synchronized static method if the object is of type
+     * {@code Class}.</li>
+     * </ul>
+     *
+     * @throws IllegalMonitorStateException
+     *             if the thread calling this method is not the owner of this
+     *             object's monitor.
+     * @see #notify
+     * @see #wait()
+     * @see #wait(long)
+     * @see #wait(long,int)
+     * @see java.lang.Thread
      */
-    @FastNative
     public final native void notifyAll();
 
     /**
-     * Causes the current thread to wait until either another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object, or a
-     * specified amount of time has elapsed.
-     * <p>
-     * The current thread must own this object's monitor.
-     * <p>
-     * This method causes the current thread (call it <var>T</var>) to
-     * place itself in the wait set for this object and then to relinquish
-     * any and all synchronization claims on this object. Thread <var>T</var>
-     * becomes disabled for thread scheduling purposes and lies dormant
-     * until one of four things happens:
-     * <ul>
-     * <li>Some other thread invokes the {@code notify} method for this
-     * object and thread <var>T</var> happens to be arbitrarily chosen as
-     * the thread to be awakened.
-     * <li>Some other thread invokes the {@code notifyAll} method for this
-     * object.
-     * <li>Some other thread {@linkplain Thread#interrupt() interrupts}
-     * thread <var>T</var>.
-     * <li>The specified amount of real time has elapsed, more or less.  If
-     * {@code timeout} is zero, however, then real time is not taken into
-     * consideration and the thread simply waits until notified.
-     * </ul>
-     * The thread <var>T</var> is then removed from the wait set for this
-     * object and re-enabled for thread scheduling. It then competes in the
-     * usual manner with other threads for the right to synchronize on the
-     * object; once it has gained control of the object, all its
-     * synchronization claims on the object are restored to the status quo
-     * ante - that is, to the situation as of the time that the {@code wait}
-     * method was invoked. Thread <var>T</var> then returns from the
-     * invocation of the {@code wait} method. Thus, on return from the
-     * {@code wait} method, the synchronization state of the object and of
-     * thread {@code T} is exactly as it was when the {@code wait} method
-     * was invoked.
-     * <p>
-     * A thread can also wake up without being notified, interrupted, or
-     * timing out, a so-called <i>spurious wakeup</i>.  While this will rarely
-     * occur in practice, applications must guard against it by testing for
-     * the condition that should have caused the thread to be awakened, and
-     * continuing to wait if the condition is not satisfied.  In other words,
-     * waits should always occur in loops, like this one:
+     * Returns a string containing a concise, human-readable description of this
+     * object. Subclasses are encouraged to override this method and provide an
+     * implementation that takes into account the object's type and data. The
+     * default implementation is equivalent to the following expression:
      * <pre>
-     *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait(timeout);
-     *         ... // Perform action appropriate to condition
-     *     }
-     * </pre>
-     * (For more information on this topic, see Section 3.2.3 in Doug Lea's
-     * "Concurrent Programming in Java (Second Edition)" (Addison-Wesley,
-     * 2000), or Item 50 in Joshua Bloch's "Effective Java Programming
-     * Language Guide" (Addison-Wesley, 2001).
+     *   getClass().getName() + '@' + Integer.toHexString(hashCode())</pre>
+     * <p>See <a href="{@docRoot}reference/java/lang/Object.html#writing_toString">Writing a useful
+     * {@code toString} method</a>
+     * if you intend implementing your own {@code toString} method.
      *
-     * <p>If the current thread is {@linkplain java.lang.Thread#interrupt()
-     * interrupted} by any thread before or while it is waiting, then an
-     * {@code InterruptedException} is thrown.  This exception is not
-     * thrown until the lock status of this object has been restored as
-     * described above.
+     * @return a printable representation of this object.
+     */
+    public String toString() {
+        return getClass().getName() + '@' + Integer.toHexString(hashCode());
+    }
+
+    /**
+     * Causes the calling thread to wait until another thread calls the {@code
+     * notify()} or {@code notifyAll()} method of this object. This method can
+     * only be invoked by a thread which owns this object's monitor; see
+     * {@link #notify()} on how a thread can become the owner of a monitor.
      *
-     * <p>
-     * Note that the {@code wait} method, as it places the current thread
-     * into the wait set for this object, unlocks only this object; any
-     * other objects on which the current thread may be synchronized remain
-     * locked while the thread waits.
-     * <p>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
+     * <p>A waiting thread can be sent {@code interrupt()} to cause it to
+     * prematurely stop waiting, so {@code wait} should be called in a loop to
+     * check that the condition that has been waited for has been met before
+     * continuing.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
-     * @throws  IllegalArgumentException      if the value of timeout is
-     *               negative.
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
-     * @see        java.lang.Object#notify()
-     * @see        java.lang.Object#notifyAll()
+     * <p>While the thread waits, it gives up ownership of this object's
+     * monitor. When it is notified (or interrupted), it re-acquires the monitor
+     * before it starts running.
+     *
+     * @throws IllegalMonitorStateException
+     *             if the thread calling this method is not the owner of this
+     *             object's monitor.
+     * @throws InterruptedException if the current thread has been interrupted.
+     *             The interrupted status of the current thread will be cleared before the exception
+     *             is thrown.
+     * @see #notify
+     * @see #notifyAll
+     * @see #wait(long)
+     * @see #wait(long,int)
+     * @see java.lang.Thread
+     */
+    public final native void wait() throws InterruptedException;
+
+    /**
+     * Causes the calling thread to wait until another thread calls the {@code
+     * notify()} or {@code notifyAll()} method of this object or until the
+     * specified timeout expires. This method can only be invoked by a thread
+     * which owns this object's monitor; see {@link #notify()} on how a thread
+     * can become the owner of a monitor.
+     *
+     * <p>A waiting thread can be sent {@code interrupt()} to cause it to
+     * prematurely stop waiting, so {@code wait} should be called in a loop to
+     * check that the condition that has been waited for has been met before
+     * continuing.
+     *
+     * <p>While the thread waits, it gives up ownership of this object's
+     * monitor. When it is notified (or interrupted), it re-acquires the monitor
+     * before it starts running.
+     *
+     * <p>A timeout of zero means the calling thread should wait forever unless interrupted or
+     * notified.
+     *
+     * @param millis
+     *            the maximum time to wait in milliseconds.
+     * @throws IllegalArgumentException
+     *             if {@code millis < 0}.
+     * @throws IllegalMonitorStateException
+     *             if the thread calling this method is not the owner of this
+     *             object's monitor.
+     * @throws InterruptedException if the current thread has been interrupted.
+     *             The interrupted status of the current thread will be cleared before the exception
+     *             is thrown.
+     * @see #notify
+     * @see #notifyAll
+     * @see #wait()
+     * @see #wait(long,int)
+     * @see java.lang.Thread
      */
     public final void wait(long millis) throws InterruptedException {
         wait(millis, 0);
     }
 
     /**
-     * Causes the current thread to wait until another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object, or
-     * some other thread interrupts the current thread, or a certain
-     * amount of real time has elapsed.
-     * <p>
-     * This method is similar to the {@code wait} method of one
-     * argument, but it allows finer control over the amount of time to
-     * wait for a notification before giving up. The amount of real time,
-     * measured in nanoseconds, is given by:
-     * <blockquote>
-     * <pre>
-     * 1000000*timeout+nanos</pre></blockquote>
-     * <p>
-     * In all other respects, this method does the same thing as the
-     * method {@link #wait(long)} of one argument. In particular,
-     * {@code wait(0, 0)} means the same thing as {@code wait(0)}.
-     * <p>
-     * The current thread must own this object's monitor. The thread
-     * releases ownership of this monitor and waits until either of the
-     * following two conditions has occurred:
-     * <ul>
-     * <li>Another thread notifies threads waiting on this object's monitor
-     *     to wake up either through a call to the {@code notify} method
-     *     or the {@code notifyAll} method.
-     * <li>The timeout period, specified by {@code timeout}
-     *     milliseconds plus {@code nanos} nanoseconds arguments, has
-     *     elapsed.
-     * </ul>
-     * <p>
-     * The thread then waits until it can re-obtain ownership of the
-     * monitor and resumes execution.
-     * <p>
-     * As in the one argument version, interrupts and spurious wakeups are
-     * possible, and this method should always be used in a loop:
-     * <pre>
-     *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait(timeout, nanos);
-     *         ... // Perform action appropriate to condition
-     *     }
-     * </pre>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
+     * Causes the calling thread to wait until another thread calls the {@code
+     * notify()} or {@code notifyAll()} method of this object or until the
+     * specified timeout expires. This method can only be invoked by a thread
+     * that owns this object's monitor; see {@link #notify()} on how a thread
+     * can become the owner of a monitor.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
-     * @param      nanos      additional time, in nanoseconds range
-     *                       0-999999.
-     * @throws  IllegalArgumentException      if the value of timeout is
-     *                      negative or the value of nanos is
-     *                      not in the range 0-999999.
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of this object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
+     * <p>A waiting thread can be sent {@code interrupt()} to cause it to
+     * prematurely stop waiting, so {@code wait} should be called in a loop to
+     * check that the condition that has been waited for has been met before
+     * continuing.
+     *
+     * <p>While the thread waits, it gives up ownership of this object's
+     * monitor. When it is notified (or interrupted), it re-acquires the monitor
+     * before it starts running.
+     *
+     * <p>A timeout of zero means the calling thread should wait forever unless interrupted or
+     * notified.
+     *
+     * @param millis
+     *            the maximum time to wait in milliseconds.
+     * @param nanos
+     *            the fraction of a millisecond to wait, specified in
+     *            nanoseconds.
+     * @throws IllegalArgumentException
+     *             if {@code millis < 0}, {@code nanos < 0} or {@code nanos >
+     *             999999}.
+     * @throws IllegalMonitorStateException
+     *             if the thread calling this method is not the owner of this
+     *             object's monitor.
+     * @throws InterruptedException if the current thread has been interrupted.
+     *             The interrupted status of the current thread will be cleared before the exception
+     *             is thrown.
+     * @see #notify
+     * @see #notifyAll
+     * @see #wait()
+     * @see #wait(long,int)
+     * @see java.lang.Thread
      */
-    @FastNative
     public final native void wait(long millis, int nanos) throws InterruptedException;
-
-    /**
-     * Causes the current thread to wait until another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object.
-     * In other words, this method behaves exactly as if it simply
-     * performs the call {@code wait(0)}.
-     * <p>
-     * The current thread must own this object's monitor. The thread
-     * releases ownership of this monitor and waits until another thread
-     * notifies threads waiting on this object's monitor to wake up
-     * either through a call to the {@code notify} method or the
-     * {@code notifyAll} method. The thread then waits until it can
-     * re-obtain ownership of the monitor and resumes execution.
-     * <p>
-     * As in the one argument version, interrupts and spurious wakeups are
-     * possible, and this method should always be used in a loop:
-     * <pre>
-     *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait();
-     *         ... // Perform action appropriate to condition
-     *     }
-     * </pre>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
-     *
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
-     * @see        java.lang.Object#notify()
-     * @see        java.lang.Object#notifyAll()
-     */
-    @FastNative
-    public final native void wait() throws InterruptedException;
-
-    /**
-     * Called by the garbage collector on an object when garbage collection
-     * determines that there are no more references to the object.
-     * A subclass overrides the {@code finalize} method to dispose of
-     * system resources or to perform other cleanup.
-     * <p>
-     * The general contract of {@code finalize} is that it is invoked
-     * if and when the Java&trade; virtual
-     * machine has determined that there is no longer any
-     * means by which this object can be accessed by any thread that has
-     * not yet died, except as a result of an action taken by the
-     * finalization of some other object or class which is ready to be
-     * finalized. The {@code finalize} method may take any action, including
-     * making this object available again to other threads; the usual purpose
-     * of {@code finalize}, however, is to perform cleanup actions before
-     * the object is irrevocably discarded. For example, the finalize method
-     * for an object that represents an input/output connection might perform
-     * explicit I/O transactions to break the connection before the object is
-     * permanently discarded.
-     * <p>
-     * The {@code finalize} method of class {@code Object} performs no
-     * special action; it simply returns normally. Subclasses of
-     * {@code Object} may override this definition.
-     * <p>
-     * The Java programming language does not guarantee which thread will
-     * invoke the {@code finalize} method for any given object. It is
-     * guaranteed, however, that the thread that invokes finalize will not
-     * be holding any user-visible synchronization locks when finalize is
-     * invoked. If an uncaught exception is thrown by the finalize method,
-     * the exception is ignored and finalization of that object terminates.
-     * <p>
-     * After the {@code finalize} method has been invoked for an object, no
-     * further action is taken until the Java virtual machine has again
-     * determined that there is no longer any means by which this object can
-     * be accessed by any thread that has not yet died, including possible
-     * actions by other objects or classes which are ready to be finalized,
-     * at which point the object may be discarded.
-     * <p>
-     * The {@code finalize} method is never invoked more than once by a Java
-     * virtual machine for any given object.
-     * <p>
-     * Any exception thrown by the {@code finalize} method causes
-     * the finalization of this object to be halted, but is otherwise
-     * ignored.
-     *
-     * @throws Throwable the {@code Exception} raised by this method
-     * @see java.lang.ref.WeakReference
-     * @see java.lang.ref.PhantomReference
-     * @jls 12.6 Finalization of Class Instances
-     */
-    protected void finalize() throws Throwable { }
 }

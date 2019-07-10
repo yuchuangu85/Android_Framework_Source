@@ -25,14 +25,13 @@ import android.hardware.input.InputManager;
 import android.hardware.input.InputManager.InputDeviceListener;
 import android.os.SystemProperties;
 import android.util.Log;
-import android.util.Slog;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.WindowManagerPolicyConstants.PointerEventListener;
+import android.view.WindowManagerPolicy.PointerEventListener;
 import android.view.MotionEvent.PointerCoords;
 
 import java.util.ArrayList;
@@ -138,7 +137,7 @@ public class PointerLocationView extends View implements InputDeviceListener,
         super(c);
         setFocusableInTouchMode(true);
 
-        mIm = c.getSystemService(InputManager.class);
+        mIm = (InputManager)c.getSystemService(Context.INPUT_SERVICE);
 
         mVC = ViewConfiguration.get(c);
         mTextPaint = new Paint();
@@ -631,12 +630,6 @@ public class PointerLocationView extends View implements InputDeviceListener,
                     >> MotionEvent.ACTION_POINTER_INDEX_SHIFT; // will be 0 for UP
 
             final int id = event.getPointerId(index);
-            if (id >= NP) {
-                Slog.wtf(TAG, "Got pointer ID out of bounds: id=" + id + " arraysize="
-                        + NP + " pointerindex=" + index
-                        + " action=0x" + Integer.toHexString(action));
-                return;
-            }
             final PointerState ps = mPointers.get(id);
             ps.mCurDown = false;
 

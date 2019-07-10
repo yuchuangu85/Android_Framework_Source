@@ -72,17 +72,4 @@ public @interface BindingAdapter {
      * @return The attributes associated with this binding adapter.
      */
     String[] value();
-
-    /**
-     * Whether every attribute must be assigned a binding expression or if some
-     * can be absent. When this is false, the BindingAdapter will be called
-     * when at least one associated attribute has a binding expression. The attributes
-     * for which there was no binding expression (even a normal XML value) will
-     * cause the associated parameter receive the Java default value. Care must be
-     * taken to ensure that a default value is not confused with a valid XML value.
-     *
-     * @return whether or not every attribute must be assigned a binding expression. The default
-     *         value is true.
-     */
-    boolean requireAll() default true;
 }

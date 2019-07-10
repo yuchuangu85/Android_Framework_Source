@@ -19,9 +19,6 @@ package android.text.style;
 import android.graphics.Rasterizer;
 import android.text.TextPaint;
 
-/**
- *  @removed Rasterizer is not supported for hw-accerlerated and PDF rendering
- */
 public class RasterizerSpan extends CharacterStyle implements UpdateAppearance {
 
     private Rasterizer mRasterizer;

@@ -1,148 +1,80 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang;
 
-import java.security.*;
 import java.io.FileDescriptor;
 import java.net.InetAddress;
+import java.security.Permission;
 
-// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
-// SecurityManager can only check access by Java code, so it can be bypassed by using
-// native code.  Applications should rely on Android permissions, process separation,
-// other other methods for security purposes.
 /**
  * Legacy security code; do not use.
  *
- * <p>Security managers do <i>not</i> provide a secure environment for
- * executing untrusted code and are unsupported on Android. Untrusted code
- * cannot be safely isolated within a single VM on Android. Application
- * developers can assume that there's no SecurityManager installed,
- * i.e. {@link java.lang.System#getSecurityManager()} will return null.
+ * <p>Security managers do <strong>not</strong> provide a
+ * secure environment for executing untrusted code. Untrusted code cannot be
+ * safely isolated within the Dalvik VM.
  */
-public
-class SecurityManager {
-
+public class SecurityManager {
     /**
      * @deprecated Use {@link #checkPermission} instead.
      */
     @Deprecated
     protected boolean inCheck;
 
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    public boolean getInCheck() {
-        return inCheck;
-    }
+    public SecurityManager() { }
 
-    public SecurityManager() {
+    public void checkAccept(String host, int port) { }
 
-    }
+    public void checkAccess(Thread thread) { }
 
-    protected Class[] getClassContext() {
-        return null;
-    }
+    public void checkAccess(ThreadGroup group) { }
 
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected ClassLoader currentClassLoader()
-    {
-        return null;
-    }
+    public void checkConnect(String host, int port) { }
 
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected Class<?> currentLoadedClass() {
-        return null;
-    }
+    public void checkConnect(String host, int port, Object context) { }
 
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected int classDepth(String name) {
-        return -1;
-    }
+    public void checkCreateClassLoader() { }
 
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected int classLoaderDepth()
-    {
-        return -1;
-    }
-
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected boolean inClass(String name) {
-        return false;
-    }
-
-    /**
-     * @deprecated Use {@link #checkPermission} instead.
-     */
-    @Deprecated
-    protected boolean inClassLoader() {
-        return false;
-    }
-
-    public Object getSecurityContext() {
-        return null;
-    }
-
-    public void checkPermission(Permission perm) {
-
-    }
-
-    public void checkPermission(Permission perm, Object context) {
-
-    }
-
-    public void checkCreateClassLoader() {
-
-    }
-
-    public void checkAccess(Thread t) { }
-
-    public void checkAccess(ThreadGroup g) { }
-
-    public void checkExit(int status) { }
+    public void checkDelete(String file) { }
 
     public void checkExec(String cmd) { }
 
-    public void checkLink(String lib) { }
+    public void checkExit(int status) { }
+
+    public void checkLink(String libName) { }
+
+    public void checkListen(int port) { }
+
+    public void checkMemberAccess(Class<?> cls, int type) { }
+
+    public void checkMulticast(InetAddress maddr) { }
+
+    /**
+     * @deprecated use {@link #checkMulticast(java.net.InetAddress)} instead.
+     */
+    @Deprecated public void checkMulticast(InetAddress maddr, byte ttl) { }
+
+    public void checkPackageAccess(String packageName) { }
+
+    public void checkPackageDefinition(String packageName) { }
+
+    public void checkPropertiesAccess() { }
+
+    public void checkPropertyAccess(String key) { }
 
     public void checkRead(FileDescriptor fd) { }
 
@@ -150,51 +82,60 @@ class SecurityManager {
 
     public void checkRead(String file, Object context) { }
 
-    public void checkWrite(FileDescriptor fd) { }
+    public void checkSecurityAccess(String target) { }
 
-    public void checkWrite(String file) { }
+    public void checkSetFactory() { }
 
-    public void checkDelete(String file) { }
-
-    public void checkConnect(String host, int port) { }
-
-    public void checkConnect(String host, int port, Object context) { }
-
-    public void checkListen(int port) { }
-
-    public void checkAccept(String host, int port) { }
-
-    public void checkMulticast(InetAddress maddr) { }
-
-    /**
-     * @deprecated use {@link #checkMulticast(java.net.InetAddress)} instead.
-     */
-    @Deprecated
-    public void checkMulticast(InetAddress maddr, byte ttl) { }
-
-    public void checkPropertiesAccess() { }
-
-    public void checkPropertyAccess(String key) { }
-
-    public boolean checkTopLevelWindow(Object window) {
-        return true;
-    }
-
-    public void checkPrintJobAccess() { }
+    public boolean checkTopLevelWindow(Object window) { return true; }
 
     public void checkSystemClipboardAccess() { }
 
     public void checkAwtEventQueueAccess() { }
 
-    public void checkPackageAccess(String pkg) { }
+    public void checkPrintJobAccess() { }
 
-    public void checkPackageDefinition(String pkg) { }
+    public void checkWrite(FileDescriptor fd) { }
 
-    public void checkSetFactory() { }
+    public void checkWrite(String file) { }
 
-    public void checkMemberAccess(Class<?> clazz, int which) { }
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated public boolean getInCheck() { return inCheck; }
 
-    public void checkSecurityAccess(String target) { }
+    protected Class[] getClassContext() { return null; }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected ClassLoader currentClassLoader() { return null; }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected int classLoaderDepth() {
+        return -1;
+    }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected Class<?> currentLoadedClass() { return null; }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected int classDepth(String name) { return -1; }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected boolean inClass(String name) { return false; }
+
+    /**
+     * @deprecated Use {@link #checkPermission} instead.
+     */
+    @Deprecated protected boolean inClassLoader() { return false; }
 
     /**
      * Returns the current thread's thread group.
@@ -203,4 +144,9 @@ class SecurityManager {
         return Thread.currentThread().getThreadGroup();
     }
 
+    public Object getSecurityContext() { return null; }
+
+    public void checkPermission(Permission permission) { }
+
+    public void checkPermission(Permission permission, Object context) { }
 }

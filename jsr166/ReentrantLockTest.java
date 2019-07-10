@@ -30,9 +30,8 @@ public class ReentrantLockTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ReentrantLockTest.class);
+    //     return new TestSuite(...);
     // }
-
     /**
      * A checked runnable calling lockInterruptibly
      */
@@ -151,7 +150,7 @@ public class ReentrantLockTest extends JSR166TestCase {
     enum AwaitMethod { await, awaitTimed, awaitNanos, awaitUntil }
 
     /**
-     * Awaits condition "indefinitely" using the specified AwaitMethod.
+     * Awaits condition using the specified AwaitMethod.
      */
     void await(Condition c, AwaitMethod awaitMethod)
             throws InterruptedException {
@@ -164,10 +163,9 @@ public class ReentrantLockTest extends JSR166TestCase {
             assertTrue(c.await(timeoutMillis, MILLISECONDS));
             break;
         case awaitNanos:
-            long timeoutNanos = MILLISECONDS.toNanos(timeoutMillis);
-            long nanosRemaining = c.awaitNanos(timeoutNanos);
-            assertTrue(nanosRemaining > timeoutNanos / 2);
-            assertTrue(nanosRemaining <= timeoutNanos);
+            long nanosTimeout = MILLISECONDS.toNanos(timeoutMillis);
+            long nanosRemaining = c.awaitNanos(nanosTimeout);
+            assertTrue(nanosRemaining > 0);
             break;
         case awaitUntil:
             assertTrue(c.awaitUntil(delayedDate(timeoutMillis)));
@@ -430,7 +428,7 @@ public class ReentrantLockTest extends JSR166TestCase {
         }
         for (int i = SIZE; i > 0; i--) {
             lock.unlock();
-            assertEquals(i - 1, lock.getHoldCount());
+            assertEquals(i-1, lock.getHoldCount());
         }
     }
 
@@ -570,11 +568,11 @@ public class ReentrantLockTest extends JSR166TestCase {
             final ReentrantLock lock = new ReentrantLock(fair);
             final Condition c = lock.newCondition();
             lock.lock();
-            // We shouldn't assume that nanoTime and currentTimeMillis
-            // use the same time source, so don't use nanoTime here.
-            java.util.Date delayedDate = delayedDate(timeoutMillis());
-            assertFalse(c.awaitUntil(delayedDate));
-            assertTrue(new java.util.Date().getTime() >= delayedDate.getTime());
+            long startTime = System.nanoTime();
+            long timeoutMillis = 10;
+            java.util.Date d = new java.util.Date();
+            assertFalse(c.awaitUntil(new java.util.Date(d.getTime() + timeoutMillis)));
+            assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
             lock.unlock();
         } catch (InterruptedException fail) { threadUnexpectedException(fail); }
     }

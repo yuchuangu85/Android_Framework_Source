@@ -17,14 +17,9 @@
 package android.graphics;
 
 import com.android.ide.common.rendering.api.LayoutLog;
-import com.android.ide.common.rendering.api.RenderResources;
-import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.layoutlib.bridge.Bridge;
-import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.impl.DelegateManager;
-import com.android.layoutlib.bridge.impl.RenderAction;
 import com.android.resources.Density;
-import com.android.resources.ResourceType;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.annotation.Nullable;
@@ -43,7 +38,6 @@ import java.util.EnumSet;
 import java.util.Set;
 
 import javax.imageio.ImageIO;
-import libcore.util.NativeAllocationRegistry_Delegate;
 
 /**
  * Delegate implementing the native methods of android.graphics.Bitmap
@@ -62,19 +56,18 @@ public final class Bitmap_Delegate {
 
 
     public enum BitmapCreateFlags {
-        NONE, PREMULTIPLIED, MUTABLE
+        PREMULTIPLIED, MUTABLE
     }
 
     // ---- delegate manager ----
     private static final DelegateManager<Bitmap_Delegate> sManager =
-            new DelegateManager<>(Bitmap_Delegate.class);
-    private static long sFinalizer = -1;
+            new DelegateManager<Bitmap_Delegate>(Bitmap_Delegate.class);
 
     // ---- delegate helper data ----
 
     // ---- delegate data ----
     private final Config mConfig;
-    private final BufferedImage mImage;
+    private BufferedImage mImage;
     private boolean mHasAlpha = true;
     private boolean mHasMipMap = false;      // TODO: check the default.
     private boolean mIsPremultiplied = true;
@@ -92,7 +85,8 @@ public final class Bitmap_Delegate {
 
     @Nullable
     public static Bitmap_Delegate getDelegate(@Nullable Bitmap bitmap) {
-        return bitmap == null ? null : getDelegate(bitmap.getNativeInstance());
+        // refSkPixelRef is a hack to get the native pointer: see #nativeRefPixelRef()
+        return bitmap == null ? null : getDelegate(bitmap.refSkPixelRef());
     }
 
     /**
@@ -120,25 +114,10 @@ public final class Bitmap_Delegate {
      * @see Bitmap#isMutable()
      * @see Bitmap#getDensity()
      */
-    private static Bitmap createBitmap(File input, Set<BitmapCreateFlags> createFlags,
+    public static Bitmap createBitmap(File input, Set<BitmapCreateFlags> createFlags,
             Density density) throws IOException {
         // create a delegate with the content of the file.
-        BufferedImage image = ImageIO.read(input);
-        if (image == null && input.exists()) {
-            // There was a problem decoding the image, or the decoder isn't registered. Webp maybe.
-            // Replace with a broken image icon.
-            BridgeContext currentContext = RenderAction.getCurrentContext();
-            if (currentContext != null) {
-                RenderResources resources = currentContext.getRenderResources();
-                ResourceValue broken = resources.getFrameworkResource(ResourceType.DRAWABLE,
-                        "ic_menu_report_image");
-                File brokenFile = new File(broken.getValue());
-                if (brokenFile.exists()) {
-                    image = ImageIO.read(brokenFile);
-                }
-            }
-        }
-        Bitmap_Delegate delegate = new Bitmap_Delegate(image, Config.ARGB_8888);
+        Bitmap_Delegate delegate = new Bitmap_Delegate(ImageIO.read(input), Config.ARGB_8888);
 
         return createBitmap(delegate, createFlags, density.getDpiValue());
     }
@@ -248,8 +227,7 @@ public final class Bitmap_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeCreate(int[] colors, int offset, int stride, int width,
-            int height, int nativeConfig, boolean isMutable, @Nullable float[] xyzD50,
-            @Nullable ColorSpace.Rgb.TransferParameters p) {
+            int height, int nativeConfig, boolean isMutable) {
         int imageType = getBufferedImageType();
 
         // create the image
@@ -303,31 +281,19 @@ public final class Bitmap_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static Bitmap nativeCopyAshmemConfig(long nativeSrcBitmap, int nativeConfig) {
-        // Unused method; no implementation provided.
-        assert false;
-        return null;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeGetNativeFinalizer() {
-        synchronized (Bitmap_Delegate.class) {
-            if (sFinalizer == -1) {
-                sFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(sManager::removeJavaReferenceFor);
-            }
-            return sFinalizer;
-        }
+    /*package*/ static void nativeDestructor(long nativeBitmap) {
+        sManager.removeJavaReferenceFor(nativeBitmap);
     }
 
     @LayoutlibDelegate
     /*package*/ static boolean nativeRecycle(long nativeBitmap) {
-        // In our case reycle() is a no-op. We will let the finalizer to dispose the bitmap.
+        sManager.removeJavaReferenceFor(nativeBitmap);
         return true;
     }
 
     @LayoutlibDelegate
     /*package*/ static void nativeReconfigure(long nativeBitmap, int width, int height,
-            int config, boolean isPremultiplied) {
+            int config, int allocSize, boolean isPremultiplied) {
         Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
                 "Bitmap.reconfigure() is not supported", null /*data*/);
     }
@@ -601,75 +567,12 @@ public final class Bitmap_Delegate {
         return Arrays.equals(argb1, argb2);
     }
 
+    // Only used by AssetAtlasService, which we don't care about.
     @LayoutlibDelegate
-    /*package*/ static int nativeGetAllocationByteCount(long nativeBitmap) {
-        // get the delegate from the native int.
-        Bitmap_Delegate delegate = sManager.getDelegate(nativeBitmap);
-        if (delegate == null) {
-            return 0;
-        }
-        int size = nativeRowBytes(nativeBitmap) * delegate.mImage.getHeight();
-        return size < 0 ? Integer.MAX_VALUE : size;
-
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void nativePrepareToDraw(long nativeBitmap) {
-        // do nothing as Bitmap_Delegate does not have caches
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static Bitmap nativeCopyPreserveInternalConfig(long nativeBitmap) {
-        Bitmap_Delegate srcBmpDelegate = sManager.getDelegate(nativeBitmap);
-        if (srcBmpDelegate == null) {
-            return null;
-        }
-
-        BufferedImage srcImage = srcBmpDelegate.getImage();
-
-        // create the image
-        BufferedImage image = new BufferedImage(srcImage.getColorModel(), srcImage.copyData(null),
-                srcImage.isAlphaPremultiplied(), null);
-
-        // create a delegate with the content of the stream.
-        Bitmap_Delegate delegate = new Bitmap_Delegate(image, srcBmpDelegate.getConfig());
-
-        return createBitmap(delegate, EnumSet.of(BitmapCreateFlags.NONE),
-                Bitmap.getDefaultDensity());
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static Bitmap nativeCreateHardwareBitmap(GraphicBuffer buffer) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
-                "Bitmap.nativeCreateHardwareBitmap() is not supported", null /*data*/);
-        return null;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static GraphicBuffer nativeCreateGraphicBufferHandle(long nativeBitmap) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
-                "Bitmap.nativeCreateGraphicBufferHandle() is not supported", null /*data*/);
-        return null;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static boolean nativeIsSRGB(long nativeBitmap) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
-                "Color spaces are not supported", null /*data*/);
-        return false;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static boolean nativeGetColorSpace(long nativePtr, float[] xyz, float[] params) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
-                "Color spaces are not supported", null /*data*/);
-        return false;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void nativeCopyColorSpace(long srcBitmap, long dstBitmap) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
-                "Color spaces are not supported", null /*data*/);
+    /*package*/ static long nativeRefPixelRef(long nativeBitmap) {
+        // Hack: This is called by Bitmap.refSkPixelRef() and LayoutLib uses that method to get
+        // the native pointer from a Bitmap. So, we return nativeBitmap here.
+        return nativeBitmap;
     }
 
     // ---- Private delegate/helper methods ----
@@ -690,7 +593,7 @@ public final class Bitmap_Delegate {
         boolean isPremultiplied = createFlags.contains(BitmapCreateFlags.PREMULTIPLIED);
 
         // and create/return a new Bitmap with it
-        return new Bitmap(nativeInt, width, height, density, isMutable,
+        return new Bitmap(nativeInt, null /* buffer */, width, height, density, isMutable,
                           isPremultiplied, null /*ninePatchChunk*/, null /* layoutBounds */);
     }
 

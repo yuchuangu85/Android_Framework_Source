@@ -216,8 +216,7 @@ import java.util.Set;
         mCurrentEncoding = DEFAULT_ENCODING;
         mCurrentCharset = DEFAULT_CHARSET;
 
-        // allow parsing of vcards that have mime data leading up to BEGIN:VCARD
-        boolean allowGarbage = true;
+        boolean allowGarbage = false;
         if (!readBeginVCard(allowGarbage)) {
             return false;
         }
@@ -686,8 +685,8 @@ import java.util.Set;
             }
 
             ArrayList<String> propertyValueList = new ArrayList<String>();
-            String value = maybeUnescapeText(VCardUtils.convertStringCharset(
-                    propertyRawValue, sourceCharset, targetCharset));
+            String value = VCardUtils.convertStringCharset(
+                    maybeUnescapeText(propertyRawValue), sourceCharset, targetCharset);
             propertyValueList.add(value);
             property.setValues(propertyValueList);
             for (VCardInterpreter interpreter : mInterpreterList) {
@@ -721,12 +720,12 @@ import java.util.Set;
                 encodedValueList.add(encoded);
             }
         } else {
-            final String propertyValue = VCardUtils.convertStringCharset(
-                    getPotentialMultiline(propertyRawValue), sourceCharset, targetCharset);
-            final List<String> valueList =
+            final String propertyValue = getPotentialMultiline(propertyRawValue);
+            final List<String> rawValueList =
                     VCardUtils.constructListFromValue(propertyValue, getVersion());
-            for (String value : valueList) {
-                encodedValueList.add(value);
+            for (String rawValue : rawValueList) {
+                encodedValueList.add(VCardUtils.convertStringCharset(
+                        rawValue, sourceCharset, targetCharset));
             }
         }
 

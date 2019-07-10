@@ -41,8 +41,6 @@ public final class Downloads {
     public static final class Impl implements BaseColumns {
         private Impl() {}
 
-        public static final String AUTHORITY = "downloads";
-
         /**
          * The permission to access the download manager
          */
@@ -114,7 +112,7 @@ public final class Downloads {
          * download's content: uri is specified in the intent's data.
          */
         public static final String ACTION_DOWNLOAD_COMPLETED =
-                DownloadManager.ACTION_DOWNLOAD_COMPLETED;
+                "android.intent.action.DOWNLOAD_COMPLETED";
 
         /**
          * Broadcast Action: this is sent by the download manager to the app
@@ -127,7 +125,7 @@ public final class Downloads {
          * successfully.
          */
         public static final String ACTION_NOTIFICATION_CLICKED =
-                DownloadManager.ACTION_NOTIFICATION_CLICKED;
+                "android.intent.action.DOWNLOAD_NOTIFICATION_CLICKED";
 
         /**
          * The name of the column containing the URI of the data being downloaded.
@@ -414,11 +412,6 @@ public final class Downloads {
 
         public static final String COLUMN_ALLOW_WRITE = "allow_write";
 
-        public static final int FLAG_REQUIRES_CHARGING = 1 << 0;
-        public static final int FLAG_REQUIRES_DEVICE_IDLE = 1 << 1;
-
-        public static final String COLUMN_FLAGS = "flags";
-
         /**
          * default value for {@link #COLUMN_LAST_UPDATESRC}.
          * This value is used when this column's value is not relevant.
@@ -485,7 +478,6 @@ public final class Downloads {
          * partition. This option is only used by system apps and so it requires
          * android.permission.ACCESS_CACHE_FILESYSTEM permission.
          */
-        @Deprecated
         public static final int DESTINATION_SYSTEMCACHE_PARTITION = 5;
 
         /**
@@ -617,7 +609,7 @@ public final class Downloads {
          * This download has successfully completed.
          * Warning: there might be other status values that indicate success
          * in the future.
-         * Use isStatusSuccess() to capture the entire category.
+         * Use isSucccess() to capture the entire category.
          */
         public static final int STATUS_SUCCESS = 200;
 

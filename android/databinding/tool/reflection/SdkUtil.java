@@ -64,7 +64,7 @@ public class SdkUtil {
             int result = sApiChecker.getMinApi(classDesc, methodDesc);
             L.d("checking method api for %s, class:%s method:%s. result: %d", modelMethod.getName(),
                     classDesc, methodDesc, result);
-            if (result > 0) {
+            if (result > 1) {
                 return result;
             }
             declaringClass = declaringClass.getSuperclass();
@@ -74,7 +74,7 @@ public class SdkUtil {
 
     static class ApiChecker {
 
-        private Map<String, Integer> mFullLookup;
+        private Map<String, Integer> mFullLookup = new HashMap<String, Integer>();
 
         private Document mDoc;
 
@@ -103,7 +103,6 @@ public class SdkUtil {
 
         private void buildFullLookup() throws XPathExpressionException {
             NodeList allClasses = mDoc.getChildNodes().item(0).getChildNodes();
-            mFullLookup = new HashMap<String, Integer>(allClasses.getLength() * 4);
             for (int j = 0; j < allClasses.getLength(); j++) {
                 Node node = allClasses.item(j);
                 if (node.getNodeType() != Node.ELEMENT_NODE || !"class"
@@ -123,17 +122,16 @@ public class SdkUtil {
                     }
                     int methodSince = getSince(child);
                     int since = Math.max(classSince, methodSince);
-                    String methodDesc = child.getAttributes().getNamedItem("name")
-                            .getNodeValue();
-                    String key = cacheKey(classDesc, methodDesc);
-                    mFullLookup.put(key, since);
+                    if (since > SdkUtil.sMinSdk) {
+                        String methodDesc = child.getAttributes().getNamedItem("name")
+                                .getNodeValue();
+                        String key = cacheKey(classDesc, methodDesc);
+                        mFullLookup.put(key, since);
+                    }
                 }
             }
         }
 
-        /**
-         * Returns 0 if we cannot find the API level for the method.
-         */
         public int getMinApi(String classDesc, String methodOrFieldDesc) {
             if (mDoc == null || mXPath == null) {
                 return 1;
@@ -143,7 +141,7 @@ public class SdkUtil {
             }
             final String key = cacheKey(classDesc, methodOrFieldDesc);
             Integer since = mFullLookup.get(key);
-            return since == null ? 0 : since;
+            return since == null ? 1 : since;
         }
 
         private static String cacheKey(String classDesc, String methodOrFieldDesc) {

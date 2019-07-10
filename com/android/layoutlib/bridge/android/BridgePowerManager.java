@@ -18,8 +18,6 @@ package com.android.layoutlib.bridge.android;
 
 import android.os.IBinder;
 import android.os.IPowerManager;
-import android.os.PowerManager;
-import android.os.PowerSaveState;
 import android.os.RemoteException;
 import android.os.WorkSource;
 
@@ -42,10 +40,6 @@ public class BridgePowerManager implements IPowerManager {
     @Override
     public boolean setPowerSaveMode(boolean mode) throws RemoteException {
         return false;
-    }
-
-    public PowerSaveState getPowerSaveState(int serviceType) {
-        return null;
     }
 
     @Override
@@ -92,12 +86,7 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
-    public void rebootSafeMode(boolean confirm, boolean wait) {
-        // pass for now.
-    }
-
-    @Override
-    public void shutdown(boolean confirm, String reason, boolean wait) {
+    public void shutdown(boolean confirm, boolean wait) {
         // pass for now.
     }
 
@@ -113,6 +102,16 @@ public class BridgePowerManager implements IPowerManager {
 
     @Override
     public void setAttentionLight(boolean arg0, int arg1) throws RemoteException {
+        // pass for now.
+    }
+
+    @Override
+    public void setTemporaryScreenAutoBrightnessAdjustmentSettingOverride(float arg0) throws RemoteException {
+        // pass for now.
+    }
+
+    @Override
+    public void setTemporaryScreenBrightnessSettingOverride(int arg0) throws RemoteException {
         // pass for now.
     }
 
@@ -153,22 +152,7 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
-    public boolean isLightDeviceIdleMode() throws RemoteException {
-        return false;
-    }
-
-    @Override
     public boolean isScreenBrightnessBoosted() throws RemoteException {
         return false;
-    }
-
-    @Override
-    public int getLastShutdownReason() {
-        return PowerManager.SHUTDOWN_REASON_UNKNOWN;
-    }
-
-    @Override
-    public void setDozeAfterScreenOff(boolean mode) throws RemoteException {
-        // pass for now.
     }
 }

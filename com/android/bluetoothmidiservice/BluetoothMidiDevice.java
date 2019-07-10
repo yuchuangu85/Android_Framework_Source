@@ -100,8 +100,8 @@ public final class BluetoothMidiDevice {
                 int newState) {
             String intentAction;
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                Log.d(TAG, "Connected to GATT server.");
-                Log.d(TAG, "Attempting to start service discovery:" +
+                Log.i(TAG, "Connected to GATT server.");
+                Log.i(TAG, "Attempting to start service discovery:" +
                         mBluetoothGatt.discoverServices());
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from GATT server.");
@@ -112,24 +112,24 @@ public final class BluetoothMidiDevice {
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                BluetoothGattService service = gatt.getService(MIDI_SERVICE);
-                if (service != null) {
-                    Log.d(TAG, "found MIDI_SERVICE");
-                    BluetoothGattCharacteristic characteristic
-                            = service.getCharacteristic(MIDI_CHARACTERISTIC);
-                    if (characteristic != null) {
-                        Log.d(TAG, "found MIDI_CHARACTERISTIC");
-                        mCharacteristic = characteristic;
+                List<BluetoothGattService> services = mBluetoothGatt.getServices();
+                for (BluetoothGattService service : services) {
+                    if (MIDI_SERVICE.equals(service.getUuid())) {
+                        Log.d(TAG, "found MIDI_SERVICE");
+                        List<BluetoothGattCharacteristic> characteristics
+                            = service.getCharacteristics();
+                        for (BluetoothGattCharacteristic characteristic : characteristics) {
+                            if (MIDI_CHARACTERISTIC.equals(characteristic.getUuid())) {
+                                Log.d(TAG, "found MIDI_CHARACTERISTIC");
+                                mCharacteristic = characteristic;
 
-                        // Request a lower Connection Interval for better latency.
-                        boolean result = gatt.requestConnectionPriority(
-                                BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-                        Log.d(TAG, "requestConnectionPriority(CONNECTION_PRIORITY_HIGH):"
-                            + result);
-
-                        // Specification says to read the characteristic first and then
-                        // switch to receiving notifications
-                        mBluetoothGatt.readCharacteristic(characteristic);
+                                // Specification says to read the characteristic first and then
+                                // switch to receiving notifications
+                                mBluetoothGatt.readCharacteristic(characteristic);
+                                break;
+                            }
+                        }
+                        break;
                     }
                 }
             } else {
@@ -147,22 +147,14 @@ public final class BluetoothMidiDevice {
             // switch to receiving notifications after initial characteristic read
             mBluetoothGatt.setCharacteristicNotification(characteristic, true);
 
-            // Use writeType that requests acknowledgement.
-            // This improves compatibility with various BLE-MIDI devices.
-            int originalWriteType = characteristic.getWriteType();
-            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
                     CLIENT_CHARACTERISTIC_CONFIG);
             if (descriptor != null) {
                 descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                boolean result = mBluetoothGatt.writeDescriptor(descriptor);
-                Log.d(TAG, "writeDescriptor returned " + result);
+                mBluetoothGatt.writeDescriptor(descriptor);
             } else {
                 Log.e(TAG, "No CLIENT_CHARACTERISTIC_CONFIG for device " + mBluetoothDevice);
             }
-
-            characteristic.setWriteType(originalWriteType);
         }
 
         @Override

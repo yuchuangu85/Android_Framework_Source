@@ -16,10 +16,10 @@
 
 package android.view.inputmethod;
 
-import com.android.internal.view.IInputMethodManager;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
+import com.android.layoutlib.bridge.android.BridgeIInputMethodManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
+import android.content.Context;
 import android.os.Looper;
 
 
@@ -39,8 +39,8 @@ public class InputMethodManager_Delegate {
         synchronized (InputMethodManager.class) {
             InputMethodManager imm = InputMethodManager.peekInstance();
             if (imm == null) {
-                imm = new InputMethodManager(ReflectionUtils.createProxy(IInputMethodManager.class),
-                        Looper.getMainLooper());
+                imm = new InputMethodManager(
+                        new BridgeIInputMethodManager(), Looper.getMainLooper());
                 InputMethodManager.sInstance = imm;
             }
             return imm;

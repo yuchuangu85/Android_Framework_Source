@@ -16,8 +16,13 @@
 
 package android.widget;
 
+import com.android.internal.R;
+import com.android.internal.view.menu.MenuBuilder;
+import com.android.internal.view.menu.MenuPopupHelper;
+import com.android.internal.view.menu.MenuPresenter;
+import com.android.internal.view.menu.SubMenuBuilder;
+
 import android.annotation.MenuRes;
-import android.annotation.TestApi;
 import android.content.Context;
 import android.view.Gravity;
 import android.view.Menu;
@@ -25,28 +30,35 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnTouchListener;
-
-import com.android.internal.R;
-import com.android.internal.view.menu.MenuBuilder;
-import com.android.internal.view.menu.MenuPopupHelper;
-import com.android.internal.view.menu.ShowableListMenu;
+import android.widget.ListPopupWindow.ForwardingListener;
 
 /**
- * A PopupMenu displays a {@link Menu} in a modal popup window anchored to a
- * {@link View}. The popup will appear below the anchor view if there is room,
- * or above it if there is not. If the IME is visible the popup will not
- * overlap it until it is touched. Touching outside of the popup will dismiss
- * it.
+ * A PopupMenu displays a {@link Menu} in a modal popup window anchored to a {@link View}.
+ * The popup will appear below the anchor view if there is room, or above it if there is not.
+ * If the IME is visible the popup will not overlap it until it is touched. Touching outside
+ * of the popup will dismiss it.
  */
-public class PopupMenu {
+public class PopupMenu implements MenuBuilder.Callback, MenuPresenter.Callback {
     private final Context mContext;
     private final MenuBuilder mMenu;
     private final View mAnchor;
     private final MenuPopupHelper mPopup;
 
     private OnMenuItemClickListener mMenuItemClickListener;
-    private OnDismissListener mOnDismissListener;
+    private OnDismissListener mDismissListener;
     private OnTouchListener mDragListener;
+
+    /**
+     * Callback interface used to notify the application that the menu has closed.
+     */
+    public interface OnDismissListener {
+        /**
+         * Called when the associated menu has been dismissed.
+         *
+         * @param menu The PopupMenu that was dismissed.
+         */
+        public void onDismiss(PopupMenu menu);
+    }
 
     /**
      * Constructor to create a new popup menu with an anchor view.
@@ -95,33 +107,12 @@ public class PopupMenu {
     public PopupMenu(Context context, View anchor, int gravity, int popupStyleAttr,
             int popupStyleRes) {
         mContext = context;
-        mAnchor = anchor;
-
         mMenu = new MenuBuilder(context);
-        mMenu.setCallback(new MenuBuilder.Callback() {
-            @Override
-            public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
-                if (mMenuItemClickListener != null) {
-                    return mMenuItemClickListener.onMenuItemClick(item);
-                }
-                return false;
-            }
-
-            @Override
-            public void onMenuModeChange(MenuBuilder menu) {
-            }
-        });
-
+        mMenu.setCallback(this);
+        mAnchor = anchor;
         mPopup = new MenuPopupHelper(context, mMenu, anchor, false, popupStyleAttr, popupStyleRes);
         mPopup.setGravity(gravity);
-        mPopup.setOnDismissListener(new PopupWindow.OnDismissListener() {
-            @Override
-            public void onDismiss() {
-                if (mOnDismissListener != null) {
-                    mOnDismissListener.onDismiss(PopupMenu.this);
-                }
-            }
-        });
+        mPopup.setCallback(this);
     }
 
     /**
@@ -131,6 +122,7 @@ public class PopupMenu {
      * the next time the popup is shown.
      *
      * @param gravity the gravity used to align the popup window
+     *
      * @see #getGravity()
      */
     public void setGravity(int gravity) {
@@ -139,6 +131,7 @@ public class PopupMenu {
 
     /**
      * @return the gravity used to align the popup window to its anchor view
+     *
      * @see #setGravity(int)
      */
     public int getGravity() {
@@ -150,8 +143,8 @@ public class PopupMenu {
      * to implement drag-to-open behavior.
      * <p>
      * When the listener is set on a view, touching that view and dragging
-     * outside of its bounds will open the popup window. Lifting will select
-     * the currently touched list item.
+     * outside of its bounds will open the popup window. Lifting will select the
+     * currently touched list item.
      * <p>
      * Example usage:
      * <pre>
@@ -177,7 +170,7 @@ public class PopupMenu {
                 }
 
                 @Override
-                public ShowableListMenu getPopup() {
+                public ListPopupWindow getPopup() {
                     // This will be null until show() is called.
                     return mPopup.getPopup();
                 }
@@ -188,10 +181,9 @@ public class PopupMenu {
     }
 
     /**
-     * Returns the {@link Menu} associated with this popup. Populate the
-     * returned Menu with items before calling {@link #show()}.
+     * @return the {@link Menu} associated with this popup. Populate the returned Menu with
+     * items before calling {@link #show()}.
      *
-     * @return the {@link Menu} associated with this popup
      * @see #show()
      * @see #getMenuInflater()
      */
@@ -200,8 +192,9 @@ public class PopupMenu {
     }
 
     /**
-     * @return a {@link MenuInflater} that can be used to inflate menu items
-     *         from XML into the menu returned by {@link #getMenu()}
+     * @return a {@link MenuInflater} that can be used to inflate menu items from XML into the
+     * menu returned by {@link #getMenu()}.
+     *
      * @see #getMenu()
      */
     public MenuInflater getMenuInflater() {
@@ -209,9 +202,8 @@ public class PopupMenu {
     }
 
     /**
-     * Inflate a menu resource into this PopupMenu. This is equivalent to
-     * calling {@code popupMenu.getMenuInflater().inflate(menuRes, popupMenu.getMenu())}.
-     *
+     * Inflate a menu resource into this PopupMenu. This is equivalent to calling
+     * popupMenu.getMenuInflater().inflate(menuRes, popupMenu.getMenu()).
      * @param menuRes Menu resource to inflate
      */
     public void inflate(@MenuRes int menuRes) {
@@ -220,7 +212,6 @@ public class PopupMenu {
 
     /**
      * Show the menu popup anchored to the view specified during construction.
-     *
      * @see #dismiss()
      */
     public void show() {
@@ -229,7 +220,6 @@ public class PopupMenu {
 
     /**
      * Dismiss the menu popup.
-     *
      * @see #show()
      */
     public void dismiss() {
@@ -237,64 +227,81 @@ public class PopupMenu {
     }
 
     /**
-     * Sets a listener that will be notified when the user selects an item from
-     * the menu.
+     * Set a listener that will be notified when the user selects an item from the menu.
      *
-     * @param listener the listener to notify
+     * @param listener Listener to notify
      */
     public void setOnMenuItemClickListener(OnMenuItemClickListener listener) {
         mMenuItemClickListener = listener;
     }
 
     /**
-     * Sets a listener that will be notified when this menu is dismissed.
+     * Set a listener that will be notified when this menu is dismissed.
      *
-     * @param listener the listener to notify
+     * @param listener Listener to notify
      */
     public void setOnDismissListener(OnDismissListener listener) {
-        mOnDismissListener = listener;
+        mDismissListener = listener;
     }
 
     /**
-     * Interface responsible for receiving menu item click events if the items
-     * themselves do not have individual item click listeners.
+     * @hide
+     */
+    public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
+        if (mMenuItemClickListener != null) {
+            return mMenuItemClickListener.onMenuItemClick(item);
+        }
+        return false;
+    }
+
+    /**
+     * @hide
+     */
+    public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing) {
+        if (mDismissListener != null) {
+            mDismissListener.onDismiss(this);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public boolean onOpenSubMenu(MenuBuilder subMenu) {
+        if (subMenu == null) return false;
+
+        if (!subMenu.hasVisibleItems()) {
+            return true;
+        }
+
+        // Current menu will be dismissed by the normal helper, submenu will be shown in its place.
+        new MenuPopupHelper(mContext, subMenu, mAnchor).show();
+        return true;
+    }
+
+    /**
+     * @hide
+     */
+    public void onCloseSubMenu(SubMenuBuilder menu) {
+    }
+
+    /**
+     * @hide
+     */
+    public void onMenuModeChange(MenuBuilder menu) {
+    }
+
+    /**
+     * Interface responsible for receiving menu item click events if the items themselves
+     * do not have individual item click listeners.
      */
     public interface OnMenuItemClickListener {
         /**
-         * This method will be invoked when a menu item is clicked if the item
-         * itself did not already handle the event.
+         * This method will be invoked when a menu item is clicked if the item itself did
+         * not already handle the event.
          *
-         * @param item the menu item that was clicked
-         * @return {@code true} if the event was handled, {@code false}
-         *         otherwise
+         * @param item {@link MenuItem} that was clicked
+         * @return <code>true</code> if the event was handled, <code>false</code> otherwise.
          */
-        boolean onMenuItemClick(MenuItem item);
-    }
-
-    /**
-     * Callback interface used to notify the application that the menu has closed.
-     */
-    public interface OnDismissListener {
-        /**
-         * Called when the associated menu has been dismissed.
-         *
-         * @param menu the popup menu that was dismissed
-         */
-        void onDismiss(PopupMenu menu);
-    }
-
-    /**
-     * Returns the {@link ListView} representing the list of menu items in the currently showing
-     * menu.
-     *
-     * @return The view representing the list of menu items.
-     * @hide
-     */
-    @TestApi
-    public ListView getMenuListView() {
-        if (!mPopup.isShowing()) {
-            return null;
-        }
-        return mPopup.getPopup().getListView();
+        public boolean onMenuItemClick(MenuItem item);
     }
 }

@@ -30,7 +30,7 @@ public class SmsResponse {
      * errorCode: See 3GPP 27.005, 3.2.5 for GSM/UMTS,
      * 3GPP2 N.S0005 (IS-41C) Table 171 for CDMA, -1 if unknown or not applicable.
      */
-    public int mErrorCode;
+    int mErrorCode;
 
     public SmsResponse(int messageRef, String ackPdu, int errorCode) {
         mMessageRef = messageRef;

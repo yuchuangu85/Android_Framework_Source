@@ -23,11 +23,6 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.util.Set;
 
-import static android.system.OsConstants.*;
-import sun.misc.Cleaner;
-import sun.nio.ch.DirectBuffer;
-import sun.nio.ch.FileChannelImpl;
-
 /**
  * @hide internal use only
  */
@@ -39,31 +34,21 @@ public final class NioUtils {
         if (buffer == null) {
             return;
         }
-
-        DirectByteBuffer dbb = (DirectByteBuffer) buffer;
-        // Run the cleaner early, if one is defined.
-        if (dbb.cleaner != null) {
-            dbb.cleaner.clean();
-        }
-
-        dbb.memoryRef.free();
+        ((DirectByteBuffer) buffer).free();
     }
 
     /**
      * Returns the int file descriptor from within the given FileChannel 'fc'.
      */
     public static FileDescriptor getFD(FileChannel fc) {
-        return ((FileChannelImpl) fc).fd;
+        return ((FileChannelImpl) fc).getFD();
     }
 
     /**
      * Helps bridge between io and nio.
      */
     public static FileChannel newFileChannel(Closeable ioObject, FileDescriptor fd, int mode) {
-        boolean readable = (mode & (O_RDONLY | O_RDWR | O_SYNC)) != 0;
-        boolean writable = (mode & (O_WRONLY | O_RDWR | O_SYNC)) != 0;
-        boolean append = (mode & O_APPEND) != 0;
-        return FileChannelImpl.open(fd, null, readable, writable, append, ioObject);
+        return new FileChannelImpl(ioObject, fd, mode);
     }
 
     /**
@@ -71,7 +56,7 @@ public final class NioUtils {
      * Normally, attempting to access the array backing a read-only buffer throws.
      */
     public static byte[] unsafeArray(ByteBuffer b) {
-        return b.array();
+        return ((ByteArrayBuffer) b).backingArray;
     }
 
     /**
@@ -79,6 +64,6 @@ public final class NioUtils {
      * even if the ByteBuffer is read-only.
      */
     public static int unsafeArrayOffset(ByteBuffer b) {
-        return b.arrayOffset();
+        return ((ByteArrayBuffer) b).arrayOffset;
     }
 }

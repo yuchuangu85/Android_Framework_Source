@@ -78,67 +78,32 @@ public class Location implements Parcelable {
      */
     public static final String EXTRA_NO_GPS_LOCATION = "noGPSLocation";
 
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mAltitude.
-     */
-    private static final int HAS_ALTITUDE_MASK = 1;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mSpeed.
-     */
-    private static final int HAS_SPEED_MASK = 2;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mBearing.
-     */
-    private static final int HAS_BEARING_MASK = 4;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mHorizontalAccuracy.
-     */
-    private static final int HAS_HORIZONTAL_ACCURACY_MASK = 8;
-    /**
-     * Bit mask for mFieldsMask indicating location is from a mock provider.
-     */
-    private static final int HAS_MOCK_PROVIDER_MASK = 16;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mVerticalAccuracy.
-     */
-    private static final int HAS_VERTICAL_ACCURACY_MASK = 32;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mSpeedAccuracy.
-     */
-    private static final int HAS_SPEED_ACCURACY_MASK = 64;
-    /**
-     * Bit mask for mFieldsMask indicating the presence of mBearingAccuracy.
-     */
-    private static final int HAS_BEARING_ACCURACY_MASK = 128;
-
-    // Cached data to make bearing/distance computations more efficient for the case
-    // where distanceTo and bearingTo are called in sequence.  Assume this typically happens
-    // on the same thread for caching purposes.
-    private static ThreadLocal<BearingDistanceCache> sBearingDistanceCache
-            = new ThreadLocal<BearingDistanceCache>() {
-        @Override
-        protected BearingDistanceCache initialValue() {
-            return new BearingDistanceCache();
-        }
-    };
-
     private String mProvider;
     private long mTime = 0;
     private long mElapsedRealtimeNanos = 0;
     private double mLatitude = 0.0;
     private double mLongitude = 0.0;
+    private boolean mHasAltitude = false;
     private double mAltitude = 0.0f;
+    private boolean mHasSpeed = false;
     private float mSpeed = 0.0f;
+    private boolean mHasBearing = false;
     private float mBearing = 0.0f;
-    private float mHorizontalAccuracyMeters = 0.0f;
-    private float mVerticalAccuracyMeters = 0.0f;
-    private float mSpeedAccuracyMetersPerSecond = 0.0f;
-    private float mBearingAccuracyDegrees = 0.0f;
-
+    private boolean mHasAccuracy = false;
+    private float mAccuracy = 0.0f;
     private Bundle mExtras = null;
+    private boolean mIsFromMockProvider = false;
 
-    // A bitmask of fields present in this object (see HAS_* constants defined above).
-    private byte mFieldsMask = 0;
+    // Cache the inputs and outputs of computeDistanceAndBearing
+    // so calls to distanceTo() and bearingTo() can share work
+    private double mLat1 = 0.0;
+    private double mLon1 = 0.0;
+    private double mLat2 = 0.0;
+    private double mLon2 = 0.0;
+    private float mDistance = 0.0f;
+    private float mInitialBearing = 0.0f;
+    // Scratchpad
+    private final float[] mResults = new float[2];
 
     /**
      * Construct a new Location with a named provider.
@@ -166,17 +131,18 @@ public class Location implements Parcelable {
         mProvider = l.mProvider;
         mTime = l.mTime;
         mElapsedRealtimeNanos = l.mElapsedRealtimeNanos;
-        mFieldsMask = l.mFieldsMask;
         mLatitude = l.mLatitude;
         mLongitude = l.mLongitude;
+        mHasAltitude = l.mHasAltitude;
         mAltitude = l.mAltitude;
+        mHasSpeed = l.mHasSpeed;
         mSpeed = l.mSpeed;
+        mHasBearing = l.mHasBearing;
         mBearing = l.mBearing;
-        mHorizontalAccuracyMeters = l.mHorizontalAccuracyMeters;
-        mVerticalAccuracyMeters = l.mVerticalAccuracyMeters;
-        mSpeedAccuracyMetersPerSecond = l.mSpeedAccuracyMetersPerSecond;
-        mBearingAccuracyDegrees = l.mBearingAccuracyDegrees;
+        mHasAccuracy = l.mHasAccuracy;
+        mAccuracy = l.mAccuracy;
         mExtras = (l.mExtras == null) ? null : new Bundle(l.mExtras);
+        mIsFromMockProvider = l.mIsFromMockProvider;
     }
 
     /**
@@ -186,17 +152,18 @@ public class Location implements Parcelable {
         mProvider = null;
         mTime = 0;
         mElapsedRealtimeNanos = 0;
-        mFieldsMask = 0;
         mLatitude = 0;
         mLongitude = 0;
+        mHasAltitude = false;
         mAltitude = 0;
+        mHasSpeed = false;
         mSpeed = 0;
+        mHasBearing = false;
         mBearing = 0;
-        mHorizontalAccuracyMeters = 0;
-        mVerticalAccuracyMeters = 0;
-        mSpeedAccuracyMetersPerSecond = 0;
-        mBearingAccuracyDegrees = 0;
+        mHasAccuracy = false;
+        mAccuracy = 0;
         mExtras = null;
+        mIsFromMockProvider = false;
     }
 
     /**
@@ -290,13 +257,11 @@ public class Location implements Parcelable {
             int deg = Integer.parseInt(degrees);
             double min;
             double sec = 0.0;
-            boolean secPresent = false;
 
             if (st.hasMoreTokens()) {
                 min = Integer.parseInt(minutes);
                 String seconds = st.nextToken();
                 sec = Double.parseDouble(seconds);
-                secPresent = true;
             } else {
                 min = Double.parseDouble(minutes);
             }
@@ -308,15 +273,11 @@ public class Location implements Parcelable {
             if ((deg < 0.0) || (deg > 179 && !isNegative180)) {
                 throw new IllegalArgumentException("coordinate=" + coordinate);
             }
-
-            // min must be in [0, 59] if seconds are present, otherwise [0.0, 60.0)
-            if (min < 0 || min >= 60 || (secPresent && (min > 59))) {
+            if (min < 0 || min > 59) {
                 throw new IllegalArgumentException("coordinate=" +
                         coordinate);
             }
-
-            // sec must be in [0.0, 60.0)
-            if (sec < 0 || sec >= 60) {
+            if (sec < 0 || sec > 59) {
                 throw new IllegalArgumentException("coordinate=" +
                         coordinate);
             }
@@ -330,7 +291,7 @@ public class Location implements Parcelable {
     }
 
     private static void computeDistanceAndBearing(double lat1, double lon1,
-        double lat2, double lon2, BearingDistanceCache results) {
+        double lat2, double lon2, float[] results) {
         // Based on http://www.ngs.noaa.gov/PUBS_LIB/inverse.pdf
         // using the "Inverse Formula" (section 4)
 
@@ -415,19 +376,19 @@ public class Location implements Parcelable {
         }
 
         float distance = (float) (b * A * (sigma - deltaSigma));
-        results.mDistance = distance;
-        float initialBearing = (float) Math.atan2(cosU2 * sinLambda,
-            cosU1 * sinU2 - sinU1 * cosU2 * cosLambda);
-        initialBearing *= 180.0 / Math.PI;
-        results.mInitialBearing = initialBearing;
-        float finalBearing = (float) Math.atan2(cosU1 * sinLambda,
-                -sinU1 * cosU2 + cosU1 * sinU2 * cosLambda);
-        finalBearing *= 180.0 / Math.PI;
-        results.mFinalBearing = finalBearing;
-        results.mLat1 = lat1;
-        results.mLat2 = lat2;
-        results.mLon1 = lon1;
-        results.mLon2 = lon2;
+        results[0] = distance;
+        if (results.length > 1) {
+            float initialBearing = (float) Math.atan2(cosU2 * sinLambda,
+                cosU1 * sinU2 - sinU1 * cosU2 * cosLambda);
+            initialBearing *= 180.0 / Math.PI;
+            results[1] = initialBearing;
+            if (results.length > 2) {
+                float finalBearing = (float) Math.atan2(cosU1 * sinLambda,
+                    -sinU1 * cosU2 + cosU1 * sinU2 * cosLambda);
+                finalBearing *= 180.0 / Math.PI;
+                results[2] = finalBearing;
+            }
+        }
     }
 
     /**
@@ -453,16 +414,8 @@ public class Location implements Parcelable {
         if (results == null || results.length < 1) {
             throw new IllegalArgumentException("results is null or has length < 1");
         }
-        BearingDistanceCache cache = sBearingDistanceCache.get();
         computeDistanceAndBearing(startLatitude, startLongitude,
-                endLatitude, endLongitude, cache);
-        results[0] = cache.mDistance;
-        if (results.length > 1) {
-            results[1] = cache.mInitialBearing;
-            if (results.length > 2) {
-                results[2] = cache.mFinalBearing;
-            }
-        }
+            endLatitude, endLongitude, results);
     }
 
     /**
@@ -474,14 +427,21 @@ public class Location implements Parcelable {
      * @return the approximate distance in meters
      */
     public float distanceTo(Location dest) {
-        BearingDistanceCache cache = sBearingDistanceCache.get();
         // See if we already have the result
-        if (mLatitude != cache.mLat1 || mLongitude != cache.mLon1 ||
-            dest.mLatitude != cache.mLat2 || dest.mLongitude != cache.mLon2) {
-            computeDistanceAndBearing(mLatitude, mLongitude,
-                dest.mLatitude, dest.mLongitude, cache);
+        synchronized (mResults) {
+            if (mLatitude != mLat1 || mLongitude != mLon1 ||
+                dest.mLatitude != mLat2 || dest.mLongitude != mLon2) {
+                computeDistanceAndBearing(mLatitude, mLongitude,
+                    dest.mLatitude, dest.mLongitude, mResults);
+                mLat1 = mLatitude;
+                mLon1 = mLongitude;
+                mLat2 = dest.mLatitude;
+                mLon2 = dest.mLongitude;
+                mDistance = mResults[0];
+                mInitialBearing = mResults[1];
+            }
+            return mDistance;
         }
-        return cache.mDistance;
     }
 
     /**
@@ -495,14 +455,21 @@ public class Location implements Parcelable {
      * @return the initial bearing in degrees
      */
     public float bearingTo(Location dest) {
-        BearingDistanceCache cache = sBearingDistanceCache.get();
-        // See if we already have the result
-        if (mLatitude != cache.mLat1 || mLongitude != cache.mLon1 ||
-                        dest.mLatitude != cache.mLat2 || dest.mLongitude != cache.mLon2) {
-            computeDistanceAndBearing(mLatitude, mLongitude,
-                dest.mLatitude, dest.mLongitude, cache);
+        synchronized (mResults) {
+            // See if we already have the result
+            if (mLatitude != mLat1 || mLongitude != mLon1 ||
+                            dest.mLatitude != mLat2 || dest.mLongitude != mLon2) {
+                computeDistanceAndBearing(mLatitude, mLongitude,
+                    dest.mLatitude, dest.mLongitude, mResults);
+                mLat1 = mLatitude;
+                mLon1 = mLongitude;
+                mLat2 = dest.mLatitude;
+                mLon2 = dest.mLongitude;
+                mDistance = mResults[0];
+                mInitialBearing = mResults[1];
+            }
+            return mInitialBearing;
         }
-        return cache.mInitialBearing;
     }
 
     /**
@@ -618,7 +585,7 @@ public class Location implements Parcelable {
      * True if this location has an altitude.
      */
     public boolean hasAltitude() {
-        return (mFieldsMask & HAS_ALTITUDE_MASK) != 0;
+        return mHasAltitude;
     }
 
     /**
@@ -638,7 +605,7 @@ public class Location implements Parcelable {
      */
     public void setAltitude(double altitude) {
         mAltitude = altitude;
-        mFieldsMask |= HAS_ALTITUDE_MASK;
+        mHasAltitude = true;
     }
 
     /**
@@ -646,20 +613,17 @@ public class Location implements Parcelable {
      *
      * <p>Following this call {@link #hasAltitude} will return false,
      * and {@link #getAltitude} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
      */
-    @Deprecated
     public void removeAltitude() {
         mAltitude = 0.0f;
-        mFieldsMask &= ~HAS_ALTITUDE_MASK;
+        mHasAltitude = false;
     }
 
     /**
      * True if this location has a speed.
      */
     public boolean hasSpeed() {
-        return (mFieldsMask & HAS_SPEED_MASK) != 0;
+        return mHasSpeed;
     }
 
     /**
@@ -678,7 +642,7 @@ public class Location implements Parcelable {
      */
     public void setSpeed(float speed) {
         mSpeed = speed;
-        mFieldsMask |= HAS_SPEED_MASK;
+        mHasSpeed = true;
     }
 
     /**
@@ -686,20 +650,17 @@ public class Location implements Parcelable {
      *
      * <p>Following this call {@link #hasSpeed} will return false,
      * and {@link #getSpeed} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
      */
-    @Deprecated
     public void removeSpeed() {
         mSpeed = 0.0f;
-        mFieldsMask &= ~HAS_SPEED_MASK;
+        mHasSpeed = false;
     }
 
     /**
      * True if this location has a bearing.
      */
     public boolean hasBearing() {
-        return (mFieldsMask & HAS_BEARING_MASK) != 0;
+        return mHasBearing;
     }
 
     /**
@@ -731,7 +692,7 @@ public class Location implements Parcelable {
             bearing -= 360.0f;
         }
         mBearing = bearing;
-        mFieldsMask |= HAS_BEARING_MASK;
+        mHasBearing = true;
     }
 
     /**
@@ -739,234 +700,69 @@ public class Location implements Parcelable {
      *
      * <p>Following this call {@link #hasBearing} will return false,
      * and {@link #getBearing} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
      */
-    @Deprecated
     public void removeBearing() {
         mBearing = 0.0f;
-        mFieldsMask &= ~HAS_BEARING_MASK;
+        mHasBearing = false;
     }
 
     /**
-     * True if this location has a horizontal accuracy.
+     * True if this location has an accuracy.
      *
-     * <p>All locations generated by the {@link LocationManager} have an horizontal accuracy.
+     * <p>All locations generated by the {@link LocationManager} have an
+     * accuracy.
      */
     public boolean hasAccuracy() {
-        return (mFieldsMask & HAS_HORIZONTAL_ACCURACY_MASK) != 0;
+        return mHasAccuracy;
     }
 
     /**
-     * Get the estimated horizontal accuracy of this location, radial, in meters.
+     * Get the estimated accuracy of this location, in meters.
      *
-     * <p>We define horizontal accuracy as the radius of 68% confidence. In other
+     * <p>We define accuracy as the radius of 68% confidence. In other
      * words, if you draw a circle centered at this location's
      * latitude and longitude, and with a radius equal to the accuracy,
      * then there is a 68% probability that the true location is inside
      * the circle.
      *
+     * <p>In statistical terms, it is assumed that location errors
+     * are random with a normal distribution, so the 68% confidence circle
+     * represents one standard deviation. Note that in practice, location
+     * errors do not always follow such a simple distribution.
+     *
      * <p>This accuracy estimation is only concerned with horizontal
      * accuracy, and does not indicate the accuracy of bearing,
      * velocity or altitude if those are included in this Location.
      *
-     * <p>If this location does not have a horizontal accuracy, then 0.0 is returned.
-     * All locations generated by the {@link LocationManager} include horizontal accuracy.
+     * <p>If this location does not have an accuracy, then 0.0 is returned.
+     * All locations generated by the {@link LocationManager} include
+     * an accuracy.
      */
     public float getAccuracy() {
-        return mHorizontalAccuracyMeters;
+        return mAccuracy;
     }
 
     /**
-     * Set the estimated horizontal accuracy of this location, meters.
+     * Set the estimated accuracy of this location, meters.
      *
-     * <p>See {@link #getAccuracy} for the definition of horizontal accuracy.
+     * <p>See {@link #getAccuracy} for the definition of accuracy.
      *
      * <p>Following this call {@link #hasAccuracy} will return true.
      */
-    public void setAccuracy(float horizontalAccuracy) {
-        mHorizontalAccuracyMeters = horizontalAccuracy;
-        mFieldsMask |= HAS_HORIZONTAL_ACCURACY_MASK;
+    public void setAccuracy(float accuracy) {
+        mAccuracy = accuracy;
+        mHasAccuracy = true;
     }
 
     /**
-     * Remove the horizontal accuracy from this location.
+     * Remove the accuracy from this location.
      *
      * <p>Following this call {@link #hasAccuracy} will return false, and
      * {@link #getAccuracy} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
      */
-    @Deprecated
     public void removeAccuracy() {
-        mHorizontalAccuracyMeters = 0.0f;
-        mFieldsMask &= ~HAS_HORIZONTAL_ACCURACY_MASK;
-    }
-
-    /**
-     * True if this location has a vertical accuracy.
-     */
-    public boolean hasVerticalAccuracy() {
-        return (mFieldsMask & HAS_VERTICAL_ACCURACY_MASK) != 0;
-    }
-
-    /**
-     * Get the estimated vertical accuracy of this location, in meters.
-     *
-     * <p>We define vertical accuracy at 68% confidence.  Specifically, as 1-side of the
-     * 2-sided range above and below the estimated altitude reported by {@link #getAltitude()},
-     * within which there is a 68% probability of finding the true altitude.
-     *
-     * <p>In the case where the underlying distribution is assumed Gaussian normal, this would be
-     * considered 1 standard deviation.
-     *
-     * <p>For example, if {@link #getAltitude()} returns 150, and
-     * {@link #getVerticalAccuracyMeters()} returns 20 then there is a 68% probability
-     * of the true altitude being between 130 and 170 meters.
-     *
-     * <p>If this location does not have a vertical accuracy, then 0.0 is returned.
-     */
-    public float getVerticalAccuracyMeters() {
-        return mVerticalAccuracyMeters;
-    }
-
-    /**
-     * Set the estimated vertical accuracy of this location, meters.
-     *
-     * <p>See {@link #getVerticalAccuracyMeters} for the definition of vertical accuracy.
-     *
-     * <p>Following this call {@link #hasVerticalAccuracy} will return true.
-     */
-    public void setVerticalAccuracyMeters(float verticalAccuracyMeters) {
-        mVerticalAccuracyMeters = verticalAccuracyMeters;
-        mFieldsMask |= HAS_VERTICAL_ACCURACY_MASK;
-    }
-
-    /**
-     * Remove the vertical accuracy from this location.
-     *
-     * <p>Following this call {@link #hasVerticalAccuracy} will return false, and
-     * {@link #getVerticalAccuracyMeters} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
-     * @removed
-     */
-    @Deprecated
-    public void removeVerticalAccuracy() {
-        mVerticalAccuracyMeters = 0.0f;
-        mFieldsMask &= ~HAS_VERTICAL_ACCURACY_MASK;
-    }
-
-    /**
-     * True if this location has a speed accuracy.
-     */
-    public boolean hasSpeedAccuracy() {
-        return (mFieldsMask & HAS_SPEED_ACCURACY_MASK) != 0;
-    }
-
-    /**
-     * Get the estimated speed accuracy of this location, in meters per second.
-     *
-     * <p>We define speed accuracy at 68% confidence.  Specifically, as 1-side of the
-     * 2-sided range above and below the estimated speed reported by {@link #getSpeed()},
-     * within which there is a 68% probability of finding the true speed.
-     *
-     * <p>In the case where the underlying
-     * distribution is assumed Gaussian normal, this would be considered 1 standard deviation.
-     *
-     * <p>For example, if {@link #getSpeed()} returns 5, and
-     * {@link #getSpeedAccuracyMetersPerSecond()} returns 1, then there is a 68% probability of
-     * the true speed being between 4 and 6 meters per second.
-     *
-     * <p>Note that the speed and speed accuracy is often better than would be obtained simply from
-     * differencing sequential positions, such as when the Doppler measurements from GNSS satellites
-     * are used.
-     *
-     * <p>If this location does not have a speed accuracy, then 0.0 is returned.
-     */
-    public float getSpeedAccuracyMetersPerSecond() {
-        return mSpeedAccuracyMetersPerSecond;
-    }
-
-    /**
-     * Set the estimated speed accuracy of this location, meters per second.
-     *
-     * <p>See {@link #getSpeedAccuracyMetersPerSecond} for the definition of speed accuracy.
-     *
-     * <p>Following this call {@link #hasSpeedAccuracy} will return true.
-     */
-    public void setSpeedAccuracyMetersPerSecond(float speedAccuracyMeterPerSecond) {
-        mSpeedAccuracyMetersPerSecond = speedAccuracyMeterPerSecond;
-        mFieldsMask |= HAS_SPEED_ACCURACY_MASK;
-    }
-
-    /**
-     * Remove the speed accuracy from this location.
-     *
-     * <p>Following this call {@link #hasSpeedAccuracy} will return false, and
-     * {@link #getSpeedAccuracyMetersPerSecond} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
-     * @removed
-     */
-    @Deprecated
-    public void removeSpeedAccuracy() {
-        mSpeedAccuracyMetersPerSecond = 0.0f;
-        mFieldsMask &= ~HAS_SPEED_ACCURACY_MASK;
-    }
-
-    /**
-     * True if this location has a bearing accuracy.
-     */
-    public boolean hasBearingAccuracy() {
-        return (mFieldsMask & HAS_BEARING_ACCURACY_MASK) != 0;
-    }
-
-    /**
-     * Get the estimated bearing accuracy of this location, in degrees.
-     *
-     * <p>We define bearing accuracy at 68% confidence.  Specifically, as 1-side of the
-     * 2-sided range on each side of the estimated bearing reported by {@link #getBearing()},
-     * within which there is a 68% probability of finding the true bearing.
-     *
-     * <p>In the case where the underlying distribution is assumed Gaussian normal, this would be
-     * considered 1 standard deviation.
-     *
-     * <p>For example, if {@link #getBearing()} returns 60, and
-     * {@link #getBearingAccuracyDegrees()} returns 10, then there is a 68% probability of the
-     * true bearing being between 50 and 70 degrees.
-     *
-     * <p>If this location does not have a bearing accuracy, then 0.0 is returned.
-     */
-    public float getBearingAccuracyDegrees() {
-        return mBearingAccuracyDegrees;
-    }
-
-    /**
-     * Set the estimated bearing accuracy of this location, degrees.
-     *
-     * <p>See {@link #getBearingAccuracyDegrees} for the definition of bearing accuracy.
-     *
-     * <p>Following this call {@link #hasBearingAccuracy} will return true.
-     */
-    public void setBearingAccuracyDegrees(float bearingAccuracyDegrees) {
-        mBearingAccuracyDegrees = bearingAccuracyDegrees;
-        mFieldsMask |= HAS_BEARING_ACCURACY_MASK;
-    }
-
-    /**
-     * Remove the bearing accuracy from this location.
-     *
-     * <p>Following this call {@link #hasBearingAccuracy} will return false, and
-     * {@link #getBearingAccuracyDegrees} will return 0.0.
-     *
-     * @deprecated use a new Location object for location updates.
-     * @removed
-     */
-    @Deprecated
-    public void removeBearingAccuracy() {
-        mBearingAccuracyDegrees = 0.0f;
-        mFieldsMask &= ~HAS_BEARING_ACCURACY_MASK;
+        mAccuracy = 0.0f;
+        mHasAccuracy = false;
     }
 
     /**
@@ -984,7 +780,7 @@ public class Location implements Parcelable {
     @SystemApi
     public boolean isComplete() {
         if (mProvider == null) return false;
-        if (!hasAccuracy()) return false;
+        if (!mHasAccuracy) return false;
         if (mTime == 0) return false;
         if (mElapsedRealtimeNanos == 0) return false;
         return true;
@@ -1002,9 +798,9 @@ public class Location implements Parcelable {
     @SystemApi
     public void makeComplete() {
         if (mProvider == null) mProvider = "?";
-        if (!hasAccuracy()) {
-            mFieldsMask |= HAS_HORIZONTAL_ACCURACY_MASK;
-            mHorizontalAccuracyMeters = 100.0f;
+        if (!mHasAccuracy) {
+            mHasAccuracy = true;
+            mAccuracy = 100.0f;
         }
         if (mTime == 0) mTime = System.currentTimeMillis();
         if (mElapsedRealtimeNanos == 0) mElapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos();
@@ -1042,8 +838,8 @@ public class Location implements Parcelable {
         s.append("Location[");
         s.append(mProvider);
         s.append(String.format(" %.6f,%.6f", mLatitude, mLongitude));
-        if (hasAccuracy()) s.append(String.format(" hAcc=%.0f", mHorizontalAccuracyMeters));
-        else s.append(" hAcc=???");
+        if (mHasAccuracy) s.append(String.format(" acc=%.0f", mAccuracy));
+        else s.append(" acc=???");
         if (mTime == 0) {
             s.append(" t=?!?");
         }
@@ -1053,16 +849,10 @@ public class Location implements Parcelable {
             s.append(" et=");
             TimeUtils.formatDuration(mElapsedRealtimeNanos / 1000000L, s);
         }
-        if (hasAltitude()) s.append(" alt=").append(mAltitude);
-        if (hasSpeed()) s.append(" vel=").append(mSpeed);
-        if (hasBearing()) s.append(" bear=").append(mBearing);
-        if (hasVerticalAccuracy()) s.append(String.format(" vAcc=%.0f", mVerticalAccuracyMeters));
-        else s.append(" vAcc=???");
-        if (hasSpeedAccuracy()) s.append(String.format(" sAcc=%.0f", mSpeedAccuracyMetersPerSecond));
-        else s.append(" sAcc=???");
-        if (hasBearingAccuracy()) s.append(String.format(" bAcc=%.0f", mBearingAccuracyDegrees));
-        else s.append(" bAcc=???");
-        if (isFromMockProvider()) s.append(" mock");
+        if (mHasAltitude) s.append(" alt=").append(mAltitude);
+        if (mHasSpeed) s.append(" vel=").append(mSpeed);
+        if (mHasBearing) s.append(" bear=").append(mBearing);
+        if (mIsFromMockProvider) s.append(" mock");
 
         if (mExtras != null) {
             s.append(" {").append(mExtras).append('}');
@@ -1083,17 +873,18 @@ public class Location implements Parcelable {
             Location l = new Location(provider);
             l.mTime = in.readLong();
             l.mElapsedRealtimeNanos = in.readLong();
-            l.mFieldsMask = in.readByte();
             l.mLatitude = in.readDouble();
             l.mLongitude = in.readDouble();
+            l.mHasAltitude = in.readInt() != 0;
             l.mAltitude = in.readDouble();
+            l.mHasSpeed = in.readInt() != 0;
             l.mSpeed = in.readFloat();
+            l.mHasBearing = in.readInt() != 0;
             l.mBearing = in.readFloat();
-            l.mHorizontalAccuracyMeters = in.readFloat();
-            l.mVerticalAccuracyMeters = in.readFloat();
-            l.mSpeedAccuracyMetersPerSecond = in.readFloat();
-            l.mBearingAccuracyDegrees = in.readFloat();
-            l.mExtras = Bundle.setDefusable(in.readBundle(), true);
+            l.mHasAccuracy = in.readInt() != 0;
+            l.mAccuracy = in.readFloat();
+            l.mExtras = in.readBundle();
+            l.mIsFromMockProvider = in.readInt() != 0;
             return l;
         }
 
@@ -1113,17 +904,18 @@ public class Location implements Parcelable {
         parcel.writeString(mProvider);
         parcel.writeLong(mTime);
         parcel.writeLong(mElapsedRealtimeNanos);
-        parcel.writeByte(mFieldsMask);
         parcel.writeDouble(mLatitude);
         parcel.writeDouble(mLongitude);
+        parcel.writeInt(mHasAltitude ? 1 : 0);
         parcel.writeDouble(mAltitude);
+        parcel.writeInt(mHasSpeed ? 1 : 0);
         parcel.writeFloat(mSpeed);
+        parcel.writeInt(mHasBearing ? 1 : 0);
         parcel.writeFloat(mBearing);
-        parcel.writeFloat(mHorizontalAccuracyMeters);
-        parcel.writeFloat(mVerticalAccuracyMeters);
-        parcel.writeFloat(mSpeedAccuracyMetersPerSecond);
-        parcel.writeFloat(mBearingAccuracyDegrees);
+        parcel.writeInt(mHasAccuracy ? 1 : 0);
+        parcel.writeFloat(mAccuracy);
         parcel.writeBundle(mExtras);
+        parcel.writeInt(mIsFromMockProvider? 1 : 0);
     }
 
     /**
@@ -1148,7 +940,7 @@ public class Location implements Parcelable {
      * Attaches an extra {@link Location} to this Location.
      *
      * @param key the key associated with the Location extra
-     * @param value the Location to attach
+     * @param location the Location to attach
      * @hide
      */
     public void setExtraLocation(String key, Location value) {
@@ -1164,7 +956,7 @@ public class Location implements Parcelable {
      * @return true if this Location came from a mock provider, false otherwise
      */
     public boolean isFromMockProvider() {
-        return (mFieldsMask & HAS_MOCK_PROVIDER_MASK) != 0;
+        return mIsFromMockProvider;
     }
 
     /**
@@ -1175,24 +967,6 @@ public class Location implements Parcelable {
      */
     @SystemApi
     public void setIsFromMockProvider(boolean isFromMockProvider) {
-        if (isFromMockProvider) {
-            mFieldsMask |= HAS_MOCK_PROVIDER_MASK;
-        } else {
-            mFieldsMask &= ~HAS_MOCK_PROVIDER_MASK;
-        }
-    }
-
-    /**
-     * Caches data used to compute distance and bearing (so successive calls to {@link #distanceTo}
-     * and {@link #bearingTo} don't duplicate work.
-     */
-    private static class BearingDistanceCache {
-        private double mLat1 = 0.0;
-        private double mLon1 = 0.0;
-        private double mLat2 = 0.0;
-        private double mLon2 = 0.0;
-        private float mDistance = 0.0f;
-        private float mInitialBearing = 0.0f;
-        private float mFinalBearing = 0.0f;
+        mIsFromMockProvider = isFromMockProvider;
     }
 }

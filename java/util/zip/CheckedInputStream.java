@@ -1,116 +1,108 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util.zip;
 
-import java.io.FilterInputStream;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import libcore.io.Streams;
 
 /**
- * An input stream that also maintains a checksum of the data being read.
- * The checksum can then be used to verify the integrity of the input data.
- *
- * @see         Checksum
- * @author      David Connelly
+ * The {@code CheckedInputStream} class is used to maintain a checksum at the
+ * same time as the data, on which the checksum is computed, is read from a
+ * stream. The purpose of this checksum is to establish data integrity,
+ * comparing the computed checksum against a published checksum value.
  */
-public
-class CheckedInputStream extends FilterInputStream {
-    private Checksum cksum;
+public class CheckedInputStream extends java.io.FilterInputStream {
+
+    private final Checksum check;
 
     /**
-     * Creates an input stream using the specified Checksum.
-     * @param in the input stream
-     * @param cksum the Checksum
+     * Constructs a new {@code CheckedInputStream} on {@code InputStream}
+     * {@code is}. The checksum will be calculated using the algorithm
+     * implemented by {@code csum}.
+     *
+     * <p><strong>Warning:</strong> passing a null source creates an invalid
+     * {@code CheckedInputStream}. All operations on such a stream will fail.
+     *
+     * @param is
+     *            the input stream to calculate checksum from.
+     * @param csum
+     *            an entity implementing the checksum algorithm.
      */
-    public CheckedInputStream(InputStream in, Checksum cksum) {
-        super(in);
-        this.cksum = cksum;
+    public CheckedInputStream(InputStream is, Checksum csum) {
+        super(is);
+        check = csum;
     }
 
     /**
-     * Reads a byte. Will block if no input is available.
-     * @return the byte read, or -1 if the end of the stream is reached.
-     * @exception IOException if an I/O error has occurred
+     * Reads one byte of data from the underlying input stream and updates the
+     * checksum with the byte data.
+     *
+     * @return {@code -1} at the end of the stream, a single byte value
+     *         otherwise.
+     * @throws IOException
+     *             if an {@code IOException} occurs.
      */
+    @Override
     public int read() throws IOException {
-        int b = in.read();
-        if (b != -1) {
-            cksum.update(b);
+        int x = in.read();
+        if (x != -1) {
+            check.update(x);
         }
-        return b;
+        return x;
     }
 
     /**
-     * Reads into an array of bytes. If <code>len</code> is not zero, the method
-     * blocks until some input is available; otherwise, no
-     * bytes are read and <code>0</code> is returned.
-     * @param buf the buffer into which the data is read
-     * @param off the start offset in the destination array <code>b</code>
-     * @param len the maximum number of bytes read
-     * @return    the actual number of bytes read, or -1 if the end
-     *            of the stream is reached.
-     * @exception  NullPointerException If <code>buf</code> is <code>null</code>.
-     * @exception  IndexOutOfBoundsException If <code>off</code> is negative,
-     * <code>len</code> is negative, or <code>len</code> is greater than
-     * <code>buf.length - off</code>
-     * @exception IOException if an I/O error has occurred
+     * Reads up to {@code byteCount} bytes of data from the underlying input stream, storing it
+     * into {@code buffer}, starting at offset {@code byteOffset}. The checksum is
+     * updated with the bytes read.
+     * Returns the number of bytes actually read or {@code -1} if arrived at the
+     * end of the filtered stream while reading the data.
+     *
+     * @throws IOException
+     *             if this stream is closed or some I/O error occurs.
      */
-    public int read(byte[] buf, int off, int len) throws IOException {
-        len = in.read(buf, off, len);
-        if (len != -1) {
-            cksum.update(buf, off, len);
+    @Override
+    public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        int bytesRead = in.read(buffer, byteOffset, byteCount);
+        if (bytesRead != -1) {
+            check.update(buffer, byteOffset, bytesRead);
         }
-        return len;
+        return bytesRead;
     }
 
     /**
-     * Skips specified number of bytes of input.
-     * @param n the number of bytes to skip
-     * @return the actual number of bytes skipped
-     * @exception IOException if an I/O error has occurred
-     */
-    public long skip(long n) throws IOException {
-        byte[] buf = new byte[512];
-        long total = 0;
-        while (total < n) {
-            long len = n - total;
-            len = read(buf, 0, len < buf.length ? (int)len : buf.length);
-            if (len == -1) {
-                return total;
-            }
-            total += len;
-        }
-        return total;
-    }
-
-    /**
-     * Returns the Checksum for this input stream.
-     * @return the Checksum value
+     * Returns the checksum calculated on the stream read so far.
      */
     public Checksum getChecksum() {
-        return cksum;
+        return check;
+    }
+
+    /**
+     * Skip up to {@code byteCount} bytes of data on the underlying input
+     * stream. Any skipped bytes are added to the running checksum value.
+     *
+     * @param byteCount the number of bytes to skip.
+     * @throws IOException if this stream is closed or another I/O error occurs.
+     * @return the number of bytes skipped.
+     */
+    @Override
+    public long skip(long byteCount) throws IOException {
+        return Streams.skipByReading(this, byteCount);
     }
 }

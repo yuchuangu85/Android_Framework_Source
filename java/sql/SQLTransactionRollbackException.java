@@ -1,173 +1,143 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
-/**
- * The subclass of {@link SQLException} thrown when the SQLState class value
- * is '<i>40</i>', or under vendor-specified conditions. This indicates that the
- * current statement was automatically rolled back by the database because
- * of deadlock or other transaction serialization failures.
- * <p>
- * Please consult your driver vendor documentation for the vendor-specified
- * conditions for which this <code>Exception</code> may be thrown.
- * @since 1.6
- */
 public class SQLTransactionRollbackException extends SQLTransientException {
-        /**
-         * Constructs a <code>SQLTransactionRollbackException</code> object.
-         * The <code>reason</code>, <code>SQLState</code> are initialized
-         * to <code>null</code> and the vendor code is initialized to 0.
-         *
-         * The <code>cause</code> is not initialized, and may subsequently be
-         * initialized by a call to the
-         * {@link Throwable#initCause(java.lang.Throwable)} method.
-         * <p>
-         * @since 1.6
-         */
-        public SQLTransactionRollbackException() {
-                super();
-        }
 
-        /**
-         * Constructs a <code>SQLTransactionRollbackException</code> object
-         * with a given <code>reason</code>. The <code>SQLState</code>
-         * is initialized to <code>null</code> and the vender code is initialized
-         * to 0.
-         *
-         * The <code>cause</code> is not initialized, and may subsequently be
-         * initialized by a call to the
-         * {@link Throwable#initCause(java.lang.Throwable)} method.
-         * <p>
-         * @param reason a description of the exception
-         * @since 1.6
-         */
-        public SQLTransactionRollbackException(String reason) {
-                super(reason);
-        }
-
-        /**
-         * Constructs a <code>SQLTransactionRollbackException</code> object
-         * with a given <code>reason</code> and <code>SQLState</code>.
-         *
-         * The <code>cause</code> is not initialized, and may subsequently be
-         * initialized by a call to the
-         * {@link Throwable#initCause(java.lang.Throwable)} method. The vendor code
-         * is initialized to 0.
-         * <p>
-         * @param reason a description of the exception
-         * @param SQLState an XOPEN or SQL:2003 code identifying the exception
-         * @since 1.6
-         */
-        public SQLTransactionRollbackException(String reason, String SQLState) {
-                super(reason, SQLState);
-        }
-
-        /**
-         * Constructs a <code>SQLTransactionRollbackException</code> object
-         * with a given <code>reason</code>, <code>SQLState</code>  and
-         * <code>vendorCode</code>.
-         *
-         * The <code>cause</code> is not initialized, and may subsequently be
-         * initialized by a call to the
-         * {@link Throwable#initCause(java.lang.Throwable)} method.
-         * <p>
-         * @param reason a description of the exception
-         * @param SQLState an XOPEN or SQL:2003 code identifying the exception
-         * @param vendorCode a database vendor specific exception code
-         * @since 1.6
-         */
-        public SQLTransactionRollbackException(String reason, String SQLState, int vendorCode) {
-                super(reason, SQLState, vendorCode);
-        }
+    private static final long serialVersionUID = 5246680841170837229L;
 
     /**
-     * Constructs a <code>SQLTransactionRollbackException</code> object
-     * with a given  <code>cause</code>.
-     * The <code>SQLState</code> is initialized
-     * to <code>null</code> and the vendor code is initialized to 0.
-     * The <code>reason</code>  is initialized to <code>null</code> if
-     * <code>cause==null</code> or to <code>cause.toString()</code> if
-     * <code>cause!=null</code>.
-     * <p>
-     * @param cause the underlying reason for this <code>SQLException</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
-     * @since 1.6
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to null, the SQLState string is set to null and the Error Code is set
+     * to 0.
+     */
+    public SQLTransactionRollbackException() {
+    }
+
+    /**
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given reason string, the SQLState string is set to null and
+     * the Error Code is set to 0.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     */
+    public SQLTransactionRollbackException(String reason) {
+        super(reason, null, 0);
+    }
+
+    /**
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given reason string, the SQLState string is set to the given
+     * SQLState string and the Error Code is set to 0.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     * @param sqlState
+     *            the string to use as the SQLState string
+     */
+    public SQLTransactionRollbackException(String reason, String sqlState) {
+        super(reason, sqlState, 0);
+    }
+
+    /**
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given reason string, the SQLState string is set to the given
+     * SQLState string and the Error Code is set to the given error code value.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     * @param sqlState
+     *            the string to use as the SQLState string
+     * @param vendorCode
+     *            the integer value for the error code
+     */
+    public SQLTransactionRollbackException(String reason, String sqlState,
+            int vendorCode) {
+        super(reason, sqlState, vendorCode);
+    }
+
+    /**
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the null if cause == null or cause.toString() if cause!=null,and
+     * the cause Throwable object is set to the given cause Throwable object.
+     *
+     * @param cause
+     *            the Throwable object for the underlying reason this
+     *            SQLException
      */
     public SQLTransactionRollbackException(Throwable cause) {
         super(cause);
     }
 
     /**
-     * Constructs a <code>SQLTransactionRollbackException</code> object
-     * with a given
-     * <code>reason</code> and  <code>cause</code>.
-     * The <code>SQLState</code> is  initialized to <code>null</code>
-     * and the vendor code is initialized to 0.
-     * <p>
-     * @param reason a description of the exception.
-     * @param cause the underlying reason for this <code>SQLException</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
-     * @since 1.6
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given and the cause Throwable object is set to the given cause
+     * Throwable object.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     * @param cause
+     *            the Throwable object for the underlying reason this
+     *            SQLException
      */
     public SQLTransactionRollbackException(String reason, Throwable cause) {
         super(reason, cause);
     }
 
     /**
-     * Constructs a <code>SQLTransactionRollbackException</code> object
-     * with a given
-     * <code>reason</code>, <code>SQLState</code> and  <code>cause</code>.
-     * The vendor code is initialized to 0.
-     * <p>
-     * @param reason a description of the exception.
-     * @param SQLState an XOPEN or SQL:2003 code identifying the exception
-     * @param cause the underlying reason for this <code>SQLException</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
-     * @since 1.6
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given reason string, the SQLState string is set to the given
+     * SQLState string and the cause Throwable object is set to the given cause
+     * Throwable object.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     * @param sqlState
+     *            the string to use as the SQLState string
+     * @param cause
+     *            the Throwable object for the underlying reason this
+     *            SQLException
      */
-    public SQLTransactionRollbackException(String reason, String SQLState, Throwable cause) {
-        super(reason, SQLState, cause);
+    public SQLTransactionRollbackException(String reason, String sqlState,
+            Throwable cause) {
+        super(reason, sqlState, cause);
     }
 
     /**
-     *  Constructs a <code>SQLTransactionRollbackException</code> object
-     * with a given
-     * <code>reason</code>, <code>SQLState</code>, <code>vendorCode</code>
-     * and  <code>cause</code>.
-     * <p>
-     * @param reason a description of the exception
-     * @param SQLState an XOPEN or SQL:2003 code identifying the exception
-     * @param vendorCode a database vendor-specific exception code
-     * @param cause the underlying reason for this <code>SQLException</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
-     * @since 1.6
+     * Creates an SQLTransactionRollbackException object. The Reason string is
+     * set to the given reason string, the SQLState string is set to the given
+     * SQLState string , the Error Code is set to the given error code value,
+     * and the cause Throwable object is set to the given cause Throwable
+     * object.
+     *
+     * @param reason
+     *            the string to use as the Reason string
+     * @param sqlState
+     *            the string to use as the SQLState string
+     * @param vendorCode
+     *            the integer value for the error code
+     * @param cause
+     *            the Throwable object for the underlying reason this
+     *            SQLException
      */
-    public SQLTransactionRollbackException(String reason, String SQLState, int vendorCode, Throwable cause) {
-        super(reason, SQLState, vendorCode, cause);
+    public SQLTransactionRollbackException(String reason, String sqlState,
+            int vendorCode, Throwable cause) {
+        super(reason, sqlState, vendorCode, cause);
     }
-
-    private static final long serialVersionUID = 5246680841170837229L;
 }

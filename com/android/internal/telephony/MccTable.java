@@ -16,7 +16,8 @@
 
 package com.android.internal.telephony;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.net.wifi.WifiManager;
@@ -27,12 +28,6 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Slog;
 
-import com.android.internal.app.LocaleStore;
-import com.android.internal.app.LocaleStore.LocaleInfo;
-
-import libcore.icu.ICU;
-import libcore.util.TimeZoneFinder;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,6 +35,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import libcore.icu.ICU;
+import libcore.icu.TimeZoneNames;
 
 /**
  * Mobile Country Code
@@ -93,8 +91,10 @@ public final class MccTable {
         if (entry == null) {
             return null;
         }
-        final String lowerCaseCountryCode = entry.mIso;
-        return TimeZoneFinder.getInstance().lookupDefaultTimeZoneIdByCountry(lowerCaseCountryCode);
+        Locale locale = new Locale("", entry.mIso);
+        String[] tz = TimeZoneNames.forLocale(locale);
+        if (tz.length == 0) return null;
+        return tz[0];
     }
 
     /**
@@ -124,17 +124,10 @@ public final class MccTable {
             return null;
         }
 
-        final String country = entry.mIso;
-
-        // Choose English as the default language for India.
-        if ("in".equals(country)) {
-            return "en";
-        }
-
         // Ask CLDR for the language this country uses...
-        Locale likelyLocale = ICU.addLikelySubtags(new Locale("und", country));
+        Locale likelyLocale = ICU.addLikelySubtags(new Locale("und", entry.mIso));
         String likelyLanguage = likelyLocale.getLanguage();
-        Slog.d(LOG_TAG, "defaultLanguageForMcc(" + mcc + "): country " + country + " uses " +
+        Slog.d(LOG_TAG, "defaultLanguageForMcc(" + mcc + "): country " + entry.mIso + " uses " +
                likelyLanguage);
         return likelyLanguage;
     }
@@ -211,7 +204,7 @@ public final class MccTable {
 
                     if (updateConfig) {
                         Slog.d(LOG_TAG, "updateMccMncConfiguration updateConfig config=" + config);
-                        ActivityManager.getService().updateConfiguration(config);
+                        ActivityManagerNative.getDefault().updateConfiguration(config);
                     } else {
                         Slog.d(LOG_TAG, "updateMccMncConfiguration nothing to update");
                     }
@@ -233,23 +226,21 @@ public final class MccTable {
     private static final Map<Locale, Locale> FALLBACKS = new HashMap<Locale, Locale>();
 
     static {
-        // If we have English (without a country) explicitly prioritize en_US. http://b/28998094
-        FALLBACKS.put(Locale.ENGLISH, Locale.US);
+        FALLBACKS.put(Locale.CANADA, Locale.US);
     }
 
     /**
-     * Finds a suitable locale among {@code candidates} to use as the fallback locale for
-     * {@code target}. This looks through the list of {@link #FALLBACKS}, and follows the chain
-     * until a locale in {@code candidates} is found.
-     * This function assumes that {@code target} is not in {@code candidates}.
+     * Find the best match we actually have a localization for. This function assumes we
+     * couldn't find an exact match.
      *
      * TODO: This should really follow the CLDR chain of parent locales! That might be a bit
      * of a problem because we don't really have an en-001 locale on android.
-     *
-     * @return The fallback locale or {@code null} if there is no suitable fallback defined in the
-     *         lookup.
      */
-    private static Locale lookupFallback(Locale target, List<Locale> candidates) {
+    private static Locale chooseBestFallback(Locale target, List<Locale> candidates) {
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
         Locale fallback = target;
         while ((fallback = FALLBACKS.get(fallback)) != null) {
             if (candidates.contains(fallback)) {
@@ -257,7 +248,11 @@ public final class MccTable {
             }
         }
 
-        return null;
+        // Somewhat arbitrarily take the first locale for the language,
+        // unless we get a perfect match later. Note that these come back in no
+        // particular order, so there's no reason to think the first match is
+        // a particularly good match.
+        return candidates.get(0);
     }
 
     /**
@@ -310,40 +305,14 @@ public final class MccTable {
                 }
             }
 
-            if (languageMatches.isEmpty()) {
-                Slog.d(LOG_TAG, "getLocaleForLanguageCountry: no locales for language " + language);
-                return null;
-            }
-
-            Locale bestMatch = lookupFallback(target, languageMatches);
+            Locale bestMatch = chooseBestFallback(target, languageMatches);
             if (bestMatch != null) {
-                Slog.d(LOG_TAG, "getLocaleForLanguageCountry: got a fallback match: "
-                        + bestMatch.toLanguageTag());
+                Slog.d(LOG_TAG, "getLocaleForLanguageCountry: got a language-only match: " +
+                       bestMatch.toLanguageTag());
                 return bestMatch;
             } else {
-                // Ask {@link LocaleStore} whether this locale is considered "translated".
-                // LocaleStore has a broader definition of translated than just the asset locales
-                // above: a locale is "translated" if it has translation assets, or another locale
-                // with the same language and script has translation assets.
-                // If a locale is "translated", it is selectable in setup wizard, and can therefore
-                // be considerd a valid result for this method.
-                if (!TextUtils.isEmpty(target.getCountry())) {
-                    LocaleStore.fillCache(context);
-                    LocaleInfo targetInfo = LocaleStore.getLocaleInfo(target);
-                    if (targetInfo.isTranslated()) {
-                        Slog.d(LOG_TAG, "getLocaleForLanguageCountry: "
-                                + "target locale is translated: " + target);
-                        return target;
-                    }
-                }
-
-                // Somewhat arbitrarily take the first locale for the language,
-                // unless we get a perfect match later. Note that these come back in no
-                // particular order, so there's no reason to think the first match is
-                // a particularly good match.
-                Slog.d(LOG_TAG, "getLocaleForLanguageCountry: got language-only match: "
-                        + language);
-                return languageMatches.get(0);
+                Slog.d(LOG_TAG, "getLocaleForLanguageCountry: no locales for language " +
+                       language);
             }
         } catch (Exception e) {
             Slog.d(LOG_TAG, "getLocaleForLanguageCountry: exception", e);
@@ -358,12 +327,15 @@ public final class MccTable {
      * @param mcc Mobile Country Code of the SIM or SIM-like entity (build prop on CDMA)
      */
     private static void setTimezoneFromMccIfNeeded(Context context, int mcc) {
-        if (!TimeServiceHelper.isTimeZoneSettingInitializedStatic()) {
+        String timezone = SystemProperties.get(ServiceStateTracker.TIMEZONE_PROPERTY);
+        if (timezone == null || timezone.length() == 0) {
             String zoneId = defaultTimeZoneForMcc(mcc);
             if (zoneId != null && zoneId.length() > 0) {
                 // Set time zone based on MCC
-                TimeServiceHelper.setDeviceTimeZoneStatic(context, zoneId);
-                Slog.d(LOG_TAG, "timezone set to " + zoneId);
+                AlarmManager alarm =
+                        (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                alarm.setTimeZone(zoneId);
+                Slog.d(LOG_TAG, "timezone set to "+zoneId);
             }
         }
     }
@@ -378,8 +350,7 @@ public final class MccTable {
      * @return locale for the mcc or null if none
      */
     public static Locale getLocaleFromMcc(Context context, int mcc, String simLanguage) {
-        boolean hasSimLanguage = !TextUtils.isEmpty(simLanguage);
-        String language = hasSimLanguage ? simLanguage : MccTable.defaultLanguageForMcc(mcc);
+        String language = (simLanguage == null) ? MccTable.defaultLanguageForMcc(mcc) : simLanguage;
         String country = MccTable.countryCodeForMcc(mcc);
 
         Slog.d(LOG_TAG, "getLocaleFromMcc(" + language + ", " + country + ", " + mcc);
@@ -387,10 +358,10 @@ public final class MccTable {
 
         // If we couldn't find a locale that matches the SIM language, give it a go again
         // with the "likely" language for the given country.
-        if (locale == null && hasSimLanguage) {
+        if (locale == null && simLanguage != null) {
             language = MccTable.defaultLanguageForMcc(mcc);
             Slog.d(LOG_TAG, "[retry ] getLocaleFromMcc(" + language + ", " + country + ", " + mcc);
-            return getLocaleForLanguageCountry(context, language, country);
+            return getLocaleForLanguageCountry(context, null, country);
         }
 
         return locale;
@@ -407,7 +378,8 @@ public final class MccTable {
         String country = MccTable.countryCodeForMcc(mcc);
         Slog.d(LOG_TAG, "WIFI_COUNTRY_CODE set to " + country);
         WifiManager wM = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-        wM.setCountryCode(country);
+        //persist
+        wM.setCountryCode(country, true);
     }
 
     static {
@@ -443,7 +415,7 @@ public final class MccTable {
 		sTable.add(new MccEntry(225,"va",2));	//Vatican City State
 		sTable.add(new MccEntry(226,"ro",2));	//Romania
 		sTable.add(new MccEntry(228,"ch",2));	//Switzerland (Confederation of)
-		sTable.add(new MccEntry(230,"cz",2));	//Czechia
+		sTable.add(new MccEntry(230,"cz",2));	//Czech Republic
 		sTable.add(new MccEntry(231,"sk",2));	//Slovak Republic
 		sTable.add(new MccEntry(232,"at",2));	//Austria
 		sTable.add(new MccEntry(234,"gb",2));	//United Kingdom of Great Britain and Northern Ireland
@@ -557,7 +529,7 @@ public final class MccTable {
 		sTable.add(new MccEntry(457,"la",2));	//Lao People's Democratic Republic
 		sTable.add(new MccEntry(460,"cn",2));	//China (People's Republic of)
 		sTable.add(new MccEntry(461,"cn",2));	//China (People's Republic of)
-		sTable.add(new MccEntry(466,"tw",2));	//Taiwan
+		sTable.add(new MccEntry(466,"tw",2));	//"Taiwan, China"
 		sTable.add(new MccEntry(467,"kp",2));	//Democratic People's Republic of Korea
 		sTable.add(new MccEntry(470,"bd",2));	//Bangladesh (People's Republic of)
 		sTable.add(new MccEntry(472,"mv",2));	//Maldives (Republic of)
@@ -618,7 +590,7 @@ public final class MccTable {
 		sTable.add(new MccEntry(627,"gq",2));	//Equatorial Guinea (Republic of)
 		sTable.add(new MccEntry(628,"ga",2));	//Gabonese Republic
 		sTable.add(new MccEntry(629,"cg",2));	//Congo (Republic of the)
-		sTable.add(new MccEntry(630,"cd",2));	//Democratic Republic of the Congo
+		sTable.add(new MccEntry(630,"cg",2));	//Democratic Republic of the Congo
 		sTable.add(new MccEntry(631,"ao",2));	//Angola (Republic of)
 		sTable.add(new MccEntry(632,"gw",2));	//Guinea-Bissau (Republic of)
 		sTable.add(new MccEntry(633,"sc",2));	//Seychelles (Republic of)

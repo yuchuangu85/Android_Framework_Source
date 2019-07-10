@@ -22,31 +22,7 @@ public interface KeyguardSecurityView {
     static public final int VIEW_REVEALED = 2;
 
     int PROMPT_REASON_NONE = 0;
-
-    /**
-     * Strong auth is required because the device has just booted.
-     */
     int PROMPT_REASON_RESTART = 1;
-
-    /**
-     * Strong auth is required because the user hasn't used strong auth since a while.
-     */
-    int PROMPT_REASON_TIMEOUT = 2;
-
-    /**
-     * Strong auth is required because a device admin requested it.
-     */
-    int PROMPT_REASON_DEVICE_ADMIN = 3;
-
-    /**
-     * Some auth is required because the user force locked.
-     */
-    int PROMPT_REASON_USER_REQUEST = 4;
-
-    /**
-     * Some auth is required because too many wrong credentials led to a lockout.
-     */
-    int PROMPT_REASON_AFTER_LOCKOUT = 5;
 
     /**
      * Interface back to keyguard to tell it when security
@@ -101,14 +77,6 @@ public interface KeyguardSecurityView {
     void showPromptReason(int reason);
 
     /**
-     * Show a message on the security view with a specified color
-     *
-     * @param message the message to show
-     * @param color the color to use
-     */
-    void showMessage(CharSequence message, int color);
-
-    /**
      * Instruct the view to show usability hints, if any.
      *
      */
@@ -127,12 +95,4 @@ public interface KeyguardSecurityView {
      *         animation started and {@code finishRunnable} will not be run
      */
     boolean startDisappearAnimation(Runnable finishRunnable);
-
-    /**
-     * The localized name of the security view, provided to accessibility. This may be the content
-     * description, but content descriptions have other implications, so the title is kept separate.
-     *
-     * @return The View's title.
-     */
-    CharSequence getTitle();
 }

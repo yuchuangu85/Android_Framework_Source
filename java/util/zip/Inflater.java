@@ -1,427 +1,335 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util.zip;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.CloseGuard;
+import java.io.FileDescriptor;
+import java.util.Arrays;
 
 /**
- * This class provides support for general purpose decompression using the
- * popular ZLIB compression library. The ZLIB compression library was
- * initially developed as part of the PNG graphics standard and is not
- * protected by patents. It is fully described in the specifications at
- * the <a href="package-summary.html#package_description">java.util.zip
- * package description</a>.
+ * This class decompresses data that was compressed using the <i>DEFLATE</i>
+ * algorithm (see <a href="http://www.gzip.org/algorithm.txt">specification</a>).
  *
- * <p>The following code fragment demonstrates a trivial compression
- * and decompression of a string using <tt>Deflater</tt> and
- * <tt>Inflater</tt>.
+ * <p>It is usually more convenient to use {@link InflaterInputStream}.
  *
- * <blockquote><pre>
- * try {
- *     // Encode a String into bytes
- *     String inputString = "blahblahblah\u20AC\u20AC";
- *     byte[] input = inputString.getBytes("UTF-8");
+ * <p>To decompress an in-memory {@code byte[]} to another in-memory {@code byte[]} manually:
+ * <pre>
+ *     byte[] compressedBytes = ...
+ *     int decompressedByteCount = ... // From your format's metadata.
+ *     Inflater inflater = new Inflater();
+ *     inflater.setInput(compressedBytes, 0, compressedBytes.length);
+ *     byte[] decompressedBytes = new byte[decompressedByteCount];
+ *     if (inflater.inflate(decompressedBytes) != decompressedByteCount) {
+ *         throw new AssertionError();
+ *     }
+ *     inflater.end();
+ * </pre>
+ * <p>In situations where you don't have all the input in one array (or have so much
+ * input that you want to feed it to the inflater in chunks), it's possible to call
+ * {@link #setInput} repeatedly, but you're much better off using {@link InflaterInputStream}
+ * to handle all this for you.
  *
- *     // Compress the bytes
- *     byte[] output = new byte[100];
- *     Deflater compresser = new Deflater();
- *     compresser.setInput(input);
- *     compresser.finish();
- *     int compressedDataLength = compresser.deflate(output);
- *
- *     // Decompress the bytes
- *     Inflater decompresser = new Inflater();
- *     decompresser.setInput(output, 0, compressedDataLength);
- *     byte[] result = new byte[100];
- *     int resultLength = decompresser.inflate(result);
- *     decompresser.end();
- *
- *     // Decode the bytes into a String
- *     String outputString = new String(result, 0, resultLength, "UTF-8");
- * } catch(java.io.UnsupportedEncodingException ex) {
- *     // handle
- * } catch (java.util.zip.DataFormatException ex) {
- *     // handle
- * }
- * </pre></blockquote>
- *
- * @see         Deflater
- * @author      David Connelly
- *
+ * <p>If you don't know how big the decompressed data will be, you can call {@link #inflate}
+ * repeatedly on a temporary buffer, copying the bytes to a {@link java.io.ByteArrayOutputStream},
+ * but this is probably another sign you'd be better off using {@link InflaterInputStream}.
  */
-public
-class Inflater {
+public class Inflater {
 
-    // Android-added: @ReachabilitySensitive
-    // Finalization clears zsRef, and thus can't be allowed to occur early.
-    // Unlike some other CloseGuard uses, the spec allows clients to rely on finalization
-    // here.  Thus dropping a deflater without calling close() should work correctly.
-    // It thus does not suffice to just rely on the CloseGuard annotation.
-    @ReachabilitySensitive
-    private final ZStreamRef zsRef;
-    private byte[] buf = defaultBuf;
-    private int off, len;
-    private boolean finished;
-    private boolean needDict;
-    private long bytesRead;
-    private long bytesWritten;
+    private int inLength;
 
-    // Android-changed: added CloseGuard instance
-    @ReachabilitySensitive
+    private int inRead; // Set by inflateImpl.
+    private boolean finished; // Set by inflateImpl.
+    private boolean needsDictionary; // Set by inflateImpl.
+
+    private long streamHandle = -1;
+
     private final CloseGuard guard = CloseGuard.get();
 
-    private static final byte[] defaultBuf = new byte[0];
-
     /**
-     * Creates a new decompressor. If the parameter 'nowrap' is true then
-     * the ZLIB header and checksum fields will not be used. This provides
-     * compatibility with the compression format used by both GZIP and PKZIP.
-     * <p>
-     * Note: When using the 'nowrap' option it is also necessary to provide
-     * an extra "dummy" byte as input. This is required by the ZLIB native
-     * library in order to support certain optimizations.
-     *
-     * @param nowrap if true then support GZIP compatible compression
-     */
-    public Inflater(boolean nowrap) {
-        zsRef = new ZStreamRef(init(nowrap));
-        // Android-changed: added close guard
-        guard.open("end");
-    }
-
-    /**
-     * Creates a new decompressor.
+     * This constructor creates an inflater that expects a header from the input
+     * stream. Use {@link #Inflater(boolean)} if the input comes without a ZLIB
+     * header.
      */
     public Inflater() {
         this(false);
     }
 
     /**
-     * Sets input data for decompression. Should be called whenever
-     * needsInput() returns true indicating that more input data is
-     * required.
-     * @param b the input data bytes
-     * @param off the start offset of the input data
-     * @param len the length of the input data
-     * @see Inflater#needsInput
-     */
-    public void setInput(byte[] b, int off, int len) {
-        if (b == null) {
-            throw new NullPointerException();
-        }
-        if (off < 0 || len < 0 || off > b.length - len) {
-            throw new ArrayIndexOutOfBoundsException();
-        }
-        synchronized (zsRef) {
-            this.buf = b;
-            this.off = off;
-            this.len = len;
-        }
-    }
-
-    /**
-     * Sets input data for decompression. Should be called whenever
-     * needsInput() returns true indicating that more input data is
-     * required.
-     * @param b the input data bytes
-     * @see Inflater#needsInput
-     */
-    public void setInput(byte[] b) {
-        setInput(b, 0, b.length);
-    }
-
-    /**
-     * Sets the preset dictionary to the given array of bytes. Should be
-     * called when inflate() returns 0 and needsDictionary() returns true
-     * indicating that a preset dictionary is required. The method getAdler()
-     * can be used to get the Adler-32 value of the dictionary needed.
-     * @param b the dictionary data bytes
-     * @param off the start offset of the data
-     * @param len the length of the data
-     * @see Inflater#needsDictionary
-     * @see Inflater#getAdler
-     */
-    public void setDictionary(byte[] b, int off, int len) {
-        if (b == null) {
-            throw new NullPointerException();
-        }
-        if (off < 0 || len < 0 || off > b.length - len) {
-            throw new ArrayIndexOutOfBoundsException();
-        }
-        synchronized (zsRef) {
-            ensureOpen();
-            setDictionary(zsRef.address(), b, off, len);
-            needDict = false;
-        }
-    }
-
-    /**
-     * Sets the preset dictionary to the given array of bytes. Should be
-     * called when inflate() returns 0 and needsDictionary() returns true
-     * indicating that a preset dictionary is required. The method getAdler()
-     * can be used to get the Adler-32 value of the dictionary needed.
-     * @param b the dictionary data bytes
-     * @see Inflater#needsDictionary
-     * @see Inflater#getAdler
-     */
-    public void setDictionary(byte[] b) {
-        setDictionary(b, 0, b.length);
-    }
-
-    /**
-     * Returns the total number of bytes remaining in the input buffer.
-     * This can be used to find out what bytes still remain in the input
-     * buffer after decompression has finished.
-     * @return the total number of bytes remaining in the input buffer
-     */
-    public int getRemaining() {
-        synchronized (zsRef) {
-            return len;
-        }
-    }
-
-    /**
-     * Returns true if no data remains in the input buffer. This can
-     * be used to determine if #setInput should be called in order
-     * to provide more input.
-     * @return true if no data remains in the input buffer
-     */
-    public boolean needsInput() {
-        synchronized (zsRef) {
-            return len <= 0;
-        }
-    }
-
-    /**
-     * Returns true if a preset dictionary is needed for decompression.
-     * @return true if a preset dictionary is needed for decompression
-     * @see Inflater#setDictionary
-     */
-    public boolean needsDictionary() {
-        synchronized (zsRef) {
-            return needDict;
-        }
-    }
-
-    /**
-     * Returns true if the end of the compressed data stream has been
-     * reached.
-     * @return true if the end of the compressed data stream has been
-     * reached
-     */
-    public boolean finished() {
-        synchronized (zsRef) {
-            return finished;
-        }
-    }
-
-    /**
-     * Uncompresses bytes into specified buffer. Returns actual number
-     * of bytes uncompressed. A return value of 0 indicates that
-     * needsInput() or needsDictionary() should be called in order to
-     * determine if more input data or a preset dictionary is required.
-     * In the latter case, getAdler() can be used to get the Adler-32
-     * value of the dictionary required.
-     * @param b the buffer for the uncompressed data
-     * @param off the start offset of the data
-     * @param len the maximum number of uncompressed bytes
-     * @return the actual number of uncompressed bytes
-     * @exception DataFormatException if the compressed data format is invalid
-     * @see Inflater#needsInput
-     * @see Inflater#needsDictionary
-     */
-    public int inflate(byte[] b, int off, int len)
-        throws DataFormatException
-    {
-        if (b == null) {
-            throw new NullPointerException();
-        }
-        if (off < 0 || len < 0 || off > b.length - len) {
-            throw new ArrayIndexOutOfBoundsException();
-        }
-        synchronized (zsRef) {
-            ensureOpen();
-            int thisLen = this.len;
-            int n = inflateBytes(zsRef.address(), b, off, len);
-            bytesWritten += n;
-            bytesRead += (thisLen - this.len);
-            return n;
-        }
-    }
-
-    /**
-     * Uncompresses bytes into specified buffer. Returns actual number
-     * of bytes uncompressed. A return value of 0 indicates that
-     * needsInput() or needsDictionary() should be called in order to
-     * determine if more input data or a preset dictionary is required.
-     * In the latter case, getAdler() can be used to get the Adler-32
-     * value of the dictionary required.
-     * @param b the buffer for the uncompressed data
-     * @return the actual number of uncompressed bytes
-     * @exception DataFormatException if the compressed data format is invalid
-     * @see Inflater#needsInput
-     * @see Inflater#needsDictionary
-     */
-    public int inflate(byte[] b) throws DataFormatException {
-        return inflate(b, 0, b.length);
-    }
-
-    /**
-     * Returns the ADLER-32 value of the uncompressed data.
-     * @return the ADLER-32 value of the uncompressed data
-     */
-    public int getAdler() {
-        synchronized (zsRef) {
-            ensureOpen();
-            return getAdler(zsRef.address());
-        }
-    }
-
-    /**
-     * Returns the total number of compressed bytes input so far.
+     * This constructor allows to create an inflater that expects no header from
+     * the input stream.
      *
-     * <p>Since the number of bytes may be greater than
-     * Integer.MAX_VALUE, the {@link #getBytesRead()} method is now
-     * the preferred means of obtaining this information.</p>
-     *
-     * @return the total number of compressed bytes input so far
+     * @param noHeader
+     *            {@code true} indicates that no ZLIB header comes with the
+     *            input.
      */
-    public int getTotalIn() {
-        return (int) getBytesRead();
+    public Inflater(boolean noHeader) {
+        streamHandle = createStream(noHeader);
+        guard.open("end");
     }
 
+    private native long createStream(boolean noHeader1);
+
     /**
-     * Returns the total number of compressed bytes input so far.
-     *
-     * @return the total (non-negative) number of compressed bytes input so far
-     * @since 1.5
+     * Releases resources associated with this {@code Inflater}. Any unused
+     * input or output is discarded. This method should be called explicitly in
+     * order to free native resources as soon as possible. After {@code end()} is
+     * called, other methods will typically throw {@code IllegalStateException}.
      */
-    public long getBytesRead() {
-        synchronized (zsRef) {
-            ensureOpen();
-            return bytesRead;
+    public synchronized void end() {
+        guard.close();
+        if (streamHandle != -1) {
+            endImpl(streamHandle);
+            inRead = 0;
+            inLength = 0;
+            streamHandle = -1;
         }
     }
 
-    /**
-     * Returns the total number of uncompressed bytes output so far.
-     *
-     * <p>Since the number of bytes may be greater than
-     * Integer.MAX_VALUE, the {@link #getBytesWritten()} method is now
-     * the preferred means of obtaining this information.</p>
-     *
-     * @return the total number of uncompressed bytes output so far
-     */
-    public int getTotalOut() {
-        return (int) getBytesWritten();
-    }
+    private native void endImpl(long handle);
 
-    /**
-     * Returns the total number of uncompressed bytes output so far.
-     *
-     * @return the total (non-negative) number of uncompressed bytes output so far
-     * @since 1.5
-     */
-    public long getBytesWritten() {
-        synchronized (zsRef) {
-            ensureOpen();
-            return bytesWritten;
-        }
-    }
-
-    /**
-     * Resets inflater so that a new set of input data can be processed.
-     */
-    public void reset() {
-        synchronized (zsRef) {
-            ensureOpen();
-            reset(zsRef.address());
-            buf = defaultBuf;
-            finished = false;
-            needDict = false;
-            off = len = 0;
-            bytesRead = bytesWritten = 0;
-        }
-    }
-
-    /**
-     * Closes the decompressor and discards any unprocessed input.
-     * This method should be called when the decompressor is no longer
-     * being used, but will also be called automatically by the finalize()
-     * method. Once this method is called, the behavior of the Inflater
-     * object is undefined.
-     */
-    public void end() {
-        synchronized (zsRef) {
-            guard.close();
-
-            long addr = zsRef.address();
-            zsRef.clear();
-            if (addr != 0) {
-                end(addr);
-                buf = null;
+    @Override protected void finalize() {
+        try {
+            if (guard != null) {
+                guard.warnIfOpen();
+            }
+            end();
+        } finally {
+            try {
+                super.finalize();
+            } catch (Throwable t) {
+                throw new AssertionError(t);
             }
         }
     }
 
     /**
-     * Closes the decompressor when garbage is collected.
+     * Indicates if the {@code Inflater} has inflated the entire deflated
+     * stream. If deflated bytes remain and {@link #needsInput} returns {@code
+     * true} this method will return {@code false}. This method should be
+     * called after all deflated input is supplied to the {@code Inflater}.
+     *
+     * @return {@code true} if all input has been inflated, {@code false}
+     *         otherwise.
      */
-    protected void finalize() {
-        // Android-changed: added close guard
-        if (guard != null) {
-            guard.warnIfOpen();
+    public synchronized boolean finished() {
+        return finished;
+    }
+
+    /**
+     * Returns the {@link Adler32} checksum of the bytes inflated so far, or the
+     * checksum of the preset dictionary if {@link #needsDictionary} returns true.
+     */
+    public synchronized int getAdler() {
+        checkOpen();
+        return getAdlerImpl(streamHandle);
+    }
+
+    private native int getAdlerImpl(long handle);
+
+    /**
+     * Returns the total number of bytes read by the {@code Inflater}. This
+     * method is the same as {@link #getTotalIn} except that it returns a
+     * {@code long} value instead of an integer.
+     */
+    public synchronized long getBytesRead() {
+        checkOpen();
+        return getTotalInImpl(streamHandle);
+    }
+
+    /**
+     * Returns a the total number of bytes written by this {@code Inflater}. This
+     * method is the same as {@code getTotalOut} except it returns a
+     * {@code long} value instead of an integer.
+     */
+    public synchronized long getBytesWritten() {
+        checkOpen();
+        return getTotalOutImpl(streamHandle);
+    }
+
+    /**
+     * Returns the number of bytes of current input remaining to be read by this
+     * inflater.
+     */
+    public synchronized int getRemaining() {
+        return inLength - inRead;
+    }
+
+    /**
+     * Returns the offset of the next byte to read in the underlying buffer.
+     *
+     * For internal use only.
+     */
+    synchronized int getCurrentOffset() {
+        return inRead;
+    }
+
+    /**
+     * Returns the total number of bytes of input read by this {@code Inflater}. This
+     * method is limited to 32 bits; use {@link #getBytesRead} instead.
+     */
+    public synchronized int getTotalIn() {
+        checkOpen();
+        return (int) Math.min(getTotalInImpl(streamHandle), (long) Integer.MAX_VALUE);
+    }
+
+    private native long getTotalInImpl(long handle);
+
+    /**
+     * Returns the total number of bytes written to the output buffer by this {@code
+     * Inflater}. The method is limited to 32 bits; use {@link #getBytesWritten} instead.
+     */
+    public synchronized int getTotalOut() {
+        checkOpen();
+        return (int) Math.min(getTotalOutImpl(streamHandle), (long) Integer.MAX_VALUE);
+    }
+
+    private native long getTotalOutImpl(long handle);
+
+    /**
+     * Inflates bytes from the current input and stores them in {@code buf}.
+     *
+     * @param buf
+     *            the buffer where decompressed data bytes are written.
+     * @return the number of bytes inflated.
+     * @throws DataFormatException
+     *             if the underlying stream is corrupted or was not compressed
+     *             using a {@code Deflater}.
+     */
+    public int inflate(byte[] buf) throws DataFormatException {
+        return inflate(buf, 0, buf.length);
+    }
+
+    /**
+     * Inflates up to {@code byteCount} bytes from the current input and stores them in
+     * {@code buf} starting at {@code offset}.
+     *
+     * @throws DataFormatException
+     *             if the underlying stream is corrupted or was not compressed
+     *             using a {@code Deflater}.
+     * @return the number of bytes inflated.
+     */
+    public synchronized int inflate(byte[] buf, int offset, int byteCount) throws DataFormatException {
+        Arrays.checkOffsetAndCount(buf.length, offset, byteCount);
+
+        checkOpen();
+
+        if (needsInput()) {
+            return 0;
         }
 
-        end();
+        boolean neededDict = needsDictionary;
+        needsDictionary = false;
+        int result = inflateImpl(buf, offset, byteCount, streamHandle);
+        if (needsDictionary && neededDict) {
+            throw new DataFormatException("Needs dictionary");
+        }
+        return result;
     }
 
-    private void ensureOpen () {
-        assert Thread.holdsLock(zsRef);
-        // Android-changed: Throw IllegalStateException instead of a NullPointerException.
-        if (zsRef.address() == 0)
-            throw new IllegalStateException("Inflater has been closed");
+    private native int inflateImpl(byte[] buf, int offset, int byteCount, long handle);
+
+    /**
+     * Returns true if the input bytes were compressed with a preset
+     * dictionary. This method should be called if the first call to {@link #inflate} returns 0,
+     * to determine whether a dictionary is required. If so, {@link #setDictionary}
+     * should be called with the appropriate dictionary before calling {@code
+     * inflate} again. Use {@link #getAdler} to determine which dictionary is required.
+     */
+    public synchronized boolean needsDictionary() {
+        return needsDictionary;
     }
 
-    boolean ended() {
-        synchronized (zsRef) {
-            return zsRef.address() == 0;
+    /**
+     * Returns true if {@link #setInput} must be called before inflation can continue.
+     */
+    public synchronized boolean needsInput() {
+        return inRead == inLength;
+    }
+
+    /**
+     * Resets this {@code Inflater}. Should be called prior to inflating a new
+     * set of data.
+     */
+    public synchronized void reset() {
+        checkOpen();
+        finished = false;
+        needsDictionary = false;
+        inLength = inRead = 0;
+        resetImpl(streamHandle);
+    }
+
+    private native void resetImpl(long handle);
+
+    /**
+     * Sets the preset dictionary to be used for inflation to {@code dictionary}.
+     * See {@link #needsDictionary} for details.
+     */
+    public synchronized void setDictionary(byte[] dictionary) {
+        setDictionary(dictionary, 0, dictionary.length);
+    }
+
+    /**
+     * Sets the preset dictionary to be used for inflation to a subsequence of {@code dictionary}
+     * starting at {@code offset} and continuing for {@code byteCount} bytes. See {@link
+     * #needsDictionary} for details.
+     */
+    public synchronized void setDictionary(byte[] dictionary, int offset, int byteCount) {
+        checkOpen();
+        Arrays.checkOffsetAndCount(dictionary.length, offset, byteCount);
+        setDictionaryImpl(dictionary, offset, byteCount, streamHandle);
+    }
+
+    private native void setDictionaryImpl(byte[] dictionary, int offset, int byteCount, long handle);
+
+    /**
+     * Sets the current input to to be decompressed. This method should only be
+     * called if {@link #needsInput} returns {@code true}.
+     */
+    public synchronized void setInput(byte[] buf) {
+        setInput(buf, 0, buf.length);
+    }
+
+    /**
+     * Sets the current input to to be decompressed. This method should only be
+     * called if {@link #needsInput} returns {@code true}.
+     */
+    public synchronized void setInput(byte[] buf, int offset, int byteCount) {
+        checkOpen();
+        Arrays.checkOffsetAndCount(buf.length, offset, byteCount);
+        inRead = 0;
+        inLength = byteCount;
+        setInputImpl(buf, offset, byteCount, streamHandle);
+    }
+
+    private native void setInputImpl(byte[] buf, int offset, int byteCount, long handle);
+
+    synchronized int setFileInput(FileDescriptor fd, long offset, int byteCount) {
+        checkOpen();
+        inRead = 0;
+        inLength = setFileInputImpl(fd, offset, byteCount, streamHandle);
+        return inLength;
+    }
+
+    private native int setFileInputImpl(FileDescriptor fd, long offset, int byteCount, long handle);
+
+    private void checkOpen() {
+        if (streamHandle == -1) {
+            throw new IllegalStateException("attempt to use Inflater after calling end");
         }
     }
-
-    // Android-changed: initIDs handled in register method.
-    // private native static void initIDs();
-    private native static long init(boolean nowrap);
-    private native static void setDictionary(long addr, byte[] b, int off,
-                                             int len);
-    private native int inflateBytes(long addr, byte[] b, int off, int len)
-            throws DataFormatException;
-    private native static int getAdler(long addr);
-    private native static void reset(long addr);
-    private native static void end(long addr);
 }

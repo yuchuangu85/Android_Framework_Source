@@ -16,13 +16,8 @@
 
 package android.net.http;
 
-import android.annotation.SystemApi;
-import android.security.net.config.UserCertificateSource;
-
 import com.android.org.conscrypt.TrustManagerImpl;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
@@ -39,11 +34,7 @@ import javax.net.ssl.X509TrustManager;
  */
 public class X509TrustManagerExtensions {
 
-    private final TrustManagerImpl mDelegate;
-    // Methods to use when mDelegate is not a TrustManagerImpl and duck typing is being used.
-    private final X509TrustManager mTrustManager;
-    private final Method mCheckServerTrusted;
-    private final Method mIsSameTrustConfiguration;
+    final TrustManagerImpl mDelegate;
 
     /**
      * Constructs a new X509TrustManagerExtensions wrapper.
@@ -54,33 +45,11 @@ public class X509TrustManagerExtensions {
     public X509TrustManagerExtensions(X509TrustManager tm) throws IllegalArgumentException {
         if (tm instanceof TrustManagerImpl) {
             mDelegate = (TrustManagerImpl) tm;
-            mTrustManager = null;
-            mCheckServerTrusted = null;
-            mIsSameTrustConfiguration = null;
-            return;
+        } else {
+            mDelegate = null;
+            throw new IllegalArgumentException("tm is an instance of " + tm.getClass().getName() +
+                    " which is not a supported type of X509TrustManager");
         }
-        // Use duck typing if possible.
-        mDelegate = null;
-        mTrustManager = tm;
-        // Check that the hostname aware checkServerTrusted is present.
-        try {
-            mCheckServerTrusted = tm.getClass().getMethod("checkServerTrusted",
-                    X509Certificate[].class,
-                    String.class,
-                    String.class);
-        } catch (NoSuchMethodException e) {
-            throw new IllegalArgumentException("Required method"
-                    + " checkServerTrusted(X509Certificate[], String, String, String) missing");
-        }
-        // Get the option isSameTrustConfiguration method.
-        Method isSameTrustConfiguration = null;
-        try {
-            isSameTrustConfiguration = tm.getClass().getMethod("isSameTrustConfiguration",
-                    String.class,
-                    String.class);
-        } catch (ReflectiveOperationException ignored) {
-        }
-        mIsSameTrustConfiguration = isSameTrustConfiguration;
     }
 
     /**
@@ -95,59 +64,20 @@ public class X509TrustManagerExtensions {
      */
     public List<X509Certificate> checkServerTrusted(X509Certificate[] chain, String authType,
                                                     String host) throws CertificateException {
-        if (mDelegate != null) {
-            return mDelegate.checkServerTrusted(chain, authType, host);
-        } else {
-            try {
-                return (List<X509Certificate>) mCheckServerTrusted.invoke(mTrustManager, chain,
-                        authType, host);
-            } catch (IllegalAccessException e) {
-                throw new CertificateException("Failed to call checkServerTrusted", e);
-            } catch (InvocationTargetException e) {
-                if (e.getCause() instanceof CertificateException) {
-                    throw (CertificateException) e.getCause();
-                }
-                if (e.getCause() instanceof RuntimeException) {
-                    throw (RuntimeException) e.getCause();
-                }
-                throw new CertificateException("checkServerTrusted failed", e.getCause());
-            }
-        }
+        return mDelegate.checkServerTrusted(chain, authType, host);
     }
 
     /**
      * Checks whether a CA certificate is added by an user.
      *
-     * <p>Since {@link X509TrustManager#checkServerTrusted} may allow its parameter {@code chain} to
+     * <p>Since {@link X509TrustManager#checkServerTrusted} allows its parameter {@code chain} to
      * chain up to user-added CA certificates, this method can be used to perform additional
      * policies for user-added CA certificates.
      *
-     * @return {@code true} to indicate that the certificate authority exists in the user added
-     * certificate store, {@code false} otherwise.
+     * @return {@code true} to indicate that the certificate was added by the user, {@code false}
+     * otherwise.
      */
     public boolean isUserAddedCertificate(X509Certificate cert) {
-        return UserCertificateSource.getInstance().findBySubjectAndPublicKey(cert) != null;
-    }
-
-    /**
-     * Returns {@code true} if the TrustManager uses the same trust configuration for the provided
-     * hostnames.
-     */
-    @SystemApi
-    public boolean isSameTrustConfiguration(String hostname1, String hostname2) {
-        if (mIsSameTrustConfiguration == null) {
-            return true;
-        }
-        try {
-            return (Boolean) mIsSameTrustConfiguration.invoke(mTrustManager, hostname1, hostname2);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Failed to call isSameTrustConfiguration", e);
-        } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof RuntimeException) {
-                throw (RuntimeException) e.getCause();
-            } else {
-                throw new RuntimeException("isSameTrustConfiguration failed", e.getCause());
-            }
-        }
+        return mDelegate.isUserAddedCertificate(cert);
     }
 }

@@ -16,8 +16,6 @@
 
 package com.android.printspooler.model;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -31,27 +29,21 @@ import android.os.AsyncTask;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-import android.print.PageRange;
 import android.print.PrintAttributes;
-import android.print.PrintAttributes.Margins;
 import android.print.PrintAttributes.MediaSize;
+import android.print.PrintAttributes.Margins;
 import android.print.PrintDocumentInfo;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.view.View;
-
 import com.android.internal.annotations.GuardedBy;
 import com.android.printspooler.renderer.IPdfRenderer;
 import com.android.printspooler.renderer.PdfManipulationService;
 import com.android.printspooler.util.BitmapSerializeUtils;
-import com.android.printspooler.util.PageRangeUtils;
-
 import dalvik.system.CloseGuard;
-
 import libcore.io.IoUtils;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -77,14 +69,13 @@ public final class PageContentRepository {
 
     private RenderSpec mLastRenderSpec;
 
-    @Nullable private PageRange mScheduledPreloadVisiblePages;
-    @Nullable private PageRange[] mScheduledPreloadSelectedPages;
-    @Nullable private PageRange[] mScheduledPreloadWrittenPages;
+    private int mScheduledPreloadFirstShownPage = INVALID_PAGE_INDEX;
+    private int mScheduledPreloadLastShownPage = INVALID_PAGE_INDEX;
 
     private int mState;
 
     public interface OnPageContentAvailableCallback {
-        void onPageContentAvailable(BitmapDrawable content);
+        public void onPageContentAvailable(BitmapDrawable content);
     }
 
     public PageContentRepository(Context context) {
@@ -125,7 +116,6 @@ public final class PageContentRepository {
             });
             return;
         }
-        mCloseGuard.close();
 
         mState = STATE_DESTROYED;
         if (DEBUG) {
@@ -138,24 +128,14 @@ public final class PageContentRepository {
         }
     }
 
-    /**
-     * Preload selected, written pages around visiblePages.
-     *
-     * @param visiblePages The pages currently visible
-     * @param selectedPages The pages currently selected (e.g. they might become visible by
-     *                      scrolling)
-     * @param writtenPages The pages currently in the document
-     */
-    public void startPreload(@NonNull PageRange visiblePages, @NonNull PageRange[] selectedPages,
-            @NonNull PageRange[] writtenPages) {
+    public void startPreload(int firstShownPage, int lastShownPage) {
         // If we do not have a render spec we have no clue what size the
         // preloaded bitmaps should be, so just take a note for what to do.
         if (mLastRenderSpec == null) {
-            mScheduledPreloadVisiblePages = visiblePages;
-            mScheduledPreloadSelectedPages = selectedPages;
-            mScheduledPreloadWrittenPages = writtenPages;
+            mScheduledPreloadFirstShownPage = firstShownPage;
+            mScheduledPreloadLastShownPage = lastShownPage;
         } else if (mState == STATE_OPENED) {
-            mRenderer.startPreload(visiblePages, selectedPages, writtenPages, mLastRenderSpec);
+            mRenderer.startPreload(firstShownPage, lastShownPage, mLastRenderSpec);
         }
     }
 
@@ -190,11 +170,8 @@ public final class PageContentRepository {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
             if (mState != STATE_DESTROYED) {
+                mCloseGuard.warnIfOpen();
                 destroy(null);
             }
         } finally {
@@ -244,12 +221,11 @@ public final class PageContentRepository {
 
             // We tired to preload but didn't know the bitmap size, now
             // that we know let us do the work.
-            if (mScheduledPreloadVisiblePages != null) {
-                startPreload(mScheduledPreloadVisiblePages, mScheduledPreloadSelectedPages,
-                        mScheduledPreloadWrittenPages);
-                mScheduledPreloadVisiblePages = null;
-                mScheduledPreloadSelectedPages = null;
-                mScheduledPreloadWrittenPages = null;
+            if (mScheduledPreloadFirstShownPage != INVALID_PAGE_INDEX
+                    && mScheduledPreloadLastShownPage != INVALID_PAGE_INDEX) {
+                startPreload(mScheduledPreloadFirstShownPage, mScheduledPreloadLastShownPage);
+                mScheduledPreloadFirstShownPage = INVALID_PAGE_INDEX;
+                mScheduledPreloadLastShownPage = INVALID_PAGE_INDEX;
             }
 
             if (mState == STATE_OPENED) {
@@ -533,12 +509,7 @@ public final class PageContentRepository {
         public void destroy() {
             if (mBoundToService) {
                 mBoundToService = false;
-                try {
-                    mContext.unbindService(AsyncRenderer.this);
-                } catch (IllegalArgumentException e) {
-                    // Service might have been forcefully unbound in onDestroy()
-                    Log.e(LOG_TAG, "Cannot unbind service", e);
-                }
+                mContext.unbindService(AsyncRenderer.this);
             }
 
             mPageContentCache.invalidate();
@@ -546,45 +517,10 @@ public final class PageContentRepository {
             mDestroyed = true;
         }
 
-        /**
-         * How many pages are {@code pages} before pageNum. E.g. page 5 in [0-1], [4-7] has the
-         * index 4.
-         *
-         * @param pageNum The number of the page to find
-         * @param pages A normalized array of page ranges
-         *
-         * @return The index or {@link #INVALID_PAGE_INDEX} if not found
-         */
-        private int findIndexOfPage(int pageNum, @NonNull PageRange[] pages) {
-            int pagesBefore = 0;
-            for (int i = 0; i < pages.length; i++) {
-                if (pages[i].contains(pageNum)) {
-                    return pagesBefore + pageNum - pages[i].getStart();
-                } else {
-                    pagesBefore += pages[i].getSize();
-                }
-            }
-
-            return INVALID_PAGE_INDEX;
-        }
-
-        void startPreload(@NonNull PageRange visiblePages, @NonNull PageRange[] selectedPages,
-                @NonNull PageRange[] writtenPages, RenderSpec renderSpec) {
-            if (PageRangeUtils.isAllPages(selectedPages)) {
-                selectedPages = new PageRange[]{new PageRange(0, mPageCount - 1)};
-            }
-
+        public void startPreload(int firstShownPage, int lastShownPage, RenderSpec renderSpec) {
             if (DEBUG) {
-                Log.i(LOG_TAG, "Preloading pages around " + visiblePages + " from "
-                        + Arrays.toString(selectedPages));
-            }
-
-            int firstVisiblePageIndex = findIndexOfPage(visiblePages.getStart(), selectedPages);
-            int lastVisiblePageIndex = findIndexOfPage(visiblePages.getEnd(), selectedPages);
-
-            if (firstVisiblePageIndex == INVALID_PAGE_INDEX
-                    || lastVisiblePageIndex == INVALID_PAGE_INDEX) {
-                return;
+                Log.i(LOG_TAG, "Preloading pages around [" + firstShownPage
+                        + "-" + lastShownPage + "]");
             }
 
             final int bitmapSizeInBytes = renderSpec.bitmapWidth * renderSpec.bitmapHeight
@@ -592,33 +528,28 @@ public final class PageContentRepository {
             final int maxCachedPageCount = mPageContentCache.getMaxSizeInBytes()
                     / bitmapSizeInBytes;
             final int halfPreloadCount = (maxCachedPageCount
-                    - (lastVisiblePageIndex - firstVisiblePageIndex)) / 2 - 1;
+                    - (lastShownPage - firstShownPage)) / 2 - 1;
 
-            final int fromIndex = Math.max(firstVisiblePageIndex - halfPreloadCount, 0);
-            final int toIndex = lastVisiblePageIndex + halfPreloadCount;
-
-            if (DEBUG) {
-                Log.i(LOG_TAG, "fromIndex=" + fromIndex + " toIndex=" + toIndex);
+            final int excessFromStart;
+            if (firstShownPage - halfPreloadCount < 0) {
+                excessFromStart = halfPreloadCount - firstShownPage;
+            } else {
+                excessFromStart = 0;
             }
 
-            int previousRangeSizes = 0;
-            for (int rangeNum = 0; rangeNum < selectedPages.length; rangeNum++) {
-                PageRange range = selectedPages[rangeNum];
+            final int excessFromEnd;
+            if (lastShownPage + halfPreloadCount >= mPageCount) {
+                excessFromEnd = (lastShownPage + halfPreloadCount) - mPageCount;
+            } else {
+                excessFromEnd = 0;
+            }
 
-                int thisRangeStart = Math.max(0, fromIndex - previousRangeSizes);
-                int thisRangeEnd = Math.min(range.getSize(), toIndex - previousRangeSizes + 1);
+            final int fromIndex = Math.max(firstShownPage - halfPreloadCount - excessFromEnd, 0);
+            final int toIndex = Math.min(lastShownPage + halfPreloadCount + excessFromStart,
+                    mPageCount - 1);
 
-                for (int i = thisRangeStart; i < thisRangeEnd; i++) {
-                    if (PageRangeUtils.contains(writtenPages, range.getStart() + i)) {
-                        if (DEBUG) {
-                            Log.i(LOG_TAG, "Preloading " + (range.getStart() + i));
-                        }
-
-                        renderPage(range.getStart() + i, renderSpec, null);
-                    }
-                }
-
-                previousRangeSizes += range.getSize();
+            for (int i = fromIndex; i <= toIndex; i++) {
+                renderPage(i, renderSpec, null);
             }
         }
 
@@ -809,7 +740,6 @@ public final class PageContentRepository {
             final RenderSpec mRenderSpec;
             OnPageContentAvailableCallback mCallback;
             RenderedPage mRenderedPage;
-            private boolean mIsFailed;
 
             public RenderPageTask(int pageIndex, RenderSpec renderSpec,
                     OnPageContentAvailableCallback callback) {
@@ -895,30 +825,25 @@ public final class PageContentRepository {
 
                 Bitmap bitmap = mRenderedPage.content.getBitmap();
 
-                ParcelFileDescriptor[] pipe;
+                ParcelFileDescriptor[] pipe = null;
                 try {
                     pipe = ParcelFileDescriptor.createPipe();
+                    ParcelFileDescriptor source = pipe[0];
+                    ParcelFileDescriptor destination = pipe[1];
 
-                    try (ParcelFileDescriptor source = pipe[0]) {
-                        try (ParcelFileDescriptor destination = pipe[1]) {
-                            synchronized (mLock) {
-                                if (mRenderer != null) {
-                                    mRenderer.renderPage(mPageIndex, bitmap.getWidth(),
-                                            bitmap.getHeight(), mRenderSpec.printAttributes,
-                                            destination);
-                                } else {
-                                    throw new IllegalStateException("Renderer is disconnected");
-                                }
-                            }
-                        }
+                    mRenderer.renderPage(mPageIndex, bitmap.getWidth(), bitmap.getHeight(),
+                            mRenderSpec.printAttributes, destination);
 
-                        BitmapSerializeUtils.readBitmapPixels(bitmap, source);
-                    }
+                    // We passed the file descriptor to the other side which took
+                    // ownership, so close our copy for the write to complete.
+                    destination.close();
 
-                    mIsFailed = false;
-                } catch (IOException|RemoteException|IllegalStateException e) {
-                    Log.e(LOG_TAG, "Error rendering page " + mPageIndex, e);
-                    mIsFailed = true;
+                    BitmapSerializeUtils.readBitmapPixels(bitmap, source);
+                } catch (IOException|RemoteException e) {
+                    Log.e(LOG_TAG, "Error rendering page:" + mPageIndex, e);
+                } finally {
+                    IoUtils.closeQuietly(pipe[0]);
+                    IoUtils.closeQuietly(pipe[1]);
                 }
 
                 return mRenderedPage;
@@ -933,22 +858,12 @@ public final class PageContentRepository {
                 // This task is done.
                 mPageToRenderTaskMap.remove(mPageIndex);
 
-                if (mIsFailed) {
-                    renderedPage.state = RenderedPage.STATE_SCRAP;
-                } else {
-                    renderedPage.state = RenderedPage.STATE_RENDERED;
-                }
-
-                // Invalidate all caches of the old state of the bitmap
-                mRenderedPage.content.invalidateSelf();
+                // Take a note that the content is rendered.
+                renderedPage.state = RenderedPage.STATE_RENDERED;
 
                 // Announce success if needed.
                 if (mCallback != null) {
-                    if (mIsFailed) {
-                        mCallback.onPageContentAvailable(null);
-                    } else {
-                        mCallback.onPageContentAvailable(renderedPage.content);
-                    }
+                    mCallback.onPageContentAvailable(renderedPage.content);
                 }
             }
 

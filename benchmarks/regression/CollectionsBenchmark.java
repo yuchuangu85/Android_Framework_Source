@@ -17,6 +17,7 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -24,7 +25,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Vector;
 
-public class CollectionsBenchmark {
+public class CollectionsBenchmark extends SimpleBenchmark {
     @Param({"4", "16", "64", "256", "1024"})
     private int arrayListLength;
 

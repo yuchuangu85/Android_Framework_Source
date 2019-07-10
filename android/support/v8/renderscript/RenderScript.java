@@ -20,8 +20,6 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.ArrayList;
-import java.nio.ByteBuffer;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -32,6 +30,7 @@ import android.graphics.BitmapFactory;
 import android.os.Process;
 import android.util.Log;
 import android.view.Surface;
+import java.util.ArrayList;
 
 /**
  * This class provides access to a RenderScript context, which controls RenderScript
@@ -50,15 +49,12 @@ public class RenderScript {
     @SuppressWarnings({"UnusedDeclaration", "deprecation"})
     static final boolean LOG_ENABLED = false;
     static final int SUPPORT_LIB_API = 23;
-    static final int SUPPORT_LIB_VERSION = 2301;
 
     static private ArrayList<RenderScript> mProcessContextList = new ArrayList<RenderScript>();
     private boolean mIsProcessContext = false;
-    private boolean mEnableMultiInput = false;
-    private int mDispatchAPILevel = 0;
-
     private int mContextFlags = 0;
     private int mContextSdkVersion = 0;
+
 
     private Context mApplicationContext;
     private String mNativeLibDir;
@@ -101,7 +97,7 @@ public class RenderScript {
     static Object lock = new Object();
 
     // Non-threadsafe functions.
-    native boolean nLoadSO(boolean useNative, int deviceApi, String libPath);
+    native boolean nLoadSO(boolean useNative, int deviceApi);
     native boolean nLoadIOSO();
     native long nDeviceCreate();
     native void nDeviceDestroy(long dev);
@@ -123,30 +119,15 @@ public class RenderScript {
      */
     public static final int CREATE_FLAG_NONE = 0x0000;
 
-    int getDispatchAPILevel() {
-        return mDispatchAPILevel;
-    }
 
     boolean isUseNative() {
         return useNative;
     }
     /*
-     * Detect the bitness of the VM to allow FieldPacker and generated code to do the right thing.
+     * Detect the bitness of the VM to allow FieldPacker to do the right thing.
      */
     static native int rsnSystemGetPointerSize();
     static int sPointerSize;
-    static public int getPointerSize() {
-        // We provide an accessor rather than making the data item public for two reasons.
-        // 1) Prevents anyone outside this class from writing the data item.
-        // 2) Prevents anyone outside this class from reading the data item unless a class
-        //    instance has been created (ensuring the data item has been initialized).
-        // DISCLAIMER: Reflection can circumvent these preventive measures.
-        synchronized(lock) {
-            if (!sInitialized)
-                throw new RSInvalidStateException("Calling getPointerSize() before any RenderScript instantiated");
-        }
-        return sPointerSize;
-    }
 
     /**
      * Determines whether or not we should be thunking into the native
@@ -184,42 +165,49 @@ public class RenderScript {
 
             if (sNative == 1) {
                 // Workarounds that may disable thunking go here
-                ApplicationInfo info;
+                ApplicationInfo info = null;
                 try {
                     info = ctx.getPackageManager().getApplicationInfo(ctx.getPackageName(),
                                                                       PackageManager.GET_META_DATA);
                 } catch (PackageManager.NameNotFoundException e) {
                     // assume no workarounds needed
-                    return true;
-                }
-                long minorVersion = 0;
-
-                // load minorID from reflection
-                try {
-                    Class<?> javaRS = Class.forName("android.renderscript.RenderScript");
-                    Method getMinorID = javaRS.getDeclaredMethod("getMinorID");
-                    minorVersion = ((java.lang.Long)getMinorID.invoke(null)).longValue();
-                } catch (Exception e) {
-                    // minor version remains 0 on devices with no possible WARs
                 }
 
-                if (info.metaData != null) {
-                    // asynchronous teardown: minor version 1+
-                    if (info.metaData.getBoolean("com.android.support.v8.renderscript.EnableAsyncTeardown") == true) {
-                        if (minorVersion == 0) {
-                            sNative = 0;
+                if (info != null) {
+                    long minorVersion = 0;
+                    // load minorID from reflection
+                    try {
+                        Class<?> javaRS = Class.forName("android.renderscript.RenderScript");
+                        if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
+                            Method getMinorID = javaRS.getDeclaredMethod("getMinorID");
+                            minorVersion = ((java.lang.Long)getMinorID.invoke(null)).longValue();
+                        } else {
+                            //For M+
+                            Method getMinorVersion = javaRS.getDeclaredMethod("getMinorVersion");
+                            minorVersion = ((java.lang.Long)getMinorVersion.invoke(null)).longValue();
                         }
+                    } catch (Exception e) {
+                        // minor version remains 0 on devices with no possible WARs
                     }
 
-                    // blur issues on some drivers with 4.4
-                    if (info.metaData.getBoolean("com.android.support.v8.renderscript.EnableBlurWorkaround") == true) {
-                        if (android.os.Build.VERSION.SDK_INT <= 19) {
-                            //android.util.Log.e("rs", "war on");
-                            sNative = 0;
+                    if (info.metaData != null) {
+                        // asynchronous teardown: minor version 1+
+                        if (info.metaData.getBoolean("com.android.support.v8.renderscript.EnableAsyncTeardown") == true) {
+                            if (minorVersion == 0) {
+                                sNative = 0;
+                            }
+                        }
+
+                        // blur issues on some drivers with 4.4
+                        if (info.metaData.getBoolean("com.android.support.v8.renderscript.EnableBlurWorkaround") == true) {
+                            if (android.os.Build.VERSION.SDK_INT <= 19) {
+                                //android.util.Log.e("rs", "war on");
+                                sNative = 0;
+                            }
                         }
                     }
+                    // end of workarounds
                 }
-                // end of workarounds
             }
         }
 
@@ -447,16 +435,7 @@ public class RenderScript {
         validate();
         rsnAllocationIoReceive(mContext, alloc);
     }
-    native ByteBuffer rsnAllocationGetByteBuffer(long con, long alloc, int xBytesSize, int dimY, int dimZ);
-    synchronized ByteBuffer nAllocationGetByteBuffer(long alloc, int xBytesSize, int dimY, int dimZ) {
-        validate();
-        return rsnAllocationGetByteBuffer(mContext, alloc, xBytesSize, dimY, dimZ);
-    }
-    native long rsnAllocationGetStride(long con, long alloc);
-    synchronized long nAllocationGetStride(long alloc) {
-        validate();
-        return rsnAllocationGetStride(mContext, alloc);
-    }
+
 
     native void rsnAllocationGenerateMipmaps(long con, long alloc);
     synchronized void nAllocationGenerateMipmaps(long alloc) {
@@ -570,7 +549,7 @@ public class RenderScript {
         validate();
         rsnAllocationRead1D(mContext, id, off, mip, count, d, sizeBytes, dt.mID, mSize, usePadding);
     }
-
+    
     /*
     native void rsnAllocationElementRead(long con,long id, int xoff, int yoff, int zoff,
                                          int mip, int compIdx, byte[] d, int sizeBytes);
@@ -672,27 +651,6 @@ public class RenderScript {
         }
     }
 
-    native void rsnScriptForEach(long con, long id, int slot, long[] ains,
-                                 long aout, byte[] params, int[] limits);
-
-    synchronized void nScriptForEach(long id, int slot, long[] ains, long aout,
-                                     byte[] params, int[] limits) {
-        if (!mEnableMultiInput) {
-            Log.e(LOG_TAG, "Multi-input kernels are not supported, please change targetSdkVersion to >= 23");
-            throw new RSRuntimeException("Multi-input kernels are not supported before API 23)");
-        }
-        validate();
-        rsnScriptForEach(mContext, id, slot, ains, aout, params, limits);
-    }
-
-    native void rsnScriptReduce(long con, long id, int slot, long[] ains,
-                                long aout, int[] limits);
-    synchronized void nScriptReduce(long id, int slot, long ains[], long aout,
-                                    int[] limits) {
-        validate();
-        rsnScriptReduce(mContext, id, slot, ains, aout, limits);
-    }
-
     native void rsnScriptInvokeV(long con, long id, int slot, byte[] params, boolean mUseInc);
     synchronized void nScriptInvokeV(long id, int slot, byte[] params, boolean mUseInc) {
         validate();
@@ -791,15 +749,17 @@ public class RenderScript {
                     Log.e(LOG_TAG, "Error loading RS Compat library for Incremental Intrinsic Support: " + e);
                     throw new RSRuntimeException("Error loading RS Compat library for Incremental Intrinsic Support: " + e);
                 }
-                if (!nIncLoadSO(SUPPORT_LIB_API, mNativeLibDir + "/libRSSupport.so")) {
+                if (!nIncLoadSO(SUPPORT_LIB_API)) {
                     throw new RSRuntimeException("Error loading libRSSupport library for Incremental Intrinsic Support");
                 }
                 mIncLoaded = true;
             }
+            if (mIncDev == 0) {
+                mIncDev = nIncDeviceCreate();
+            }
             if (mIncCon == 0) {
                 //Create a dummy compat context (synchronous).
-                long device = nIncDeviceCreate();
-                mIncCon = nIncContextCreate(device, 0, 0, 0);
+                mIncCon = nIncContextCreate(mIncDev, 0, 0, 0);
             }
             return rsnScriptIntrinsicCreate(mIncCon, id, eid, mUseInc);
         } else {
@@ -985,7 +945,7 @@ public class RenderScript {
 
 // Additional Entry points For inc libRSSupport
 
-    native boolean nIncLoadSO(int deviceApi, String libPath);
+    native boolean nIncLoadSO(int deviceApi);
     native long nIncDeviceCreate();
     native void nIncDeviceDestroy(long dev);
     // Methods below are wrapped to protect the non-threadsafe
@@ -1036,15 +996,16 @@ public class RenderScript {
         validate();
         return rsnIncTypeCreate(mIncCon, eid, x, y, z, mips, faces, yuv);
     }
-    native long  rsnIncAllocationCreateTyped(long con, long incCon, long alloc, long type, int xBytesSize);
-    synchronized long nIncAllocationCreateTyped(long alloc, long type, int xBytesSize) {
+    native long  rsnIncAllocationCreateTyped(long con, long incCon, long alloc, long type);
+    synchronized long nIncAllocationCreateTyped(long alloc, long type) {
         validate();
-        return rsnIncAllocationCreateTyped(mContext, mIncCon, alloc, type, xBytesSize);
+        return rsnIncAllocationCreateTyped(mContext, mIncCon, alloc, type);
     }
 
+    long     mDev;
     long     mContext;
-    private boolean mDestroyed = false;
     //Dummy device & context for Inc Support Lib
+    long     mIncDev;
     long     mIncCon;
     //indicator of whether inc support lib has been loaded or not.
     boolean  mIncLoaded;
@@ -1224,14 +1185,6 @@ public class RenderScript {
         }
     }
 
-    void validateObject(BaseObj o) {
-        if (o != null) {
-            if (o.mRS != this) {
-                throw new RSIllegalArgumentException("Attempting to use an object across contexts.");
-            }
-        }
-    }
-
     void validate() {
         if (mContext == 0) {
             throw new RSInvalidStateException("Calling RS with no Context active.");
@@ -1265,7 +1218,6 @@ public class RenderScript {
         static final int RS_MESSAGE_TO_CLIENT_ERROR = 3;
 
         static final int RS_MESSAGE_TO_CLIENT_USER = 4;
-        static final int RS_ERROR_FATAL_DEBUG = 0x800;
         static final int RS_ERROR_FATAL_UNKNOWN = 0x1000;
 
         MessageThread(RenderScript rs) {
@@ -1308,19 +1260,7 @@ public class RenderScript {
                 if (msg == RS_MESSAGE_TO_CLIENT_ERROR) {
                     String e = mRS.nContextGetErrorMessage(mRS.mContext);
 
-                    // Copied from java/android/renderscript/RenderScript.java
-                    // Throw RSRuntimeException under the following conditions:
-                    //
-                    // 1) It is an unknown fatal error.
-                    // 2) It is a debug fatal error, and we are not in a
-                    //    debug context.
-                    // 3) It is a debug fatal error, and we do not have an
-                    //    error callback.
-                    if (subID >= RS_ERROR_FATAL_UNKNOWN ||
-                        (subID >= RS_ERROR_FATAL_DEBUG &&
-                         (mRS.mContextType != ContextType.DEBUG ||
-                          mRS.mErrorCallback == null))) {
-                        android.util.Log.e(LOG_TAG, "fatal RS error, " + e);
+                    if (subID >= RS_ERROR_FATAL_UNKNOWN) {
                         throw new RSRuntimeException("Fatal error " + subID + ", details: " + e);
                     }
 
@@ -1353,9 +1293,9 @@ public class RenderScript {
         mContextType = ContextType.NORMAL;
         if (ctx != null) {
             mApplicationContext = ctx.getApplicationContext();
-            // Only set mNativeLibDir for API 9+.
             mNativeLibDir = mApplicationContext.getApplicationInfo().nativeLibraryDir;
         }
+        mIncDev = 0;
         mIncCon = 0;
         mIncLoaded = false;
         mRWLock = new ReentrantReadWriteLock();
@@ -1399,19 +1339,12 @@ public class RenderScript {
                     sUseGCHooks = false;
                 }
                 try {
-                    // For API 9 - 22, always use the absolute path of librsjni.so
-                    // http://b/25226912
-                    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M &&
-                        rs.mNativeLibDir != null) {
-                        System.load(rs.mNativeLibDir + "/librsjni.so");
-                    } else {
-                        System.loadLibrary("rsjni");
-                    }
+                    System.loadLibrary("rsjni");
                     sInitialized = true;
                     sPointerSize = rsnSystemGetPointerSize();
                 } catch (UnsatisfiedLinkError e) {
                     Log.e(LOG_TAG, "Error loading RS jni library: " + e);
-                    throw new RSRuntimeException("Error loading RS jni library: " + e + " Support lib API: " + SUPPORT_LIB_VERSION);
+                    throw new RSRuntimeException("Error loading RS jni library: " + e);
                 }
             }
         }
@@ -1426,39 +1359,24 @@ public class RenderScript {
             useIOlib = true;
         }
 
-        // The target API level used to init dispatchTable.
         int dispatchAPI = sdkVersion;
         if (sdkVersion < android.os.Build.VERSION.SDK_INT) {
             // If the device API is higher than target API level, init dispatch table based on device API.
             dispatchAPI = android.os.Build.VERSION.SDK_INT;
         }
-
-        String rssupportPath = null;
-        // For API 9 - 22, always use the absolute path of libRSSupport.so
-        // http://b/25226912
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M &&
-            rs.mNativeLibDir != null) {
-            rssupportPath = rs.mNativeLibDir + "/libRSSupport.so";
-        }
-        if (!rs.nLoadSO(useNative, dispatchAPI, rssupportPath)) {
+        if (!rs.nLoadSO(useNative, dispatchAPI)) {
             if (useNative) {
                 android.util.Log.v(LOG_TAG, "Unable to load libRS.so, falling back to compat mode");
                 useNative = false;
             }
             try {
-                if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M &&
-                    rs.mNativeLibDir != null) {
-                    System.load(rssupportPath);
-                } else {
-                    System.loadLibrary("RSSupport");
-                }
+                System.loadLibrary("RSSupport");
             } catch (UnsatisfiedLinkError e) {
-                Log.e(LOG_TAG, "Error loading RS Compat library: " + e + " Support lib version: " + SUPPORT_LIB_VERSION);
-                throw new RSRuntimeException("Error loading RS Compat library: " + e + " Support lib version: " + SUPPORT_LIB_VERSION);
+                Log.e(LOG_TAG, "Error loading RS Compat library: " + e);
+                throw new RSRuntimeException("Error loading RS Compat library: " + e);
             }
-            if (!rs.nLoadSO(false, dispatchAPI, rssupportPath)) {
-                Log.e(LOG_TAG, "Error loading RS Compat library: nLoadSO() failed; Support lib version: " + SUPPORT_LIB_VERSION);
-                throw new RSRuntimeException("Error loading libRSSupport library, Support lib version: " + SUPPORT_LIB_VERSION);
+            if (!rs.nLoadSO(false, dispatchAPI)) {
+                throw new RSRuntimeException("Error loading libRSSupport library");
             }
         }
 
@@ -1474,24 +1392,11 @@ public class RenderScript {
             }
         }
 
-        // For old APIs with dlopen bug, need to load blas lib in Java first.
-        // Only try load to blasV8 when the desired API level includes IntrinsicBLAS.
-        if (dispatchAPI >= 23) {
-            // Enable multi-input kernels only when diapatchAPI is M+.
-            rs.mEnableMultiInput = true;
-            try {
-                System.loadLibrary("blasV8");
-            } catch (UnsatisfiedLinkError e) {
-                Log.v(LOG_TAG, "Unable to load BLAS lib, ONLY BNNM will be supported: " + e);
-            }
-        }
-
-        long device = rs.nDeviceCreate();
-        rs.mContext = rs.nContextCreate(device, 0, sdkVersion, ct.mID, rs.mNativeLibDir);
+        rs.mDev = rs.nDeviceCreate();
+        rs.mContext = rs.nContextCreate(rs.mDev, 0, sdkVersion, ct.mID, rs.mNativeLibDir);
         rs.mContextType = ct;
         rs.mContextFlags = flags;
         rs.mContextSdkVersion = sdkVersion;
-        rs.mDispatchAPILevel = dispatchAPI;
         if (rs.mContext == 0) {
             throw new RSDriverException("Failed to create RS context.");
         }
@@ -1667,54 +1572,6 @@ public class RenderScript {
         nContextFinish();
     }
 
-    private void helpDestroy() {
-        boolean shouldDestroy = false;
-        synchronized(this) {
-            if (!mDestroyed) {
-                shouldDestroy = true;
-                mDestroyed = true;
-            }
-        }
-
-        if (shouldDestroy) {
-            nContextFinish();
-            if (mIncCon != 0) {
-                nIncContextFinish();
-                nIncContextDestroy();
-                mIncCon = 0;
-            }
-            nContextDeinitToClient(mContext);
-            mMessageThread.mRun = false;
-            // Interrupt mMessageThread so it gets to see immediately that mRun is false
-            // and exit rightaway.
-            mMessageThread.interrupt();
-
-            // Wait for mMessageThread to join.  Try in a loop, in case this thread gets interrupted
-            // during the wait.  If interrupted, set the "interrupted" status of the current thread.
-            boolean hasJoined = false, interrupted = false;
-            while (!hasJoined) {
-                try {
-                    mMessageThread.join();
-                    hasJoined = true;
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                }
-            }
-            if (interrupted) {
-                Log.v(LOG_TAG, "Interrupted during wait for MessageThread to join");
-                Thread.currentThread().interrupt();
-            }
-
-            nContextDestroy();
-        }
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        helpDestroy();
-        super.finalize();
-    }
-
     /**
      * Destroys this RenderScript context.  Once this function is called,
      * using this context or any objects belonging to this context is
@@ -1730,7 +1587,26 @@ public class RenderScript {
             return;
         }
         validate();
-        helpDestroy();
+        nContextFinish();
+        if (mIncCon != 0) {
+            nIncContextFinish();
+            nIncContextDestroy();
+            mIncCon = 0;
+        }
+        nContextDeinitToClient(mContext);
+        mMessageThread.mRun = false;
+        try {
+            mMessageThread.join();
+        } catch(InterruptedException e) {
+        }
+
+        nContextDestroy();
+        nDeviceDestroy(mDev);
+        if (mIncDev != 0) {
+            nIncDeviceDestroy(mIncDev);
+            mIncDev = 0;
+        }
+        mDev = 0;
     }
 
     boolean isAlive() {

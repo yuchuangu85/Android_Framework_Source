@@ -24,7 +24,6 @@ import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.Result.Status;
 import com.android.ide.common.rendering.api.SessionParams;
-import com.android.layoutlib.bridge.android.RenderParamsFlags;
 import com.android.layoutlib.bridge.impl.RenderDrawable;
 import com.android.layoutlib.bridge.impl.RenderSessionImpl;
 import com.android.layoutlib.bridge.util.DynamicIdMap;
@@ -38,7 +37,6 @@ import android.annotation.NonNull;
 import android.content.res.BridgeAssetManager;
 import android.graphics.Bitmap;
 import android.graphics.FontFamily_Delegate;
-import android.graphics.Typeface;
 import android.graphics.Typeface_Delegate;
 import android.icu.util.ULocale;
 import android.os.Looper;
@@ -52,16 +50,17 @@ import java.lang.ref.SoftReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.WeakHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import libcore.io.MemoryMappedFile_Delegate;
 
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_UNKNOWN;
+import static com.android.ide.common.rendering.api.Result.Status.SUCCESS;
 
 /**
  * Main entry point of the LayoutLib Bridge.
@@ -89,14 +88,19 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     /**
      * Maps from id to resource type/name. This is for com.android.internal.R
      */
-    @SuppressWarnings("deprecation")
-    private final static Map<Integer, Pair<ResourceType, String>> sRMap = new HashMap<>();
+    private final static Map<Integer, Pair<ResourceType, String>> sRMap =
+        new HashMap<Integer, Pair<ResourceType, String>>();
 
+    /**
+     * Same as sRMap except for int[] instead of int resources. This is for android.R only.
+     */
+    private final static Map<IntArray, String> sRArrayMap = new HashMap<IntArray, String>(384);
     /**
      * Reverse map compared to sRMap, resource type -> (resource name -> id).
      * This is for com.android.internal.R.
      */
-    private final static Map<ResourceType, Map<String, Integer>> sRevRMap = new EnumMap<>(ResourceType.class);
+    private final static Map<ResourceType, Map<String, Integer>> sRevRMap =
+        new EnumMap<ResourceType, Map<String,Integer>>(ResourceType.class);
 
     // framework resources are defined as 0x01XX#### where XX is the resource type (layout,
     // drawable, etc...). Using FF as the type allows for 255 resource types before we get a
@@ -105,16 +109,54 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     private final static DynamicIdMap sDynamicIds = new DynamicIdMap(DYNAMIC_ID_SEED_START);
 
     private final static Map<Object, Map<String, SoftReference<Bitmap>>> sProjectBitmapCache =
-            new WeakHashMap<>();
+        new HashMap<Object, Map<String, SoftReference<Bitmap>>>();
     private final static Map<Object, Map<String, SoftReference<NinePatchChunk>>> sProject9PatchCache =
-            new WeakHashMap<>();
+        new HashMap<Object, Map<String, SoftReference<NinePatchChunk>>>();
 
-    private final static Map<String, SoftReference<Bitmap>> sFrameworkBitmapCache = new HashMap<>();
+    private final static Map<String, SoftReference<Bitmap>> sFrameworkBitmapCache =
+        new HashMap<String, SoftReference<Bitmap>>();
     private final static Map<String, SoftReference<NinePatchChunk>> sFramework9PatchCache =
-            new HashMap<>();
+        new HashMap<String, SoftReference<NinePatchChunk>>();
 
     private static Map<String, Map<String, Integer>> sEnumValueMap;
     private static Map<String, String> sPlatformProperties;
+
+    /**
+     * int[] wrapper to use as keys in maps.
+     */
+    private final static class IntArray {
+        private int[] mArray;
+
+        private IntArray() {
+            // do nothing
+        }
+
+        private IntArray(int[] a) {
+            mArray = a;
+        }
+
+        private void set(int[] a) {
+            mArray = a;
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(mArray);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (obj == null) return false;
+            if (getClass() != obj.getClass()) return false;
+
+            IntArray other = (IntArray) obj;
+            return Arrays.equals(mArray, other.mArray);
+        }
+    }
+
+    /** Instance of IntArrayWrapper to be reused in {@link #resolveResourceId(int[])}. */
+    private final static IntArray sIntArrayWrapper = new IntArray();
 
     /**
      * A default log than prints to stdout/stderr.
@@ -141,14 +183,13 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      */
     private static LayoutLog sCurrentLog = sDefaultLog;
 
-    private static final int LAST_SUPPORTED_FEATURE = Features.THEME_PREVIEW_NAVIGATION_BAR;
+    private static final int LAST_SUPPORTED_FEATURE = Features.RECYCLER_VIEW_ADAPTER;
 
     @Override
     public int getApiLevel() {
         return com.android.ide.common.rendering.api.Bridge.API_CURRENT;
     }
 
-    @SuppressWarnings("deprecation")
     @Override
     @Deprecated
     public EnumSet<Capability> getCapabilities() {
@@ -229,11 +270,11 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
                         case STRING:
                         case STYLE:
                             // Slightly less than thousand entries in each.
-                            fullMap = new HashMap<>(1280);
+                            fullMap = new HashMap<String, Integer>(1280);
                             // no break.
                         default:
                             if (fullMap == null) {
-                                fullMap = new HashMap<>();
+                                fullMap = new HashMap<String, Integer>();
                             }
                             sRevRMap.put(resType, fullMap);
                     }
@@ -245,9 +286,13 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
                             continue;
                         }
                         Class<?> type = f.getType();
-                        if (!type.isArray()) {
+                        if (type.isArray()) {
+                            // if the object is an int[] we put it in sRArrayMap using an IntArray
+                            // wrapper that properly implements equals and hashcode for the array
+                            // objects, as required by the map contract.
+                            sRArrayMap.put(new IntArray((int[]) f.get(null)), f.getName());
+                        } else {
                             Integer value = (Integer) f.get(null);
-                            //noinspection deprecation
                             sRMap.put(value, Pair.of(resType, f.getName()));
                             fullMap.put(f.getName(), value);
                         }
@@ -285,29 +330,32 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
         // values, we try and find them from the styleables.
 
         // There were 1500 elements in this map at M timeframe.
-        Map<String, Integer> revRAttrMap = new HashMap<>(2048);
+        Map<String, Integer> revRAttrMap = new HashMap<String, Integer>(2048);
         sRevRMap.put(ResourceType.ATTR, revRAttrMap);
         // There were 2000 elements in this map at M timeframe.
-        Map<String, Integer> revRStyleableMap = new HashMap<>(3072);
+        Map<String, Integer> revRStyleableMap = new HashMap<String, Integer>(3072);
         sRevRMap.put(ResourceType.STYLEABLE, revRStyleableMap);
         Class<?> c = com.android.internal.R.styleable.class;
         Field[] fields = c.getDeclaredFields();
         // Sort the fields to bring all arrays to the beginning, so that indices into the array are
         // able to refer back to the arrays (i.e. no forward references).
-        Arrays.sort(fields, (o1, o2) -> {
-            if (o1 == o2) {
-                return 0;
+        Arrays.sort(fields, new Comparator<Field>() {
+            @Override
+            public int compare(Field o1, Field o2) {
+                if (o1 == o2) {
+                    return 0;
+                }
+                Class<?> t1 = o1.getType();
+                Class<?> t2 = o2.getType();
+                if (t1.isArray() && !t2.isArray()) {
+                    return -1;
+                } else if (t2.isArray() && !t1.isArray()) {
+                    return 1;
+                }
+                return o1.getName().compareTo(o2.getName());
             }
-            Class<?> t1 = o1.getType();
-            Class<?> t2 = o2.getType();
-            if (t1.isArray() && !t2.isArray()) {
-                return -1;
-            } else if (t2.isArray() && !t1.isArray()) {
-                return 1;
-            }
-            return o1.getName().compareTo(o2.getName());
         });
-        Map<String, int[]> styleables = new HashMap<>();
+        Map<String, int[]> styleables = new HashMap<String, int[]>();
         for (Field field : fields) {
             if (!isValidRField(field)) {
                 // Only consider public static fields that are int or int[].
@@ -317,6 +365,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             String name = field.getName();
             if (field.getType().isArray()) {
                 int[] styleableValue = (int[]) field.get(null);
+                sRArrayMap.put(new IntArray(styleableValue), name);
                 styleables.put(name, styleableValue);
                 continue;
             }
@@ -338,11 +387,9 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             if (arrayValue != null) {
                 String attrName = name.substring(arrayName.length() + 1);
                 int attrValue = arrayValue[index];
-                //noinspection deprecation
                 sRMap.put(attrValue, Pair.of(ResourceType.ATTR, attrName));
                 revRAttrMap.put(attrName, attrValue);
             }
-            //noinspection deprecation
             sRMap.put(index, Pair.of(ResourceType.STYLEABLE, name));
             revRStyleableMap.put(name, index);
         }
@@ -354,9 +401,6 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
 
         // dispose of the default typeface.
         Typeface_Delegate.resetDefaults();
-        Typeface.sDynamicTypefaceCache.evictAll();
-        sProject9PatchCache.clear();
-        sProjectBitmapCache.clear();
 
         return true;
     }
@@ -364,9 +408,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     /**
      * Starts a layout session by inflating and rendering it. The method returns a
      * {@link RenderSession} on which further actions can be taken.
-     * <p/>
-     * If {@link SessionParams} includes the {@link RenderParamsFlags#FLAG_DO_NOT_RENDER_ON_CREATE},
-     * this method will only inflate the layout but will NOT render it.
+     *
      * @param params the {@link SessionParams} object with all the information necessary to create
      *           the scene.
      * @return a new {@link RenderSession} object that contains the result of the layout.
@@ -375,17 +417,14 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     @Override
     public RenderSession createSession(SessionParams params) {
         try {
-            Result lastResult;
+            Result lastResult = SUCCESS.createResult();
             RenderSessionImpl scene = new RenderSessionImpl(params);
             try {
                 prepareThread();
                 lastResult = scene.init(params.getTimeout());
                 if (lastResult.isSuccess()) {
                     lastResult = scene.inflate();
-
-                    boolean doNotRenderOnCreate = Boolean.TRUE.equals(
-                            params.getFlag(RenderParamsFlags.FLAG_DO_NOT_RENDER_ON_CREATE));
-                    if (lastResult.isSuccess() && !doNotRenderOnCreate) {
+                    if (lastResult.isSuccess()) {
                         lastResult = scene.render(true /*freshRender*/);
                     }
                 }
@@ -399,7 +438,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             // get the real cause of the exception.
             Throwable t2 = t;
             while (t2.getCause() != null) {
-                t2 = t2.getCause();
+                t2 = t.getCause();
             }
             return new BridgeRenderSession(null,
                     ERROR_UNKNOWN.createResult(t2.getMessage(), t));
@@ -409,7 +448,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     @Override
     public Result renderDrawable(DrawableParams params) {
         try {
-            Result lastResult;
+            Result lastResult = SUCCESS.createResult();
             RenderDrawable action = new RenderDrawable(params);
             try {
                 prepareThread();
@@ -492,7 +531,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      * Note that while this can be called several time, the first call to {@link #cleanupThread()}
      * will do the clean-up, and make the thread unable to do further scene actions.
      */
-    public synchronized static void prepareThread() {
+    public static void prepareThread() {
         // we need to make sure the Looper has been initialized for this thread.
         // this is required for View that creates Handler objects.
         if (Looper.myLooper() == null) {
@@ -506,7 +545,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      * Note that it doesn't matter how many times {@link #prepareThread()} was called, a single
      * call to this will prevent the thread from doing further scene actions
      */
-    public synchronized static void cleanupThread() {
+    public static void cleanupThread() {
         // clean up the looper
         Looper_Accessor.cleanupThread();
     }
@@ -534,13 +573,23 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      * @return a Pair containing the resource type and name, or null if the id
      *     does not match any resource.
      */
-    @SuppressWarnings("deprecation")
     public static Pair<ResourceType, String> resolveResourceId(int value) {
         Pair<ResourceType, String> pair = sRMap.get(value);
         if (pair == null) {
             pair = sDynamicIds.resolveId(value);
+            if (pair == null) {
+                //System.out.println(String.format("Missing id: %1$08X (%1$d)", value));
+            }
         }
         return pair;
+    }
+
+    /**
+     * Returns the name of a framework resource whose value is an int array.
+     */
+    public static String resolveResourceId(int[] array) {
+        sIntArrayWrapper.set(array);
+        return sRArrayMap.get(sIntArrayWrapper);
     }
 
     /**
@@ -617,12 +666,16 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      */
     public static void setCachedBitmap(String value, Bitmap bmp, Object projectKey) {
         if (projectKey != null) {
-            Map<String, SoftReference<Bitmap>> map =
-                    sProjectBitmapCache.computeIfAbsent(projectKey, k -> new HashMap<>());
+            Map<String, SoftReference<Bitmap>> map = sProjectBitmapCache.get(projectKey);
 
-            map.put(value, new SoftReference<>(bmp));
+            if (map == null) {
+                map = new HashMap<String, SoftReference<Bitmap>>();
+                sProjectBitmapCache.put(projectKey, map);
+            }
+
+            map.put(value, new SoftReference<Bitmap>(bmp));
         } else {
-            sFrameworkBitmapCache.put(value, new SoftReference<>(bmp));
+            sFrameworkBitmapCache.put(value, new SoftReference<Bitmap>(bmp));
         }
     }
 
@@ -661,12 +714,16 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      */
     public static void setCached9Patch(String value, NinePatchChunk ninePatch, Object projectKey) {
         if (projectKey != null) {
-            Map<String, SoftReference<NinePatchChunk>> map =
-                    sProject9PatchCache.computeIfAbsent(projectKey, k -> new HashMap<>());
+            Map<String, SoftReference<NinePatchChunk>> map = sProject9PatchCache.get(projectKey);
 
-            map.put(value, new SoftReference<>(ninePatch));
+            if (map == null) {
+                map = new HashMap<String, SoftReference<NinePatchChunk>>();
+                sProject9PatchCache.put(projectKey, map);
+            }
+
+            map.put(value, new SoftReference<NinePatchChunk>(ninePatch));
         } else {
-            sFramework9PatchCache.put(value, new SoftReference<>(ninePatch));
+            sFramework9PatchCache.put(value, new SoftReference<NinePatchChunk>(ninePatch));
         }
     }
 }

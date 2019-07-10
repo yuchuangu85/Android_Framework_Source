@@ -1,1066 +1,725 @@
 /*
- * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
-import java.util.Objects;
 import java.util.Formatter;
+import java.util.IllegalFormatException;
 import java.util.Locale;
-import java.nio.charset.Charset;
-import java.nio.charset.IllegalCharsetNameException;
-import java.nio.charset.UnsupportedCharsetException;
 
 /**
- * Prints formatted representations of objects to a text-output stream.  This
- * class implements all of the <tt>print</tt> methods found in {@link
- * PrintStream}.  It does not contain methods for writing raw bytes, for which
- * a program should use unencoded byte streams.
- *
- * <p> Unlike the {@link PrintStream} class, if automatic flushing is enabled
- * it will be done only when one of the <tt>println</tt>, <tt>printf</tt>, or
- * <tt>format</tt> methods is invoked, rather than whenever a newline character
- * happens to be output.  These methods use the platform's own notion of line
- * separator rather than the newline character.
- *
- * <p> Methods in this class never throw I/O exceptions, although some of its
- * constructors may.  The client may inquire as to whether any errors have
- * occurred by invoking {@link #checkError checkError()}.
- *
- * @author      Frank Yellin
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * Wraps either an existing {@link OutputStream} or an existing {@link Writer}
+ * and provides convenience methods for printing common data types in a human
+ * readable format. No {@code IOException} is thrown by this class. Instead,
+ * callers should use {@link #checkError()} to see if a problem has occurred in
+ * this writer.
  */
-
 public class PrintWriter extends Writer {
-
     /**
-     * The underlying character-output stream of this
-     * <code>PrintWriter</code>.
-     *
-     * @since 1.2
+     * The writer to print data to.
      */
     protected Writer out;
 
-    private final boolean autoFlush;
-    private boolean trouble = false;
-    private Formatter formatter;
-    private PrintStream psOut = null;
-
     /**
-     * Line separator string.  This is the value of the line.separator
-     * property at the moment that the stream was created.
+     * Indicates whether this PrintWriter is in an error state.
      */
-    private final String lineSeparator;
+    private boolean ioError;
 
     /**
-     * Returns a charset object for the given charset name.
-     * @throws NullPointerException          is csn is null
-     * @throws UnsupportedEncodingException  if the charset is not supported
+     * Indicates whether or not this PrintWriter should flush its contents after
+     * printing a new line.
      */
-    private static Charset toCharset(String csn)
-        throws UnsupportedEncodingException
-    {
-        Objects.requireNonNull(csn, "charsetName");
-        try {
-            return Charset.forName(csn);
-        } catch (IllegalCharsetNameException|UnsupportedCharsetException unused) {
-            // UnsupportedEncodingException should be thrown
-            throw new UnsupportedEncodingException(csn);
-        }
-    }
+    private boolean autoFlush;
 
     /**
-     * Creates a new PrintWriter, without automatic line flushing.
+     * Constructs a new {@code PrintWriter} with {@code out} as its target
+     * stream. By default, the new print writer does not automatically flush its
+     * contents to the target stream when a newline is encountered.
      *
-     * @param  out        A character-output stream
-     */
-    public PrintWriter (Writer out) {
-        this(out, false);
-    }
-
-    /**
-     * Creates a new PrintWriter.
-     *
-     * @param  out        A character-output stream
-     * @param  autoFlush  A boolean; if true, the <tt>println</tt>,
-     *                    <tt>printf</tt>, or <tt>format</tt> methods will
-     *                    flush the output buffer
-     */
-    public PrintWriter(Writer out,
-                       boolean autoFlush) {
-        super(out);
-        this.out = out;
-        this.autoFlush = autoFlush;
-        lineSeparator = java.security.AccessController.doPrivileged(
-            new sun.security.action.GetPropertyAction("line.separator"));
-    }
-
-    /**
-     * Creates a new PrintWriter, without automatic line flushing, from an
-     * existing OutputStream.  This convenience constructor creates the
-     * necessary intermediate OutputStreamWriter, which will convert characters
-     * into bytes using the default character encoding.
-     *
-     * @param  out        An output stream
-     *
-     * @see java.io.OutputStreamWriter#OutputStreamWriter(java.io.OutputStream)
+     * @param out
+     *            the target output stream.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
      */
     public PrintWriter(OutputStream out) {
-        this(out, false);
+        this(new OutputStreamWriter(out), false);
     }
 
     /**
-     * Creates a new PrintWriter from an existing OutputStream.  This
-     * convenience constructor creates the necessary intermediate
-     * OutputStreamWriter, which will convert characters into bytes using the
-     * default character encoding.
+     * Constructs a new {@code PrintWriter} with {@code out} as its target
+     * stream. The parameter {@code autoFlush} determines if the print writer
+     * automatically flushes its contents to the target stream when a newline is
+     * encountered.
      *
-     * @param  out        An output stream
-     * @param  autoFlush  A boolean; if true, the <tt>println</tt>,
-     *                    <tt>printf</tt>, or <tt>format</tt> methods will
-     *                    flush the output buffer
-     *
-     * @see java.io.OutputStreamWriter#OutputStreamWriter(java.io.OutputStream)
+     * @param out
+     *            the target output stream.
+     * @param autoFlush
+     *            indicates whether contents are flushed upon encountering a
+     *            newline sequence.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
      */
     public PrintWriter(OutputStream out, boolean autoFlush) {
-        this(new BufferedWriter(new OutputStreamWriter(out)), autoFlush);
-
-        // save print stream for error propagation
-        if (out instanceof java.io.PrintStream) {
-            psOut = (PrintStream) out;
-        }
+        this(new OutputStreamWriter(out), autoFlush);
     }
 
     /**
-     * Creates a new PrintWriter, without automatic line flushing, with the
-     * specified file name.  This convenience constructor creates the necessary
-     * intermediate {@link java.io.OutputStreamWriter OutputStreamWriter},
-     * which will encode characters using the {@linkplain
-     * java.nio.charset.Charset#defaultCharset() default charset} for this
-     * instance of the Java virtual machine.
+     * Constructs a new {@code PrintWriter} with {@code wr} as its target
+     * writer. By default, the new print writer does not automatically flush its
+     * contents to the target writer when a newline is encountered.
      *
-     * @param  fileName
-     *         The name of the file to use as the destination of this writer.
-     *         If the file exists then it will be truncated to zero size;
-     *         otherwise, a new file will be created.  The output will be
-     *         written to the file and is buffered.
-     *
-     * @throws  FileNotFoundException
-     *          If the given string does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(fileName)} denies write
-     *          access to the file
-     *
-     * @since  1.5
+     * @param wr
+     *            the target writer.
+     * @throws NullPointerException
+     *             if {@code wr} is {@code null}.
      */
-    public PrintWriter(String fileName) throws FileNotFoundException {
-        this(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(fileName))),
-             false);
-    }
-
-    /* Private constructor */
-    private PrintWriter(Charset charset, File file)
-        throws FileNotFoundException
-    {
-        this(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), charset)),
-             false);
+    public PrintWriter(Writer wr) {
+        this(wr, false);
     }
 
     /**
-     * Creates a new PrintWriter, without automatic line flushing, with the
-     * specified file name and charset.  This convenience constructor creates
-     * the necessary intermediate {@link java.io.OutputStreamWriter
-     * OutputStreamWriter}, which will encode characters using the provided
-     * charset.
+     * Constructs a new {@code PrintWriter} with {@code out} as its target
+     * writer. The parameter {@code autoFlush} determines if the print writer
+     * automatically flushes its contents to the target writer when a newline is
+     * encountered.
      *
-     * @param  fileName
-     *         The name of the file to use as the destination of this writer.
-     *         If the file exists then it will be truncated to zero size;
-     *         otherwise, a new file will be created.  The output will be
-     *         written to the file and is buffered.
-     *
-     * @param  csn
-     *         The name of a supported {@linkplain java.nio.charset.Charset
-     *         charset}
-     *
-     * @throws  FileNotFoundException
-     *          If the given string does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(fileName)} denies write
-     *          access to the file
-     *
-     * @throws  UnsupportedEncodingException
-     *          If the named charset is not supported
-     *
-     * @since  1.5
+     * @param wr
+     *            the target writer.
+     * @param autoFlush
+     *            indicates whether to flush contents upon encountering a
+     *            newline sequence.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
      */
-    public PrintWriter(String fileName, String csn)
-        throws FileNotFoundException, UnsupportedEncodingException
-    {
-        this(toCharset(csn), new File(fileName));
+    public PrintWriter(Writer wr, boolean autoFlush) {
+        super(wr);
+        this.autoFlush = autoFlush;
+        out = wr;
     }
 
     /**
-     * Creates a new PrintWriter, without automatic line flushing, with the
-     * specified file.  This convenience constructor creates the necessary
-     * intermediate {@link java.io.OutputStreamWriter OutputStreamWriter},
-     * which will encode characters using the {@linkplain
-     * java.nio.charset.Charset#defaultCharset() default charset} for this
-     * instance of the Java virtual machine.
+     * Constructs a new {@code PrintWriter} with {@code file} as its target. The
+     * VM's default character set is used for character encoding.
+     * The print writer does not automatically flush its contents to the target
+     * file when a newline is encountered. The output to the file is buffered.
      *
-     * @param  file
-     *         The file to use as the destination of this writer.  If the file
-     *         exists then it will be truncated to zero size; otherwise, a new
-     *         file will be created.  The output will be written to the file
-     *         and is buffered.
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(file.getPath())}
-     *          denies write access to the file
-     *
-     * @since  1.5
+     * @param file
+     *            the target file. If the file already exists, its contents are
+     *            removed, otherwise a new file is created.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
      */
     public PrintWriter(File file) throws FileNotFoundException {
-        this(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file))),
-             false);
+        this(new OutputStreamWriter(new BufferedOutputStream(new FileOutputStream(file))), false);
     }
 
     /**
-     * Creates a new PrintWriter, without automatic line flushing, with the
-     * specified file and charset.  This convenience constructor creates the
-     * necessary intermediate {@link java.io.OutputStreamWriter
-     * OutputStreamWriter}, which will encode characters using the provided
-     * charset.
+     * Constructs a new {@code PrintWriter} with {@code file} as its target. The
+     * character set named {@code csn} is used for character encoding.
+     * The print writer does not automatically flush its contents to the target
+     * file when a newline is encountered. The output to the file is buffered.
      *
-     * @param  file
-     *         The file to use as the destination of this writer.  If the file
-     *         exists then it will be truncated to zero size; otherwise, a new
-     *         file will be created.  The output will be written to the file
-     *         and is buffered.
-     *
-     * @param  csn
-     *         The name of a supported {@linkplain java.nio.charset.Charset
-     *         charset}
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(file.getPath())}
-     *          denies write access to the file
-     *
-     * @throws  UnsupportedEncodingException
-     *          If the named charset is not supported
-     *
-     * @since  1.5
+     * @param file
+     *            the target file. If the file already exists, its contents are
+     *            removed, otherwise a new file is created.
+     * @param csn
+     *            the name of the character set used for character encoding.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
+     * @throws NullPointerException
+     *             if {@code csn} is {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code csn} is not supported.
      */
-    public PrintWriter(File file, String csn)
-        throws FileNotFoundException, UnsupportedEncodingException
-    {
-        this(toCharset(csn), file);
-    }
-
-    /** Checks to make sure that the stream has not been closed */
-    private void ensureOpen() throws IOException {
-        if (out == null)
-            throw new IOException("Stream closed");
+    public PrintWriter(File file, String csn) throws FileNotFoundException,
+            UnsupportedEncodingException {
+        this(new OutputStreamWriter(new BufferedOutputStream(new FileOutputStream(file)), csn),
+                false);
     }
 
     /**
-     * Flushes the stream.
-     * @see #checkError()
-     */
-    public void flush() {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                out.flush();
-            }
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    /**
-     * Closes the stream and releases any system resources associated
-     * with it. Closing a previously closed stream has no effect.
+     * Constructs a new {@code PrintWriter} with the file identified by {@code
+     * fileName} as its target. The VM's default character set is
+     * used for character encoding. The print writer does not automatically
+     * flush its contents to the target file when a newline is encountered. The
+     * output to the file is buffered.
      *
-     * @see #checkError()
+     * @param fileName
+     *            the target file's name. If the file already exists, its
+     *            contents are removed, otherwise a new file is created.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
      */
-    public void close() {
-        try {
-            synchronized (lock) {
-                if (out == null)
-                    return;
-                out.close();
-                out = null;
-            }
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
+    public PrintWriter(String fileName) throws FileNotFoundException {
+        this(new OutputStreamWriter(new BufferedOutputStream(new FileOutputStream(fileName))),
+                false);
+    }
+
+     /**
+     * Constructs a new {@code PrintWriter} with the file identified by {@code
+     * fileName} as its target. The character set named {@code csn} is used for
+     * character encoding. The print writer does not automatically flush its
+     * contents to the target file when a newline is encountered. The output to
+     * the file is buffered.
+     *
+     * @param fileName
+     *            the target file's name. If the file already exists, its
+     *            contents are removed, otherwise a new file is created.
+     * @param csn
+     *            the name of the character set used for character encoding.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
+     * @throws NullPointerException
+     *             if {@code csn} is {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code csn} is not supported.
+     */
+    public PrintWriter(String fileName, String csn)
+            throws FileNotFoundException, UnsupportedEncodingException {
+        this(new OutputStreamWriter(new BufferedOutputStream(new FileOutputStream(fileName)), csn),
+                false);
     }
 
     /**
-     * Flushes the stream if it's not closed and checks its error state.
+     * Flushes this writer and returns the value of the error flag.
      *
-     * @return <code>true</code> if the print stream has encountered an error,
-     *          either on the underlying output stream or during a format
-     *          conversion.
+     * @return {@code true} if either an {@code IOException} has been thrown
+     *         previously or if {@code setError()} has been called;
+     *         {@code false} otherwise.
+     * @see #setError()
      */
     public boolean checkError() {
-        if (out != null) {
-            flush();
+        Writer delegate = out;
+        if (delegate == null) {
+            return ioError;
         }
-        if (out instanceof java.io.PrintWriter) {
-            PrintWriter pw = (PrintWriter) out;
-            return pw.checkError();
-        } else if (psOut != null) {
-            return psOut.checkError();
-        }
-        return trouble;
+
+        flush();
+        return ioError || delegate.checkError();
     }
 
     /**
-     * Indicates that an error has occurred.
-     *
-     * <p> This method will cause subsequent invocations of {@link
-     * #checkError()} to return <tt>true</tt> until {@link
-     * #clearError()} is invoked.
-     */
-    protected void setError() {
-        trouble = true;
-    }
-
-    /**
-     * Clears the error state of this stream.
-     *
-     * <p> This method will cause subsequent invocations of {@link
-     * #checkError()} to return <tt>false</tt> until another write
-     * operation fails and invokes {@link #setError()}.
-     *
+     * Sets the error state of the stream to false.
      * @since 1.6
      */
     protected void clearError() {
-        trouble = false;
+        synchronized (lock) {
+            ioError = false;
+        }
     }
 
-    /*
-     * Exception-catching, synchronized output operations,
-     * which also implement the write() methods of Writer
-     */
-
     /**
-     * Writes a single character.
-     * @param c int specifying a character to be written.
+     * Closes this print writer. Flushes this writer and then closes the target.
+     * If an I/O error occurs, this writer's error flag is set to {@code true}.
      */
-    public void write(int c) {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                out.write(c);
+    @Override
+    public void close() {
+        synchronized (lock) {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (IOException e) {
+                    setError();
+                }
+                out = null;
             }
         }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
     }
 
     /**
-     * Writes A Portion of an array of characters.
-     * @param buf Array of characters
-     * @param off Offset from which to start writing characters
-     * @param len Number of characters to write
+     * Ensures that all pending data is sent out to the target. It also
+     * flushes the target. If an I/O error occurs, this writer's error
+     * state is set to {@code true}.
      */
-    public void write(char buf[], int off, int len) {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                out.write(buf, off, len);
-            }
-        }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    /**
-     * Writes an array of characters.  This method cannot be inherited from the
-     * Writer class because it must suppress I/O exceptions.
-     * @param buf Array of characters to be written
-     */
-    public void write(char buf[]) {
-        write(buf, 0, buf.length);
-    }
-
-    /**
-     * Writes a portion of a string.
-     * @param s A String
-     * @param off Offset from which to start writing characters
-     * @param len Number of characters to write
-     */
-    public void write(String s, int off, int len) {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                out.write(s, off, len);
-            }
-        }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    /**
-     * Writes a string.  This method cannot be inherited from the Writer class
-     * because it must suppress I/O exceptions.
-     * @param s String to be written
-     */
-    public void write(String s) {
-        write(s, 0, s.length());
-    }
-
-    private void newLine() {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                out.write(lineSeparator);
-                if (autoFlush)
+    @Override
+    public void flush() {
+        synchronized (lock) {
+            if (out != null) {
+                try {
                     out.flush();
+                } catch (IOException e) {
+                    setError();
+                }
+            } else {
+                setError();
             }
         }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
+    }
+
+    /**
+     * Formats {@code args} according to the format string {@code format}, and writes the result
+     * to this stream. This method uses the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     * If automatic flushing is enabled then the buffer is flushed as well.
+     *
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this writer.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
+     */
+    public PrintWriter format(String format, Object... args) {
+        return format(Locale.getDefault(), format, args);
+    }
+
+    /**
+     * Writes a string formatted by an intermediate {@code Formatter} to the
+     * target using the specified locale, format string and arguments. If
+     * automatic flushing is enabled then this writer is flushed.
+     *
+     * @param l
+     *            the locale used in the method. No localization will be applied
+     *            if {@code l} is {@code null}.
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this writer.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
+     */
+    public PrintWriter format(Locale l, String format, Object... args) {
+        if (format == null) {
+            throw new NullPointerException("format == null");
         }
-        catch (IOException x) {
-            trouble = true;
+        new Formatter(this, l).format(format, args);
+        if (autoFlush) {
+            flush();
         }
-    }
-
-    /* Methods that do not terminate lines */
-
-    /**
-     * Prints a boolean value.  The string produced by <code>{@link
-     * java.lang.String#valueOf(boolean)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link
-     * #write(int)}</code> method.
-     *
-     * @param      b   The <code>boolean</code> to be printed
-     */
-    public void print(boolean b) {
-        write(b ? "true" : "false");
+        return this;
     }
 
     /**
-     * Prints a character.  The character is translated into one or more bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link
-     * #write(int)}</code> method.
+     * Prints a formatted string. The behavior of this method is the same as
+     * this writer's {@code #format(String, Object...)} method.
      *
-     * @param      c   The <code>char</code> to be printed
+     * <p>The {@code Locale} used is the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     *
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this writer.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
      */
-    public void print(char c) {
-        write(c);
-    }
-
-    /**
-     * Prints an integer.  The string produced by <code>{@link
-     * java.lang.String#valueOf(int)}</code> is translated into bytes according
-     * to the platform's default character encoding, and these bytes are
-     * written in exactly the manner of the <code>{@link #write(int)}</code>
-     * method.
-     *
-     * @param      i   The <code>int</code> to be printed
-     * @see        java.lang.Integer#toString(int)
-     */
-    public void print(int i) {
-        write(String.valueOf(i));
-    }
-
-    /**
-     * Prints a long integer.  The string produced by <code>{@link
-     * java.lang.String#valueOf(long)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link #write(int)}</code>
-     * method.
-     *
-     * @param      l   The <code>long</code> to be printed
-     * @see        java.lang.Long#toString(long)
-     */
-    public void print(long l) {
-        write(String.valueOf(l));
-    }
-
-    /**
-     * Prints a floating-point number.  The string produced by <code>{@link
-     * java.lang.String#valueOf(float)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link #write(int)}</code>
-     * method.
-     *
-     * @param      f   The <code>float</code> to be printed
-     * @see        java.lang.Float#toString(float)
-     */
-    public void print(float f) {
-        write(String.valueOf(f));
-    }
-
-    /**
-     * Prints a double-precision floating-point number.  The string produced by
-     * <code>{@link java.lang.String#valueOf(double)}</code> is translated into
-     * bytes according to the platform's default character encoding, and these
-     * bytes are written in exactly the manner of the <code>{@link
-     * #write(int)}</code> method.
-     *
-     * @param      d   The <code>double</code> to be printed
-     * @see        java.lang.Double#toString(double)
-     */
-    public void print(double d) {
-        write(String.valueOf(d));
-    }
-
-    /**
-     * Prints an array of characters.  The characters are converted into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link #write(int)}</code>
-     * method.
-     *
-     * @param      s   The array of chars to be printed
-     *
-     * @throws  NullPointerException  If <code>s</code> is <code>null</code>
-     */
-    public void print(char s[]) {
-        write(s);
-    }
-
-    /**
-     * Prints a string.  If the argument is <code>null</code> then the string
-     * <code>"null"</code> is printed.  Otherwise, the string's characters are
-     * converted into bytes according to the platform's default character
-     * encoding, and these bytes are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      s   The <code>String</code> to be printed
-     */
-    public void print(String s) {
-        if (s == null) {
-            s = "null";
-        }
-        write(s);
-    }
-
-    /**
-     * Prints an object.  The string produced by the <code>{@link
-     * java.lang.String#valueOf(Object)}</code> method is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the <code>{@link #write(int)}</code>
-     * method.
-     *
-     * @param      obj   The <code>Object</code> to be printed
-     * @see        java.lang.Object#toString()
-     */
-    public void print(Object obj) {
-        write(String.valueOf(obj));
-    }
-
-    /* Methods that do terminate lines */
-
-    /**
-     * Terminates the current line by writing the line separator string.  The
-     * line separator string is defined by the system property
-     * <code>line.separator</code>, and is not necessarily a single newline
-     * character (<code>'\n'</code>).
-     */
-    public void println() {
-        newLine();
-    }
-
-    /**
-     * Prints a boolean value and then terminates the line.  This method behaves
-     * as though it invokes <code>{@link #print(boolean)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x the <code>boolean</code> value to be printed
-     */
-    public void println(boolean x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints a character and then terminates the line.  This method behaves as
-     * though it invokes <code>{@link #print(char)}</code> and then <code>{@link
-     * #println()}</code>.
-     *
-     * @param x the <code>char</code> value to be printed
-     */
-    public void println(char x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints an integer and then terminates the line.  This method behaves as
-     * though it invokes <code>{@link #print(int)}</code> and then <code>{@link
-     * #println()}</code>.
-     *
-     * @param x the <code>int</code> value to be printed
-     */
-    public void println(int x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints a long integer and then terminates the line.  This method behaves
-     * as though it invokes <code>{@link #print(long)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x the <code>long</code> value to be printed
-     */
-    public void println(long x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints a floating-point number and then terminates the line.  This method
-     * behaves as though it invokes <code>{@link #print(float)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x the <code>float</code> value to be printed
-     */
-    public void println(float x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints a double-precision floating-point number and then terminates the
-     * line.  This method behaves as though it invokes <code>{@link
-     * #print(double)}</code> and then <code>{@link #println()}</code>.
-     *
-     * @param x the <code>double</code> value to be printed
-     */
-    public void println(double x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints an array of characters and then terminates the line.  This method
-     * behaves as though it invokes <code>{@link #print(char[])}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x the array of <code>char</code> values to be printed
-     */
-    public void println(char x[]) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints a String and then terminates the line.  This method behaves as
-     * though it invokes <code>{@link #print(String)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x the <code>String</code> value to be printed
-     */
-    public void println(String x) {
-        synchronized (lock) {
-            print(x);
-            println();
-        }
-    }
-
-    /**
-     * Prints an Object and then terminates the line.  This method calls
-     * at first String.valueOf(x) to get the printed object's string value,
-     * then behaves as
-     * though it invokes <code>{@link #print(String)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>Object</code> to be printed.
-     */
-    public void println(Object x) {
-        String s = String.valueOf(x);
-        synchronized (lock) {
-            print(s);
-            println();
-        }
-    }
-
-    /**
-     * A convenience method to write a formatted string to this writer using
-     * the specified format string and arguments.  If automatic flushing is
-     * enabled, calls to this method will flush the output buffer.
-     *
-     * <p> An invocation of this method of the form <tt>out.printf(format,
-     * args)</tt> behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.format(format, args) </pre>
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>.
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This writer
-     *
-     * @since  1.5
-     */
-    public PrintWriter printf(String format, Object ... args) {
+    public PrintWriter printf(String format, Object... args) {
         return format(format, args);
     }
 
     /**
-     * A convenience method to write a formatted string to this writer using
-     * the specified format string and arguments.  If automatic flushing is
-     * enabled, calls to this method will flush the output buffer.
+     * Prints a formatted string. The behavior of this method is the same as
+     * this writer's {@code #format(Locale, String, Object...)} method.
      *
-     * <p> An invocation of this method of the form <tt>out.printf(l, format,
-     * args)</tt> behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.format(l, format, args) </pre>
-     *
-     * @param  l
-     *         The {@linkplain java.util.Locale locale} to apply during
-     *         formatting.  If <tt>l</tt> is <tt>null</tt> then no localization
-     *         is applied.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>.
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This writer
-     *
-     * @since  1.5
+     * @param l
+     *            the locale used in the method. No localization will be applied
+     *            if {@code l} is {@code null}.
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this writer.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
      */
-    public PrintWriter printf(Locale l, String format, Object ... args) {
+    public PrintWriter printf(Locale l, String format, Object... args) {
         return format(l, format, args);
     }
 
     /**
-     * Writes a formatted string to this writer using the specified format
-     * string and arguments.  If automatic flushing is enabled, calls to this
-     * method will flush the output buffer.
+     * Prints the string representation of the specified character array
+     * to the target.
      *
-     * <p> The locale always used is the one returned by {@link
-     * java.util.Locale#getDefault() Locale.getDefault()}, regardless of any
-     * previous invocations of other formatting methods on this object.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>.
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          Formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This writer
-     *
-     * @since  1.5
+     * @param charArray
+     *            the character array to print to the target.
+     * @see #print(String)
      */
-    public PrintWriter format(String format, Object ... args) {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                if ((formatter == null)
-                    || (formatter.locale() != Locale.getDefault()))
-                    formatter = new Formatter(this);
-                formatter.format(Locale.getDefault(), format, args);
-                if (autoFlush)
-                    out.flush();
+    public void print(char[] charArray) {
+        print(new String(charArray, 0, charArray.length));
+    }
+
+    /**
+     * Prints the string representation of the specified character to the
+     * target.
+     *
+     * @param ch
+     *            the character to print to the target.
+     * @see #print(String)
+     */
+    public void print(char ch) {
+        print(String.valueOf(ch));
+    }
+
+    /**
+     * Prints the string representation of the specified double to the target.
+     *
+     * @param dnum
+     *            the double value to print to the target.
+     * @see #print(String)
+     */
+    public void print(double dnum) {
+        print(String.valueOf(dnum));
+    }
+
+    /**
+     * Prints the string representation of the specified float to the target.
+     *
+     * @param fnum
+     *            the float value to print to the target.
+     * @see #print(String)
+     */
+    public void print(float fnum) {
+        print(String.valueOf(fnum));
+    }
+
+    /**
+     * Prints the string representation of the specified integer to the target.
+     *
+     * @param inum
+     *            the integer value to print to the target.
+     * @see #print(String)
+     */
+    public void print(int inum) {
+        print(String.valueOf(inum));
+    }
+
+    /**
+     * Prints the string representation of the specified long to the target.
+     *
+     * @param lnum
+     *            the long value to print to the target.
+     * @see #print(String)
+     */
+    public void print(long lnum) {
+        print(String.valueOf(lnum));
+    }
+
+    /**
+     * Prints the string representation of the specified object to the target.
+     *
+     * @param obj
+     *            the object to print to the target.
+     * @see #print(String)
+     */
+    public void print(Object obj) {
+        print(String.valueOf(obj));
+    }
+
+    /**
+     * Prints a string to the target. The string is converted to an array of
+     * bytes using the encoding chosen during the construction of this writer.
+     * The bytes are then written to the target with {@code write(int)}.
+     * <p>
+     * If an I/O error occurs, this writer's error flag is set to {@code true}.
+     *
+     * @param str
+     *            the string to print to the target.
+     * @see #write(int)
+     */
+    public void print(String str) {
+        write(str != null ? str : String.valueOf((Object) null));
+    }
+
+    /**
+     * Prints the string representation of the specified boolean to the target.
+     *
+     * @param bool
+     *            the boolean value to print the target.
+     * @see #print(String)
+     */
+    public void print(boolean bool) {
+        print(String.valueOf(bool));
+    }
+
+    /**
+     * Prints a newline. Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println() {
+        synchronized (lock) {
+            print(System.lineSeparator());
+            if (autoFlush) {
+                flush();
             }
-        } catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        } catch (IOException x) {
-            trouble = true;
         }
-        return this;
     }
 
     /**
-     * Writes a formatted string to this writer using the specified format
-     * string and arguments.  If automatic flushing is enabled, calls to this
-     * method will flush the output buffer.
-     *
-     * @param  l
-     *         The {@linkplain java.util.Locale locale} to apply during
-     *         formatting.  If <tt>l</tt> is <tt>null</tt> then no localization
-     *         is applied.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>.
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This writer
-     *
-     * @since  1.5
+     * Prints the string representation of the character array {@code chars} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
      */
-    public PrintWriter format(Locale l, String format, Object ... args) {
-        try {
-            synchronized (lock) {
-                ensureOpen();
-                if ((formatter == null) || (formatter.locale() != l))
-                    formatter = new Formatter(this, l);
-                formatter.format(l, format, args);
-                if (autoFlush)
-                    out.flush();
+    public void println(char[] chars) {
+        println(new String(chars, 0, chars.length));
+    }
+
+    /**
+     * Prints the string representation of the char {@code c} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(char c) {
+        println(String.valueOf(c));
+    }
+
+    /**
+     * Prints the string representation of the double {@code d} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(double d) {
+        println(String.valueOf(d));
+    }
+
+    /**
+     * Prints the string representation of the float {@code f} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(float f) {
+        println(String.valueOf(f));
+    }
+
+    /**
+     * Prints the string representation of the int {@code i} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(int i) {
+        println(String.valueOf(i));
+    }
+
+    /**
+     * Prints the string representation of the long {@code l} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(long l) {
+        println(String.valueOf(l));
+    }
+
+    /**
+     * Prints the string representation of the object {@code o}, or {@code "null},
+     * followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(Object obj) {
+        println(String.valueOf(obj));
+    }
+
+    /**
+     * Prints the string representation of the string {@code s} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     *
+     * <p>The string is converted to an array of bytes using the
+     * encoding chosen during the construction of this writer. The bytes are
+     * then written to the target with {@code write(int)}. Finally, this writer
+     * is flushed if the autoFlush flag is set to {@code true}.
+     *
+     * <p>If an I/O error occurs, this writer's error flag is set to {@code true}.
+     */
+    public void println(String str) {
+        synchronized (lock) {
+            print(str);
+            println();
+        }
+    }
+
+    /**
+     * Prints the string representation of the boolean {@code b} followed by a newline.
+     * Flushes this writer if the autoFlush flag is set to {@code true}.
+     */
+    public void println(boolean b) {
+        println(String.valueOf(b));
+    }
+
+    /**
+     * Sets the error flag of this writer to true.
+     */
+    protected void setError() {
+        synchronized (lock) {
+            ioError = true;
+        }
+    }
+
+    /**
+     * Writes the character buffer {@code buf} to the target.
+     *
+     * @param buf
+     *            the non-null array containing characters to write.
+     */
+    @Override
+    public void write(char[] buf) {
+        write(buf, 0, buf.length);
+    }
+
+    /**
+     * Writes {@code count} characters from {@code buffer} starting at {@code
+     * offset} to the target.
+     * <p>
+     * This writer's error flag is set to {@code true} if this writer is closed
+     * or an I/O error occurs.
+     *
+     * @param buf
+     *            the buffer to write to the target.
+     * @param offset
+     *            the index of the first character in {@code buffer} to write.
+     * @param count
+     *            the number of characters in {@code buffer} to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if {@code
+     *             offset + count} is greater than the length of {@code buf}.
+     */
+    @Override
+    public void write(char[] buf, int offset, int count) {
+        doWrite(buf, offset, count);
+    }
+
+    /**
+     * Writes one character to the target. Only the two least significant bytes
+     * of the integer {@code oneChar} are written.
+     * <p>
+     * This writer's error flag is set to {@code true} if this writer is closed
+     * or an I/O error occurs.
+     *
+     * @param oneChar
+     *            the character to write to the target.
+     */
+    @Override
+    public void write(int oneChar) {
+        doWrite(new char[] { (char) oneChar }, 0, 1);
+    }
+
+    private final void doWrite(char[] buf, int offset, int count) {
+        synchronized (lock) {
+            if (out != null) {
+                try {
+                    out.write(buf, offset, count);
+                } catch (IOException e) {
+                    setError();
+                }
+            } else {
+                setError();
             }
-        } catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        } catch (IOException x) {
-            trouble = true;
         }
-        return this;
     }
 
     /**
-     * Appends the specified character sequence to this writer.
+     * Writes the characters from the specified string to the target.
      *
-     * <p> An invocation of this method of the form <tt>out.append(csq)</tt>
-     * behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(csq.toString()) </pre>
-     *
-     * <p> Depending on the specification of <tt>toString</tt> for the
-     * character sequence <tt>csq</tt>, the entire sequence may not be
-     * appended. For instance, invoking the <tt>toString</tt> method of a
-     * character buffer will return a subsequence whose content depends upon
-     * the buffer's position and limit.
-     *
-     * @param  csq
-     *         The character sequence to append.  If <tt>csq</tt> is
-     *         <tt>null</tt>, then the four characters <tt>"null"</tt> are
-     *         appended to this writer.
-     *
-     * @return  This writer
-     *
-     * @since  1.5
+     * @param str
+     *            the non-null string containing the characters to write.
      */
-    public PrintWriter append(CharSequence csq) {
-        if (csq == null)
-            write("null");
-        else
-            write(csq.toString());
-        return this;
+    @Override
+    public void write(String str) {
+        write(str.toCharArray());
     }
 
     /**
-     * Appends a subsequence of the specified character sequence to this writer.
+     * Writes {@code count} characters from {@code str} starting at {@code
+     * offset} to the target.
      *
-     * <p> An invocation of this method of the form <tt>out.append(csq, start,
-     * end)</tt> when <tt>csq</tt> is not <tt>null</tt>, behaves in
-     * exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(csq.subSequence(start, end).toString()) </pre>
-     *
-     * @param  csq
-     *         The character sequence from which a subsequence will be
-     *         appended.  If <tt>csq</tt> is <tt>null</tt>, then characters
-     *         will be appended as if <tt>csq</tt> contained the four
-     *         characters <tt>"null"</tt>.
-     *
-     * @param  start
-     *         The index of the first character in the subsequence
-     *
-     * @param  end
-     *         The index of the character following the last character in the
-     *         subsequence
-     *
-     * @return  This writer
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If <tt>start</tt> or <tt>end</tt> are negative, <tt>start</tt>
-     *          is greater than <tt>end</tt>, or <tt>end</tt> is greater than
-     *          <tt>csq.length()</tt>
-     *
-     * @since  1.5
+     * @param str
+     *            the non-null string containing the characters to write.
+     * @param offset
+     *            the index of the first character in {@code str} to write.
+     * @param count
+     *            the number of characters from {@code str} to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if {@code
+     *             offset + count} is greater than the length of {@code str}.
      */
-    public PrintWriter append(CharSequence csq, int start, int end) {
-        CharSequence cs = (csq == null ? "null" : csq);
-        write(cs.subSequence(start, end).toString());
-        return this;
+    @Override
+    public void write(String str, int offset, int count) {
+        write(str.substring(offset, offset + count).toCharArray());
     }
 
     /**
-     * Appends the specified character to this writer.
+     * Appends the character {@code c} to the target.
      *
-     * <p> An invocation of this method of the form <tt>out.append(c)</tt>
-     * behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(c) </pre>
-     *
-     * @param  c
-     *         The 16-bit character to append
-     *
-     * @return  This writer
-     *
-     * @since 1.5
+     * @param c
+     *            the character to append to the target.
+     * @return this writer.
      */
+    @Override
     public PrintWriter append(char c) {
         write(c);
+        return this;
+    }
+
+    /**
+     * Appends the character sequence {@code csq} to the target. This
+     * method works the same way as {@code PrintWriter.print(csq.toString())}.
+     * If {@code csq} is {@code null}, then the string "null" is written
+     * to the target.
+     *
+     * @param csq
+     *            the character sequence appended to the target.
+     * @return this writer.
+     */
+    @Override
+    public PrintWriter append(CharSequence csq) {
+        if (csq == null) {
+            csq = "null";
+        }
+        append(csq, 0, csq.length());
+        return this;
+    }
+
+    /**
+     * Appends a subsequence of the character sequence {@code csq} to the
+     * target. This method works the same way as {@code
+     * PrintWriter.print(csq.subsequence(start, end).toString())}. If {@code
+     * csq} is {@code null}, then the specified subsequence of the string "null"
+     * will be written to the target.
+     *
+     * @param csq
+     *            the character sequence appended to the target.
+     * @param start
+     *            the index of the first char in the character sequence appended
+     *            to the target.
+     * @param end
+     *            the index of the character following the last character of the
+     *            subsequence appended to the target.
+     * @return this writer.
+     * @throws StringIndexOutOfBoundsException
+     *             if {@code start > end}, {@code start < 0}, {@code end < 0} or
+     *             either {@code start} or {@code end} are greater or equal than
+     *             the length of {@code csq}.
+     */
+    @Override
+    public PrintWriter append(CharSequence csq, int start, int end) {
+        if (csq == null) {
+            csq = "null";
+        }
+        String output = csq.subSequence(start, end).toString();
+        write(output, 0, output.length());
         return this;
     }
 }

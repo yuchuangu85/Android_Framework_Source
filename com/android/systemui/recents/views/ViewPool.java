@@ -20,7 +20,6 @@ import android.content.Context;
 
 import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.List;
 
 
 /* A view pool to manage more views than we can visibly handle */
@@ -29,8 +28,8 @@ public class ViewPool<V, T> {
     /* An interface to the consumer of a view pool */
     public interface ViewPoolConsumer<V, T> {
         public V createView(Context context);
-        public void onReturnViewToPool(V v);
-        public void onPickUpViewFromPool(V v, T prepareData, boolean isNewView);
+        public void prepareViewToEnterPool(V v);
+        public void prepareViewToLeavePool(V v, T prepareData, boolean isNewView);
         public boolean hasPreferredData(V v, T preferredData);
     }
 
@@ -46,7 +45,7 @@ public class ViewPool<V, T> {
 
     /** Returns a view into the pool */
     void returnViewToPool(V v) {
-        mViewCreator.onReturnViewToPool(v);
+        mViewCreator.prepareViewToEnterPool(v);
         mPool.push(v);
     }
 
@@ -73,14 +72,15 @@ public class ViewPool<V, T> {
                 v = mPool.pop();
             }
         }
-        mViewCreator.onPickUpViewFromPool(v, prepareData, isNewView);
+        mViewCreator.prepareViewToLeavePool(v, prepareData, isNewView);
         return v;
     }
 
-    /**
-     * Returns the list of views in the pool.
-     */
-    List<V> getViews() {
-        return mPool;
+    /** Returns an iterator to the list of the views in the pool. */
+    Iterator<V> poolViewIterator() {
+        if (mPool != null) {
+            return mPool.iterator();
+        }
+        return null;
     }
 }

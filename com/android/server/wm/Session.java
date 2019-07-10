@@ -16,20 +16,16 @@
 
 package com.android.server.wm;
 
-import static android.Manifest.permission.DEVICE_POWER;
-import static android.Manifest.permission.HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
-import static android.Manifest.permission.INTERNAL_SYSTEM_WINDOW;
-import static android.content.pm.PackageManager.PERMISSION_GRANTED;
-import static android.os.Trace.TRACE_TAG_WINDOW_MANAGER;
-import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-import static android.view.WindowManager.LayoutParams.isSystemAlertWindowType;
-
-import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_TASK_POSITIONING;
-import static com.android.server.wm.WindowManagerDebugConfig.SHOW_TRANSACTIONS;
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
+import android.view.IWindowId;
+import android.view.IWindowSessionCallback;
+import com.android.internal.view.IInputContext;
+import com.android.internal.view.IInputMethodClient;
+import com.android.internal.view.IInputMethodManager;
+import com.android.server.wm.WindowManagerService.H;
 
 import android.content.ClipData;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.os.Binder;
@@ -39,76 +35,46 @@ import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.Trace;
 import android.os.UserHandle;
-import android.util.MergedConfiguration;
 import android.util.Slog;
 import android.view.Display;
-import android.view.DisplayCutout;
 import android.view.IWindow;
-import android.view.IWindowId;
 import android.view.IWindowSession;
-import android.view.IWindowSessionCallback;
 import android.view.InputChannel;
 import android.view.Surface;
 import android.view.SurfaceControl;
 import android.view.SurfaceSession;
 import android.view.WindowManager;
 
-import com.android.internal.os.logging.MetricsLoggerWrapper;
-import com.android.internal.view.IInputContext;
-import com.android.internal.view.IInputMethodClient;
-import com.android.internal.view.IInputMethodManager;
-import com.android.server.wm.WindowManagerService.H;
-
 import java.io.PrintWriter;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * This class represents an active client session.  There is generally one
  * Session object per process that is interacting with the window manager.
  */
-class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
+final class Session extends IWindowSession.Stub
+        implements IBinder.DeathRecipient {
     final WindowManagerService mService;
     final IWindowSessionCallback mCallback;
     final IInputMethodClient mClient;
+    final IInputContext mInputContext;
     final int mUid;
     final int mPid;
-    private final String mStringName;
+    final String mStringName;
     SurfaceSession mSurfaceSession;
-    private int mNumWindow = 0;
-    // Set of visible application overlay window surfaces connected to this session.
-    private final Set<WindowSurfaceController> mAppOverlaySurfaces = new HashSet<>();
-    // Set of visible alert window surfaces connected to this session.
-    private final Set<WindowSurfaceController> mAlertWindowSurfaces = new HashSet<>();
-    private final DragDropController mDragDropController;
-    final boolean mCanAddInternalSystemWindow;
-    final boolean mCanHideNonSystemOverlayWindows;
-    final boolean mCanAcquireSleepToken;
-    private AlertWindowNotification mAlertWindowNotification;
-    private boolean mShowingAlertWindowNotificationAllowed;
-    private boolean mClientDead = false;
-    private float mLastReportedAnimatorScale;
-    private String mPackageName;
-    private String mRelayoutTag;
+    int mNumWindow = 0;
+    boolean mClientDead = false;
+    float mLastReportedAnimatorScale;
 
     public Session(WindowManagerService service, IWindowSessionCallback callback,
             IInputMethodClient client, IInputContext inputContext) {
         mService = service;
         mCallback = callback;
         mClient = client;
+        mInputContext = inputContext;
         mUid = Binder.getCallingUid();
         mPid = Binder.getCallingPid();
         mLastReportedAnimatorScale = service.getCurrentAnimatorScale();
-        mCanAddInternalSystemWindow = service.mContext.checkCallingOrSelfPermission(
-                INTERNAL_SYSTEM_WINDOW) == PERMISSION_GRANTED;
-        mCanHideNonSystemOverlayWindows = service.mContext.checkCallingOrSelfPermission(
-                HIDE_NON_SYSTEM_OVERLAY_WINDOWS) == PERMISSION_GRANTED;
-        mCanAcquireSleepToken = service.mContext.checkCallingOrSelfPermission(DEVICE_POWER)
-                == PERMISSION_GRANTED;
-        mShowingAlertWindowNotificationAllowed = mService.mShowAlertWindowNotifications;
-        mDragDropController = mService.mDragDropController;
         StringBuilder sb = new StringBuilder();
         sb.append("Session{");
         sb.append(Integer.toHexString(System.identityHashCode(this)));
@@ -165,13 +131,12 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         } catch (RuntimeException e) {
             // Log all 'real' exceptions thrown to the caller
             if (!(e instanceof SecurityException)) {
-                Slog.wtf(TAG_WM, "Window Session Crash", e);
+                Slog.wtf(WindowManagerService.TAG, "Window Session Crash", e);
             }
             throw e;
         }
     }
 
-    @Override
     public void binderDied() {
         // Note: it is safe to call in to the input method manager
         // here because we are not holding our lock.
@@ -193,17 +158,15 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
             int viewVisibility, Rect outContentInsets, Rect outStableInsets,
             InputChannel outInputChannel) {
         return addToDisplay(window, seq, attrs, viewVisibility, Display.DEFAULT_DISPLAY,
-                new Rect() /* outFrame */, outContentInsets, outStableInsets, null /* outOutsets */,
-                new DisplayCutout.ParcelableWrapper()  /* cutout */, outInputChannel);
+                outContentInsets, outStableInsets, null /* outOutsets */, outInputChannel);
     }
 
     @Override
     public int addToDisplay(IWindow window, int seq, WindowManager.LayoutParams attrs,
-            int viewVisibility, int displayId, Rect outFrame, Rect outContentInsets,
-            Rect outStableInsets, Rect outOutsets,
-            DisplayCutout.ParcelableWrapper outDisplayCutout, InputChannel outInputChannel) {
-        return mService.addWindow(this, window, seq, attrs, viewVisibility, displayId, outFrame,
-                outContentInsets, outStableInsets, outOutsets, outDisplayCutout, outInputChannel);
+            int viewVisibility, int displayId, Rect outContentInsets, Rect outStableInsets,
+            Rect outOutsets, InputChannel outInputChannel) {
+        return mService.addWindow(this, window, seq, attrs, viewVisibility, displayId,
+                outContentInsets, outStableInsets, outOutsets, outInputChannel);
     }
 
     @Override
@@ -217,85 +180,70 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
     public int addToDisplayWithoutInputChannel(IWindow window, int seq, WindowManager.LayoutParams attrs,
             int viewVisibility, int displayId, Rect outContentInsets, Rect outStableInsets) {
         return mService.addWindow(this, window, seq, attrs, viewVisibility, displayId,
-                new Rect() /* outFrame */, outContentInsets, outStableInsets, null /* outOutsets */,
-                new DisplayCutout.ParcelableWrapper() /* cutout */, null /* outInputChannel */);
+            outContentInsets, outStableInsets, null /* outOutsets */, null);
     }
 
-    @Override
     public void remove(IWindow window) {
         mService.removeWindow(this, window);
     }
 
-    @Override
-    public void prepareToReplaceWindows(IBinder appToken, boolean childrenOnly) {
-        mService.setWillReplaceWindows(appToken, childrenOnly);
-    }
-
-    @Override
     public int relayout(IWindow window, int seq, WindowManager.LayoutParams attrs,
-            int requestedWidth, int requestedHeight, int viewFlags, int flags, long frameNumber,
-            Rect outFrame, Rect outOverscanInsets, Rect outContentInsets, Rect outVisibleInsets,
-            Rect outStableInsets, Rect outsets, Rect outBackdropFrame,
-            DisplayCutout.ParcelableWrapper cutout, MergedConfiguration mergedConfiguration,
+            int requestedWidth, int requestedHeight, int viewFlags,
+            int flags, Rect outFrame, Rect outOverscanInsets, Rect outContentInsets,
+            Rect outVisibleInsets, Rect outStableInsets, Rect outsets, Configuration
+                    outConfig,
             Surface outSurface) {
-        if (false) Slog.d(TAG_WM, ">>>>>> ENTERED relayout from "
+        if (false) Slog.d(WindowManagerService.TAG, ">>>>>> ENTERED relayout from "
                 + Binder.getCallingPid());
-        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, mRelayoutTag);
         int res = mService.relayoutWindow(this, window, seq, attrs,
-                requestedWidth, requestedHeight, viewFlags, flags, frameNumber,
+                requestedWidth, requestedHeight, viewFlags, flags,
                 outFrame, outOverscanInsets, outContentInsets, outVisibleInsets,
-                outStableInsets, outsets, outBackdropFrame, cutout,
-                mergedConfiguration, outSurface);
-        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
-        if (false) Slog.d(TAG_WM, "<<<<<< EXITING relayout to "
+                outStableInsets, outsets, outConfig, outSurface);
+        if (false) Slog.d(WindowManagerService.TAG, "<<<<<< EXITING relayout to "
                 + Binder.getCallingPid());
         return res;
     }
 
-    @Override
+    public void performDeferredDestroy(IWindow window) {
+        mService.performDeferredDestroyWindow(this, window);
+    }
+
     public boolean outOfMemory(IWindow window) {
         return mService.outOfMemoryWindow(this, window);
     }
 
-    @Override
     public void setTransparentRegion(IWindow window, Region region) {
         mService.setTransparentRegionWindow(this, window, region);
     }
 
-    @Override
     public void setInsets(IWindow window, int touchableInsets,
             Rect contentInsets, Rect visibleInsets, Region touchableArea) {
         mService.setInsetsWindow(this, window, touchableInsets, contentInsets,
                 visibleInsets, touchableArea);
     }
 
-    @Override
     public void getDisplayFrame(IWindow window, Rect outDisplayFrame) {
         mService.getWindowDisplayFrame(this, window, outDisplayFrame);
     }
 
-    @Override
     public void finishDrawing(IWindow window) {
         if (WindowManagerService.localLOGV) Slog.v(
-            TAG_WM, "IWindow finishDrawing called for " + window);
+            WindowManagerService.TAG, "IWindow finishDrawing called for " + window);
         mService.finishDrawingWindow(this, window);
     }
 
-    @Override
     public void setInTouchMode(boolean mode) {
         synchronized(mService.mWindowMap) {
             mService.mInTouchMode = mode;
         }
     }
 
-    @Override
     public boolean getInTouchMode() {
         synchronized(mService.mWindowMap) {
             return mService.mInTouchMode;
         }
     }
 
-    @Override
     public boolean performHapticFeedback(IWindow window, int effectId,
             boolean always) {
         synchronized(mService.mWindowMap) {
@@ -311,70 +259,152 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
     }
 
     /* Drag/drop */
-
-    @Override
-    public IBinder performDrag(IWindow window, int flags, SurfaceControl surface, int touchSource,
-            float touchX, float touchY, float thumbCenterX, float thumbCenterY, ClipData data) {
-        final int callerPid = Binder.getCallingPid();
-        final int callerUid = Binder.getCallingUid();
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            return mDragDropController.performDrag(mSurfaceSession, callerPid, callerUid, window,
-                    flags, surface, touchSource, touchX, touchY, thumbCenterX, thumbCenterY, data);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
+    public IBinder prepareDrag(IWindow window, int flags,
+            int width, int height, Surface outSurface) {
+        return mService.prepareDragSurface(window, mSurfaceSession, flags,
+                width, height, outSurface);
     }
 
-    @Override
+    public boolean performDrag(IWindow window, IBinder dragToken,
+            float touchX, float touchY, float thumbCenterX, float thumbCenterY,
+            ClipData data) {
+        if (WindowManagerService.DEBUG_DRAG) {
+            Slog.d(WindowManagerService.TAG, "perform drag: win=" + window + " data=" + data);
+        }
+
+        synchronized (mService.mWindowMap) {
+            if (mService.mDragState == null) {
+                Slog.w(WindowManagerService.TAG, "No drag prepared");
+                throw new IllegalStateException("performDrag() without prepareDrag()");
+            }
+
+            if (dragToken != mService.mDragState.mToken) {
+                Slog.w(WindowManagerService.TAG, "Performing mismatched drag");
+                throw new IllegalStateException("performDrag() does not match prepareDrag()");
+            }
+
+            WindowState callingWin = mService.windowForClientLocked(null, window, false);
+            if (callingWin == null) {
+                Slog.w(WindowManagerService.TAG, "Bad requesting window " + window);
+                return false;  // !!! TODO: throw here?
+            }
+
+            // !!! TODO: if input is not still focused on the initiating window, fail
+            // the drag initiation (e.g. an alarm window popped up just as the application
+            // called performDrag()
+
+            mService.mH.removeMessages(H.DRAG_START_TIMEOUT, window.asBinder());
+
+            // !!! TODO: extract the current touch (x, y) in screen coordinates.  That
+            // will let us eliminate the (touchX,touchY) parameters from the API.
+
+            // !!! FIXME: put all this heavy stuff onto the mH looper, as well as
+            // the actual drag event dispatch stuff in the dragstate
+
+            final DisplayContent displayContent = callingWin.getDisplayContent();
+            if (displayContent == null) {
+               return false;
+            }
+            Display display = displayContent.getDisplay();
+            mService.mDragState.register(display);
+            mService.mInputMonitor.updateInputWindowsLw(true /*force*/);
+            if (!mService.mInputManager.transferTouchFocus(callingWin.mInputChannel,
+                    mService.mDragState.mServerChannel)) {
+                Slog.e(WindowManagerService.TAG, "Unable to transfer touch focus");
+                mService.mDragState.unregister();
+                mService.mDragState = null;
+                mService.mInputMonitor.updateInputWindowsLw(true /*force*/);
+                return false;
+            }
+
+            mService.mDragState.mData = data;
+            mService.mDragState.mCurrentX = touchX;
+            mService.mDragState.mCurrentY = touchY;
+            mService.mDragState.broadcastDragStartedLw(touchX, touchY);
+
+            // remember the thumb offsets for later
+            mService.mDragState.mThumbOffsetX = thumbCenterX;
+            mService.mDragState.mThumbOffsetY = thumbCenterY;
+
+            // Make the surface visible at the proper location
+            final SurfaceControl surfaceControl = mService.mDragState.mSurfaceControl;
+            if (WindowManagerService.SHOW_LIGHT_TRANSACTIONS) Slog.i(
+                    WindowManagerService.TAG, ">>> OPEN TRANSACTION performDrag");
+            SurfaceControl.openTransaction();
+            try {
+                surfaceControl.setPosition(touchX - thumbCenterX,
+                        touchY - thumbCenterY);
+                surfaceControl.setAlpha(.7071f);
+                surfaceControl.setLayer(mService.mDragState.getDragLayerLw());
+                surfaceControl.setLayerStack(display.getLayerStack());
+                surfaceControl.show();
+            } finally {
+                SurfaceControl.closeTransaction();
+                if (WindowManagerService.SHOW_LIGHT_TRANSACTIONS) Slog.i(
+                        WindowManagerService.TAG, "<<< CLOSE TRANSACTION performDrag");
+            }
+        }
+
+        return true;    // success!
+    }
+
     public void reportDropResult(IWindow window, boolean consumed) {
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            mDragDropController.reportDropResult(window, consumed);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
+        IBinder token = window.asBinder();
+        if (WindowManagerService.DEBUG_DRAG) {
+            Slog.d(WindowManagerService.TAG, "Drop result=" + consumed + " reported by " + token);
+        }
+
+        synchronized (mService.mWindowMap) {
+            long ident = Binder.clearCallingIdentity();
+            try {
+                if (mService.mDragState == null) {
+                    // Most likely the drop recipient ANRed and we ended the drag
+                    // out from under it.  Log the issue and move on.
+                    Slog.w(WindowManagerService.TAG, "Drop result given but no drag in progress");
+                    return;
+                }
+
+                if (mService.mDragState.mToken != token) {
+                    // We're in a drag, but the wrong window has responded.
+                    Slog.w(WindowManagerService.TAG, "Invalid drop-result claim by " + window);
+                    throw new IllegalStateException("reportDropResult() by non-recipient");
+                }
+
+                // The right window has responded, even if it's no longer around,
+                // so be sure to halt the timeout even if the later WindowState
+                // lookup fails.
+                mService.mH.removeMessages(H.DRAG_END_TIMEOUT, window.asBinder());
+                WindowState callingWin = mService.windowForClientLocked(null, window, false);
+                if (callingWin == null) {
+                    Slog.w(WindowManagerService.TAG, "Bad result-reporting window " + window);
+                    return;  // !!! TODO: throw here?
+                }
+
+                mService.mDragState.mDragResult = consumed;
+                mService.mDragState.endDragLw();
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
         }
     }
 
-    @Override
-    public void cancelDragAndDrop(IBinder dragToken) {
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            mDragDropController.cancelDragAndDrop(dragToken);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
-    }
-
-    @Override
     public void dragRecipientEntered(IWindow window) {
-        mDragDropController.dragRecipientEntered(window);
-    }
-
-    @Override
-    public void dragRecipientExited(IWindow window) {
-        mDragDropController.dragRecipientExited(window);
-    }
-
-    @Override
-    public boolean startMovingTask(IWindow window, float startX, float startY) {
-        if (DEBUG_TASK_POSITIONING) Slog.d(
-                TAG_WM, "startMovingTask: {" + startX + "," + startY + "}");
-
-        long ident = Binder.clearCallingIdentity();
-        try {
-            return mService.mTaskPositioningController.startMovingTask(window, startX, startY);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
+        if (WindowManagerService.DEBUG_DRAG) {
+            Slog.d(WindowManagerService.TAG, "Drag into new candidate view @ " + window.asBinder());
         }
     }
 
-    @Override
+    public void dragRecipientExited(IWindow window) {
+        if (WindowManagerService.DEBUG_DRAG) {
+            Slog.d(WindowManagerService.TAG, "Drag from old candidate view @ " + window.asBinder());
+        }
+    }
+
     public void setWallpaperPosition(IBinder window, float x, float y, float xStep, float yStep) {
         synchronized(mService.mWindowMap) {
             long ident = Binder.clearCallingIdentity();
             try {
-                mService.mRoot.mWallpaperController.setWindowWallpaperPosition(
+                mService.setWindowWallpaperPositionLocked(
                         mService.windowForClientLocked(this, window, true),
                         x, y, xStep, yStep);
             } finally {
@@ -383,19 +413,15 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
     }
 
-    @Override
     public void wallpaperOffsetsComplete(IBinder window) {
-        synchronized (mService.mWindowMap) {
-            mService.mRoot.mWallpaperController.wallpaperOffsetsComplete(window);
-        }
+        mService.wallpaperOffsetsComplete(window);
     }
 
-    @Override
     public void setWallpaperDisplayOffset(IBinder window, int x, int y) {
         synchronized(mService.mWindowMap) {
             long ident = Binder.clearCallingIdentity();
             try {
-                mService.mRoot.mWallpaperController.setWindowWallpaperDisplayOffset(
+                mService.setWindowWallpaperDisplayOffsetLocked(
                         mService.windowForClientLocked(this, window, true), x, y);
             } finally {
                 Binder.restoreCallingIdentity(ident);
@@ -403,13 +429,12 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
     }
 
-    @Override
     public Bundle sendWallpaperCommand(IBinder window, String action, int x, int y,
             int z, Bundle extras, boolean sync) {
         synchronized(mService.mWindowMap) {
             long ident = Binder.clearCallingIdentity();
             try {
-                return mService.mRoot.mWallpaperController.sendWindowWallpaperCommand(
+                return mService.sendWindowWallpaperCommandLocked(
                         mService.windowForClientLocked(this, window, true),
                         action, x, y, z, extras, sync);
             } finally {
@@ -418,14 +443,10 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
     }
 
-    @Override
     public void wallpaperCommandComplete(IBinder window, Bundle result) {
-        synchronized (mService.mWindowMap) {
-            mService.mRoot.mWallpaperController.wallpaperCommandComplete(window);
-        }
+        mService.wallpaperCommandComplete(window, result);
     }
 
-    @Override
     public void onRectangleOnScreenRequested(IBinder token, Rect rectangle) {
         synchronized(mService.mWindowMap) {
             final long identity = Binder.clearCallingIdentity();
@@ -437,7 +458,6 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
     }
 
-    @Override
     public IWindowId getWindowId(IBinder window) {
         return mService.getWindowId(window);
     }
@@ -452,36 +472,13 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
     }
 
-    @Override
-    public void updatePointerIcon(IWindow window) {
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            mService.updatePointerIcon(window);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-    }
-
-    @Override
-    public void updateTapExcludeRegion(IWindow window, int regionId, int left, int top, int width,
-            int height) {
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            mService.updateTapExcludeRegion(window, regionId, left, top, width, height);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-    }
-
-    void windowAddedLocked(String packageName) {
-        mPackageName = packageName;
-        mRelayoutTag = "relayoutWindow: " + mPackageName;
+    void windowAddedLocked() {
         if (mSurfaceSession == null) {
             if (WindowManagerService.localLOGV) Slog.v(
-                TAG_WM, "First window added to " + this + ", creating SurfaceSession");
+                WindowManagerService.TAG, "First window added to " + this + ", creating SurfaceSession");
             mSurfaceSession = new SurfaceSession();
-            if (SHOW_TRANSACTIONS) Slog.i(
-                    TAG_WM, "  NEW SURFACE SESSION " + mSurfaceSession);
+            if (WindowManagerService.SHOW_TRANSACTIONS) Slog.i(
+                    WindowManagerService.TAG, "  NEW SURFACE SESSION " + mSurfaceSession);
             mService.mSessions.add(this);
             if (mLastReportedAnimatorScale != mService.getCurrentAnimatorScale()) {
                 mService.dispatchNewAnimatorScaleLocked(this);
@@ -495,123 +492,35 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         killSessionLocked();
     }
 
-
-    void onWindowSurfaceVisibilityChanged(WindowSurfaceController surfaceController,
-            boolean visible, int type) {
-
-        if (!isSystemAlertWindowType(type)) {
-            return;
-        }
-
-        boolean changed;
-
-        if (!mCanAddInternalSystemWindow) {
-            // We want to track non-system signature apps adding alert windows so we can post an
-            // on-going notification for the user to control their visibility.
-            if (visible) {
-                changed = mAlertWindowSurfaces.add(surfaceController);
-                MetricsLoggerWrapper.logAppOverlayEnter(mUid, mPackageName, changed, type, true);
-            } else {
-                changed = mAlertWindowSurfaces.remove(surfaceController);
-                MetricsLoggerWrapper.logAppOverlayExit(mUid, mPackageName, changed, type, true);
-            }
-
-            if (changed) {
-                if (mAlertWindowSurfaces.isEmpty()) {
-                    cancelAlertWindowNotification();
-                } else if (mAlertWindowNotification == null){
-                    mAlertWindowNotification = new AlertWindowNotification(mService, mPackageName);
-                    if (mShowingAlertWindowNotificationAllowed) {
-                        mAlertWindowNotification.post();
-                    }
+    void killSessionLocked() {
+        if (mNumWindow <= 0 && mClientDead) {
+            mService.mSessions.remove(this);
+            if (mSurfaceSession != null) {
+                if (WindowManagerService.localLOGV) Slog.v(
+                    WindowManagerService.TAG, "Last window removed from " + this
+                    + ", destroying " + mSurfaceSession);
+                if (WindowManagerService.SHOW_TRANSACTIONS) Slog.i(
+                        WindowManagerService.TAG, "  KILL SURFACE SESSION " + mSurfaceSession);
+                try {
+                    mSurfaceSession.kill();
+                } catch (Exception e) {
+                    Slog.w(WindowManagerService.TAG, "Exception thrown when killing surface session "
+                        + mSurfaceSession + " in session " + this
+                        + ": " + e.toString());
                 }
+                mSurfaceSession = null;
             }
         }
-
-        if (type != TYPE_APPLICATION_OVERLAY) {
-            return;
-        }
-
-        if (visible) {
-            changed = mAppOverlaySurfaces.add(surfaceController);
-            MetricsLoggerWrapper.logAppOverlayEnter(mUid, mPackageName, changed, type, false);
-        } else {
-            changed = mAppOverlaySurfaces.remove(surfaceController);
-            MetricsLoggerWrapper.logAppOverlayExit(mUid, mPackageName, changed, type, false);
-        }
-
-        if (changed) {
-            // Notify activity manager of changes to app overlay windows so it can adjust the
-            // importance score for the process.
-            setHasOverlayUi(!mAppOverlaySurfaces.isEmpty());
-        }
-    }
-
-    void setShowingAlertWindowNotificationAllowed(boolean allowed) {
-        mShowingAlertWindowNotificationAllowed = allowed;
-        if (mAlertWindowNotification != null) {
-            if (allowed) {
-                mAlertWindowNotification.post();
-            } else {
-                mAlertWindowNotification.cancel(false /* deleteChannel */);
-            }
-        }
-    }
-
-    private void killSessionLocked() {
-        if (mNumWindow > 0 || !mClientDead) {
-            return;
-        }
-
-        mService.mSessions.remove(this);
-        if (mSurfaceSession == null) {
-            return;
-        }
-
-        if (WindowManagerService.localLOGV) Slog.v(TAG_WM, "Last window removed from " + this
-                + ", destroying " + mSurfaceSession);
-        if (SHOW_TRANSACTIONS) Slog.i(TAG_WM, "  KILL SURFACE SESSION " + mSurfaceSession);
-        try {
-            mSurfaceSession.kill();
-        } catch (Exception e) {
-            Slog.w(TAG_WM, "Exception thrown when killing surface session " + mSurfaceSession
-                    + " in session " + this + ": " + e.toString());
-        }
-        mSurfaceSession = null;
-        mAlertWindowSurfaces.clear();
-        mAppOverlaySurfaces.clear();
-        setHasOverlayUi(false);
-        cancelAlertWindowNotification();
-    }
-
-    private void setHasOverlayUi(boolean hasOverlayUi) {
-        mService.mH.obtainMessage(H.SET_HAS_OVERLAY_UI, mPid, hasOverlayUi ? 1 : 0).sendToTarget();
-    }
-
-    private void cancelAlertWindowNotification() {
-        if (mAlertWindowNotification == null) {
-            return;
-        }
-        mAlertWindowNotification.cancel(true /* deleteChannel */);
-        mAlertWindowNotification = null;
     }
 
     void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("mNumWindow="); pw.print(mNumWindow);
-                pw.print(" mCanAddInternalSystemWindow="); pw.print(mCanAddInternalSystemWindow);
-                pw.print(" mAppOverlaySurfaces="); pw.print(mAppOverlaySurfaces);
-                pw.print(" mAlertWindowSurfaces="); pw.print(mAlertWindowSurfaces);
                 pw.print(" mClientDead="); pw.print(mClientDead);
                 pw.print(" mSurfaceSession="); pw.println(mSurfaceSession);
-        pw.print(prefix); pw.print("mPackageName="); pw.println(mPackageName);
     }
 
     @Override
     public String toString() {
         return mStringName;
-    }
-
-    boolean hasAlertWindowSurfaces() {
-        return !mAlertWindowSurfaces.isEmpty();
     }
 }

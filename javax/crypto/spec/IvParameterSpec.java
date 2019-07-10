@@ -1,99 +1,82 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+/**
+* @author Alexander Y. Kleymenov
+* @version $Revision$
+*/
 
 package javax.crypto.spec;
 
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
 /**
- * This class specifies an <i>initialization vector</i> (IV).
- * Examples which use IVs are ciphers in feedback mode,
- * e.g., DES in CBC mode and RSA ciphers with OAEP encoding
- * operation.
- *
- * @author Jan Luehe
- *
- * @since 1.4
+ * The algorithm parameter specification for an <i>initialization vector</i>.
  */
 public class IvParameterSpec implements AlgorithmParameterSpec {
 
-    private byte[] iv;
+    private final byte[] iv;
 
     /**
-     * Creates an IvParameterSpec object using the bytes in <code>iv</code>
-     * as the IV.
+     * Creates a new <code>IvParameterSpec</code> instance with the bytes from
+     * the specified buffer <i>iv</i> used as <i>initialization vector</i>.
      *
-     * @param iv the buffer with the IV. The contents of the
-     * buffer are copied to protect against subsequent modification.
-     * @throws NullPointerException if <code>iv</code> is <code>null</code>
+     * @param iv
+     *            the buffer used as initialization vector.
+     * @throws NullPointerException
+     *             if the specified buffer is null.
      */
     public IvParameterSpec(byte[] iv) {
-        this(iv, 0, iv.length);
-    }
-
-    /**
-     * Creates an IvParameterSpec object using the first <code>len</code>
-     * bytes in <code>iv</code>, beginning at <code>offset</code>
-     * inclusive, as the IV.
-     *
-     * <p> The bytes that constitute the IV are those between
-     * <code>iv[offset]</code> and <code>iv[offset+len-1]</code> inclusive.
-     *
-     * @param iv the buffer with the IV. The first <code>len</code>
-     * bytes of the buffer beginning at <code>offset</code> inclusive
-     * are copied to protect against subsequent modification.
-     * @param offset the offset in <code>iv</code> where the IV
-     * starts.
-     * @param len the number of IV bytes.
-     * @throws IllegalArgumentException if <code>iv</code> is <code>null</code>
-     * or {@code (iv.length - offset < len)}
-     * @throws ArrayIndexOutOfBoundsException is thrown if <code>offset</code>
-     * or <code>len</code> index bytes outside the <code>iv</code>.
-     */
-    public IvParameterSpec(byte[] iv, int offset, int len) {
         if (iv == null) {
-            throw new IllegalArgumentException("IV missing");
+            throw new NullPointerException("iv == null");
         }
-        if (iv.length - offset < len) {
-            throw new IllegalArgumentException
-                ("IV buffer too short for given offset/length combination");
-        }
-        if (len < 0) {
-            throw new ArrayIndexOutOfBoundsException("len is negative");
-        }
-        this.iv = new byte[len];
-        System.arraycopy(iv, offset, this.iv, 0, len);
+        this.iv = new byte[iv.length];
+        System.arraycopy(iv, 0, this.iv, 0, iv.length);
     }
 
     /**
-     * Returns the initialization vector (IV).
+     * Creates a new <code>IvParameterSpec</code> instance with <code>byteCount</code>
+     * bytes from the specified buffer <code>iv</code> starting at
+     * <code>offset</code>.
      *
-     * @return the initialization vector (IV). Returns a new array
-     * each time this method is called.
+     * @throws IllegalArgumentException
+     *             if the specified buffer is null or <code>offset</code> and
+     *             <code>byteCount</code> do not specify a valid chunk in the
+     *             specified buffer.
+     * @throws ArrayIndexOutOfBoundsException
+     *             if <code>offset</code> or <code>byteCount</code> are negative.
+     */
+    public IvParameterSpec(byte[] iv, int offset, int byteCount) {
+        if ((iv == null) || (iv.length - offset < byteCount)) {
+            throw new IllegalArgumentException();
+        }
+        Arrays.checkOffsetAndCount(iv.length, offset, byteCount);
+        this.iv = new byte[byteCount];
+        System.arraycopy(iv, offset, this.iv, 0, byteCount);
+    }
+
+    /**
+     * Returns a copy of the <i>initialization vector</i> data.
+     *
+     * @return a copy of the initialization vector data.
      */
     public byte[] getIV() {
-        return this.iv.clone();
+        byte[] res = new byte[iv.length];
+        System.arraycopy(iv, 0, res, 0, iv.length);
+        return res;
     }
 }

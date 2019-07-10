@@ -1,271 +1,304 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
+import java.util.Arrays;
+import libcore.util.SneakyThrow;
 
 /**
- * Writes text to a character-output stream, buffering characters so as to
- * provide for the efficient writing of single characters, arrays, and strings.
+ * Wraps an existing {@link Writer} and <em>buffers</em> the output. Expensive
+ * interaction with the underlying reader is minimized, since most (smaller)
+ * requests can be satisfied by accessing the buffer alone. The drawback is that
+ * some extra space is required to hold the buffer and that copying takes place
+ * when filling that buffer, but this is usually outweighed by the performance
+ * benefits.
  *
- * <p> The buffer size may be specified, or the default size may be accepted.
- * The default is large enough for most purposes.
- *
- * <p> A newLine() method is provided, which uses the platform's own notion of
- * line separator as defined by the system property <tt>line.separator</tt>.
- * Not all platforms use the newline character ('\n') to terminate lines.
- * Calling this method to terminate each output line is therefore preferred to
- * writing a newline character directly.
- *
- * <p> In general, a Writer sends its output immediately to the underlying
- * character or byte stream.  Unless prompt output is required, it is advisable
- * to wrap a BufferedWriter around any Writer whose write() operations may be
- * costly, such as FileWriters and OutputStreamWriters.  For example,
+ * <p/>A typical application pattern for the class looks like this:<p/>
  *
  * <pre>
- * PrintWriter out
- *   = new PrintWriter(new BufferedWriter(new FileWriter("foo.out")));
+ * BufferedWriter buf = new BufferedWriter(new FileWriter(&quot;file.java&quot;));
  * </pre>
  *
- * will buffer the PrintWriter's output to the file.  Without buffering, each
- * invocation of a print() method would cause characters to be converted into
- * bytes that would then be written immediately to the file, which can be very
- * inefficient.
- *
- * @see PrintWriter
- * @see FileWriter
- * @see OutputStreamWriter
- * @see java.nio.file.Files#newBufferedWriter
- *
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * @see BufferedReader
  */
-
 public class BufferedWriter extends Writer {
 
     private Writer out;
 
-    private char cb[];
-    private int nChars, nextChar;
+    private char[] buf;
 
-    private static int defaultCharBufferSize = 8192;
-
-    /**
-     * Line separator string.  This is the value of the line.separator
-     * property at the moment that the stream was created.
-     */
-    private String lineSeparator;
+    private int pos;
 
     /**
-     * Creates a buffered character-output stream that uses a default-sized
-     * output buffer.
+     * Constructs a new {@code BufferedWriter}, providing {@code out} with a buffer
+     * of 8192 chars.
      *
-     * @param  out  A Writer
+     * @param out the {@code Writer} the buffer writes to.
      */
     public BufferedWriter(Writer out) {
-        this(out, defaultCharBufferSize);
+        this(out, 8192);
     }
 
     /**
-     * Creates a new buffered character-output stream that uses an output
-     * buffer of the given size.
+     * Constructs a new {@code BufferedWriter}, providing {@code out} with {@code size} chars
+     * of buffer.
      *
-     * @param  out  A Writer
-     * @param  sz   Output-buffer size, a positive integer
-     *
-     * @exception  IllegalArgumentException  If {@code sz <= 0}
+     * @param out the {@code OutputStream} the buffer writes to.
+     * @param size the size of buffer in chars.
+     * @throws IllegalArgumentException if {@code size <= 0}.
      */
-    public BufferedWriter(Writer out, int sz) {
+    public BufferedWriter(Writer out, int size) {
         super(out);
-        if (sz <= 0)
-            throw new IllegalArgumentException("Buffer size <= 0");
+        if (size <= 0) {
+            throw new IllegalArgumentException("size <= 0");
+        }
         this.out = out;
-        cb = new char[sz];
-        nChars = sz;
-        nextChar = 0;
-
-        lineSeparator = java.security.AccessController.doPrivileged(
-            new sun.security.action.GetPropertyAction("line.separator"));
-    }
-
-    /** Checks to make sure that the stream has not been closed */
-    private void ensureOpen() throws IOException {
-        if (out == null)
-            throw new IOException("Stream closed");
+        this.buf = new char[size];
     }
 
     /**
-     * Flushes the output buffer to the underlying character stream, without
-     * flushing the stream itself.  This method is non-private only so that it
-     * may be invoked by PrintStream.
+     * Closes this writer. The contents of the buffer are flushed, the target
+     * writer is closed, and the buffer is released. Only the first invocation
+     * of close has any effect.
+     *
+     * @throws IOException
+     *             if an error occurs while closing this writer.
      */
-    void flushBuffer() throws IOException {
+    @Override
+    public void close() throws IOException {
         synchronized (lock) {
-            ensureOpen();
-            if (nextChar == 0)
-                return;
-            out.write(cb, 0, nextChar);
-            nextChar = 0;
-        }
-    }
-
-    /**
-     * Writes a single character.
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void write(int c) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            if (nextChar >= nChars)
-                flushBuffer();
-            cb[nextChar++] = (char) c;
-        }
-    }
-
-    /**
-     * Our own little min method, to avoid loading java.lang.Math if we've run
-     * out of file descriptors and we're trying to print a stack trace.
-     */
-    private int min(int a, int b) {
-        if (a < b) return a;
-        return b;
-    }
-
-    /**
-     * Writes a portion of an array of characters.
-     *
-     * <p> Ordinarily this method stores characters from the given array into
-     * this stream's buffer, flushing the buffer to the underlying stream as
-     * needed.  If the requested length is at least as large as the buffer,
-     * however, then this method will flush the buffer and write the characters
-     * directly to the underlying stream.  Thus redundant
-     * <code>BufferedWriter</code>s will not copy data unnecessarily.
-     *
-     * @param  cbuf  A character array
-     * @param  off   Offset from which to start reading characters
-     * @param  len   Number of characters to write
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void write(char cbuf[], int off, int len) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            if ((off < 0) || (off > cbuf.length) || (len < 0) ||
-                ((off + len) > cbuf.length) || ((off + len) < 0)) {
-                throw new IndexOutOfBoundsException();
-            } else if (len == 0) {
+            if (isClosed()) {
                 return;
             }
 
-            if (len >= nChars) {
-                /* If the request length exceeds the size of the output buffer,
-                   flush the buffer and then write the data directly.  In this
-                   way buffered streams will cascade harmlessly. */
-                flushBuffer();
-                out.write(cbuf, off, len);
-                return;
+            Throwable thrown = null;
+            try {
+                flushInternal();
+            } catch (Throwable e) {
+                thrown = e;
             }
+            buf = null;
 
-            int b = off, t = off + len;
-            while (b < t) {
-                int d = min(nChars - nextChar, t - b);
-                System.arraycopy(cbuf, b, cb, nextChar, d);
-                b += d;
-                nextChar += d;
-                if (nextChar >= nChars)
-                    flushBuffer();
+            try {
+                out.close();
+            } catch (Throwable e) {
+                if (thrown == null) {
+                    thrown = e;
+                }
             }
-        }
-    }
+            out = null;
 
-    /**
-     * Writes a portion of a String.
-     *
-     * <p> If the value of the <tt>len</tt> parameter is negative then no
-     * characters are written.  This is contrary to the specification of this
-     * method in the {@linkplain java.io.Writer#write(java.lang.String,int,int)
-     * superclass}, which requires that an {@link IndexOutOfBoundsException} be
-     * thrown.
-     *
-     * @param  s     String to be written
-     * @param  off   Offset from which to start reading characters
-     * @param  len   Number of characters to be written
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void write(String s, int off, int len) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-
-            int b = off, t = off + len;
-            while (b < t) {
-                int d = min(nChars - nextChar, t - b);
-                s.getChars(b, b + d, cb, nextChar);
-                b += d;
-                nextChar += d;
-                if (nextChar >= nChars)
-                    flushBuffer();
+            if (thrown != null) {
+                SneakyThrow.sneakyThrow(thrown);
             }
         }
     }
 
     /**
-     * Writes a line separator.  The line separator string is defined by the
-     * system property <tt>line.separator</tt>, and is not necessarily a single
-     * newline ('\n') character.
+     * Flushes this writer. The contents of the buffer are committed to the
+     * target writer and it is then flushed.
      *
-     * @exception  IOException  If an I/O error occurs
+     * @throws IOException
+     *             if an error occurs while flushing this writer.
      */
-    public void newLine() throws IOException {
-        write(lineSeparator);
-    }
-
-    /**
-     * Flushes the stream.
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
+    @Override
     public void flush() throws IOException {
         synchronized (lock) {
-            flushBuffer();
+            checkNotClosed();
+            flushInternal();
             out.flush();
         }
     }
 
-    @SuppressWarnings("try")
-    public void close() throws IOException {
+    private void checkNotClosed() throws IOException {
+        if (isClosed()) {
+            throw new IOException("BufferedWriter is closed");
+        }
+    }
+
+    /**
+     * Flushes the internal buffer.
+     */
+    private void flushInternal() throws IOException {
+        if (pos > 0) {
+            out.write(buf, 0, pos);
+        }
+        pos = 0;
+    }
+
+    /**
+     * Indicates whether this writer is closed.
+     *
+     * @return {@code true} if this writer is closed, {@code false} otherwise.
+     */
+    private boolean isClosed() {
+        return out == null;
+    }
+
+    /**
+     * Writes a newline to this writer. On Android, this is {@code "\n"}.
+     * The target writer may or may not be flushed when a newline is written.
+     *
+     * @throws IOException
+     *             if an error occurs attempting to write to this writer.
+     */
+    public void newLine() throws IOException {
+        write(System.lineSeparator());
+    }
+
+    /**
+     * Writes {@code count} characters starting at {@code offset} in
+     * {@code buffer} to this writer. If {@code count} is greater than this
+     * writer's buffer, then the buffer is flushed and the characters are
+     * written directly to the target writer.
+     *
+     * @param buffer
+     *            the array containing characters to write.
+     * @param offset
+     *            the start position in {@code buffer} for retrieving characters.
+     * @param count
+     *            the maximum number of characters to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if
+     *             {@code offset + count} is greater than the size of
+     *             {@code buffer}.
+     * @throws IOException
+     *             if this writer is closed or another I/O error occurs.
+     */
+    @Override
+    public void write(char[] buffer, int offset, int count) throws IOException {
         synchronized (lock) {
-            if (out == null) {
+            checkNotClosed();
+            if (buffer == null) {
+                throw new NullPointerException("buffer == null");
+            }
+            Arrays.checkOffsetAndCount(buffer.length, offset, count);
+            if (pos == 0 && count >= this.buf.length) {
+                out.write(buffer, offset, count);
                 return;
             }
-            try (Writer w = out) {
-                flushBuffer();
-            } finally {
-                out = null;
-                cb = null;
+            int available = this.buf.length - pos;
+            if (count < available) {
+                available = count;
+            }
+            if (available > 0) {
+                System.arraycopy(buffer, offset, this.buf, pos, available);
+                pos += available;
+            }
+            if (pos == this.buf.length) {
+                out.write(this.buf, 0, this.buf.length);
+                pos = 0;
+                if (count > available) {
+                    offset += available;
+                    available = count - available;
+                    if (available >= this.buf.length) {
+                        out.write(buffer, offset, available);
+                        return;
+                    }
+
+                    System.arraycopy(buffer, offset, this.buf, pos, available);
+                    pos += available;
+                }
+            }
+        }
+    }
+
+    /**
+     * Writes the character {@code oneChar} to this writer. If the buffer
+     * gets full by writing this character, this writer is flushed. Only the
+     * lower two bytes of the integer {@code oneChar} are written.
+     *
+     * @param oneChar
+     *            the character to write.
+     * @throws IOException
+     *             if this writer is closed or another I/O error occurs.
+     */
+    @Override
+    public void write(int oneChar) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            if (pos >= buf.length) {
+                out.write(buf, 0, buf.length);
+                pos = 0;
+            }
+            buf[pos++] = (char) oneChar;
+        }
+    }
+
+    /**
+     * Writes {@code count} characters starting at {@code offset} in {@code str}
+     * to this writer. If {@code count} is greater than this writer's buffer,
+     * then this writer is flushed and the remaining characters are written
+     * directly to the target writer. If count is negative no characters are
+     * written to the buffer. This differs from the behavior of the superclass.
+     *
+     * @param str
+     *            the non-null String containing characters to write.
+     * @param offset
+     *            the start position in {@code str} for retrieving characters.
+     * @param count
+     *            maximum number of characters to write.
+     * @throws IOException
+     *             if this writer has already been closed or another I/O error
+     *             occurs.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code offset + count} is greater
+     *             than the length of {@code str}.
+     */
+    @Override
+    public void write(String str, int offset, int count) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            if (count <= 0) {
+                return;
+            }
+            if (offset < 0 || offset > str.length() - count) {
+                throw new StringIndexOutOfBoundsException(str, offset, count);
+            }
+            if (pos == 0 && count >= buf.length) {
+                char[] chars = new char[count];
+                str.getChars(offset, offset + count, chars, 0);
+                out.write(chars, 0, count);
+                return;
+            }
+            int available = buf.length - pos;
+            if (count < available) {
+                available = count;
+            }
+            if (available > 0) {
+                str.getChars(offset, offset + available, buf, pos);
+                pos += available;
+            }
+            if (pos == buf.length) {
+                out.write(this.buf, 0, this.buf.length);
+                pos = 0;
+                if (count > available) {
+                    offset += available;
+                    available = count - available;
+                    if (available >= buf.length) {
+                        char[] chars = new char[count];
+                        str.getChars(offset, offset + available, chars, 0);
+                        out.write(chars, 0, available);
+                        return;
+                    }
+                    str.getChars(offset, offset + available, buf, pos);
+                    pos += available;
+                }
             }
         }
     }

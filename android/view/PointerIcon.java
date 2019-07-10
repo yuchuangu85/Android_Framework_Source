@@ -16,147 +16,67 @@
 
 package android.view;
 
-import android.annotation.NonNull;
+import com.android.internal.util.XmlUtils;
+
 import android.annotation.XmlRes;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
-import android.graphics.RectF;
-import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
-import android.util.SparseArray;
-
-import com.android.internal.util.XmlUtils;
 
 /**
  * Represents an icon that can be used as a mouse pointer.
  * <p>
- * Pointer icons can be provided either by the system using system types,
+ * Pointer icons can be provided either by the system using system styles,
  * or by applications using bitmaps or application resources.
  * </p>
+ *
+ * @hide
  */
 public final class PointerIcon implements Parcelable {
     private static final String TAG = "PointerIcon";
 
-    /** {@hide} Type constant: Custom icon with a user-supplied bitmap. */
-    public static final int TYPE_CUSTOM = -1;
+    /** Style constant: Custom icon with a user-supplied bitmap. */
+    public static final int STYLE_CUSTOM = -1;
 
-    /** Type constant: Null icon.  It has no bitmap. */
-    public static final int TYPE_NULL = 0;
+    /** Style constant: Null icon.  It has no bitmap. */
+    public static final int STYLE_NULL = 0;
 
-    /** Type constant: no icons are specified. If all views uses this, then falls back
-     * to the default type, but this is helpful to distinguish a view explicitly want
-     * to have the default icon.
-     * @hide
-     */
-    public static final int TYPE_NOT_SPECIFIED = 1;
+    /** Style constant: Arrow icon.  (Default mouse pointer) */
+    public static final int STYLE_ARROW = 1000;
 
-    /** Type constant: Arrow icon.  (Default mouse pointer) */
-    public static final int TYPE_ARROW = 1000;
+    /** {@hide} Style constant: Spot hover icon for touchpads. */
+    public static final int STYLE_SPOT_HOVER = 2000;
 
-    /** {@hide} Type constant: Spot hover icon for touchpads. */
-    public static final int TYPE_SPOT_HOVER = 2000;
+    /** {@hide} Style constant: Spot touch icon for touchpads. */
+    public static final int STYLE_SPOT_TOUCH = 2001;
 
-    /** {@hide} Type constant: Spot touch icon for touchpads. */
-    public static final int TYPE_SPOT_TOUCH = 2001;
+    /** {@hide} Style constant: Spot anchor icon for touchpads. */
+    public static final int STYLE_SPOT_ANCHOR = 2002;
 
-    /** {@hide} Type constant: Spot anchor icon for touchpads. */
-    public static final int TYPE_SPOT_ANCHOR = 2002;
+    // OEM private styles should be defined starting at this range to avoid
+    // conflicts with any system styles that may be defined in the future.
+    private static final int STYLE_OEM_FIRST = 10000;
 
-    // Type constants for additional predefined icons for mice.
-    /** Type constant: context-menu. */
-    public static final int TYPE_CONTEXT_MENU = 1001;
+    // The default pointer icon.
+    private static final int STYLE_DEFAULT = STYLE_ARROW;
 
-    /** Type constant: hand. */
-    public static final int TYPE_HAND = 1002;
+    private static final PointerIcon gNullIcon = new PointerIcon(STYLE_NULL);
 
-    /** Type constant: help. */
-    public static final int TYPE_HELP = 1003;
-
-    /** Type constant: wait. */
-    public static final int TYPE_WAIT = 1004;
-
-    /** Type constant: cell. */
-    public static final int TYPE_CELL = 1006;
-
-    /** Type constant: crosshair. */
-    public static final int TYPE_CROSSHAIR = 1007;
-
-    /** Type constant: text. */
-    public static final int TYPE_TEXT = 1008;
-
-    /** Type constant: vertical-text. */
-    public static final int TYPE_VERTICAL_TEXT = 1009;
-
-    /** Type constant: alias (indicating an alias of/shortcut to something is
-      * to be created. */
-    public static final int TYPE_ALIAS = 1010;
-
-    /** Type constant: copy. */
-    public static final int TYPE_COPY = 1011;
-
-    /** Type constant: no-drop. */
-    public static final int TYPE_NO_DROP = 1012;
-
-    /** Type constant: all-scroll. */
-    public static final int TYPE_ALL_SCROLL = 1013;
-
-    /** Type constant: horizontal double arrow mainly for resizing. */
-    public static final int TYPE_HORIZONTAL_DOUBLE_ARROW = 1014;
-
-    /** Type constant: vertical double arrow mainly for resizing. */
-    public static final int TYPE_VERTICAL_DOUBLE_ARROW = 1015;
-
-    /** Type constant: diagonal double arrow -- top-right to bottom-left. */
-    public static final int TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW = 1016;
-
-    /** Type constant: diagonal double arrow -- top-left to bottom-right. */
-    public static final int TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW = 1017;
-
-    /** Type constant: zoom-in. */
-    public static final int TYPE_ZOOM_IN = 1018;
-
-    /** Type constant: zoom-out. */
-    public static final int TYPE_ZOOM_OUT = 1019;
-
-    /** Type constant: grab. */
-    public static final int TYPE_GRAB = 1020;
-
-    /** Type constant: grabbing. */
-    public static final int TYPE_GRABBING = 1021;
-
-    // OEM private types should be defined starting at this range to avoid
-    // conflicts with any system types that may be defined in the future.
-    private static final int TYPE_OEM_FIRST = 10000;
-
-    /** The default pointer icon. */
-    public static final int TYPE_DEFAULT = TYPE_ARROW;
-
-    private static final PointerIcon gNullIcon = new PointerIcon(TYPE_NULL);
-    private static final SparseArray<PointerIcon> gSystemIcons = new SparseArray<PointerIcon>();
-    private static boolean sUseLargeIcons = false;
-
-    private final int mType;
+    private final int mStyle;
     private int mSystemIconResourceId;
     private Bitmap mBitmap;
     private float mHotSpotX;
     private float mHotSpotY;
-    // The bitmaps for the additional frame of animated pointer icon. Note that the first frame
-    // will be stored in mBitmap.
-    private Bitmap mBitmapFrames[];
-    private int mDurationPerFrame;
 
-    private PointerIcon(int type) {
-        mType = type;
+    private PointerIcon(int style) {
+        mStyle = style;
     }
 
     /**
@@ -164,8 +84,7 @@ public final class PointerIcon implements Parcelable {
      *
      * @return The null pointer icon.
      *
-     * @see #TYPE_NULL
-     * @hide
+     * @see #STYLE_NULL
      */
     public static PointerIcon getNullIcon() {
         return gNullIcon;
@@ -178,75 +97,57 @@ public final class PointerIcon implements Parcelable {
      * @return The default pointer icon.
      *
      * @throws IllegalArgumentException if context is null.
-     * @hide
      */
-    public static PointerIcon getDefaultIcon(@NonNull Context context) {
-        return getSystemIcon(context, TYPE_DEFAULT);
+    public static PointerIcon getDefaultIcon(Context context) {
+        return getSystemIcon(context, STYLE_DEFAULT);
     }
 
     /**
-     * Gets a system pointer icon for the given type.
-     * If typeis not recognized, returns the default pointer icon.
+     * Gets a system pointer icon for the given style.
+     * If style is not recognized, returns the default pointer icon.
      *
      * @param context The context.
-     * @param type The pointer icon type.
+     * @param style The pointer icon style.
      * @return The pointer icon.
      *
      * @throws IllegalArgumentException if context is null.
      */
-    public static PointerIcon getSystemIcon(@NonNull Context context, int type) {
+    public static PointerIcon getSystemIcon(Context context, int style) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
 
-        if (type == TYPE_NULL) {
+        if (style == STYLE_NULL) {
             return gNullIcon;
         }
 
-        PointerIcon icon = gSystemIcons.get(type);
-        if (icon != null) {
-            return icon;
+        int styleIndex = getSystemIconStyleIndex(style);
+        if (styleIndex == 0) {
+            styleIndex = getSystemIconStyleIndex(STYLE_DEFAULT);
         }
 
-        int typeIndex = getSystemIconTypeIndex(type);
-        if (typeIndex == 0) {
-            typeIndex = getSystemIconTypeIndex(TYPE_DEFAULT);
-        }
-
-        int defStyle = sUseLargeIcons ?
-                com.android.internal.R.style.LargePointer : com.android.internal.R.style.Pointer;
         TypedArray a = context.obtainStyledAttributes(null,
                 com.android.internal.R.styleable.Pointer,
-                0, defStyle);
-        int resourceId = a.getResourceId(typeIndex, -1);
+                com.android.internal.R.attr.pointerStyle, 0);
+        int resourceId = a.getResourceId(styleIndex, -1);
         a.recycle();
 
         if (resourceId == -1) {
-            Log.w(TAG, "Missing theme resources for pointer icon type " + type);
-            return type == TYPE_DEFAULT ? gNullIcon : getSystemIcon(context, TYPE_DEFAULT);
+            Log.w(TAG, "Missing theme resources for pointer icon style " + style);
+            return style == STYLE_DEFAULT ? gNullIcon : getSystemIcon(context, STYLE_DEFAULT);
         }
 
-        icon = new PointerIcon(type);
+        PointerIcon icon = new PointerIcon(style);
         if ((resourceId & 0xff000000) == 0x01000000) {
             icon.mSystemIconResourceId = resourceId;
         } else {
             icon.loadResource(context, context.getResources(), resourceId);
         }
-        gSystemIcons.append(type, icon);
         return icon;
     }
 
     /**
-     * Updates wheter accessibility large icons are used or not.
-     * @hide
-     */
-    public static void setUseLargeIcons(boolean use) {
-        sUseLargeIcons = use;
-        gSystemIcons.clear();
-    }
-
-    /**
-     * Creates a custom pointer icon from the given bitmap and hotspot information.
+     * Creates a custom pointer from the given bitmap and hotspot information.
      *
      * @param bitmap The bitmap for the icon.
      * @param hotSpotX The X offset of the pointer icon hotspot in the bitmap.
@@ -258,13 +159,13 @@ public final class PointerIcon implements Parcelable {
      * @throws IllegalArgumentException if bitmap is null, or if the x/y hotspot
      *         parameters are invalid.
      */
-    public static PointerIcon create(@NonNull Bitmap bitmap, float hotSpotX, float hotSpotY) {
+    public static PointerIcon createCustomIcon(Bitmap bitmap, float hotSpotX, float hotSpotY) {
         if (bitmap == null) {
             throw new IllegalArgumentException("bitmap must not be null");
         }
         validateHotSpot(bitmap, hotSpotX, hotSpotY);
 
-        PointerIcon icon = new PointerIcon(TYPE_CUSTOM);
+        PointerIcon icon = new PointerIcon(STYLE_CUSTOM);
         icon.mBitmap = bitmap;
         icon.mHotSpotX = hotSpotX;
         icon.mHotSpotY = hotSpotY;
@@ -292,12 +193,12 @@ public final class PointerIcon implements Parcelable {
      * @throws Resources.NotFoundException if the resource was not found or the drawable
      * linked in the resource was not found.
      */
-    public static PointerIcon load(@NonNull Resources resources, @XmlRes int resourceId) {
+    public static PointerIcon loadCustomIcon(Resources resources, @XmlRes int resourceId) {
         if (resources == null) {
             throw new IllegalArgumentException("resources must not be null");
         }
 
-        PointerIcon icon = new PointerIcon(TYPE_CUSTOM);
+        PointerIcon icon = new PointerIcon(STYLE_CUSTOM);
         icon.loadResource(null, resources, resourceId);
         return icon;
     }
@@ -310,9 +211,10 @@ public final class PointerIcon implements Parcelable {
      * @return The loaded pointer icon.
      *
      * @throws IllegalArgumentException if context is null.
+     * @see #isLoaded()
      * @hide
      */
-    public PointerIcon load(@NonNull Context context) {
+    public PointerIcon load(Context context) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
@@ -321,28 +223,100 @@ public final class PointerIcon implements Parcelable {
             return this;
         }
 
-        PointerIcon result = new PointerIcon(mType);
+        PointerIcon result = new PointerIcon(mStyle);
         result.mSystemIconResourceId = mSystemIconResourceId;
         result.loadResource(context, context.getResources(), mSystemIconResourceId);
         return result;
     }
 
-    /** @hide */
-    public int getType() {
-        return mType;
+    /**
+     * Returns true if the pointer icon style is {@link #STYLE_NULL}.
+     *
+     * @return True if the pointer icon style is {@link #STYLE_NULL}.
+     */
+    public boolean isNullIcon() {
+        return mStyle == STYLE_NULL;
+    }
+
+    /**
+     * Returns true if the pointer icon has been loaded and its bitmap and hotspot
+     * information are available.
+     *
+     * @return True if the pointer icon is loaded.
+     * @see #load(Context)
+     */
+    public boolean isLoaded() {
+        return mBitmap != null || mStyle == STYLE_NULL;
+    }
+
+    /**
+     * Gets the style of the pointer icon.
+     *
+     * @return The pointer icon style.
+     */
+    public int getStyle() {
+        return mStyle;
+    }
+
+    /**
+     * Gets the bitmap of the pointer icon.
+     *
+     * @return The pointer icon bitmap, or null if the style is {@link #STYLE_NULL}.
+     *
+     * @throws IllegalStateException if the bitmap is not loaded.
+     * @see #isLoaded()
+     * @see #load(Context)
+     */
+    public Bitmap getBitmap() {
+        throwIfIconIsNotLoaded();
+        return mBitmap;
+    }
+
+    /**
+     * Gets the X offset of the pointer icon hotspot.
+     *
+     * @return The hotspot X offset.
+     *
+     * @throws IllegalStateException if the bitmap is not loaded.
+     * @see #isLoaded()
+     * @see #load(Context)
+     */
+    public float getHotSpotX() {
+        throwIfIconIsNotLoaded();
+        return mHotSpotX;
+    }
+
+    /**
+     * Gets the Y offset of the pointer icon hotspot.
+     *
+     * @return The hotspot Y offset.
+     *
+     * @throws IllegalStateException if the bitmap is not loaded.
+     * @see #isLoaded()
+     * @see #load(Context)
+     */
+    public float getHotSpotY() {
+        throwIfIconIsNotLoaded();
+        return mHotSpotY;
+    }
+
+    private void throwIfIconIsNotLoaded() {
+        if (!isLoaded()) {
+            throw new IllegalStateException("The icon is not loaded.");
+        }
     }
 
     public static final Parcelable.Creator<PointerIcon> CREATOR
             = new Parcelable.Creator<PointerIcon>() {
         public PointerIcon createFromParcel(Parcel in) {
-            int type = in.readInt();
-            if (type == TYPE_NULL) {
+            int style = in.readInt();
+            if (style == STYLE_NULL) {
                 return getNullIcon();
             }
 
             int systemIconResourceId = in.readInt();
             if (systemIconResourceId != 0) {
-                PointerIcon icon = new PointerIcon(type);
+                PointerIcon icon = new PointerIcon(style);
                 icon.mSystemIconResourceId = systemIconResourceId;
                 return icon;
             }
@@ -350,7 +324,7 @@ public final class PointerIcon implements Parcelable {
             Bitmap bitmap = Bitmap.CREATOR.createFromParcel(in);
             float hotSpotX = in.readFloat();
             float hotSpotY = in.readFloat();
-            return PointerIcon.create(bitmap, hotSpotX, hotSpotY);
+            return PointerIcon.createCustomIcon(bitmap, hotSpotX, hotSpotY);
         }
 
         public PointerIcon[] newArray(int size) {
@@ -363,9 +337,9 @@ public final class PointerIcon implements Parcelable {
     }
 
     public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(mType);
+        out.writeInt(mStyle);
 
-        if (mType != TYPE_NULL) {
+        if (mStyle != STYLE_NULL) {
             out.writeInt(mSystemIconResourceId);
             if (mSystemIconResourceId == 0) {
                 mBitmap.writeToParcel(out, flags);
@@ -386,7 +360,7 @@ public final class PointerIcon implements Parcelable {
         }
 
         PointerIcon otherIcon = (PointerIcon) other;
-        if (mType != otherIcon.mType
+        if (mStyle != otherIcon.mStyle
                 || mSystemIconResourceId != otherIcon.mSystemIconResourceId) {
             return false;
         }
@@ -398,33 +372,6 @@ public final class PointerIcon implements Parcelable {
         }
 
         return true;
-    }
-
-    /**
-     *  Get the Bitmap from the Drawable.
-     *
-     *  If the Bitmap needed to be scaled up to account for density, BitmapDrawable
-     *  handles this at draw time. But this class doesn't actually draw the Bitmap;
-     *  it is just a holder for native code to access its SkBitmap. So this needs to
-     *  get a version that is scaled to account for density.
-     */
-    private Bitmap getBitmapFromDrawable(BitmapDrawable bitmapDrawable) {
-        Bitmap bitmap = bitmapDrawable.getBitmap();
-        final int scaledWidth  = bitmapDrawable.getIntrinsicWidth();
-        final int scaledHeight = bitmapDrawable.getIntrinsicHeight();
-        if (scaledWidth == bitmap.getWidth() && scaledHeight == bitmap.getHeight()) {
-            return bitmap;
-        }
-
-        Rect src = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
-        RectF dst = new RectF(0, 0, scaledWidth, scaledHeight);
-
-        Bitmap scaled = Bitmap.createBitmap(scaledWidth, scaledHeight, bitmap.getConfig());
-        Canvas canvas = new Canvas(scaled);
-        Paint paint = new Paint();
-        paint.setFilterBitmap(true);
-        canvas.drawBitmap(bitmap, src, dst, paint);
-        return scaled;
     }
 
     private void loadResource(Context context, Resources resources, @XmlRes int resourceId) {
@@ -457,47 +404,13 @@ public final class PointerIcon implements Parcelable {
         } else {
             drawable = context.getDrawable(bitmapRes);
         }
-        if (drawable instanceof AnimationDrawable) {
-            // Extract animation frame bitmaps.
-            final AnimationDrawable animationDrawable = (AnimationDrawable) drawable;
-            final int frames = animationDrawable.getNumberOfFrames();
-            drawable = animationDrawable.getFrame(0);
-            if (frames == 1) {
-                Log.w(TAG, "Animation icon with single frame -- simply treating the first "
-                        + "frame as a normal bitmap icon.");
-            } else {
-                // Assumes they have the exact duration.
-                mDurationPerFrame = animationDrawable.getDuration(0);
-                mBitmapFrames = new Bitmap[frames - 1];
-                final int width = drawable.getIntrinsicWidth();
-                final int height = drawable.getIntrinsicHeight();
-                for (int i = 1; i < frames; ++i) {
-                    Drawable drawableFrame = animationDrawable.getFrame(i);
-                    if (!(drawableFrame instanceof BitmapDrawable)) {
-                        throw new IllegalArgumentException("Frame of an animated pointer icon "
-                                + "must refer to a bitmap drawable.");
-                    }
-                    if (drawableFrame.getIntrinsicWidth() != width ||
-                        drawableFrame.getIntrinsicHeight() != height) {
-                        throw new IllegalArgumentException("The bitmap size of " + i + "-th frame "
-                                + "is different. All frames should have the exact same size and "
-                                + "share the same hotspot.");
-                    }
-                    BitmapDrawable bitmapDrawableFrame = (BitmapDrawable) drawableFrame;
-                    mBitmapFrames[i - 1] = getBitmapFromDrawable(bitmapDrawableFrame);
-                }
-            }
-        }
         if (!(drawable instanceof BitmapDrawable)) {
             throw new IllegalArgumentException("<pointer-icon> bitmap attribute must "
                     + "refer to a bitmap drawable.");
         }
 
-        BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
-        final Bitmap bitmap = getBitmapFromDrawable(bitmapDrawable);
-        validateHotSpot(bitmap, hotSpotX, hotSpotY);
         // Set the properties now that we have successfully loaded the icon.
-        mBitmap = bitmap;
+        mBitmap = ((BitmapDrawable)drawable).getBitmap();
         mHotSpotX = hotSpotX;
         mHotSpotY = hotSpotY;
     }
@@ -511,58 +424,16 @@ public final class PointerIcon implements Parcelable {
         }
     }
 
-    private static int getSystemIconTypeIndex(int type) {
-        switch (type) {
-            case TYPE_ARROW:
+    private static int getSystemIconStyleIndex(int style) {
+        switch (style) {
+            case STYLE_ARROW:
                 return com.android.internal.R.styleable.Pointer_pointerIconArrow;
-            case TYPE_SPOT_HOVER:
+            case STYLE_SPOT_HOVER:
                 return com.android.internal.R.styleable.Pointer_pointerIconSpotHover;
-            case TYPE_SPOT_TOUCH:
+            case STYLE_SPOT_TOUCH:
                 return com.android.internal.R.styleable.Pointer_pointerIconSpotTouch;
-            case TYPE_SPOT_ANCHOR:
+            case STYLE_SPOT_ANCHOR:
                 return com.android.internal.R.styleable.Pointer_pointerIconSpotAnchor;
-            case TYPE_HAND:
-                return com.android.internal.R.styleable.Pointer_pointerIconHand;
-            case TYPE_CONTEXT_MENU:
-                return com.android.internal.R.styleable.Pointer_pointerIconContextMenu;
-            case TYPE_HELP:
-                return com.android.internal.R.styleable.Pointer_pointerIconHelp;
-            case TYPE_WAIT:
-                return com.android.internal.R.styleable.Pointer_pointerIconWait;
-            case TYPE_CELL:
-                return com.android.internal.R.styleable.Pointer_pointerIconCell;
-            case TYPE_CROSSHAIR:
-                return com.android.internal.R.styleable.Pointer_pointerIconCrosshair;
-            case TYPE_TEXT:
-                return com.android.internal.R.styleable.Pointer_pointerIconText;
-            case TYPE_VERTICAL_TEXT:
-                return com.android.internal.R.styleable.Pointer_pointerIconVerticalText;
-            case TYPE_ALIAS:
-                return com.android.internal.R.styleable.Pointer_pointerIconAlias;
-            case TYPE_COPY:
-                return com.android.internal.R.styleable.Pointer_pointerIconCopy;
-            case TYPE_ALL_SCROLL:
-                return com.android.internal.R.styleable.Pointer_pointerIconAllScroll;
-            case TYPE_NO_DROP:
-                return com.android.internal.R.styleable.Pointer_pointerIconNodrop;
-            case TYPE_HORIZONTAL_DOUBLE_ARROW:
-                return com.android.internal.R.styleable.Pointer_pointerIconHorizontalDoubleArrow;
-            case TYPE_VERTICAL_DOUBLE_ARROW:
-                return com.android.internal.R.styleable.Pointer_pointerIconVerticalDoubleArrow;
-            case TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW:
-                return com.android.internal.R.styleable.
-                        Pointer_pointerIconTopRightDiagonalDoubleArrow;
-            case TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW:
-                return com.android.internal.R.styleable.
-                        Pointer_pointerIconTopLeftDiagonalDoubleArrow;
-            case TYPE_ZOOM_IN:
-                return com.android.internal.R.styleable.Pointer_pointerIconZoomIn;
-            case TYPE_ZOOM_OUT:
-                return com.android.internal.R.styleable.Pointer_pointerIconZoomOut;
-            case TYPE_GRAB:
-                return com.android.internal.R.styleable.Pointer_pointerIconGrab;
-            case TYPE_GRABBING:
-                return com.android.internal.R.styleable.Pointer_pointerIconGrabbing;
             default:
                 return 0;
         }

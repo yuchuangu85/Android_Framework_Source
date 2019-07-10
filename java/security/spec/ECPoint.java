@@ -1,114 +1,116 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+
 package java.security.spec;
 
 import java.math.BigInteger;
 
 /**
- * This immutable class represents a point on an elliptic curve (EC)
- * in affine coordinates. Other coordinate systems can
- * extend this class to represent this point in other
- * coordinates.
- *
- * @author Valerie Peng
- *
- * @since 1.5
+ * A Point on an Elliptic Curve in barycentric (or affine) coordinates.
  */
 public class ECPoint {
 
-    private final BigInteger x;
-    private final BigInteger y;
-
     /**
-     * This defines the point at infinity.
+     * The point on an Elliptic Curve at infinity.
      */
     public static final ECPoint POINT_INFINITY = new ECPoint();
+    // affine X coordinate of this point
+    private final BigInteger affineX;
+    // affine Y coordinate of this point
+    private final BigInteger affineY;
 
-    // private constructor for constructing point at infinity
+    // Private ctor for POINT_INFINITY
     private ECPoint() {
-        this.x = null;
-        this.y = null;
+        affineX = null;
+        affineY = null;
     }
 
     /**
-     * Creates an ECPoint from the specified affine x-coordinate
-     * {@code x} and affine y-coordinate {@code y}.
-     * @param x the affine x-coordinate.
-     * @param y the affine y-coordinate.
-     * @exception NullPointerException if {@code x} or
-     * {@code y} is null.
+     * Creates a new point at the specified coordinates.
+     *
+     * @param affineX
+     *            the x-coordinate.
+     * @param affineY
+     *            the y-coordinate.
      */
-    public ECPoint(BigInteger x, BigInteger y) {
-        if ((x==null) || (y==null)) {
-            throw new NullPointerException("affine coordinate x or y is null");
+    public ECPoint(BigInteger affineX, BigInteger affineY) {
+        this.affineX = affineX;
+        if (this.affineX == null) {
+            throw new NullPointerException("affineX == null");
         }
-        this.x = x;
-        this.y = y;
+        this.affineY = affineY;
+        if (this.affineY == null) {
+            throw new NullPointerException("affineY == null");
+        }
     }
 
     /**
-     * Returns the affine x-coordinate {@code x}.
-     * Note: POINT_INFINITY has a null affine x-coordinate.
-     * @return the affine x-coordinate.
+     * Returns the x-coordinate.
+     *
+     * @return the x-coordinate, or {@code null} for the infinite point.
      */
     public BigInteger getAffineX() {
-        return x;
+        return affineX;
     }
 
     /**
-     * Returns the affine y-coordinate {@code y}.
-     * Note: POINT_INFINITY has a null affine y-coordinate.
-     * @return the affine y-coordinate.
+     * Returns the y-coordinate.
+     *
+     * @return the y-coordinate, or {@code null} fot the infinite point.
      */
     public BigInteger getAffineY() {
-        return y;
+        return affineY;
     }
 
     /**
-     * Compares this elliptic curve point for equality with
-     * the specified object.
-     * @param obj the object to be compared.
-     * @return true if {@code obj} is an instance of
-     * ECPoint and the affine coordinates match, false otherwise.
+     * Returns whether the specified object and this elliptic curve point are
+     * equal.
+     *
+     * @param other
+     *            the object to compare.
+     * @return {@code true} if the specified object and this elliptic curve
+     *         point are equal, otherwise {@code false}.
      */
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (this == POINT_INFINITY) return false;
-        if (obj instanceof ECPoint) {
-            return ((x.equals(((ECPoint)obj).x)) &&
-                    (y.equals(((ECPoint)obj).y)));
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (other instanceof ECPoint) {
+            if (this.affineX != null) {
+                ECPoint otherPoint = (ECPoint)other;
+                // no need to check for null in this case
+                return this.affineX.equals(otherPoint.affineX) &&
+                       this.affineY.equals(otherPoint.affineY);
+            } else {
+                return other == POINT_INFINITY;
+            }
         }
         return false;
     }
 
     /**
-     * Returns a hash code value for this elliptic curve point.
-     * @return a hash code value.
+     * Returns the hashcode of this elliptic curve point.
+     *
+     * @return the hashcode of this elliptic curve point.
      */
     public int hashCode() {
-        if (this == POINT_INFINITY) return 0;
-        return x.hashCode() << 5 + y.hashCode();
+        if (this.affineX != null) {
+            return affineX.hashCode() * 31 + affineY.hashCode();
+        }
+        return 11;
     }
 }

@@ -16,8 +16,6 @@
 
 package android.net.http;
 
-import com.android.internal.util.HexDump;
-
 import android.content.Context;
 import android.os.Bundle;
 import android.text.format.DateFormat;
@@ -287,7 +285,7 @@ public class SslCertificate {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < bytes.length; i++) {
             byte b = bytes[i];
-            HexDump.appendByteAsHex(sb, b, true);
+            IntegralToString.appendByteAsHex(sb, b, true);
             if (i+1 != bytes.length) {
                 sb.append(':');
             }
@@ -506,6 +504,6 @@ public class SslCertificate {
         if (certificateDate == null) {
             return "";
         }
-        return DateFormat.getMediumDateFormat(context).format(certificateDate);
+        return DateFormat.getDateFormat(context).format(certificateDate);
     }
 }

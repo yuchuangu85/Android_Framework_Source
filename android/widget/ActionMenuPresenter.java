@@ -20,8 +20,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -39,7 +37,7 @@ import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityNodeInfo;
-
+import android.widget.ListPopupWindow.ForwardingListener;
 import com.android.internal.view.ActionBarPolicy;
 import com.android.internal.view.menu.ActionMenuItemView;
 import com.android.internal.view.menu.BaseMenuPresenter;
@@ -47,7 +45,6 @@ import com.android.internal.view.menu.MenuBuilder;
 import com.android.internal.view.menu.MenuItemImpl;
 import com.android.internal.view.menu.MenuPopupHelper;
 import com.android.internal.view.menu.MenuView;
-import com.android.internal.view.menu.ShowableListMenu;
 import com.android.internal.view.menu.SubMenuBuilder;
 
 import java.util.ArrayList;
@@ -60,6 +57,7 @@ import java.util.List;
  */
 public class ActionMenuPresenter extends BaseMenuPresenter
         implements ActionProvider.SubUiVisibilityListener {
+    private static final String TAG = "ActionMenuPresenter";
     private static final int ITEM_ANIMATION_DURATION = 150;
     private static final boolean ACTIONBAR_ANIMATIONS_ENABLED = false;
 
@@ -92,11 +90,13 @@ public class ActionMenuPresenter extends BaseMenuPresenter
 
     // These collections are used to store pre- and post-layout information for menu items,
     // which is used to determine appropriate animations to run for changed items.
-    private SparseArray<MenuItemLayoutInfo> mPreLayoutItems = new SparseArray<>();
-    private SparseArray<MenuItemLayoutInfo> mPostLayoutItems = new SparseArray<>();
+    private SparseArray<MenuItemLayoutInfo> mPreLayoutItems =
+            new SparseArray<MenuItemLayoutInfo>();
+    private SparseArray<MenuItemLayoutInfo> mPostLayoutItems =
+            new SparseArray<MenuItemLayoutInfo>();
 
     // The list of currently running animations on menu items.
-    private List<ItemAnimationInfo> mRunningItemAnimations = new ArrayList<>();
+    private List<ItemAnimationInfo> mRunningItemAnimations = new ArrayList<ItemAnimationInfo>();
     private ViewTreeObserver.OnPreDrawListener mItemAnimationPreDrawListener =
             new ViewTreeObserver.OnPreDrawListener() {
         @Override
@@ -129,7 +129,7 @@ public class ActionMenuPresenter extends BaseMenuPresenter
     }
 
     @Override
-    public void initForMenu(@NonNull Context context, @Nullable MenuBuilder menu) {
+    public void initForMenu(Context context, MenuBuilder menu) {
         super.initForMenu(context, menu);
 
         final Resources res = context.getResources();
@@ -172,7 +172,8 @@ public class ActionMenuPresenter extends BaseMenuPresenter
 
     public void onConfigurationChanged(Configuration newConfig) {
         if (!mMaxItemsSet) {
-            mMaxItems = ActionBarPolicy.get(mContext).getMaxActionButtons();
+            mMaxItems = mContext.getResources().getInteger(
+                    com.android.internal.R.integer.max_action_buttons);
         }
         if (mMenu != null) {
             mMenu.onItemsChanged(true);
@@ -499,29 +500,14 @@ public class ActionMenuPresenter extends BaseMenuPresenter
         }
         View anchor = findViewForItem(topSubMenu.getItem());
         if (anchor == null) {
-            // This means the submenu was opened from an overflow menu item, indicating the
-            // MenuPopupHelper will handle opening the submenu via its MenuPopup. Return false to
-            // ensure that the MenuPopup acts as presenter for the submenu, and acts on its
-            // responsibility to display the new submenu.
-            return false;
+            if (mOverflowButton == null) return false;
+            anchor = mOverflowButton;
         }
 
         mOpenSubMenuId = subMenu.getItem().getItemId();
-
-        boolean preserveIconSpacing = false;
-        final int count = subMenu.size();
-        for (int i = 0; i < count; i++) {
-            MenuItem childItem = subMenu.getItem(i);
-            if (childItem.isVisible() && childItem.getIcon() != null) {
-                preserveIconSpacing = true;
-                break;
-            }
-        }
-
-        mActionButtonPopup = new ActionButtonSubmenu(mContext, subMenu, anchor);
-        mActionButtonPopup.setForceShowIcon(preserveIconSpacing);
+        mActionButtonPopup = new ActionButtonSubmenu(mContext, subMenu);
+        mActionButtonPopup.setAnchorView(anchor);
         mActionButtonPopup.show();
-
         super.onSubMenuSelected(subMenu);
         return true;
     }
@@ -624,16 +610,8 @@ public class ActionMenuPresenter extends BaseMenuPresenter
     }
 
     public boolean flagActionItems() {
-        final ArrayList<MenuItemImpl> visibleItems;
-        final int itemsSize;
-        if (mMenu != null) {
-            visibleItems = mMenu.getVisibleItems();
-            itemsSize = visibleItems.size();
-        } else {
-            visibleItems = null;
-            itemsSize = 0;
-        }
-
+        final ArrayList<MenuItemImpl> visibleItems = mMenu.getVisibleItems();
+        final int itemsSize = visibleItems.size();
         int maxActions = mMaxItems;
         int widthLimit = mActionItemWidthLimit;
         final int querySpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
@@ -789,8 +767,8 @@ public class ActionMenuPresenter extends BaseMenuPresenter
         if (isVisible) {
             // Not a submenu, but treat it like one.
             super.onSubMenuSelected(null);
-        } else if (mMenu != null) {
-            mMenu.close(false /* closeAllMenus */);
+        } else {
+            mMenu.close(false);
         }
     }
 
@@ -838,6 +816,8 @@ public class ActionMenuPresenter extends BaseMenuPresenter
     }
 
     private class OverflowMenuButton extends ImageButton implements ActionMenuView.ActionMenuChildView {
+        private final float[] mTempPts = new float[2];
+
         public OverflowMenuButton(Context context) {
             super(context, null, com.android.internal.R.attr.actionOverflowButtonStyle);
 
@@ -848,7 +828,7 @@ public class ActionMenuPresenter extends BaseMenuPresenter
 
             setOnTouchListener(new ForwardingListener(this) {
                 @Override
-                public ShowableListMenu getPopup() {
+                public ListPopupWindow getPopup() {
                     if (mOverflowPopup == null) {
                         return null;
                     }
@@ -934,24 +914,24 @@ public class ActionMenuPresenter extends BaseMenuPresenter
             super(context, menu, anchorView, overflowOnly,
                     com.android.internal.R.attr.actionOverflowMenuStyle);
             setGravity(Gravity.END);
-            setPresenterCallback(mPopupPresenterCallback);
+            setCallback(mPopupPresenterCallback);
         }
 
         @Override
-        protected void onDismiss() {
-            if (mMenu != null) {
-                mMenu.close();
-            }
-            mOverflowPopup = null;
-
+        public void onDismiss() {
             super.onDismiss();
+            mMenu.close();
+            mOverflowPopup = null;
         }
     }
 
     private class ActionButtonSubmenu extends MenuPopupHelper {
-        public ActionButtonSubmenu(Context context, SubMenuBuilder subMenu, View anchorView) {
-            super(context, subMenu, anchorView, false,
+        private SubMenuBuilder mSubMenu;
+
+        public ActionButtonSubmenu(Context context, SubMenuBuilder subMenu) {
+            super(context, subMenu, null, false,
                     com.android.internal.R.attr.actionOverflowMenuStyle);
+            mSubMenu = subMenu;
 
             MenuItemImpl item = (MenuItemImpl) subMenu.getItem();
             if (!item.isActionButton()) {
@@ -959,15 +939,25 @@ public class ActionMenuPresenter extends BaseMenuPresenter
                 setAnchorView(mOverflowButton == null ? (View) mMenuView : mOverflowButton);
             }
 
-            setPresenterCallback(mPopupPresenterCallback);
+            setCallback(mPopupPresenterCallback);
+
+            boolean preserveIconSpacing = false;
+            final int count = subMenu.size();
+            for (int i = 0; i < count; i++) {
+                MenuItem childItem = subMenu.getItem(i);
+                if (childItem.isVisible() && childItem.getIcon() != null) {
+                    preserveIconSpacing = true;
+                    break;
+                }
+            }
+            setForceShowIcon(preserveIconSpacing);
         }
 
         @Override
-        protected void onDismiss() {
+        public void onDismiss() {
+            super.onDismiss();
             mActionButtonPopup = null;
             mOpenSubMenuId = 0;
-
-            super.onDismiss();
         }
     }
 
@@ -985,7 +975,7 @@ public class ActionMenuPresenter extends BaseMenuPresenter
         @Override
         public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing) {
             if (menu instanceof SubMenuBuilder) {
-                menu.getRootMenu().close(false /* closeAllMenus */);
+                ((SubMenuBuilder) menu).getRootMenu().close(false);
             }
             final Callback cb = getCallback();
             if (cb != null) {
@@ -1002,9 +992,7 @@ public class ActionMenuPresenter extends BaseMenuPresenter
         }
 
         public void run() {
-            if (mMenu != null) {
-                mMenu.changeMenuMode();
-            }
+            mMenu.changeMenuMode();
             final View menuView = (View) mMenuView;
             if (menuView != null && menuView.getWindowToken() != null && mPopup.tryShow()) {
                 mOverflowPopup = mPopup;
@@ -1015,7 +1003,7 @@ public class ActionMenuPresenter extends BaseMenuPresenter
 
     private class ActionMenuPopupCallback extends ActionMenuItemView.PopupCallback {
         @Override
-        public ShowableListMenu getPopup() {
+        public ListPopupWindow getPopup() {
             return mActionButtonPopup != null ? mActionButtonPopup.getPopup() : null;
         }
     }

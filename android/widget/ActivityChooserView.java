@@ -16,6 +16,8 @@
 
 package android.widget;
 
+import com.android.internal.R;
+
 import android.annotation.StringRes;
 import android.content.Context;
 import android.content.Intent;
@@ -24,8 +26,6 @@ import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -37,9 +37,7 @@ import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ActivityChooserModel.ActivityChooserModelClient;
-
-import com.android.internal.R;
-import com.android.internal.view.menu.ShowableListMenu;
+import android.widget.ListPopupWindow.ForwardingListener;
 
 /**
  * This class is a view for choosing an activity for handling a given {@link Intent}.
@@ -252,7 +250,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
         mDefaultActivityButton = (FrameLayout) findViewById(R.id.default_activity_button);
         mDefaultActivityButton.setOnClickListener(mCallbacks);
         mDefaultActivityButton.setOnLongClickListener(mCallbacks);
-        mDefaultActivityButtonImage = mDefaultActivityButton.findViewById(R.id.image);
+        mDefaultActivityButtonImage = (ImageView) mDefaultActivityButton.findViewById(R.id.image);
 
         final FrameLayout expandButton = (FrameLayout) findViewById(R.id.expand_activities_button);
         expandButton.setOnClickListener(mCallbacks);
@@ -265,7 +263,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
         });
         expandButton.setOnTouchListener(new ForwardingListener(expandButton) {
             @Override
-            public ShowableListMenu getPopup() {
+            public ListPopupWindow getPopup() {
                 return getListPopupWindow();
             }
 
@@ -284,7 +282,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
         mExpandActivityOverflowButton = expandButton;
 
         mExpandActivityOverflowButtonImage =
-            expandButton.findViewById(R.id.image);
+            (ImageView) expandButton.findViewById(R.id.image);
         mExpandActivityOverflowButtonImage.setImageDrawable(expandActivityOverflowButtonDrawable);
 
         mAdapter = new ActivityChooserViewAdapter();
@@ -405,7 +403,6 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
             }
             popupWindow.getListView().setContentDescription(mContext.getString(
                     R.string.activitychooserview_choose_application));
-            popupWindow.getListView().setSelector(new ColorDrawable(Color.TRANSPARENT));
         }
     }
 
@@ -763,7 +760,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
                         convertView = LayoutInflater.from(getContext()).inflate(
                                 R.layout.activity_chooser_view_list_item, parent, false);
                         convertView.setId(ITEM_VIEW_TYPE_FOOTER);
-                        TextView titleView = convertView.findViewById(R.id.title);
+                        TextView titleView = (TextView) convertView.findViewById(R.id.title);
                         titleView.setText(mContext.getString(
                                 R.string.activity_chooser_view_see_all));
                     }
@@ -775,11 +772,11 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
                     }
                     PackageManager packageManager = mContext.getPackageManager();
                     // Set the icon
-                    ImageView iconView = convertView.findViewById(R.id.icon);
+                    ImageView iconView = (ImageView) convertView.findViewById(R.id.icon);
                     ResolveInfo activity = (ResolveInfo) getItem(position);
                     iconView.setImageDrawable(activity.loadIcon(packageManager));
                     // Set the title.
-                    TextView titleView = convertView.findViewById(R.id.title);
+                    TextView titleView = (TextView) convertView.findViewById(R.id.title);
                     titleView.setText(activity.loadLabel(packageManager));
                     // Highlight the default.
                     if (mShowDefaultActivity && position == 0 && mHighlightDefaultActivity) {

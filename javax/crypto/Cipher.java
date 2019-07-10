@@ -1,2730 +1,132 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.regex.*;
-
-import static java.util.Locale.ENGLISH;
-
-import java.security.*;
+import java.nio.ByteBuffer;
+import java.security.AlgorithmParameters;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.InvalidParameterException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
 import java.security.Provider.Service;
-import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.InvalidParameterSpecException;
+import java.security.ProviderException;
+import java.security.SecureRandom;
+import java.security.Security;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
-
-import javax.crypto.spec.*;
-
-import java.nio.ByteBuffer;
-import java.nio.ReadOnlyBufferException;
-import sun.security.jca.*;
+import java.security.spec.AlgorithmParameterSpec;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Set;
+import org.apache.harmony.crypto.internal.NullCipherSpi;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * This class provides the functionality of a cryptographic cipher for
- * encryption and decryption. It forms the core of the Java Cryptographic
- * Extension (JCE) framework.
- *
- * <p>In order to create a Cipher object, the application calls the
- * Cipher's <code>getInstance</code> method, and passes the name of the
- * requested <i>transformation</i> to it. Optionally, the name of a provider
- * may be specified.
- *
- * <p>A <i>transformation</i> is a string that describes the operation (or
- * set of operations) to be performed on the given input, to produce some
- * output. A transformation always includes the name of a cryptographic
- * algorithm (e.g., <i>DES</i>), and may be followed by a feedback mode and
- * padding scheme.
- *
- * <p> A transformation is of the form:
- *
+ * This class provides access to implementations of cryptographic ciphers for
+ * encryption and decryption. Cipher classes can not be instantiated directly,
+ * one has to call the Cipher's {@code getInstance} method with the name of a
+ * requested transformation, optionally with a provider. A transformation
+ * specifies an operation (or a set of operations) as a string in the form:
  * <ul>
- * <li>"<i>algorithm/mode/padding</i>" or
- *
- * <li>"<i>algorithm</i>"
+ * <li><i>"algorithm/mode/padding"</i></li> or
+ * <li><i>"algorithm"</i></li>
  * </ul>
- *
- * <P> (in the latter case,
- * provider-specific default values for the mode and padding scheme are used).
- * For example, the following is a valid transformation:
- *
- * <pre>
- *     Cipher c = Cipher.getInstance("<i>DES/CBC/PKCS5Padding</i>");
- * </pre>
- *
- * Using modes such as <code>CFB</code> and <code>OFB</code>, block
- * ciphers can encrypt data in units smaller than the cipher's actual
- * block size.  When requesting such a mode, you may optionally specify
- * the number of bits to be processed at a time by appending this number
- * to the mode name as shown in the "<code>DES/CFB8/NoPadding</code>" and
- * "<code>DES/OFB32/PKCS5Padding</code>" transformations. If no such
- * number is specified, a provider-specific default is used. (For
- * example, the SunJCE provider uses a default of 64 bits for DES.)
- * Thus, block ciphers can be turned into byte-oriented stream ciphers by
- * using an 8 bit mode such as CFB8 or OFB8.
+ * <i>algorithm</i> is the name of a cryptographic algorithm, <i>mode</i> is the
+ * name of a feedback mode and <i>padding</i> is the name of a padding scheme.
+ * If <i>mode</i> and/or <i>padding</i> values are omitted, provider specific
+ * default values will be used.
  * <p>
- * Modes such as Authenticated Encryption with Associated Data (AEAD)
- * provide authenticity assurances for both confidential data and
- * Additional Associated Data (AAD) that is not encrypted.  (Please see
- * <a href="http://www.ietf.org/rfc/rfc5116.txt"> RFC 5116 </a> for more
- * information on AEAD and AEAD algorithms such as GCM/CCM.) Both
- * confidential and AAD data can be used when calculating the
- * authentication tag (similar to a {@link Mac}).  This tag is appended
- * to the ciphertext during encryption, and is verified on decryption.
- * <p>
- * AEAD modes such as GCM/CCM perform all AAD authenticity calculations
- * before starting the ciphertext authenticity calculations.  To avoid
- * implementations having to internally buffer ciphertext, all AAD data
- * must be supplied to GCM/CCM implementations (via the {@code
- * updateAAD} methods) <b>before</b> the ciphertext is processed (via
- * the {@code update} and {@code doFinal} methods).
- * <p>
- * Note that GCM mode has a uniqueness requirement on IVs used in
- * encryption with a given key. When IVs are repeated for GCM
- * encryption, such usages are subject to forgery attacks. Thus, after
- * each encryption operation using GCM mode, callers should re-initialize
- * the cipher objects with GCM parameters which has a different IV value.
- * <pre>
- *     GCMParameterSpec s = ...;
- *     cipher.init(..., s);
- *
- *     // If the GCM parameters were generated by the provider, it can
- *     // be retrieved by:
- *     // cipher.getParameters().getParameterSpec(GCMParameterSpec.class);
- *
- *     cipher.updateAAD(...);  // AAD
- *     cipher.update(...);     // Multi-part update
- *     cipher.doFinal(...);    // conclusion of operation
- *
- *     // Use a different IV value for every encryption
- *     byte[] newIv = ...;
- *     s = new GCMParameterSpec(s.getTLen(), newIv);
- *     cipher.init(..., s);
- *     ...
- *
- * </pre>
- * <p> Android provides the following <code>Cipher</code> transformations:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Modes</th>
- *       <th>Paddings</th>
- *       <th>Supported API Levels</th>
- *       <th>Notes</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
- *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">1+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">GCM</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">10+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES_128</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">26+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">GCM</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">26+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES_256</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">26+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">GCM</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">26+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">ARC4</span></td>
- *       <td><span style="white-space: nowrap">ECB</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">10+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">NONE</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">28+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">BLOWFISH</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
- *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">10+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">ChaCha20</span></td>
- *       <td><span style="white-space: nowrap">NONE</span><br><span style="white-space: nowrap">Poly1305</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span></td>
- *       <td><span style="white-space: nowrap">28+</span></td>
- *       <td>ChaCha with 20 rounds, 96-bit nonce, and 32-bit counter as described in RFC 7539.</td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">DES</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
- *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">1+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">DESede</span></td>
- *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
- *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
- *       <td><span style="white-space: nowrap">1+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td rowspan="3"><span style="white-space: nowrap">RSA</span></td>
- *       <td rowspan="3"><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">NONE</span></td>
- *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">OAEPPadding</span><br><span style="white-space: nowrap">PKCS1Padding</span></td>
- *       <td><span style="white-space: nowrap">1+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">OAEPwithSHA-1andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-256andMGF1Padding</span></td>
- *       <td><span style="white-space: nowrap">10+</span></td>
- *       <td></td>
- *     </tr>
- *     <tr>
- *       <td><span style="white-space: nowrap">OAEPwithSHA-224andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-384andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-512andMGF1Padding</span></td>
- *       <td><span style="white-space: nowrap">23+</span></td>
- *       <td></td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * These transformations are described in the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
- * Cipher section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * @author Jan Luehe
- * @see KeyGenerator
- * @see SecretKey
- * @since 1.4
+ * A valid transformation would be:
+ * <ul>
+ * {@code Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");}
+ * </ul>
+ * When a block cipher is requested in stream cipher mode, the number of bits
+ * to be processed at a time can be optionally specified by appending it to the
+ * mode name. e.g. <i>"AES/CFB8/NoPadding"</i>. If no number is specified, a
+ * provider specific default value is used.
  */
-
 public class Cipher {
 
-    // Android-note: Android reimplements provider selection.
-    //
-    // Android uses different provider/impl selection code than upstream does.  Provider
-    // selection permeates much of this class, so this class is forked significantly
-    // from the upstream version.  Not every change is marked, and any changes to upstream code
-    // should be evaluated to see if they should be merged.
-    //
-    // The changes are chiefly in construction (constructors, getInstance, and createCipher) and
-    // initialization (init and chooseProvider).  Most of the actual implementation is in the
-    // classes and methods at the bottom of this file.
-
-
-    // Android-removed: this debugging mechanism is not used in Android.
-    /*
-    private static final Debug debug =
-                        Debug.getInstance("jca", "Cipher");
-
-    private static final Debug pdebug =
-                        Debug.getInstance("provider", "Provider");
-    private static final boolean skipDebug =
-        Debug.isOn("engine=") && !Debug.isOn("cipher");
-    */
-
     /**
-     * Constant used to initialize cipher to encryption mode.
-     */
-    public static final int ENCRYPT_MODE = 1;
-
-    /**
-     * Constant used to initialize cipher to decryption mode.
+     * Constant for decryption operation mode.
      */
     public static final int DECRYPT_MODE = 2;
 
     /**
-     * Constant used to initialize cipher to key-wrapping mode.
+     * Constant for encryption operation mode.
      */
-    public static final int WRAP_MODE = 3;
+    public static final int ENCRYPT_MODE = 1;
 
     /**
-     * Constant used to initialize cipher to key-unwrapping mode.
-     */
-    public static final int UNWRAP_MODE = 4;
-
-    /**
-     * Constant used to indicate the to-be-unwrapped key is a "public key".
-     */
-    public static final int PUBLIC_KEY = 1;
-
-    /**
-     * Constant used to indicate the to-be-unwrapped key is a "private key".
+     * Constant indicating that the key to be unwrapped is a private key.
      */
     public static final int PRIVATE_KEY = 2;
 
     /**
-     * Constant used to indicate the to-be-unwrapped key is a "secret key".
+     * Constant indicating that the key to be unwrapped is a public key.
+     */
+    public static final int PUBLIC_KEY = 1;
+
+    /**
+     * Constant indicating that the key to be unwrapped is a secret key.
      */
     public static final int SECRET_KEY = 3;
 
-    // The provider
-    private Provider provider;
-
-    // The provider implementation (delegate)
-    private CipherSpi spi;
-
-    // The transformation
-    // Android-changed: Made final.
-    final private String transformation;
-
-    // Android-added: Added tokenizedTransformation.
-    // The tokenized version of transformation
-    final private String[] tokenizedTransformation;
-
-    // Android-removed: Removed cryptoPerm.
-    /*
-    // Crypto permission representing the maximum allowable cryptographic
-    // strength that this Cipher object can be used for. (The cryptographic
-    // strength is a function of the keysize and algorithm parameters encoded
-    // in the crypto permission.)
-    private CryptoPermission cryptoPerm;
-    */
-
-    // The exemption mechanism that needs to be enforced
-    private ExemptionMechanism exmech;
-
-    // Flag which indicates whether or not this cipher has been initialized
-    private boolean initialized = false;
-
-    // The operation mode - store the operation mode after the
-    // cipher has been initialized.
-    private int opmode = 0;
-
-    // The OID for the KeyUsage extension in an X.509 v3 certificate
-    private static final String KEY_USAGE_EXTENSION_OID = "2.5.29.15";
-
-    // BEGIN Android-changed: Reimplement provider selection.
-    // See note at top of class.
-    private final SpiAndProviderUpdater spiAndProviderUpdater;
-    /*
-    // next SPI  to try in provider selection
-    // null once provider is selected
-    private CipherSpi firstSpi;
-
-    // next service to try in provider selection
-    // null once provider is selected
-    private Service firstService;
-
-    // remaining services to try in provider selection
-    // null once provider is selected
-    private Iterator<Service> serviceIterator;
-
-    // list of transform Strings to lookup in the provider
-    private List<Transform> transforms;
-
-    private final Object lock;
-    */
-    // END Android-changed: Reimplement provider selection.
-
     /**
-     * Creates a Cipher object.
-     *
-     * @param cipherSpi the delegate
-     * @param provider the provider
-     * @param transformation the transformation
+     * Constant for key unwrapping operation mode.
      */
-    protected Cipher(CipherSpi cipherSpi,
-                     Provider provider,
-                     String transformation) {
-        if (cipherSpi == null) {
-            throw new NullPointerException("cipherSpi == null");
-        }
-        if (!(cipherSpi instanceof NullCipherSpi) && provider == null) {
-            throw new NullPointerException("provider == null");
-        }
-
-        this.spi = cipherSpi;
-        this.provider = provider;
-        this.transformation = transformation;
-        this.tokenizedTransformation = null;
-
-        this.spiAndProviderUpdater =
-            new SpiAndProviderUpdater(provider, cipherSpi);
-    }
-
-    private Cipher(CipherSpi cipherSpi,
-                   Provider provider,
-                   String transformation,
-                   String[] tokenizedTransformation) {
-        this.spi = cipherSpi;
-        this.provider = provider;
-        this.transformation = transformation;
-        this.tokenizedTransformation = tokenizedTransformation;
-
-        this.spiAndProviderUpdater =
-            new SpiAndProviderUpdater(provider, cipherSpi);
-    }
-
-    private static String[] tokenizeTransformation(String transformation)
-            throws NoSuchAlgorithmException {
-        if (transformation == null || transformation.isEmpty()) {
-            throw new NoSuchAlgorithmException("No transformation given");
-        }
-        /*
-         * array containing the components of a Cipher transformation:
-         *
-         * index 0: algorithm component (e.g., DES)
-         * index 1: feedback component (e.g., CFB)
-         * index 2: padding component (e.g., PKCS5Padding)
-         */
-        String[] parts = new String[3];
-        int count = 0;
-        StringTokenizer parser = new StringTokenizer(transformation, "/");
-        try {
-            while (parser.hasMoreTokens() && count < 3) {
-                parts[count++] = parser.nextToken().trim();
-            }
-            if (count == 0 || count == 2 || parser.hasMoreTokens()) {
-                throw new NoSuchAlgorithmException("Invalid transformation"
-                                               + " format:" +
-                                               transformation);
-            }
-        } catch (NoSuchElementException e) {
-            throw new NoSuchAlgorithmException("Invalid transformation " +
-                                           "format:" + transformation);
-        }
-        if ((parts[0] == null) || (parts[0].length() == 0)) {
-            throw new NoSuchAlgorithmException("Invalid transformation:" +
-                                   "algorithm not specified-"
-                                   + transformation);
-        }
-        return parts;
-    }
-
-    // BEGIN Android-removed: Reimplement provider selection.
-    // See note at top of class.
-    /*
-    // Provider attribute name for supported chaining mode
-    private final static String ATTR_MODE = "SupportedModes";
-    // Provider attribute name for supported padding names
-    private final static String ATTR_PAD  = "SupportedPaddings";
-
-    // constants indicating whether the provider supports
-    // a given mode or padding
-    private final static int S_NO    = 0;       // does not support
-    private final static int S_MAYBE = 1;       // unable to determine
-    private final static int S_YES   = 2;       // does support
+    public static final int UNWRAP_MODE = 4;
 
     /**
-     * Nested class to deal with modes and paddings.
-     *
-    private static class Transform {
-        // transform string to lookup in the provider
-        final String transform;
-        // the mode/padding suffix in upper case. for example, if the algorithm
-        // to lookup is "DES/CBC/PKCS5Padding" suffix is "/CBC/PKCS5PADDING"
-        // if loopup is "DES", suffix is the empty string
-        // needed because aliases prevent straight transform.equals()
-        final String suffix;
-        // value to pass to setMode() or null if no such call required
-        final String mode;
-        // value to pass to setPadding() or null if no such call required
-        final String pad;
-        Transform(String alg, String suffix, String mode, String pad) {
-            this.transform = alg + suffix;
-            this.suffix = suffix.toUpperCase(Locale.ENGLISH);
-            this.mode = mode;
-            this.pad = pad;
-        }
-        // set mode and padding for the given SPI
-        void setModePadding(CipherSpi spi) throws NoSuchAlgorithmException,
-                NoSuchPaddingException {
-            if (mode != null) {
-                spi.engineSetMode(mode);
-            }
-            if (pad != null) {
-                spi.engineSetPadding(pad);
-            }
-        }
-        // check whether the given services supports the mode and
-        // padding described by this Transform
-        int supportsModePadding(Service s) {
-            int smode = supportsMode(s);
-            if (smode == S_NO) {
-                return smode;
-            }
-            int spad = supportsPadding(s);
-            // our constants are defined so that Math.min() is a tri-valued AND
-            return Math.min(smode, spad);
-        }
-
-        // separate methods for mode and padding
-        // called directly by Cipher only to throw the correct exception
-        int supportsMode(Service s) {
-            return supports(s, ATTR_MODE, mode);
-        }
-        int supportsPadding(Service s) {
-            return supports(s, ATTR_PAD, pad);
-        }
-
-        private static int supports(Service s, String attrName, String value) {
-            if (value == null) {
-                return S_YES;
-            }
-            String regexp = s.getAttribute(attrName);
-            if (regexp == null) {
-                return S_MAYBE;
-            }
-            return matches(regexp, value) ? S_YES : S_NO;
-        }
-
-        // ConcurrentMap<String,Pattern> for previously compiled patterns
-        private final static ConcurrentMap<String, Pattern> patternCache =
-            new ConcurrentHashMap<String, Pattern>();
-
-        private static boolean matches(String regexp, String str) {
-            Pattern pattern = patternCache.get(regexp);
-            if (pattern == null) {
-                pattern = Pattern.compile(regexp);
-                patternCache.putIfAbsent(regexp, pattern);
-            }
-            return pattern.matcher(str.toUpperCase(Locale.ENGLISH)).matches();
-        }
-
-    }
-
-    private static List<Transform> getTransforms(String transformation)
-            throws NoSuchAlgorithmException {
-        String[] parts = tokenizeTransformation(transformation);
-
-        String alg = parts[0];
-        String mode = parts[1];
-        String pad = parts[2];
-        if ((mode != null) && (mode.length() == 0)) {
-            mode = null;
-        }
-        if ((pad != null) && (pad.length() == 0)) {
-            pad = null;
-        }
-
-        if ((mode == null) && (pad == null)) {
-            // DES
-            Transform tr = new Transform(alg, "", null, null);
-            return Collections.singletonList(tr);
-        } else { // if ((mode != null) && (pad != null)) {
-            // DES/CBC/PKCS5Padding
-            List<Transform> list = new ArrayList<>(4);
-            list.add(new Transform(alg, "/" + mode + "/" + pad, null, null));
-            list.add(new Transform(alg, "/" + mode, null, pad));
-            list.add(new Transform(alg, "//" + pad, mode, null));
-            list.add(new Transform(alg, "", mode, pad));
-            return list;
-        }
-    }
-
-    // get the transform matching the specified service
-    private static Transform getTransform(Service s,
-                                          List<Transform> transforms) {
-        String alg = s.getAlgorithm().toUpperCase(Locale.ENGLISH);
-        for (Transform tr : transforms) {
-            if (alg.endsWith(tr.suffix)) {
-                return tr;
-            }
-        }
-        return null;
-    }
-    */
-    // END Android-removed: Reimplement provider selection.
-
-    /**
-     * Returns a <code>Cipher</code> object that implements the specified
-     * transformation.
-     *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new Cipher object encapsulating the
-     * CipherSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param transformation the name of the transformation, e.g.,
-     * <i>DES/CBC/PKCS5Padding</i>.
-     * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard transformation names.
-     *
-     * @return a cipher that implements the requested transformation.
-     *
-     * @exception NoSuchAlgorithmException if <code>transformation</code>
-     *          is null, empty, in an invalid format,
-     *          or if no Provider supports a CipherSpi implementation for the
-     *          specified algorithm.
-     *
-     * @exception NoSuchPaddingException if <code>transformation</code>
-     *          contains a padding scheme that is not available.
-     *
-     * @see java.security.Provider
+     * Constant for key wrapping operation mode.
      */
-    public static final Cipher getInstance(String transformation)
-            throws NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        return createCipher(transformation, null);
-    }
+    public static final int WRAP_MODE = 3;
 
-    /**
-     * Returns a <code>Cipher</code> object that implements the specified
-     * transformation.
-     *
-     * <p> A new Cipher object encapsulating the
-     * CipherSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param transformation the name of the transformation,
-     * e.g., <i>DES/CBC/PKCS5Padding</i>.
-     * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard transformation names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return a cipher that implements the requested transformation.
-     *
-     * @exception NoSuchAlgorithmException if <code>transformation</code>
-     *          is null, empty, in an invalid format,
-     *          or if a CipherSpi implementation for the specified algorithm
-     *          is not available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception NoSuchPaddingException if <code>transformation</code>
-     *          contains a padding scheme that is not available.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null or empty.
-     *
-     * @see java.security.Provider
-     */
-    public static final Cipher getInstance(String transformation,
-                                           String provider)
-            throws NoSuchAlgorithmException, NoSuchProviderException,
-            NoSuchPaddingException
-    {
-        if ((provider == null) || (provider.length() == 0)) {
-            throw new IllegalArgumentException("Missing provider");
-        }
-        Provider p = Security.getProvider(provider);
-        if (p == null) {
-            throw new NoSuchProviderException("No such provider: " +
-                                              provider);
-        }
-        return getInstance(transformation, p);
-    }
-
-    /**
-     * Returns a <code>Cipher</code> object that implements the specified
-     * transformation.
-     *
-     * <p> A new Cipher object encapsulating the
-     * CipherSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param transformation the name of the transformation,
-     * e.g., <i>DES/CBC/PKCS5Padding</i>.
-     * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard transformation names.
-     *
-     * @param provider the provider.
-     *
-     * @return a cipher that implements the requested transformation.
-     *
-     * @exception NoSuchAlgorithmException if <code>transformation</code>
-     *          is null, empty, in an invalid format,
-     *          or if a CipherSpi implementation for the specified algorithm
-     *          is not available from the specified Provider object.
-     *
-     * @exception NoSuchPaddingException if <code>transformation</code>
-     *          contains a padding scheme that is not available.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null.
-     *
-     * @see java.security.Provider
-     */
-    public static final Cipher getInstance(String transformation,
-                                           Provider provider)
-            throws NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        if (provider == null) {
-            throw new IllegalArgumentException("Missing provider");
-        }
-        return createCipher(transformation, provider);
-    }
-
-    static final Cipher createCipher(String transformation, Provider provider)
-        throws NoSuchAlgorithmException, NoSuchPaddingException {
-        Providers.checkBouncyCastleDeprecation(provider, "Cipher", transformation);
-        String[] tokenizedTransformation = tokenizeTransformation(transformation);
-
-        CipherSpiAndProvider cipherSpiAndProvider = null;
-        try {
-            cipherSpiAndProvider =
-                tryCombinations(null /*params*/, provider, tokenizedTransformation);
-        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-            // Shouldn't happen.
-            throw new IllegalStateException("Key/Algorithm excepton despite not passing one", e);
-        }
-
-        if (cipherSpiAndProvider == null) {
-            if (provider == null) {
-                throw new NoSuchAlgorithmException("No provider found for " + transformation);
-            } else {
-                throw new NoSuchAlgorithmException("Provider " + provider.getName()
-                        + " does not provide " + transformation);
-            }
-        }
-
-        // exceptions and stuff
-        return new Cipher(null, provider, transformation, tokenizedTransformation);
-    }
-
-    /**
-     * Choose the Spi from the first provider available. Used if
-     * delayed provider selection is not possible because init()
-     * is not the first method called.
-     */
-    void updateProviderIfNeeded() {
-        try {
-            spiAndProviderUpdater.updateAndGetSpiAndProvider(null, spi, provider);
-        } catch (Exception lastException) {
-            ProviderException e = new ProviderException
-                    ("Could not construct CipherSpi instance");
-            if (lastException != null) {
-                e.initCause(lastException);
-            }
-            throw e;
-        }
-    }
-
-    private void chooseProvider(InitType initType, int opmode, Key key,
-            AlgorithmParameterSpec paramSpec,
-            AlgorithmParameters params, SecureRandom random)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-
-        try {
-            final InitParams initParams = new InitParams(initType, opmode, key, random,
-                                                         paramSpec, params);
-            spiAndProviderUpdater.updateAndGetSpiAndProvider(initParams, spi, provider);
-        } catch (Exception lastException) {
-            // no working provider found, fail
-            if (lastException instanceof InvalidKeyException) {
-                throw (InvalidKeyException)lastException;
-            }
-            if (lastException instanceof InvalidAlgorithmParameterException) {
-                throw (InvalidAlgorithmParameterException)lastException;
-            }
-            if (lastException instanceof RuntimeException) {
-                throw (RuntimeException)lastException;
-            }
-            String kName = (key != null) ? key.getClass().getName() : "(null)";
-            throw new InvalidKeyException
-                ("No installed provider supports this key: "
-                + kName, lastException);
-        }
-    }
-
-    /**
-     * Returns the provider of this <code>Cipher</code> object.
-     *
-     * @return the provider of this <code>Cipher</code> object
-     */
-    public final Provider getProvider() {
-        updateProviderIfNeeded();
-        return this.provider;
-    }
-
-    /**
-     * Returns the algorithm name of this <code>Cipher</code> object.
-     *
-     * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this <code>Cipher</code>
-     * object..
-     *
-     * @return the algorithm name of this <code>Cipher</code> object.
-     */
-    public final String getAlgorithm() {
-        return this.transformation;
-    }
-
-    /**
-     * Returns the block size (in bytes).
-     *
-     * @return the block size (in bytes), or 0 if the underlying algorithm is
-     * not a block cipher
-     */
-    public final int getBlockSize() {
-        updateProviderIfNeeded();
-        return spi.engineGetBlockSize();
-    }
-
-    /**
-     * Returns the length in bytes that an output buffer would need to be in
-     * order to hold the result of the next <code>update</code> or
-     * <code>doFinal</code> operation, given the input length
-     * <code>inputLen</code> (in bytes).
-     *
-     * <p>This call takes into account any unprocessed (buffered) data from a
-     * previous <code>update</code> call, padding, and AEAD tagging.
-     *
-     * <p>The actual output length of the next <code>update</code> or
-     * <code>doFinal</code> call may be smaller than the length returned by
-     * this method.
-     *
-     * @param inputLen the input length (in bytes)
-     *
-     * @return the required output buffer size (in bytes)
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not yet been initialized)
-     */
-    public final int getOutputSize(int inputLen) {
-
-        if (!initialized && !(this instanceof NullCipher)) {
-            throw new IllegalStateException("Cipher not initialized");
-        }
-        if (inputLen < 0) {
-            throw new IllegalArgumentException("Input size must be equal " +
-                                               "to or greater than zero");
-        }
-        updateProviderIfNeeded();
-        return spi.engineGetOutputSize(inputLen);
-    }
-
-    /**
-     * Returns the initialization vector (IV) in a new buffer.
-     *
-     * <p>This is useful in the case where a random IV was created,
-     * or in the context of password-based encryption or
-     * decryption, where the IV is derived from a user-supplied password.
-     *
-     * @return the initialization vector in a new buffer, or null if the
-     * underlying algorithm does not use an IV, or if the IV has not yet
-     * been set.
-     */
-    public final byte[] getIV() {
-        updateProviderIfNeeded();
-        return spi.engineGetIV();
-    }
-
-    /**
-     * Returns the parameters used with this cipher.
-     *
-     * <p>The returned parameters may be the same that were used to initialize
-     * this cipher, or may contain a combination of default and random
-     * parameter values used by the underlying cipher implementation if this
-     * cipher requires algorithm parameters but was not initialized with any.
-     *
-     * @return the parameters used with this cipher, or null if this cipher
-     * does not use any parameters.
-     */
-    public final AlgorithmParameters getParameters() {
-        updateProviderIfNeeded();
-        return spi.engineGetParameters();
-    }
-
-    /**
-     * Returns the exemption mechanism object used with this cipher.
-     *
-     * @return the exemption mechanism object used with this cipher, or
-     * null if this cipher does not use any exemption mechanism.
-     */
-    public final ExemptionMechanism getExemptionMechanism() {
-        updateProviderIfNeeded();
-        return exmech;
-    }
-
-    // BEGIN Android-removed: Eliminate crypto permission checking.
-    // Android doesn't implement SecurityManager permissions.
-    /*
-    //
-    // Crypto permission check code below
-    //
-    private void checkCryptoPerm(CipherSpi checkSpi, Key key)
-            throws InvalidKeyException {
-        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
-            return;
-        }
-        // Check if key size and default parameters are within legal limits
-        AlgorithmParameterSpec params;
-        try {
-            params = getAlgorithmParameterSpec(checkSpi.engineGetParameters());
-        } catch (InvalidParameterSpecException ipse) {
-            throw new InvalidKeyException
-                ("Unsupported default algorithm parameters");
-        }
-        if (!passCryptoPermCheck(checkSpi, key, params)) {
-            throw new InvalidKeyException(
-                "Illegal key size or default parameters");
-        }
-    }
-
-    private void checkCryptoPerm(CipherSpi checkSpi, Key key,
-            AlgorithmParameterSpec params) throws InvalidKeyException,
-            InvalidAlgorithmParameterException {
-        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
-            return;
-        }
-        // Determine keysize and check if it is within legal limits
-        if (!passCryptoPermCheck(checkSpi, key, null)) {
-            throw new InvalidKeyException("Illegal key size");
-        }
-        if ((params != null) && (!passCryptoPermCheck(checkSpi, key, params))) {
-            throw new InvalidAlgorithmParameterException("Illegal parameters");
-        }
-    }
-
-    private void checkCryptoPerm(CipherSpi checkSpi, Key key,
-            AlgorithmParameters params)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
-            return;
-        }
-        // Convert the specified parameters into specs and then delegate.
-        AlgorithmParameterSpec pSpec;
-        try {
-            pSpec = getAlgorithmParameterSpec(params);
-        } catch (InvalidParameterSpecException ipse) {
-            throw new InvalidAlgorithmParameterException
-                ("Failed to retrieve algorithm parameter specification");
-        }
-        checkCryptoPerm(checkSpi, key, pSpec);
-    }
-
-    private boolean passCryptoPermCheck(CipherSpi checkSpi, Key key,
-                                        AlgorithmParameterSpec params)
-            throws InvalidKeyException {
-        String em = cryptoPerm.getExemptionMechanism();
-        int keySize = checkSpi.engineGetKeySize(key);
-        // Use the "algorithm" component of the cipher
-        // transformation so that the perm check would
-        // work when the key has the "aliased" algo.
-        String algComponent;
-        int index = transformation.indexOf('/');
-        if (index != -1) {
-            algComponent = transformation.substring(0, index);
-        } else {
-            algComponent = transformation;
-        }
-        CryptoPermission checkPerm =
-            new CryptoPermission(algComponent, keySize, params, em);
-
-        if (!cryptoPerm.implies(checkPerm)) {
-            if (debug != null) {
-                debug.println("Crypto Permission check failed");
-                debug.println("granted: " + cryptoPerm);
-                debug.println("requesting: " + checkPerm);
-            }
-            return false;
-        }
-        if (exmech == null) {
-            return true;
-        }
-        try {
-            if (!exmech.isCryptoAllowed(key)) {
-                if (debug != null) {
-                    debug.println(exmech.getName() + " isn't enforced");
-                }
-                return false;
-            }
-        } catch (ExemptionMechanismException eme) {
-            if (debug != null) {
-                debug.println("Cannot determine whether "+
-                              exmech.getName() + " has been enforced");
-                eme.printStackTrace();
-            }
-            return false;
-        }
-        return true;
-    }
-    */
-    // END Android-removed: Eliminate crypto permission checking.
-
-    // check if opmode is one of the defined constants
-    // throw InvalidParameterExeption if not
-    private static void checkOpmode(int opmode) {
-        if ((opmode < ENCRYPT_MODE) || (opmode > UNWRAP_MODE)) {
-            throw new InvalidParameterException("Invalid operation mode");
-        }
-    }
-
-    private static String getOpmodeString(int opmode) {
-        switch (opmode) {
-            case ENCRYPT_MODE:
-                return "encryption";
-            case DECRYPT_MODE:
-                return "decryption";
-            case WRAP_MODE:
-                return "key wrapping";
-            case UNWRAP_MODE:
-                return "key unwrapping";
-            default:
-                return "";
-        }
-    }
-
-    /**
-     * Initializes this cipher with a key.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters that cannot be
-     * derived from the given <code>key</code>, the underlying cipher
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidKeyException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them using the {@link java.security.SecureRandom}
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of
-     * the following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the key
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or requires
-     * algorithm parameters that cannot be
-     * determined from the given key, or if the given key has a keysize that
-     * exceeds the maximum allowable keysize (as determined from the
-     * configured jurisdiction policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key) throws InvalidKeyException {
-        init(opmode, key, JceSecurity.RANDOM);
-    }
-
-    /**
-     * Initializes this cipher with a key and a source of randomness.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters that cannot be
-     * derived from the given <code>key</code>, the underlying cipher
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidKeyException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or requires
-     * algorithm parameters that cannot be
-     * determined from the given key, or if the given key has a keysize that
-     * exceeds the maximum allowable keysize (as determined from the
-     * configured jurisdiction policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key, SecureRandom random)
-            throws InvalidKeyException
-    {
-        initialized = false;
-        checkOpmode(opmode);
-
-        try {
-            chooseProvider(InitType.KEY, opmode, key, null, null, random);
-        } catch (InvalidAlgorithmParameterException e) {
-            // should never occur
-            throw new InvalidKeyException(e);
-        }
-
-        initialized = true;
-        this.opmode = opmode;
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Cipher." + transformation + " " +
-                getOpmodeString(opmode) + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
-    }
-
-    /**
-     * Initializes this cipher with a key and a set of algorithm
-     * parameters.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them using the {@link java.security.SecureRandom}
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or its keysize exceeds the maximum allowable
-     * keysize (as determined from the configured jurisdiction policy files).
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or this cipher requires
-     * algorithm parameters and <code>params</code> is null, or the given
-     * algorithm parameters imply a cryptographic strength that would exceed
-     * the legal limits (as determined from the configured jurisdiction
-     * policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key, AlgorithmParameterSpec params)
-            throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        init(opmode, key, params, JceSecurity.RANDOM);
-    }
-
-    /**
-     * Initializes this cipher with a key, a set of algorithm
-     * parameters, and a source of randomness.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or its keysize exceeds the maximum allowable
-     * keysize (as determined from the configured jurisdiction policy files).
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or this cipher requires
-     * algorithm parameters and <code>params</code> is null, or the given
-     * algorithm parameters imply a cryptographic strength that would exceed
-     * the legal limits (as determined from the configured jurisdiction
-     * policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key, AlgorithmParameterSpec params,
-                           SecureRandom random)
-            throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        initialized = false;
-        checkOpmode(opmode);
-
-        chooseProvider(InitType.ALGORITHM_PARAM_SPEC, opmode, key, params, null, random);
-
-        initialized = true;
-        this.opmode = opmode;
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Cipher." + transformation + " " +
-                getOpmodeString(opmode) + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
-    }
-
-    /**
-     * Initializes this cipher with a key and a set of algorithm
-     * parameters.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them using the {@link java.security.SecureRandom}
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following: <code>ENCRYPT_MODE</code>,
-     * <code>DECRYPT_MODE</code>, <code>WRAP_MODE</code>
-     * or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or its keysize exceeds the maximum allowable
-     * keysize (as determined from the configured jurisdiction policy files).
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or this cipher requires
-     * algorithm parameters and <code>params</code> is null, or the given
-     * algorithm parameters imply a cryptographic strength that would exceed
-     * the legal limits (as determined from the configured jurisdiction
-     * policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key, AlgorithmParameters params)
-            throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        init(opmode, key, params, JceSecurity.RANDOM);
-    }
-
-    /**
-     * Initializes this cipher with a key, a set of algorithm
-     * parameters, and a source of randomness.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following: <code>ENCRYPT_MODE</code>,
-     * <code>DECRYPT_MODE</code>, <code>WRAP_MODE</code>
-     * or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or its keysize exceeds the maximum allowable
-     * keysize (as determined from the configured jurisdiction policy files).
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or this cipher requires
-     * algorithm parameters and <code>params</code> is null, or the given
-     * algorithm parameters imply a cryptographic strength that would exceed
-     * the legal limits (as determined from the configured jurisdiction
-     * policy files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Key key, AlgorithmParameters params,
-                           SecureRandom random)
-            throws InvalidKeyException, InvalidAlgorithmParameterException
-    {
-        initialized = false;
-        checkOpmode(opmode);
-
-        chooseProvider(InitType.ALGORITHM_PARAMS, opmode, key, null, params, random);
-
-        initialized = true;
-        this.opmode = opmode;
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Cipher." + transformation + " " +
-                getOpmodeString(opmode) + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
-    }
-
-    /**
-     * Initializes this cipher with the public key from the given certificate.
-     * <p> The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or  key unwrapping, depending
-     * on the value of <code>opmode</code>.
-     *
-     * <p>If the certificate is of type X.509 and has a <i>key usage</i>
-     * extension field marked as critical, and the value of the <i>key usage</i>
-     * extension field implies that the public key in
-     * the certificate and its corresponding private key are not
-     * supposed to be used for the operation represented by the value
-     * of <code>opmode</code>,
-     * an <code>InvalidKeyException</code>
-     * is thrown.
-     *
-     * <p> If this cipher requires any algorithm parameters that cannot be
-     * derived from the public key in the given certificate, the underlying
-     * cipher
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an <code>
-     * InvalidKeyException</code> if it is being initialized for decryption or
-     * key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them using the
-     * <code>SecureRandom</code>
-     * implementation of the highest-priority
-     * installed provider as the source of randomness.
-     * (If none of the installed providers supply an implementation of
-     * SecureRandom, a system-provided source of randomness will be used.)
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param certificate the certificate
-     *
-     * @exception InvalidKeyException if the public key in the given
-     * certificate is inappropriate for initializing this cipher, or this
-     * cipher requires algorithm parameters that cannot be determined from the
-     * public key in the given certificate, or the keysize of the public key
-     * in the given certificate has a keysize that exceeds the maximum
-     * allowable keysize (as determined by the configured jurisdiction policy
-     * files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Certificate certificate)
-            throws InvalidKeyException
-    {
-        init(opmode, certificate, JceSecurity.RANDOM);
-    }
-
-    /**
-     * Initializes this cipher with the public key from the given certificate
-     * and
-     * a source of randomness.
-     *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping
-     * or key unwrapping, depending on
-     * the value of <code>opmode</code>.
-     *
-     * <p>If the certificate is of type X.509 and has a <i>key usage</i>
-     * extension field marked as critical, and the value of the <i>key usage</i>
-     * extension field implies that the public key in
-     * the certificate and its corresponding private key are not
-     * supposed to be used for the operation represented by the value of
-     * <code>opmode</code>,
-     * an <code>InvalidKeyException</code>
-     * is thrown.
-     *
-     * <p>If this cipher requires any algorithm parameters that cannot be
-     * derived from the public key in the given <code>certificate</code>,
-     * the underlying cipher
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidKeyException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #getParameters() getParameters} or
-     * {@link #getIV() getIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of the
-     * following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param certificate the certificate
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the public key in the given
-     * certificate is inappropriate for initializing this cipher, or this
-     * cipher
-     * requires algorithm parameters that cannot be determined from the
-     * public key in the given certificate, or the keysize of the public key
-     * in the given certificate has a keysize that exceeds the maximum
-     * allowable keysize (as determined by the configured jurisdiction policy
-     * files).
-     * @throws UnsupportedOperationException if (@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} but the mode is not implemented
-     * by the underlying {@code CipherSpi}.
-     */
-    public final void init(int opmode, Certificate certificate,
-                           SecureRandom random)
-            throws InvalidKeyException
-    {
-        initialized = false;
-        checkOpmode(opmode);
-
-        // Check key usage if the certificate is of
-        // type X.509.
-        if (certificate instanceof java.security.cert.X509Certificate) {
-            // Check whether the cert has a key usage extension
-            // marked as a critical extension.
-            X509Certificate cert = (X509Certificate)certificate;
-            Set<String> critSet = cert.getCriticalExtensionOIDs();
-
-            if (critSet != null && !critSet.isEmpty()
-                && critSet.contains(KEY_USAGE_EXTENSION_OID)) {
-                boolean[] keyUsageInfo = cert.getKeyUsage();
-                // keyUsageInfo[2] is for keyEncipherment;
-                // keyUsageInfo[3] is for dataEncipherment.
-                if ((keyUsageInfo != null) &&
-                    (((opmode == Cipher.ENCRYPT_MODE) &&
-                      (keyUsageInfo.length > 3) &&
-                      (keyUsageInfo[3] == false)) ||
-                     ((opmode == Cipher.WRAP_MODE) &&
-                      (keyUsageInfo.length > 2) &&
-                      (keyUsageInfo[2] == false)))) {
-                    throw new InvalidKeyException("Wrong key usage");
-                }
-            }
-        }
-
-        PublicKey publicKey =
-            (certificate==null? null:certificate.getPublicKey());
-
-        try {
-            chooseProvider(InitType.KEY, opmode, (Key) publicKey, null, null, random);
-        } catch (InvalidAlgorithmParameterException e) {
-            // should never occur
-            throw new InvalidKeyException(e);
-        }
-
-        initialized = true;
-        this.opmode = opmode;
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Cipher." + transformation + " " +
-                getOpmodeString(opmode) + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
-    }
-
-    /**
-     * Ensures that Cipher is in a valid state for update() and doFinal()
-     * calls - should be initialized and in ENCRYPT_MODE or DECRYPT_MODE.
-     * @throws IllegalStateException if Cipher object is not in valid state.
-     */
-    private void checkCipherState() {
-        if (!(this instanceof NullCipher)) {
-            if (!initialized) {
-                throw new IllegalStateException("Cipher not initialized");
-            }
-            if ((opmode != Cipher.ENCRYPT_MODE) &&
-                (opmode != Cipher.DECRYPT_MODE)) {
-                throw new IllegalStateException("Cipher not initialized " +
-                                                "for encryption/decryption");
-            }
-        }
-    }
-
-    /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
-     *
-     * <p>The bytes in the <code>input</code> buffer are processed, and the
-     * result is stored in a new buffer.
-     *
-     * <p>If <code>input</code> has a length of zero, this method returns
-     * <code>null</code>.
-     *
-     * @param input the input buffer
-     *
-     * @return the new buffer with the result, or null if the underlying
-     * cipher is a block cipher and the input data is too short to result in a
-     * new block.
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     */
-    public final byte[] update(byte[] input) {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null) {
-            throw new IllegalArgumentException("Null input buffer");
-        }
-
-        updateProviderIfNeeded();
-        if (input.length == 0) {
-            return null;
-        }
-        return spi.engineUpdate(input, 0, input.length);
-    }
-
-    /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, are processed,
-     * and the result is stored in a new buffer.
-     *
-     * <p>If <code>inputLen</code> is zero, this method returns
-     * <code>null</code>.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     *
-     * @return the new buffer with the result, or null if the underlying
-     * cipher is a block cipher and the input data is too short to result in a
-     * new block.
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     */
-    public final byte[] update(byte[] input, int inputOffset, int inputLen) {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        if (inputLen == 0) {
-            return null;
-        }
-        return spi.engineUpdate(input, inputOffset, inputLen);
-    }
-
-    /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, are processed,
-     * and the result is stored in the <code>output</code> buffer.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>If <code>inputLen</code> is zero, this method returns
-     * a length of zero.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same byte array and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     */
-    public final int update(byte[] input, int inputOffset, int inputLen,
-                            byte[] output)
-            throws ShortBufferException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        if (inputLen == 0) {
-            return 0;
-        }
-        return spi.engineUpdate(input, inputOffset, inputLen,
-                                      output, 0);
-    }
-
-    /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, are processed,
-     * and the result is stored in the <code>output</code> buffer, starting at
-     * <code>outputOffset</code> inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>If <code>inputLen</code> is zero, this method returns
-     * a length of zero.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same byte array and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     */
-    public final int update(byte[] input, int inputOffset, int inputLen,
-                            byte[] output, int outputOffset)
-            throws ShortBufferException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0
-            || outputOffset < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        if (inputLen == 0) {
-            return 0;
-        }
-        return spi.engineUpdate(input, inputOffset, inputLen,
-                                      output, outputOffset);
-    }
-
-    /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
-     *
-     * <p>All <code>input.remaining()</code> bytes starting at
-     * <code>input.position()</code> are processed. The result is stored
-     * in the output buffer.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed. The output buffer's
-     * position will have advanced by n, where n is the value returned
-     * by this method; the output buffer's limit will not have changed.
-     *
-     * <p>If <code>output.remaining()</code> bytes are insufficient to
-     * hold the result, a <code>ShortBufferException</code> is thrown.
-     * In this case, repeat this call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same block of memory and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input ByteBuffer
-     * @param output the output ByteByffer
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalArgumentException if input and output are the
-     *   same object
-     * @exception ReadOnlyBufferException if the output buffer is read-only
-     * @exception ShortBufferException if there is insufficient space in the
-     * output buffer
-     * @since 1.5
-     */
-    public final int update(ByteBuffer input, ByteBuffer output)
-            throws ShortBufferException {
-        checkCipherState();
-
-        if ((input == null) || (output == null)) {
-            throw new IllegalArgumentException("Buffers must not be null");
-        }
-        if (input == output) {
-            throw new IllegalArgumentException("Input and output buffers must "
-                + "not be the same object, consider using buffer.duplicate()");
-        }
-        if (output.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineUpdate(input, output);
-    }
-
-    /**
-     * Finishes a multiple-part encryption or decryption operation, depending
-     * on how this cipher was initialized.
-     *
-     * <p>Input data that may have been buffered during a previous
-     * <code>update</code> operation is processed, with padding (if requested)
-     * being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in a new buffer.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @return the new buffer with the result
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final byte[] doFinal()
-            throws IllegalBlockSizeException, BadPaddingException {
-        checkCipherState();
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(null, 0, 0);
-    }
-
-    /**
-     * Finishes a multiple-part encryption or decryption operation, depending
-     * on how this cipher was initialized.
-     *
-     * <p>Input data that may have been buffered during a previous
-     * <code>update</code> operation is processed, with padding (if requested)
-     * being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the <code>output</code> buffer, starting at
-     * <code>outputOffset</code> inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final int doFinal(byte[] output, int outputOffset)
-            throws IllegalBlockSizeException, ShortBufferException,
-               BadPaddingException {
-        checkCipherState();
-
-        // Input sanity check
-        if ((output == null) || (outputOffset < 0)) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(null, 0, 0, output, outputOffset);
-    }
-
-    /**
-     * Encrypts or decrypts data in a single-part operation, or finishes a
-     * multiple-part operation. The data is encrypted or decrypted,
-     * depending on how this cipher was initialized.
-     *
-     * <p>The bytes in the <code>input</code> buffer, and any input bytes that
-     * may have been buffered during a previous <code>update</code> operation,
-     * are processed, with padding (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in a new buffer.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @param input the input buffer
-     *
-     * @return the new buffer with the result
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final byte[] doFinal(byte[] input)
-            throws IllegalBlockSizeException, BadPaddingException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null) {
-            throw new IllegalArgumentException("Null input buffer");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(input, 0, input.length);
-    }
-
-    /**
-     * Encrypts or decrypts data in a single-part operation, or finishes a
-     * multiple-part operation. The data is encrypted or decrypted,
-     * depending on how this cipher was initialized.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, and any input
-     * bytes that may have been buffered during a previous <code>update</code>
-     * operation, are processed, with padding (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in a new buffer.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     *
-     * @return the new buffer with the result
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final byte[] doFinal(byte[] input, int inputOffset, int inputLen)
-            throws IllegalBlockSizeException, BadPaddingException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(input, inputOffset, inputLen);
-    }
-
-    /**
-     * Encrypts or decrypts data in a single-part operation, or finishes a
-     * multiple-part operation. The data is encrypted or decrypted,
-     * depending on how this cipher was initialized.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, and any input
-     * bytes that may have been buffered during a previous <code>update</code>
-     * operation, are processed, with padding (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the <code>output</code> buffer.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same byte array and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final int doFinal(byte[] input, int inputOffset, int inputLen,
-                             byte[] output)
-            throws ShortBufferException, IllegalBlockSizeException,
-            BadPaddingException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(input, inputOffset, inputLen,
-                                       output, 0);
-    }
-
-    /**
-     * Encrypts or decrypts data in a single-part operation, or finishes a
-     * multiple-part operation. The data is encrypted or decrypted,
-     * depending on how this cipher was initialized.
-     *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, and any input
-     * bytes that may have been buffered during a previous
-     * <code>update</code> operation, are processed, with padding
-     * (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the <code>output</code> buffer, starting at
-     * <code>outputOffset</code> inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same byte array and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     */
-    public final int doFinal(byte[] input, int inputOffset, int inputLen,
-                             byte[] output, int outputOffset)
-            throws ShortBufferException, IllegalBlockSizeException,
-            BadPaddingException {
-        checkCipherState();
-
-        // Input sanity check
-        if (input == null || inputOffset < 0
-            || inputLen > (input.length - inputOffset) || inputLen < 0
-            || outputOffset < 0) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(input, inputOffset, inputLen,
-                                       output, outputOffset);
-    }
-
-    /**
-     * Encrypts or decrypts data in a single-part operation, or finishes a
-     * multiple-part operation. The data is encrypted or decrypted,
-     * depending on how this cipher was initialized.
-     *
-     * <p>All <code>input.remaining()</code> bytes starting at
-     * <code>input.position()</code> are processed.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the output buffer.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed. The output buffer's
-     * position will have advanced by n, where n is the value returned
-     * by this method; the output buffer's limit will not have changed.
-     *
-     * <p>If <code>output.remaining()</code> bytes are insufficient to
-     * hold the result, a <code>ShortBufferException</code> is thrown.
-     * In this case, repeat this call with a larger output buffer. Use
-     * {@link #getOutputSize(int) getOutputSize} to determine how big
-     * the output buffer should be.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to <code>init</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>init</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * <p>Note: this method should be copy-safe, which means the
-     * <code>input</code> and <code>output</code> buffers can reference
-     * the same byte array and no unprocessed input data is overwritten
-     * when the result is copied into the output buffer.
-     *
-     * @param input the input ByteBuffer
-     * @param output the output ByteBuffer
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized)
-     * @exception IllegalArgumentException if input and output are the
-     *   same object
-     * @exception ReadOnlyBufferException if the output buffer is read-only
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if there is insufficient space in the
-     * output buffer
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     *
-     * @since 1.5
-     */
-    public final int doFinal(ByteBuffer input, ByteBuffer output)
-            throws ShortBufferException, IllegalBlockSizeException,
-            BadPaddingException {
-        checkCipherState();
-
-        if ((input == null) || (output == null)) {
-            throw new IllegalArgumentException("Buffers must not be null");
-        }
-        if (input == output) {
-            throw new IllegalArgumentException("Input and output buffers must "
-                + "not be the same object, consider using buffer.duplicate()");
-        }
-        if (output.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineDoFinal(input, output);
-    }
-
-    /**
-     * Wrap a key.
-     *
-     * @param key the key to be wrapped.
-     *
-     * @return the wrapped key.
-     *
-     * @exception IllegalStateException if this cipher is in a wrong
-     * state (e.g., has not been initialized).
-     *
-     * @exception IllegalBlockSizeException if this cipher is a block
-     * cipher, no padding has been requested, and the length of the
-     * encoding of the key to be wrapped is not a
-     * multiple of the block size.
-     *
-     * @exception InvalidKeyException if it is impossible or unsafe to
-     * wrap the key with this cipher (e.g., a hardware protected key is
-     * being passed to a software-only cipher).
-     *
-     * @throws UnsupportedOperationException if the corresponding method in the
-     * {@code CipherSpi} is not supported.
-     */
-    public final byte[] wrap(Key key)
-            throws IllegalBlockSizeException, InvalidKeyException {
-        if (!(this instanceof NullCipher)) {
-            if (!initialized) {
-                throw new IllegalStateException("Cipher not initialized");
-            }
-            if (opmode != Cipher.WRAP_MODE) {
-                throw new IllegalStateException("Cipher not initialized " +
-                                                "for wrapping keys");
-            }
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineWrap(key);
-    }
-
-    /**
-     * Unwrap a previously wrapped key.
-     *
-     * @param wrappedKey the key to be unwrapped.
-     *
-     * @param wrappedKeyAlgorithm the algorithm associated with the wrapped
-     * key.
-     *
-     * @param wrappedKeyType the type of the wrapped key. This must be one of
-     * <code>SECRET_KEY</code>, <code>PRIVATE_KEY</code>, or
-     * <code>PUBLIC_KEY</code>.
-     *
-     * @return the unwrapped key.
-     *
-     * @exception IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized).
-     *
-     * @exception NoSuchAlgorithmException if no installed providers
-     * can create keys of type <code>wrappedKeyType</code> for the
-     * <code>wrappedKeyAlgorithm</code>.
-     *
-     * @exception InvalidKeyException if <code>wrappedKey</code> does not
-     * represent a wrapped key of type <code>wrappedKeyType</code> for
-     * the <code>wrappedKeyAlgorithm</code>.
-     *
-     * @throws UnsupportedOperationException if the corresponding method in the
-     * {@code CipherSpi} is not supported.
-     */
-    public final Key unwrap(byte[] wrappedKey,
-                            String wrappedKeyAlgorithm,
-                            int wrappedKeyType)
-            throws InvalidKeyException, NoSuchAlgorithmException {
-
-        if (!(this instanceof NullCipher)) {
-            if (!initialized) {
-                throw new IllegalStateException("Cipher not initialized");
-            }
-            if (opmode != Cipher.UNWRAP_MODE) {
-                throw new IllegalStateException("Cipher not initialized " +
-                                                "for unwrapping keys");
-            }
-        }
-        if ((wrappedKeyType != SECRET_KEY) &&
-            (wrappedKeyType != PRIVATE_KEY) &&
-            (wrappedKeyType != PUBLIC_KEY)) {
-            throw new InvalidParameterException("Invalid key type");
-        }
-
-        updateProviderIfNeeded();
-        return spi.engineUnwrap(wrappedKey,
-                                      wrappedKeyAlgorithm,
-                                      wrappedKeyType);
-    }
-
-    private AlgorithmParameterSpec getAlgorithmParameterSpec(
-                                      AlgorithmParameters params)
-            throws InvalidParameterSpecException {
-        if (params == null) {
-            return null;
-        }
-
-        String alg = params.getAlgorithm().toUpperCase(Locale.ENGLISH);
-
-        if (alg.equalsIgnoreCase("RC2")) {
-            return params.getParameterSpec(RC2ParameterSpec.class);
-        }
-
-        if (alg.equalsIgnoreCase("RC5")) {
-            return params.getParameterSpec(RC5ParameterSpec.class);
-        }
-
-        if (alg.startsWith("PBE")) {
-            return params.getParameterSpec(PBEParameterSpec.class);
-        }
-
-        if (alg.startsWith("DES")) {
-            return params.getParameterSpec(IvParameterSpec.class);
-        }
-        return null;
-    }
-
-    /**
-     * Returns the maximum key length for the specified transformation
-     * according to the installed JCE jurisdiction policy files. If
-     * JCE unlimited strength jurisdiction policy files are installed,
-     * Integer.MAX_VALUE will be returned.
-     * For more information on default key size in JCE jurisdiction
-     * policy files, please see Appendix E in the
-     * <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html#AppC">
-     * Java Cryptography Architecture Reference Guide</a>.
-     *
-     * @param transformation the cipher transformation.
-     * @return the maximum key length in bits or Integer.MAX_VALUE.
-     * @exception NullPointerException if <code>transformation</code> is null.
-     * @exception NoSuchAlgorithmException if <code>transformation</code>
-     * is not a valid transformation, i.e. in the form of "algorithm" or
-     * "algorithm/mode/padding".
-     * @since 1.5
-     */
-    public static final int getMaxAllowedKeyLength(String transformation)
-            throws NoSuchAlgorithmException {
-        // Android-changed: Remove references to CryptoPermission.
-        // Throw early if transformation == null or isn't valid.
-        //
-        // CryptoPermission cp = getConfiguredPermission(transformation);
-        // return cp.getMaxAllowedKeyLength();
-        if (transformation == null) {
-            throw new NullPointerException("transformation == null");
-        }
-        // Throws NoSuchAlgorithmException if necessary.
-        tokenizeTransformation(transformation);
-        return Integer.MAX_VALUE;
-    }
-
-    /**
-     * Returns an AlgorithmParameterSpec object which contains
-     * the maximum cipher parameter value according to the
-     * jurisdiction policy file. If JCE unlimited strength jurisdiction
-     * policy files are installed or there is no maximum limit on the
-     * parameters for the specified transformation in the policy file,
-     * null will be returned.
-     *
-     * @param transformation the cipher transformation.
-     * @return an AlgorithmParameterSpec which holds the maximum
-     * value or null.
-     * @exception NullPointerException if <code>transformation</code>
-     * is null.
-     * @exception NoSuchAlgorithmException if <code>transformation</code>
-     * is not a valid transformation, i.e. in the form of "algorithm" or
-     * "algorithm/mode/padding".
-     * @since 1.5
-     */
-    public static final AlgorithmParameterSpec getMaxAllowedParameterSpec(
-            String transformation) throws NoSuchAlgorithmException {
-        // Android-changed: Remove references to CryptoPermission.
-        // Throw early if transformation == null or isn't valid.
-        //
-        // CryptoPermission cp = getConfiguredPermission(transformation);
-        // return cp.getAlgorithmParameterSpec();
-        if (transformation == null) {
-            throw new NullPointerException("transformation == null");
-        }
-        // Throws NoSuchAlgorithmException if necessary.
-        tokenizeTransformation(transformation);
-        return null;
-    }
-
-    /**
-     * Continues a multi-part update of the Additional Authentication
-     * Data (AAD).
-     * <p>
-     * Calls to this method provide AAD to the cipher when operating in
-     * modes such as AEAD (GCM/CCM).  If this cipher is operating in
-     * either GCM or CCM mode, all AAD must be supplied before beginning
-     * operations on the ciphertext (via the {@code update} and {@code
-     * doFinal} methods).
-     *
-     * @param src the buffer containing the Additional Authentication Data
-     *
-     * @throws IllegalArgumentException if the {@code src}
-     * byte array is null
-     * @throws IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized), does not accept AAD, or if
-     * operating in either GCM or CCM mode and one of the {@code update}
-     * methods has already been called for the active
-     * encryption/decryption operation
-     * @throws UnsupportedOperationException if the corresponding method
-     * in the {@code CipherSpi} has not been overridden by an
-     * implementation
-     *
-     * @since 1.7
-     */
-    public final void updateAAD(byte[] src) {
-        if (src == null) {
-            throw new IllegalArgumentException("src buffer is null");
-        }
-
-        updateAAD(src, 0, src.length);
-    }
-
-    /**
-     * Continues a multi-part update of the Additional Authentication
-     * Data (AAD), using a subset of the provided buffer.
-     * <p>
-     * Calls to this method provide AAD to the cipher when operating in
-     * modes such as AEAD (GCM/CCM).  If this cipher is operating in
-     * either GCM or CCM mode, all AAD must be supplied before beginning
-     * operations on the ciphertext (via the {@code update} and {@code
-     * doFinal} methods).
-     *
-     * @param src the buffer containing the AAD
-     * @param offset the offset in {@code src} where the AAD input starts
-     * @param len the number of AAD bytes
-     *
-     * @throws IllegalArgumentException if the {@code src}
-     * byte array is null, or the {@code offset} or {@code length}
-     * is less than 0, or the sum of the {@code offset} and
-     * {@code len} is greater than the length of the
-     * {@code src} byte array
-     * @throws IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized), does not accept AAD, or if
-     * operating in either GCM or CCM mode and one of the {@code update}
-     * methods has already been called for the active
-     * encryption/decryption operation
-     * @throws UnsupportedOperationException if the corresponding method
-     * in the {@code CipherSpi} has not been overridden by an
-     * implementation
-     *
-     * @since 1.7
-     */
-    public final void updateAAD(byte[] src, int offset, int len) {
-        checkCipherState();
-
-        // Input sanity check
-        if ((src == null) || (offset < 0) || (len < 0)
-                || ((len + offset) > src.length)) {
-            throw new IllegalArgumentException("Bad arguments");
-        }
-
-        updateProviderIfNeeded();
-        if (len == 0) {
-            return;
-        }
-        spi.engineUpdateAAD(src, offset, len);
-    }
-
-    /**
-     * Continues a multi-part update of the Additional Authentication
-     * Data (AAD).
-     * <p>
-     * Calls to this method provide AAD to the cipher when operating in
-     * modes such as AEAD (GCM/CCM).  If this cipher is operating in
-     * either GCM or CCM mode, all AAD must be supplied before beginning
-     * operations on the ciphertext (via the {@code update} and {@code
-     * doFinal} methods).
-     * <p>
-     * All {@code src.remaining()} bytes starting at
-     * {@code src.position()} are processed.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed.
-     *
-     * @param src the buffer containing the AAD
-     *
-     * @throws IllegalArgumentException if the {@code src ByteBuffer}
-     * is null
-     * @throws IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized), does not accept AAD, or if
-     * operating in either GCM or CCM mode and one of the {@code update}
-     * methods has already been called for the active
-     * encryption/decryption operation
-     * @throws UnsupportedOperationException if the corresponding method
-     * in the {@code CipherSpi} has not been overridden by an
-     * implementation
-     *
-     * @since 1.7
-     */
-    public final void updateAAD(ByteBuffer src) {
-        checkCipherState();
-
-        // Input sanity check
-        if (src == null) {
-            throw new IllegalArgumentException("src ByteBuffer is null");
-        }
-
-        updateProviderIfNeeded();
-        if (src.remaining() == 0) {
-            return;
-        }
-        spi.engineUpdateAAD(src);
-    }
-
-    // BEGIN Android-added: Bulk of the new provider implementation.
-    // See note at top of class.
-    /**
-     * Returns the {@code CipherSpi} backing this {@code Cipher} or {@code null} if no
-     * {@code CipherSpi} is backing this {@code Cipher}.
-     *
-     * @hide
-     */
-    public CipherSpi getCurrentSpi() {
-        return spi;
-    }
-
-    /** The attribute used for supported paddings. */
-    private static final String ATTRIBUTE_PADDINGS = "SupportedPaddings";
-
-    /** The attribute used for supported modes. */
-    private static final String ATTRIBUTE_MODES = "SupportedModes";
-
-    /**
-     * If the attribute listed exists, check that it matches the regular
-     * expression.
-     */
-    static boolean matchAttribute(Provider.Service service, String attr, String value) {
-        if (value == null) {
-            return true;
-        }
-        final String pattern = service.getAttribute(attr);
-        if (pattern == null) {
-            return true;
-        }
-        final String valueUc = value.toUpperCase(Locale.US);
-        return valueUc.matches(pattern.toUpperCase(Locale.US));
-    }
+    private int mode;
 
     /** Items that need to be set on the Cipher instance. */
-    enum NeedToSet {
+    private enum NeedToSet {
         NONE, MODE, PADDING, BOTH,
-    }
+    };
 
     /**
-     * Expresses the various types of transforms that may be used during
-     * initialization.
+     * Used to keep track of which underlying {@code CipherSpi#engineInit(...)}
+     * variant to call when testing suitability.
      */
-    static class Transform {
-        private final String name;
-        private final NeedToSet needToSet;
-
-        public Transform(String name, NeedToSet needToSet) {
-            this.name = name;
-            this.needToSet = needToSet;
-        }
-    }
+    private static enum InitType {
+        KEY, ALGORITHM_PARAMS, ALGORITHM_PARAM_SPEC,
+    };
 
     /**
      * Keeps track of the possible arguments to {@code Cipher#init(...)}.
      */
-    static class InitParams {
-        final InitType initType;
-        final int opmode;
-        final Key key;
-        final SecureRandom random;
-        final AlgorithmParameterSpec spec;
-        final AlgorithmParameters params;
+    private static class InitParams {
+        private final InitType initType;
+        private final int opmode;
+        private final Key key;
+        private final SecureRandom random;
+        private final AlgorithmParameterSpec spec;
+        private final AlgorithmParameters params;
 
-        InitParams(InitType initType, int opmode, Key key, SecureRandom random,
+        private InitParams(InitType initType, int opmode, Key key, SecureRandom random,
                 AlgorithmParameterSpec spec, AlgorithmParameters params) {
             this.initType = initType;
             this.opmode = opmode;
@@ -2736,104 +138,350 @@ public class Cipher {
     }
 
     /**
-     * Used to keep track of which underlying {@code CipherSpi#engineInit(...)}
-     * variant to call when testing suitability.
+     * Expresses the various types of transforms that may be used during
+     * initialization.
      */
-    static enum InitType {
-        KEY, ALGORITHM_PARAMS, ALGORITHM_PARAM_SPEC,
+    private static class Transform {
+        private final String name;
+        private final NeedToSet needToSet;
+
+        public Transform(String name, NeedToSet needToSet) {
+            this.name = name;
+            this.needToSet = needToSet;
+        }
     }
 
-    class SpiAndProviderUpdater {
-        /**
-         * Lock held while the SPI is initializing.
-         */
-        private final Object initSpiLock = new Object();
+    /**
+     * The service name.
+     */
+    private static final String SERVICE = "Cipher";
 
-        /**
-         * The provider specified when instance created.
-         */
-        private final Provider specifiedProvider;
+    /**
+     * Used to access common engine functionality.
+     */
+    private static final Engine ENGINE = new Engine(SERVICE);
 
-        /**
-         * The SPI implementation.
-         */
-        private final CipherSpi specifiedSpi;
+    /** The attribute used for supported paddings. */
+    private static final String ATTRIBUTE_PADDINGS = "SupportedPaddings";
 
-        SpiAndProviderUpdater(Provider specifiedProvider, CipherSpi specifiedSpi) {
-            this.specifiedProvider = specifiedProvider;
-            this.specifiedSpi = specifiedSpi;
+    /** The attribute used for supported modes. */
+    private static final String ATTRIBUTE_MODES = "SupportedModes";
+
+    /**
+     * The provider.
+     */
+    private Provider provider;
+
+    /**
+     * The provider specified when instance created.
+     */
+    private final Provider specifiedProvider;
+
+    /**
+     * The SPI implementation.
+     */
+    private CipherSpi spiImpl;
+
+    /**
+     * The SPI implementation.
+     */
+    private final CipherSpi specifiedSpi;
+
+    /**
+     * The transformation.
+     */
+    private final String transformation;
+
+    /**
+     * The transformation split into parts.
+     */
+    private final String[] transformParts;
+
+    /**
+     * Lock held while the SPI is initializing.
+     */
+    private final Object initLock = new Object();
+
+    private static SecureRandom secureRandom;
+
+    /**
+     * Creates a new Cipher instance.
+     *
+     * @param cipherSpi
+     *            the implementation delegate of the cipher.
+     * @param provider
+     *            the provider of the implementation of this cipher.
+     * @param transformation
+     *            the name of the transformation that this cipher performs.
+     * @throws NullPointerException
+     *             if either cipherSpi is {@code null} or provider is {@code
+     *             null} and {@code cipherSpi} is a {@code NullCipherSpi}.
+     */
+    protected Cipher(CipherSpi cipherSpi, Provider provider, String transformation) {
+        if (cipherSpi == null) {
+            throw new NullPointerException("cipherSpi == null");
+        }
+        if (!(cipherSpi instanceof NullCipherSpi) && provider == null) {
+            throw new NullPointerException("provider == null");
+        }
+        this.specifiedProvider = provider;
+        this.specifiedSpi = cipherSpi;
+        this.transformation = transformation;
+        this.transformParts = null;
+    }
+
+    private Cipher(String transformation, String[] transformParts, Provider provider) {
+        this.transformation = transformation;
+        this.transformParts = transformParts;
+        this.specifiedProvider = provider;
+        this.specifiedSpi = null;
+    }
+
+
+    /**
+     * Creates a new Cipher for the specified transformation. The installed
+     * providers are searched in order for an implementation of the specified
+     * transformation. The first found provider providing the transformation is
+     * used to create the cipher. If no provider is found an exception is
+     * thrown.
+     *
+     * @param transformation
+     *            the name of the transformation to create a cipher for.
+     * @return a cipher for the requested transformation.
+     * @throws NoSuchAlgorithmException
+     *             if no installed provider can provide the
+     *             <i>transformation</i>, or it is {@code null}, empty or in an
+     *             invalid format.
+     * @throws NoSuchPaddingException
+     *             if no installed provider can provide the padding scheme in
+     *             the <i>transformation</i>.
+     */
+    public static final Cipher getInstance(String transformation)
+            throws NoSuchAlgorithmException, NoSuchPaddingException {
+        return getCipher(transformation, null);
+    }
+
+    /**
+     * Creates a new cipher for the specified transformation provided by the
+     * specified provider.
+     *
+     * @param transformation
+     *            the name of the transformation to create a cipher for.
+     * @param provider
+     *            the name of the provider to ask for the transformation.
+     * @return a cipher for the requested transformation.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider can not provide the
+     *             <i>transformation</i>, or it is {@code null}, empty or in an
+     *             invalid format.
+     * @throws NoSuchProviderException
+     *             if no provider with the specified name can be found.
+     * @throws NoSuchPaddingException
+     *             if the requested padding scheme in the <i>transformation</i>
+     *             is not available.
+     * @throws IllegalArgumentException
+     *             if the specified provider is {@code null}.
+     */
+    public static final Cipher getInstance(String transformation,
+            String provider) throws NoSuchAlgorithmException,
+            NoSuchProviderException, NoSuchPaddingException {
+
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
         }
 
-        void setCipherSpiImplAndProvider(CipherSpi cipherSpi, Provider provider) {
-            Cipher.this.spi = cipherSpi;
-            Cipher.this.provider = provider;
+        Provider p = Security.getProvider(provider);
+        if (p == null) {
+            throw new NoSuchProviderException("Provider not available: " + provider);
+        }
+        return getInstance(transformation, p);
+    }
+
+    /**
+     * Creates a new cipher for the specified transformation. The
+     * {@code provider} supplied does not have to be registered.
+     *
+     * @param transformation
+     *            the name of the transformation to create a cipher for.
+     * @param provider
+     *            the provider to ask for the transformation.
+     * @return a cipher for the requested transformation.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider can not provide the
+     *             <i>transformation</i>, or it is {@code null}, empty or in an
+     *             invalid format.
+     * @throws NoSuchPaddingException
+     *             if the requested padding scheme in the <i>transformation</i>
+     *             is not available.
+     * @throws IllegalArgumentException
+     *             if the provider is {@code null}.
+     */
+    public static final Cipher getInstance(String transformation,
+            Provider provider) throws NoSuchAlgorithmException,
+            NoSuchPaddingException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        return getCipher(transformation, provider);
+    }
+
+    private static NoSuchAlgorithmException invalidTransformation(String transformation)
+            throws NoSuchAlgorithmException {
+        throw new NoSuchAlgorithmException("Invalid transformation: " + transformation);
+    }
+
+    /**
+     * Create a Cipher instance but don't choose a CipherSpi until we have more
+     * information.
+     */
+    private static Cipher getCipher(String transformation, Provider provider)
+            throws NoSuchAlgorithmException, NoSuchPaddingException {
+        if (transformation == null || transformation.isEmpty()) {
+            throw invalidTransformation(transformation);
         }
 
-        /**
-         * Makes sure a CipherSpi that matches this type is selected. If
-         * {@code key != null} then it assumes that a suitable provider exists for
-         * this instance (used by {@link Cipher#init}. If the {@code initParams} is passed
-         * in, then the {@code CipherSpi} returned will be initialized.
-         *
-         * @throws InvalidKeyException if the specified key cannot be used to
-         *                             initialize this cipher.
-         */
-        CipherSpiAndProvider updateAndGetSpiAndProvider(
-                InitParams initParams,
-                CipherSpi spiImpl,
-                Provider provider)
-                throws InvalidKeyException, InvalidAlgorithmParameterException {
-            if (specifiedSpi != null) {
-                return new CipherSpiAndProvider(specifiedSpi, provider);
+        String[] transformParts = checkTransformation(transformation);
+
+        Engine.SpiAndProvider sap;
+        try {
+            sap = tryCombinations(null /* params */, provider, transformation, transformParts);
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+            // should never happen since we passed in null params
+            throw new ProviderException(e);
+        }
+
+        if (sap == null) {
+            if (provider == null) {
+                throw new NoSuchAlgorithmException("No provider found for " + transformation);
+            } else {
+                throw new NoSuchAlgorithmException("Provider " + provider.getName()
+                        + " does not provide " + transformation);
             }
-            synchronized (initSpiLock) {
-                // This is not only a matter of performance. Many methods like update, doFinal, etc.
-                // call {@code #getSpi()} (ie, {@code #getSpi(null /* params */)}) and without this
-                // shortcut they would override an spi that was chosen using the key.
-                if (spiImpl != null && initParams == null) {
-                    return new CipherSpiAndProvider(spiImpl, provider);
-                }
-                final CipherSpiAndProvider sap = tryCombinations(
-                        initParams, specifiedProvider, tokenizedTransformation);
-                if (sap == null) {
-                    throw new ProviderException("No provider found for "
-                            + Arrays.toString(tokenizedTransformation));
-                }
-                setCipherSpiImplAndProvider(sap.cipherSpi, sap.provider);
-                return new CipherSpiAndProvider(sap.cipherSpi, sap.provider);
+        }
+        return new Cipher(transformation, transformParts, provider);
+    }
+
+    /**
+     * Checks that the provided algorithm {@code transformation} string is a
+     * valid input. The algorithm is the only mandatory field and input can be
+     * of the form:
+     * <ul>
+     * <li><code>"[cipher]"</code>
+     * <li><code>"[cipher]/[mode]/[padding]"</code>
+     * <li><code>"[cipher]//[padding]"</code>
+     * <li><code>"[cipher]/[mode]"</code>
+     * </ul>
+     * <p>
+     * Returns the specified transformation split up into three parts
+     * corresponding to their function:
+     * <p>
+     * <code>
+     * {&lt;algorithm&gt;, &lt;mode&gt;, &lt;padding&gt;}
+     * </code>
+     * <p>
+     */
+    private static String[] checkTransformation(String transformation)
+            throws NoSuchAlgorithmException {
+        // ignore an extra prefix / characters such as in
+        // "/DES/CBC/PKCS5Padding" http://b/3387688
+        if (transformation.startsWith("/")) {
+            transformation = transformation.substring(1);
+        }
+        // 'transformation' should be of the form "algorithm/mode/padding".
+        String[] pieces = transformation.split("/");
+        if (pieces.length > 3) {
+            throw invalidTransformation(transformation);
+        }
+        // Empty or missing pieces are represented by null.
+        String[] result = new String[3];
+        for (int i = 0; i < pieces.length; ++i) {
+            String piece = pieces[i].trim();
+            if (!piece.isEmpty()) {
+                result[i] = piece;
             }
         }
+        // You MUST specify an algorithm.
+        if (result[0] == null) {
+            throw invalidTransformation(transformation);
+        }
+        if (!(result[1] == null && result[2] == null) && (result[1] == null || result[2] == null)) {
+            throw invalidTransformation(transformation);
+        }
+        return result;
+    }
 
-        /**
-         * Convenience call when the Key is not available.
-         */
-        CipherSpiAndProvider updateAndGetSpiAndProvider(CipherSpi spiImpl, Provider provider) {
-            try {
-                return updateAndGetSpiAndProvider(null, spiImpl, provider);
-            } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-                throw new ProviderException("Exception thrown when params == null", e);
-           }
+    /**
+     * Makes sure a CipherSpi that matches this type is selected. If
+     * {@code key != null} then it assumes that a suitable provider exists for
+     * this instance (used by {@link #init}. If the {@code initParams} is passed
+     * in, then the {@code CipherSpi} returned will be initialized.
+     *
+     * @throws InvalidKeyException if the specified key cannot be used to
+     *             initialize this cipher.
+     * @throws InvalidAlgorithmParameterException
+     */
+    private CipherSpi getSpi(InitParams initParams) throws InvalidKeyException,
+            InvalidAlgorithmParameterException {
+        if (specifiedSpi != null) {
+            return specifiedSpi;
         }
 
-        CipherSpi getCurrentSpi(CipherSpi spiImpl) {
-            if (specifiedSpi != null) {
-                return specifiedSpi;
-            }
-
-            synchronized (initSpiLock) {
+        synchronized (initLock) {
+            // This is not only a matter of performance. Many methods like update, doFinal, etc.
+            // call {@code #getSpi()} (ie, {@code #getSpi(null /* params */)}) and without this
+            // shortcut they would override an spi that was chosen using the key.
+            if (spiImpl != null && initParams == null) {
                 return spiImpl;
             }
+
+            final Engine.SpiAndProvider sap = tryCombinations(initParams, specifiedProvider,
+                    transformation, transformParts);
+            if (sap == null) {
+                throw new ProviderException("No provider found for " + transformation);
+            }
+
+            spiImpl = (CipherSpi) sap.spi;
+            provider = sap.provider;
+
+            return spiImpl;
+        }
+    }
+
+    /**
+     * Convenience call when the Key is not available.
+     */
+    private CipherSpi getSpi() {
+        try {
+            return getSpi(null);
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+            throw new ProviderException("Exception thrown when params == null", e);
+        }
+    }
+
+    /**
+     * Returns the {@code CipherSpi} backing this {@code Cipher} or {@code null} if no
+     * {@code CipherSpi} is backing this {@code Cipher}.
+     *
+     * @hide
+     */
+    public CipherSpi getCurrentSpi() {
+        if (specifiedSpi != null) {
+            return specifiedSpi;
+        }
+
+        synchronized (initLock) {
+            return spiImpl;
         }
     }
 
     /**
      * Tries to find the correct {@code Cipher} transform to use. Returns a
-     * {@link org.apache.harmony.security.fortress.Engine.SpiAndProvider}, throws the first exception that was
+     * {@link Engine.SpiAndProvider}, throws the first exception that was
      * encountered during attempted initialization, or {@code null} if there are
      * no providers that support the {@code initParams}.
      * <p>
-     * {@code tokenizedTransformation} must be in the format returned by
-     * {@link Cipher#checkTransformation(String)}. The combinations of mode strings
+     * {@code transformParts} must be in the format returned by
+     * {@link #checkTransformation(String)}. The combinations of mode strings
      * tried are as follows:
      * <ul>
      * <li><code>[cipher]/[mode]/[padding]</code>
@@ -2841,62 +489,54 @@ public class Cipher {
      * <li><code>[cipher]//[padding]</code>
      * <li><code>[cipher]</code>
      * </ul>
-     * {@code services} is a list of cipher services. Needs to be non-null only if
-     * {@code provider != null}
      */
-    static CipherSpiAndProvider tryCombinations(InitParams initParams, Provider provider,
-            String[] tokenizedTransformation)
-            throws InvalidKeyException,
+    private static Engine.SpiAndProvider tryCombinations(InitParams initParams, Provider provider,
+            String transformation, String[] transformParts) throws InvalidKeyException,
             InvalidAlgorithmParameterException {
         // Enumerate all the transforms we need to try
         ArrayList<Transform> transforms = new ArrayList<Transform>();
-        if (tokenizedTransformation[1] != null && tokenizedTransformation[2] != null) {
-            transforms.add(new Transform(tokenizedTransformation[0] + "/" + tokenizedTransformation[1] + "/"
-                    + tokenizedTransformation[2], NeedToSet.NONE));
+        if (transformParts[1] != null && transformParts[2] != null) {
+            transforms.add(new Transform(transformParts[0] + "/" + transformParts[1] + "/"
+                    + transformParts[2], NeedToSet.NONE));
         }
-        if (tokenizedTransformation[1] != null) {
-            transforms.add(new Transform(tokenizedTransformation[0] + "/" + tokenizedTransformation[1],
+        if (transformParts[1] != null) {
+            transforms.add(new Transform(transformParts[0] + "/" + transformParts[1],
                     NeedToSet.PADDING));
         }
-        if (tokenizedTransformation[2] != null) {
-            transforms.add(new Transform(tokenizedTransformation[0] + "//" + tokenizedTransformation[2],
+        if (transformParts[2] != null) {
+            transforms.add(new Transform(transformParts[0] + "//" + transformParts[2],
                     NeedToSet.MODE));
         }
-        transforms.add(new Transform(tokenizedTransformation[0], NeedToSet.BOTH));
+        transforms.add(new Transform(transformParts[0], NeedToSet.BOTH));
 
         // Try each of the transforms and keep track of the first exception
         // encountered.
         Exception cause = null;
-
-        if (provider != null) {
-            for (Transform transform : transforms) {
-                Provider.Service service = provider.getService("Cipher", transform.name);
+        for (Transform transform : transforms) {
+            if (provider != null) {
+                Provider.Service service = provider.getService(SERVICE, transform.name);
                 if (service == null) {
                     continue;
                 }
-                return tryTransformWithProvider(initParams, tokenizedTransformation, transform.needToSet,
-                                service);
+                return tryTransformWithProvider(initParams, transformParts, transform.needToSet,
+                        service);
             }
-        } else {
-            for (Provider prov : Security.getProviders()) {
-                for (Transform transform : transforms) {
-                    Provider.Service service = prov.getService("Cipher", transform.name);
-                    if (service == null) {
-                        continue;
-                    }
-
-                    if (initParams == null || initParams.key == null
-                            || service.supportsParameter(initParams.key)) {
-                        try {
-                            CipherSpiAndProvider sap = tryTransformWithProvider(initParams,
-                                    tokenizedTransformation, transform.needToSet, service);
-                            if (sap != null) {
-                                return sap;
-                            }
-                        } catch (Exception e) {
-                            if (cause == null) {
-                                cause = e;
-                            }
+            ArrayList<Provider.Service> services = ENGINE.getServices(transform.name);
+            if (services == null || services.isEmpty()) {
+                continue;
+            }
+            for (Provider.Service service : services) {
+                if (initParams == null || initParams.key == null
+                        || service.supportsParameter(initParams.key)) {
+                    try {
+                        Engine.SpiAndProvider sap = tryTransformWithProvider(initParams,
+                                transformParts, transform.needToSet, service);
+                        if (sap != null) {
+                            return sap;
+                        }
+                    } catch (Exception e) {
+                        if (cause == null) {
+                            cause = e;
                         }
                     }
                 }
@@ -2915,21 +555,10 @@ public class Cipher {
         } else {
             // Since the key is not null, a suitable provider exists,
             // and it is an InvalidKeyException.
-            throw new InvalidKeyException(
-                    "No provider offers " + Arrays.toString(tokenizedTransformation) + " for "
+            throw new InvalidKeyException("No provider offers " + transformation + " for "
                     + initParams.key.getAlgorithm() + " key of class "
                     + initParams.key.getClass().getName() + " and export format "
                     + initParams.key.getFormat());
-        }
-    }
-
-    static class CipherSpiAndProvider {
-        CipherSpi cipherSpi;
-        Provider provider;
-
-        CipherSpiAndProvider(CipherSpi cipherSpi, Provider provider) {
-            this.cipherSpi = cipherSpi;
-            this.provider = provider;
         }
     }
 
@@ -2942,32 +571,31 @@ public class Cipher {
      * as a hint to the caller that it should continue searching for a
      * {@code Service} that will work.
      */
-    static CipherSpiAndProvider tryTransformWithProvider(InitParams initParams,
-            String[] tokenizedTransformation, NeedToSet type, Provider.Service service)
-                throws InvalidKeyException, InvalidAlgorithmParameterException  {
+    private static Engine.SpiAndProvider tryTransformWithProvider(InitParams initParams,
+            String[] transformParts, NeedToSet type, Provider.Service service)
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
         try {
             /*
              * Check to see if the Cipher even supports the attributes before
              * trying to instantiate it.
              */
-            if (!matchAttribute(service, ATTRIBUTE_MODES, tokenizedTransformation[1])
-                    || !matchAttribute(service, ATTRIBUTE_PADDINGS, tokenizedTransformation[2])) {
+            if (!matchAttribute(service, ATTRIBUTE_MODES, transformParts[1])
+                    || !matchAttribute(service, ATTRIBUTE_PADDINGS, transformParts[2])) {
                 return null;
             }
 
-            CipherSpiAndProvider sap = new CipherSpiAndProvider(
-                (CipherSpi) service.newInstance(null), service.getProvider());
-            if (sap.cipherSpi == null || sap.provider == null) {
+            Engine.SpiAndProvider sap = ENGINE.getInstance(service, null);
+            if (sap.spi == null || sap.provider == null) {
                 return null;
             }
-            CipherSpi spi = sap.cipherSpi;
+            CipherSpi spi = (CipherSpi) sap.spi;
             if (((type == NeedToSet.MODE) || (type == NeedToSet.BOTH))
-                    && (tokenizedTransformation[1] != null)) {
-                spi.engineSetMode(tokenizedTransformation[1]);
+                    && (transformParts[1] != null)) {
+                spi.engineSetMode(transformParts[1]);
             }
             if (((type == NeedToSet.PADDING) || (type == NeedToSet.BOTH))
-                    && (tokenizedTransformation[2] != null)) {
-                spi.engineSetPadding(tokenizedTransformation[2]);
+                    && (transformParts[2] != null)) {
+                spi.engineSetPadding(transformParts[2]);
             }
 
             if (initParams != null) {
@@ -2987,11 +615,1142 @@ public class Cipher {
                         throw new AssertionError("This should never be reached");
                 }
             }
-            return new CipherSpiAndProvider(spi, sap.provider);
+            return sap;
         } catch (NoSuchAlgorithmException ignored) {
         } catch (NoSuchPaddingException ignored) {
         }
         return null;
     }
-    // END Android-added: Bulk of the new provider implementation.
+
+    /**
+     * If the attribute listed exists, check that it matches the regular
+     * expression.
+     */
+    private static boolean matchAttribute(Service service, String attr, String value) {
+        if (value == null) {
+            return true;
+        }
+        final String pattern = service.getAttribute(attr);
+        if (pattern == null) {
+            return true;
+        }
+        final String valueUc = value.toUpperCase(Locale.US);
+        return valueUc.matches(pattern.toUpperCase(Locale.US));
+    }
+
+    /**
+     * Returns the provider of this cipher instance.
+     *
+     * @return the provider of this cipher instance.
+     */
+    public final Provider getProvider() {
+        getSpi();
+        return provider;
+    }
+
+    /**
+     * Returns the name of the algorithm of this cipher instance.
+     * <p>
+     * This is the name of the <i>transformation</i> argument used in the
+     * {@code getInstance} call creating this object.
+     *
+     * @return the name of the algorithm of this cipher instance.
+     */
+    public final String getAlgorithm() {
+        return transformation;
+    }
+
+    /**
+     * Returns this ciphers block size (in bytes).
+     *
+     * @return this ciphers block size.
+     */
+    public final int getBlockSize() {
+        return getSpi().engineGetBlockSize();
+    }
+
+    /**
+     * Returns the length in bytes an output buffer needs to be when this cipher
+     * is updated with {@code inputLen} bytes.
+     *
+     * @param inputLen
+     *            the number of bytes of the input.
+     * @return the output buffer length for the input length.
+     * @throws IllegalStateException
+     *             if this cipher instance is in an invalid state.
+     */
+    public final int getOutputSize(int inputLen) {
+        if (mode == 0) {
+            throw new IllegalStateException("Cipher has not yet been initialized");
+        }
+        return getSpi().engineGetOutputSize(inputLen);
+    }
+
+    /**
+     * Returns the <i>initialization vector</i> for this cipher instance.
+     *
+     * @return the <i>initialization vector</i> for this cipher instance.
+     */
+    public final byte[] getIV() {
+        return getSpi().engineGetIV();
+    }
+
+    /**
+     * Returns the parameters that where used to create this cipher instance.
+     * <p>
+     * These may be a the same parameters that were used to create this cipher
+     * instance, or may be a combination of default and random parameters,
+     * depending on the underlying cipher implementation.
+     *
+     * @return the parameters that where used to create this cipher instance, or
+     *         {@code null} if this cipher instance does not have any
+     *         parameters.
+     */
+    public final AlgorithmParameters getParameters() {
+        return getSpi().engineGetParameters();
+    }
+
+    /**
+     * Returns the exemption mechanism associated with this cipher.
+     *
+     * @return currently {@code null}
+     */
+    public final ExemptionMechanism getExemptionMechanism() {
+        //FIXME implement getExemptionMechanism
+
+        //        try {
+        //            return ExemptionMechanism.getInstance(transformation, provider);
+        //        } catch (NoSuchAlgorithmException e) {
+        return null;
+        //        }
+
+    }
+
+    /**
+     * Checks that the provided {@code mode} is one that is valid for
+     * {@code Cipher}.
+     */
+    private void checkMode(int mode) {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE && mode != UNWRAP_MODE
+                && mode != WRAP_MODE) {
+            throw new InvalidParameterException("Invalid mode: " + mode);
+        }
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key.
+     * <p>
+     * The cipher is initialized for the specified operational mode (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters or random values
+     * that the specified key can not provide, the underlying implementation of
+     * this cipher is supposed to generate the required parameters (using its
+     * provider or random values).
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, meaning that it
+     * is equivalent to creating a new instance and calling its {@code init}
+     * method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     */
+    public final void init(int opmode, Key key) throws InvalidKeyException {
+        if (secureRandom == null) {
+            // In theory it might be thread-unsafe but in the given case it's OK
+            // since it does not matter which SecureRandom instance is passed
+            // to the init()
+            secureRandom = new SecureRandom();
+        }
+        init(opmode, key, secureRandom);
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key and a source of
+     * randomness.
+     * <p>
+     * The cipher is initialized for the specified operational mode (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters or random values
+     * that the specified key can not provide, the underlying implementation of
+     * this cipher is supposed to generate the required parameters (using its
+     * provider or random values). Random values are generated using {@code
+     * random};
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     * @throws InvalidParameterException
+     *             if the specified opmode is invalid.
+     */
+    public final void init(int opmode, Key key, SecureRandom random) throws InvalidKeyException {
+        checkMode(opmode);
+        //        FIXME InvalidKeyException
+        //        if keysize exceeds the maximum allowable keysize
+        //        (jurisdiction policy files)
+        try {
+            getSpi(new InitParams(InitType.KEY, opmode, key, random, null, null));
+        } catch (InvalidAlgorithmParameterException e) {
+            // Should never happen since we only specified the key.
+            throw new ProviderException("Invalid parameters when params == null", e);
+        }
+        mode = opmode;
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key and algorithm
+     * parameters.
+     * <p>
+     * The cipher is initialized for the specified operational mode (one of:
+     * encryption, decryption, key wrapping or key unwrapping).
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values).
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     * @throws InvalidAlgorithmParameterException
+     *             it the specified parameters are inappropriate for this
+     *             cipher.
+     */
+    public final void init(int opmode, Key key, AlgorithmParameterSpec params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
+        if (secureRandom == null) {
+            secureRandom = new SecureRandom();
+        }
+        init(opmode, key, params, secureRandom);
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key, algorithm
+     * parameters and a source of randomness.
+     * <p>
+     * The cipher is initialized for the specified operational mode (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values). Random values are generated using {@code random};
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, meaning that it
+     * is equivalent to creating a new instance and calling it {@code init}
+     * method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     * @throws InvalidAlgorithmParameterException
+     *             it the specified parameters are inappropriate for this
+     *             cipher.
+     * @throws InvalidParameterException
+     *             if the specified {@code opmode} is invalid.
+     */
+    public final void init(int opmode, Key key, AlgorithmParameterSpec params,
+            SecureRandom random) throws InvalidKeyException,
+            InvalidAlgorithmParameterException {
+        checkMode(opmode);
+        //        FIXME InvalidKeyException
+        //        if keysize exceeds the maximum allowable keysize
+        //        (jurisdiction policy files)
+        //        FIXME InvalidAlgorithmParameterException
+        //        cryptographic strength exceed the legal limits
+        //        (jurisdiction policy files)
+        getSpi(new InitParams(InitType.ALGORITHM_PARAM_SPEC, opmode, key, random, params, null));
+        mode = opmode;
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key and algorithm
+     * parameters.
+     * <p>
+     * The cipher is initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values).
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, meaning that it
+     * is equivalent to creating a new instance and calling it {@code init}
+     * method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     * @throws InvalidAlgorithmParameterException
+     *             it the specified parameters are inappropriate for this
+     *             cipher.
+     */
+    public final void init(int opmode, Key key, AlgorithmParameters params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
+        if (secureRandom == null) {
+            secureRandom = new SecureRandom();
+        }
+        init(opmode, key, params, secureRandom);
+    }
+
+    /**
+     * Initializes this cipher instance with the specified key, algorithm
+     * parameters and a source of randomness.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values). Random values are generated using {@code random}.
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key can not be used to initialize this
+     *             cipher instance.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters are inappropriate for this
+     *             cipher.
+     * @throws InvalidParameterException
+     *             if the specified {@code opmode} is invalid.
+     */
+    public final void init(int opmode, Key key, AlgorithmParameters params,
+            SecureRandom random) throws InvalidKeyException,
+            InvalidAlgorithmParameterException {
+        checkMode(opmode);
+        //        FIXME InvalidKeyException
+        //        if keysize exceeds the maximum allowable keysize
+        //        (jurisdiction policy files)
+        //        FIXME InvalidAlgorithmParameterException
+        //        cryptographic strength exceed the legal limits
+        //        (jurisdiction policy files)
+        getSpi(new InitParams(InitType.ALGORITHM_PARAMS, opmode, key, random, null, params));
+        mode = opmode;
+    }
+
+    /**
+     * Initializes this cipher instance with the public key from the specified
+     * certificate.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * It the type of the certificate is X.509 and the certificate has a <i>key
+     * usage</i> extension field marked as critical, the specified {@code
+     * opmode} has the be enabled for this key, otherwise an {@code
+     * InvalidKeyException} is thrown.
+     * <p>
+     * If this cipher instance needs any algorithm parameters that the key in
+     * the certificate can not provide, the underlying implementation of this
+     * cipher is supposed to generate the required parameters (using its
+     * provider or random values).
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param certificate
+     *            the certificate.
+     * @throws InvalidKeyException
+     *             if the public key in the certificate can not be used to
+     *             initialize this cipher instance.
+     */
+    public final void init(int opmode, Certificate certificate)
+            throws InvalidKeyException {
+        if (secureRandom == null) {
+            secureRandom = new SecureRandom();
+        }
+        init(opmode, certificate, secureRandom);
+    }
+
+    /**
+     * Initializes this cipher instance with the public key from the specified
+     * certificate and a source of randomness.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * It the type of the certificate is X.509 and the certificate has a <i>key
+     * usage</i> extension field marked as critical, the specified {@code
+     * opmode} has the be enabled for this key, otherwise an {@code
+     * InvalidKeyException} is thrown.
+     * <p>
+     * If this cipher instance needs any algorithm parameters that the key in
+     * the certificate can not provide, the underlying implementation of this
+     * cipher is supposed to generate the required parameters (using its
+     * provider or random values). Random values are generated using {@code
+     * random}.
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
+     *
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param certificate
+     *            the certificate.
+     * @param random
+     *            the source of randomness to be used.
+     * @throws InvalidKeyException
+     *             if the public key in the certificate can not be used to
+     *             initialize this cipher instance.
+     */
+    public final void init(int opmode, Certificate certificate,
+            SecureRandom random) throws InvalidKeyException {
+        checkMode(opmode);
+        if (certificate instanceof X509Certificate) {
+            Set<String> ce = ((X509Certificate) certificate).getCriticalExtensionOIDs();
+            boolean critical = false;
+            if (ce != null && !ce.isEmpty()) {
+                for (String oid : ce) {
+                    if (oid.equals("2.5.29.15")) { // KeyUsage OID = 2.5.29.15
+                        critical = true;
+                        break;
+                    }
+                }
+                if (critical) {
+                    boolean[] keyUsage = ((X509Certificate) certificate).getKeyUsage();
+                    // As specified in RFC 3280:
+                    //   Internet X.509 Public Key Infrastructure
+                    //   Certificate and Certificate Revocation List (CRL) Profile.
+                    // Section 4.2.1.3  Key Usage
+                    // http://www.ietf.org/rfc/rfc3280.txt
+                    //
+                    // KeyUsage ::= BIT STRING {digitalSignature (0),
+                    //                          nonRepudiation   (1),
+                    //                          keyEncipherment  (2),
+                    //                          dataEncipherment (3),
+                    //                          keyAgreement     (4),
+                    //                          keyCertSign      (5),
+                    //                          cRLSign          (6),
+                    //                          encipherOnly     (7),
+                    //                          decipherOnly     (8) }
+                    if (keyUsage != null) {
+                        if (opmode == ENCRYPT_MODE && !keyUsage[3]) {
+                            throw new InvalidKeyException("The public key in the certificate "
+                                                          + "cannot be used for ENCRYPT_MODE");
+                        } else if (opmode == WRAP_MODE && !keyUsage[2]) {
+                            throw new InvalidKeyException("The public key in the certificate "
+                                                          + "cannot be used for WRAP_MODE");
+                        }
+                    }
+                }
+            }
+        }
+        //        FIXME InvalidKeyException
+        //        if keysize exceeds the maximum allowable keysize
+        //        (jurisdiction policy files)
+        final Key key = certificate.getPublicKey();
+        try {
+            getSpi(new InitParams(InitType.KEY, opmode, key, random, null, null));
+        } catch (InvalidAlgorithmParameterException e) {
+            // Should never happen since we only specified the key.
+            throw new ProviderException("Invalid parameters when params == null", e);
+        }
+        mode = opmode;
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are returned.
+     *
+     * @param input
+     *            the input bytes to transform.
+     * @return the transformed bytes in a new buffer, or {@code null} if the
+     *         input has zero length.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if the input is {@code null}.
+     */
+    public final byte[] update(byte[] input) {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        if (input.length == 0) {
+            return null;
+        }
+        return getSpi().engineUpdate(input, 0, input.length);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are returned.
+     *
+     * @param input
+     *            the input bytes to transform.
+     * @param inputOffset
+     *            the offset in the input to start.
+     * @param inputLen
+     *            the length of the input to transform.
+     * @return the transformed bytes in a new buffer, or {@code null} if {@code inputLen} is zero.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code input} is {@code null}, or if {@code inputOffset} and
+     *             {@code inputLen} do not specify a valid chunk in the input
+     *             buffer.
+     */
+    public final byte[] update(byte[] input, int inputOffset, int inputLen) {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        checkInputOffsetAndCount(input.length, inputOffset, inputLen);
+        if (inputLen == 0) {
+            return null;
+        }
+        return getSpi().engineUpdate(input, inputOffset, inputLen);
+    }
+
+    private static void checkInputOffsetAndCount(int inputArrayLength,
+                                                 int inputOffset,
+                                                 int inputLen) {
+        if ((inputOffset | inputLen) < 0
+                || inputOffset > inputArrayLength
+                || inputArrayLength - inputOffset < inputLen) {
+            throw new IllegalArgumentException("input.length=" + inputArrayLength
+                                               + "; inputOffset=" + inputOffset
+                                               + "; inputLen=" + inputLen);
+        }
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are stored in the {@code output} buffer.
+     * <p>
+     * If the size of the {@code output} buffer is too small to hold the result,
+     * a {@code ShortBufferException} is thrown. Use
+     * {@link Cipher#getOutputSize getOutputSize} to check for the size of the
+     * output buffer.
+     *
+     * @param input
+     *            the input bytes to transform.
+     * @param inputOffset
+     *            the offset in the input to start.
+     * @param inputLen
+     *            the length of the input to transform.
+     * @param output
+     *            the output buffer.
+     * @return the number of bytes placed in output.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if the input is {@code null}, the output is {@code null}, or
+     *             if {@code inputOffset} and {@code inputLen} do not specify a
+     *             valid chunk in the input buffer.
+     */
+    public final int update(byte[] input, int inputOffset, int inputLen,
+            byte[] output) throws ShortBufferException {
+        return update(input, inputOffset, inputLen, output, 0);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are stored in the {@code output} buffer.
+     * <p>
+     * If the size of the {@code output} buffer is too small to hold the result,
+     * a {@code ShortBufferException} is thrown. Use
+     * {@link Cipher#getOutputSize getOutputSize} to check for the size of the
+     * output buffer.
+     *
+     * @param input
+     *            the input bytes to transform.
+     * @param inputOffset
+     *            the offset in the input to start.
+     * @param inputLen
+     *            the length of the input to transform.
+     * @param output
+     *            the output buffer.
+     * @param outputOffset
+     *            the offset in the output buffer.
+     * @return the number of bytes placed in output.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if the input is {@code null}, the output is {@code null}, or
+     *             if {@code inputOffset} and {@code inputLen} do not specify a
+     *             valid chunk in the input buffer.
+     */
+    public final int update(byte[] input, int inputOffset, int inputLen,
+            byte[] output, int outputOffset) throws ShortBufferException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        if (output == null) {
+            throw new IllegalArgumentException("output == null");
+        }
+        if (outputOffset < 0) {
+            throw new IllegalArgumentException("outputOffset < 0. outputOffset=" + outputOffset);
+        }
+        checkInputOffsetAndCount(input.length, inputOffset, inputLen);
+        if (input.length == 0) {
+            return 0;
+        }
+        return getSpi().engineUpdate(input, inputOffset, inputLen, output,
+                outputOffset);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * {@code input.remaining()} bytes starting at {@code input.position()} are
+     * transformed and stored in the {@code output} buffer.
+     * <p>
+     * If the {@code output.remaining()} is too small to hold the transformed
+     * bytes a {@code ShortBufferException} is thrown. Use
+     * {@link Cipher#getOutputSize getOutputSize} to check for the size of the
+     * output buffer.
+     *
+     * @param input
+     *            the input buffer to transform.
+     * @param output
+     *            the output buffer to store the result within.
+     * @return the number of bytes stored in the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if the input buffer and the output buffer are the identical
+     *             object.
+     */
+    public final int update(ByteBuffer input, ByteBuffer output)
+            throws ShortBufferException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == output) {
+            throw new IllegalArgumentException("input == output");
+        }
+        return getSpi().engineUpdate(input, output);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption) with
+     * Authenticated Additional Data (AAD). AAD may only be added after the
+     * {@code Cipher} is initialized and before any data is passed to the
+     * instance.
+     * <p>
+     * This is only usable with cipher modes that support Authenticated
+     * Encryption with Additional Data (AEAD) such as Galois/Counter Mode (GCM).
+     *
+     * @param input bytes of AAD to use with the cipher
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code input} is {@code null}
+     * @throws UnsupportedOperationException if the cipher does not support AEAD
+     * @since 1.7
+     */
+    public final void updateAAD(byte[] input) {
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input.length == 0) {
+            return;
+        }
+        getSpi().engineUpdateAAD(input, 0, input.length);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption) with
+     * Authenticated Additional Data (AAD). AAD may only be added after the
+     * {@code Cipher} is initialized and before any data is passed to the
+     * instance.
+     * <p>
+     * This is only usable with cipher modes that support Authenticated
+     * Encryption with Additional Data (AEAD) such as Galois/Counter Mode (GCM).
+     *
+     * @param input bytes of AAD to use with the cipher
+     * @param inputOffset offset within bytes of additional data to add to cipher
+     * @param inputLen length of bytes of additional data to add to cipher
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code input} is {@code null}, or if {@code inputOffset} and
+     *             {@code inputLen} do not specify a valid chunk in the input
+     *             buffer.
+     * @throws UnsupportedOperationException if the cipher does not support AEAD
+     * @since 1.7
+     */
+    public final void updateAAD(byte[] input, int inputOffset, int inputLen) {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        checkInputOffsetAndCount(input.length, inputOffset, inputLen);
+        if (input.length == 0) {
+            return;
+        }
+        getSpi().engineUpdateAAD(input, inputOffset, inputLen);
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption) with
+     * Authenticated Additional Data (AAD). AAD may only be added after the
+     * {@code Cipher} is initialized and before any data is passed to the
+     * instance.
+     * <p>
+     * This is only usable with cipher modes that support Authenticated
+     * Encryption with Additional Data (AEAD) such as Galois/Counter Mode (GCM).
+     *
+     * @param input buffer of AAD to be used
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws UnsupportedOperationException if the cipher does not support AEAD
+     * @since 1.7
+     */
+    public final void updateAAD(ByteBuffer input) {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException("Cipher is not initialized");
+        }
+        if (input == null) {
+            throw new IllegalArgumentException("input == null");
+        }
+        getSpi().engineUpdateAAD(input);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes any bytes that may have been buffered in previous {@code
+     * update} calls.
+     *
+     * @return the final bytes from the transformation.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     */
+    public final byte[] doFinal() throws IllegalBlockSizeException,
+            BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        return getSpi().engineDoFinal(null, 0, 0);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes any bytes that may have been buffered in previous {@code
+     * update} calls.
+     * <p>
+     * The final transformed bytes are stored in the {@code output} buffer.
+     *
+     * @param output
+     *            the output buffer.
+     * @param outputOffset
+     *            the offset in the output buffer.
+     * @return the number of bytes placed in the output buffer.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     */
+    public final int doFinal(byte[] output, int outputOffset)
+            throws IllegalBlockSizeException, ShortBufferException,
+            BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (outputOffset < 0) {
+            throw new IllegalArgumentException("outputOffset < 0. outputOffset=" + outputOffset);
+        }
+        return getSpi().engineDoFinal(null, 0, 0, output, outputOffset);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the bytes in {@code input} buffer, and any bytes that have been
+     * buffered in previous {@code update} calls.
+     *
+     * @param input
+     *            the input buffer.
+     * @return the final bytes from the transformation.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     */
+    public final byte[] doFinal(byte[] input) throws IllegalBlockSizeException,
+            BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        return getSpi().engineDoFinal(input, 0, input.length);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code inputLen} bytes in {@code input} buffer at {@code
+     * inputOffset}, and any bytes that have been buffered in previous {@code
+     * update} calls.
+     *
+     * @param input
+     *            the input buffer.
+     * @param inputOffset
+     *            the offset in the input buffer.
+     * @param inputLen
+     *            the length of the input
+     * @return the final bytes from the transformation.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code inputOffset} and {@code inputLen} do not specify an
+     *             valid chunk in the input buffer.
+     */
+    public final byte[] doFinal(byte[] input, int inputOffset, int inputLen)
+            throws IllegalBlockSizeException, BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        checkInputOffsetAndCount(input.length, inputOffset, inputLen);
+        return getSpi().engineDoFinal(input, inputOffset, inputLen);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code inputLen} bytes in {@code input} buffer at {@code
+     * inputOffset}, and any bytes that have been buffered in previous {@code
+     * update} calls.
+     *
+     * @param input
+     *            the input buffer.
+     * @param inputOffset
+     *            the offset in the input buffer.
+     * @param inputLen
+     *            the length of the input.
+     * @param output
+     *            the output buffer for the transformed bytes.
+     * @return the number of bytes placed in the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code inputOffset} and {@code inputLen} do not specify an
+     *             valid chunk in the input buffer.
+     */
+    public final int doFinal(byte[] input, int inputOffset, int inputLen,
+            byte[] output) throws ShortBufferException,
+            IllegalBlockSizeException, BadPaddingException {
+        return doFinal(input, inputOffset, inputLen, output, 0);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code inputLen} bytes in {@code input} buffer at {@code
+     * inputOffset}, and any bytes that have been buffered in previous {@code
+     * update} calls.
+     *
+     * @param input
+     *            the input buffer.
+     * @param inputOffset
+     *            the offset in the input buffer.
+     * @param inputLen
+     *            the length of the input.
+     * @param output
+     *            the output buffer for the transformed bytes.
+     * @param outputOffset
+     *            the offset in the output buffer.
+     * @return the number of bytes placed in the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code inputOffset} and {@code inputLen} do not specify an
+     *             valid chunk in the input buffer.
+     */
+    public final int doFinal(byte[] input, int inputOffset, int inputLen,
+            byte[] output, int outputOffset) throws ShortBufferException,
+            IllegalBlockSizeException, BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        checkInputOffsetAndCount(input.length, inputOffset, inputLen);
+        return getSpi().engineDoFinal(input, inputOffset, inputLen, output,
+                outputOffset);
+    }
+
+    /**
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code input.remaining()} bytes in {@code input} buffer at
+     * {@code input.position()}, and any bytes that have been buffered in
+     * previous {@code update} calls. The transformed bytes are placed into
+     * {@code output} buffer.
+     *
+     * @param input
+     *            the input buffer.
+     * @param output
+     *            the output buffer.
+     * @return the number of bytes placed into the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalArgumentException
+     *             if the input buffer and the output buffer are the same
+     *             object.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     */
+    public final int doFinal(ByteBuffer input, ByteBuffer output)
+            throws ShortBufferException, IllegalBlockSizeException,
+            BadPaddingException {
+        if (mode != ENCRYPT_MODE && mode != DECRYPT_MODE) {
+            throw new IllegalStateException();
+        }
+        if (input == output) {
+            throw new IllegalArgumentException("input == output");
+        }
+        return getSpi().engineDoFinal(input, output);
+    }
+
+    /**
+     * Wraps a key using this cipher instance.
+     *
+     * @param key
+     *            the key to wrap.
+     * @return the wrapped key.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws InvalidKeyException
+     *             if this cipher instance can not wrap this key.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for wrapping.
+     */
+    public final byte[] wrap(Key key) throws IllegalBlockSizeException,
+            InvalidKeyException {
+        if (mode != WRAP_MODE) {
+            throw new IllegalStateException();
+        }
+        return getSpi().engineWrap(key);
+    }
+
+    /**
+     * Unwraps a key using this cipher instance.
+     *
+     * @param wrappedKey
+     *            the wrapped key to unwrap.
+     * @param wrappedKeyAlgorithm
+     *            the algorithm for the wrapped key.
+     * @param wrappedKeyType
+     *            the type of the wrapped key (one of: {@code SECRET_KEY
+     *            <code>, <code>PRIVATE_KEY} or {@code PUBLIC_KEY})
+     * @return the unwrapped key
+     * @throws InvalidKeyException
+     *             if the {@code wrappedKey} can not be unwrapped to a key of
+     *             type {@code wrappedKeyType} for the {@code
+     *             wrappedKeyAlgorithm}.
+     * @throws NoSuchAlgorithmException
+     *             if no provider can be found that can create a key of type
+     *             {@code wrappedKeyType} for the {@code wrappedKeyAlgorithm}.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for unwrapping.
+     */
+    public final Key unwrap(byte[] wrappedKey, String wrappedKeyAlgorithm,
+            int wrappedKeyType) throws InvalidKeyException,
+            NoSuchAlgorithmException {
+        if (mode != UNWRAP_MODE) {
+            throw new IllegalStateException();
+        }
+        return getSpi().engineUnwrap(wrappedKey, wrappedKeyAlgorithm,
+                wrappedKeyType);
+    }
+
+    /**
+     * Returns the maximum key length for the specified transformation.
+     *
+     * @param transformation
+     *            the transformation name.
+     * @return the maximum key length, currently {@code Integer.MAX_VALUE}.
+     * @throws NoSuchAlgorithmException
+     *             if no provider for the specified {@code transformation} can
+     *             be found.
+     * @throws NullPointerException
+     *             if {@code transformation} is {@code null}.
+     */
+    public static final int getMaxAllowedKeyLength(String transformation)
+            throws NoSuchAlgorithmException {
+        if (transformation == null) {
+            throw new NullPointerException("transformation == null");
+        }
+        checkTransformation(transformation);
+        //FIXME jurisdiction policy files
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * Returns the maximum cipher parameter value for the specified
+     * transformation. If there is no maximum limit, {@code null} is returned.
+     *
+     * @param transformation
+     *            the transformation name.
+     * @return a parameter spec holding the maximum value or {@code null}.
+     *         Currently {@code null}.
+     * @throws NoSuchAlgorithmException
+     *             if no provider for the specified {@code transformation} can
+     *             be found.
+     * @throws NullPointerException
+     *             if {@code transformation} is {@code null}.
+     */
+    public static final AlgorithmParameterSpec getMaxAllowedParameterSpec(
+            String transformation) throws NoSuchAlgorithmException {
+        if (transformation == null) {
+            throw new NullPointerException("transformation == null");
+        }
+        checkTransformation(transformation);
+        //FIXME jurisdiction policy files
+        return null;
+    }
 }

@@ -15,8 +15,6 @@
 */
 package android.content.res;
 
-import android.content.pm.ActivityInfo.Config;
-
 /**
  * A cache class that can provide new instances of a particular resource which may change
  * depending on the current {@link Resources.Theme} or {@link Configuration}.
@@ -35,7 +33,7 @@ abstract public class ConstantState<T> {
      * Return a bit mask of configuration changes that will impact
      * this resource (and thus require completely reloading it).
      */
-    abstract public @Config int getChangingConfigurations();
+    abstract public int getChangingConfigurations();
 
     /**
      * Create a new instance without supplying resources the caller

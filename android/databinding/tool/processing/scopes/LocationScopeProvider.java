@@ -25,5 +25,5 @@ import java.util.List;
  * An item that is tight to locations in a source file.
  */
 public interface LocationScopeProvider extends ScopeProvider {
-    List<Location> provideScopeLocation();
+    public List<Location> provideScopeLocation();
 }

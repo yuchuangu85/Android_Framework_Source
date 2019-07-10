@@ -16,8 +16,9 @@
 
 package android.databinding.tool.processing;
 
+import org.apache.commons.lang3.StringUtils;
+
 import android.databinding.tool.store.Location;
-import android.databinding.tool.util.StringUtils;
 
 import java.util.List;
 

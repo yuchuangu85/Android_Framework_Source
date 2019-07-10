@@ -18,6 +18,7 @@ package android.hardware.camera2;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
@@ -26,7 +27,6 @@ import android.location.Location;
 import android.media.ExifInterface;
 import android.media.Image;
 import android.os.SystemClock;
-import android.util.Log;
 import android.util.Size;
 
 import java.io.IOException;
@@ -36,7 +36,6 @@ import java.nio.ByteBuffer;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
-import java.util.Locale;
 import java.util.TimeZone;
 
 /**
@@ -90,43 +89,21 @@ public final class DngCreator implements AutoCloseable {
             throw new IllegalArgumentException("Null argument to DngCreator constructor");
         }
 
-        // Find current time in milliseconds since 1970
+        // Find current time
         long currentTime = System.currentTimeMillis();
-        // Assume that sensor timestamp has that timebase to start
-        long timeOffset = 0;
 
-        int timestampSource = characteristics.get(
-                CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE);
-
-        if (timestampSource == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME) {
-            // This means the same timebase as SystemClock.elapsedRealtime(),
-            // which is CLOCK_BOOTTIME
-            timeOffset = currentTime - SystemClock.elapsedRealtime();
-        } else if (timestampSource == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN) {
-            // This means the same timebase as System.currentTimeMillis(),
-            // which is CLOCK_MONOTONIC
-            timeOffset = currentTime - SystemClock.uptimeMillis();
-        } else {
-            // Unexpected time source - treat as CLOCK_MONOTONIC
-            Log.w(TAG, "Sensor timestamp source is unexpected: " + timestampSource);
-            timeOffset = currentTime - SystemClock.uptimeMillis();
-        }
+        // Find boot time
+        long bootTimeMillis = currentTime - SystemClock.elapsedRealtime();
 
         // Find capture time (nanos since boot)
         Long timestamp = metadata.get(CaptureResult.SENSOR_TIMESTAMP);
         long captureTime = currentTime;
         if (timestamp != null) {
-            captureTime = timestamp / 1000000 + timeOffset;
+            captureTime = timestamp / 1000000 + bootTimeMillis;
         }
 
-        // Create this fresh each time since the time zone may change while a long-running application
-        // is active.
-        final DateFormat dateTimeStampFormat =
-                new SimpleDateFormat(TIFF_DATETIME_FORMAT, Locale.US);
-        dateTimeStampFormat.setTimeZone(TimeZone.getDefault());
-
         // Format for metadata
-        String formattedCaptureTime = dateTimeStampFormat.format(captureTime);
+        String formattedCaptureTime = sDateTimeStampFormat.format(captureTime);
 
         nativeInit(characteristics.getNativeCopy(), metadata.getNativeCopy(),
                 formattedCaptureTime);
@@ -159,11 +136,6 @@ public final class DngCreator implements AutoCloseable {
                 orientation > ExifInterface.ORIENTATION_ROTATE_270) {
             throw new IllegalArgumentException("Orientation " + orientation +
                     " is not a valid EXIF orientation value");
-        }
-        // ExifInterface and TIFF/EP spec differ on definition of
-        // "Unknown" orientation; other values map directly
-        if (orientation == ExifInterface.ORIENTATION_UNDEFINED) {
-            orientation = TAG_ORIENTATION_UNKNOWN;
         }
         nativeSetOrientation(orientation);
         return this;
@@ -471,21 +443,20 @@ public final class DngCreator implements AutoCloseable {
     private static final String GPS_LONG_REF_WEST = "W";
 
     private static final String GPS_DATE_FORMAT_STR = "yyyy:MM:dd";
-    private static final String TIFF_DATETIME_FORMAT = "yyyy:MM:dd HH:mm:ss";
-    private static final DateFormat sExifGPSDateStamp =
-            new SimpleDateFormat(GPS_DATE_FORMAT_STR, Locale.US);
+    private static final String TIFF_DATETIME_FORMAT = "yyyy:MM:dd kk:mm:ss";
+    private static final DateFormat sExifGPSDateStamp = new SimpleDateFormat(GPS_DATE_FORMAT_STR);
+    private static final DateFormat sDateTimeStampFormat =
+            new SimpleDateFormat(TIFF_DATETIME_FORMAT);
     private final Calendar mGPSTimeStampCalendar = Calendar
             .getInstance(TimeZone.getTimeZone("UTC"));
 
     static {
+        sDateTimeStampFormat.setTimeZone(TimeZone.getDefault());
         sExifGPSDateStamp.setTimeZone(TimeZone.getTimeZone("UTC"));
     }
 
     private static final int DEFAULT_PIXEL_STRIDE = 2; // bytes per sample
     private static final int BYTES_PER_RGB_PIX = 3; // byts per pixel
-
-    // TIFF tag values needed to map between public API and TIFF spec
-    private static final int TAG_ORIENTATION_UNKNOWN = 9;
 
     /**
      * Offset, rowStride, and pixelStride are given in bytes.  Height and width are given in pixels.

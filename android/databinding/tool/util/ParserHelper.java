@@ -16,6 +16,8 @@
 
 package android.databinding.tool.util;
 
+import org.apache.commons.lang3.StringUtils;
+
 public class ParserHelper {
     public static String toClassName(String name) {
         StringBuilder builder = new StringBuilder();

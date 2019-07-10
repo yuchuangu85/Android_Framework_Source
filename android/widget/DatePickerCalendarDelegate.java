@@ -22,10 +22,10 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.icu.text.DateFormat;
-import android.icu.text.DisplayContext;
-import android.icu.util.Calendar;
+import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.format.DateFormat;
+import android.text.format.DateUtils;
 import android.util.AttributeSet;
 import android.util.StateSet;
 import android.view.HapticFeedbackConstants;
@@ -39,6 +39,8 @@ import android.widget.YearPickerView.OnYearSelectedListener;
 
 import com.android.internal.R;
 
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Locale;
 
 /**
@@ -61,8 +63,8 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     private static final int[] ATTRS_DISABLED_ALPHA = new int[] {
             com.android.internal.R.attr.disabledAlpha};
 
-    private DateFormat mYearFormat;
-    private DateFormat mMonthDayFormat;
+    private SimpleDateFormat mYearFormat;
+    private SimpleDateFormat mMonthDayFormat;
 
     // Top-level container.
     private ViewGroup mContainer;
@@ -80,8 +82,11 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     private String mSelectDay;
     private String mSelectYear;
 
+    private DatePicker.OnDateChangedListener mDateChangedListener;
+
     private int mCurrentView = UNINITIALIZED;
 
+    private final Calendar mCurrentDate;
     private final Calendar mTempDate;
     private final Calendar mMinDate;
     private final Calendar mMaxDate;
@@ -111,14 +116,13 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
         // Set up and attach container.
         mContainer = (ViewGroup) inflater.inflate(layoutResourceId, mDelegator, false);
-        mContainer.setSaveFromParentEnabled(false);
         mDelegator.addView(mContainer);
 
         // Set up header views.
-        final ViewGroup header = mContainer.findViewById(R.id.date_picker_header);
-        mHeaderYear = header.findViewById(R.id.date_picker_header_year);
+        final ViewGroup header = (ViewGroup) mContainer.findViewById(R.id.date_picker_header);
+        mHeaderYear = (TextView) header.findViewById(R.id.date_picker_header_year);
         mHeaderYear.setOnClickListener(mOnHeaderClickListener);
-        mHeaderMonthDay = header.findViewById(R.id.date_picker_header_date);
+        mHeaderMonthDay = (TextView) header.findViewById(R.id.date_picker_header_date);
         mHeaderMonthDay.setOnClickListener(mOnHeaderClickListener);
 
         // For the sake of backwards compatibility, attempt to extract the text
@@ -154,10 +158,10 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         a.recycle();
 
         // Set up picker container.
-        mAnimator = mContainer.findViewById(R.id.animator);
+        mAnimator = (ViewAnimator) mContainer.findViewById(R.id.animator);
 
         // Set up day picker view.
-        mDayPickerView = mAnimator.findViewById(R.id.date_picker_day_picker);
+        mDayPickerView = (DayPickerView) mAnimator.findViewById(R.id.date_picker_day_picker);
         mDayPickerView.setFirstDayOfWeek(mFirstDayOfWeek);
         mDayPickerView.setMinDate(mMinDate.getTimeInMillis());
         mDayPickerView.setMaxDate(mMaxDate.getTimeInMillis());
@@ -165,9 +169,9 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         mDayPickerView.setOnDaySelectedListener(mOnDaySelectedListener);
 
         // Set up year picker view.
-        mYearPickerView = mAnimator.findViewById(R.id.date_picker_year_picker);
+        mYearPickerView = (YearPickerView) mAnimator.findViewById(R.id.date_picker_year_picker);
         mYearPickerView.setRange(mMinDate, mMaxDate);
-        mYearPickerView.setYear(mCurrentDate.get(Calendar.YEAR));
+        mYearPickerView.setDate(mCurrentDate.getTimeInMillis());
         mYearPickerView.setOnYearSelectedListener(mOnYearSelectedListener);
 
         // Set up content descriptions.
@@ -263,25 +267,25 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
             // Automatically switch to day picker.
             setCurrentView(VIEW_MONTH_DAY);
-
-            // Switch focus back to the year text.
-            mHeaderYear.requestFocus();
         }
     };
 
     /**
      * Listener called when the user clicks on a header item.
      */
-    private final OnClickListener mOnHeaderClickListener = v -> {
-        tryVibrate();
+    private final OnClickListener mOnHeaderClickListener = new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            tryVibrate();
 
-        switch (v.getId()) {
-            case R.id.date_picker_header_year:
-                setCurrentView(VIEW_YEAR);
-                break;
-            case R.id.date_picker_header_date:
-                setCurrentView(VIEW_MONTH_DAY);
-                break;
+            switch (v.getId()) {
+                case R.id.date_picker_header_year:
+                    setCurrentView(VIEW_YEAR);
+                    break;
+                case R.id.date_picker_header_date:
+                    setCurrentView(VIEW_MONTH_DAY);
+                    break;
+            }
         }
     };
 
@@ -295,9 +299,9 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         }
 
         // Update the date formatter.
-        mMonthDayFormat = DateFormat.getInstanceForSkeleton("EMMMd", locale);
-        mMonthDayFormat.setContext(DisplayContext.CAPITALIZATION_FOR_STANDALONE);
-        mYearFormat = DateFormat.getInstanceForSkeleton("y", locale);
+        final String datePattern = DateFormat.getBestDateTimePattern(locale, "EMMMd");
+        mMonthDayFormat = new SimpleDateFormat(datePattern, locale);
+        mYearFormat = new SimpleDateFormat("y", locale);
 
         // Update the header text.
         onCurrentDateChanged(false);
@@ -318,7 +322,10 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
         // TODO: This should use live regions.
         if (announce) {
-            mAnimator.announceForAccessibility(getFormattedCurrentDate());
+            final long millis = mCurrentDate.getTimeInMillis();
+            final int flags = DateUtils.FORMAT_SHOW_DATE | DateUtils.FORMAT_SHOW_YEAR;
+            final String fullDateText = DateUtils.formatDateTime(mContext, millis, flags);
+            mAnimator.announceForAccessibility(fullDateText);
         }
     }
 
@@ -337,15 +344,7 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
                 mAnimator.announceForAccessibility(mSelectDay);
                 break;
             case VIEW_YEAR:
-                final int year = mCurrentDate.get(Calendar.YEAR);
-                mYearPickerView.setYear(year);
-                mYearPickerView.post(() -> {
-                    mYearPickerView.requestFocus();
-                    final View selected = mYearPickerView.getSelectedView();
-                    if (selected != null) {
-                        selected.requestFocus();
-                    }
-                });
+                mYearPickerView.setDate(mCurrentDate.getTimeInMillis());
 
                 if (mCurrentView != viewIndex) {
                     mHeaderMonthDay.setActivated(false);
@@ -360,40 +359,33 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     }
 
     @Override
-    public void init(int year, int month, int dayOfMonth,
+    public void init(int year, int monthOfYear, int dayOfMonth,
             DatePicker.OnDateChangedListener callBack) {
-        setDate(year, month, dayOfMonth);
-        onDateChanged(false, false);
+        mCurrentDate.set(Calendar.YEAR, year);
+        mCurrentDate.set(Calendar.MONTH, monthOfYear);
+        mCurrentDate.set(Calendar.DAY_OF_MONTH, dayOfMonth);
 
-        mOnDateChangedListener = callBack;
+        mDateChangedListener = callBack;
+
+        onDateChanged(false, false);
     }
 
     @Override
     public void updateDate(int year, int month, int dayOfMonth) {
-        setDate(year, month, dayOfMonth);
-        onDateChanged(false, true);
-    }
-
-    private void setDate(int year, int month, int dayOfMonth) {
         mCurrentDate.set(Calendar.YEAR, year);
         mCurrentDate.set(Calendar.MONTH, month);
         mCurrentDate.set(Calendar.DAY_OF_MONTH, dayOfMonth);
-        resetAutofilledValue();
+
+        onDateChanged(false, true);
     }
 
     private void onDateChanged(boolean fromUser, boolean callbackToClient) {
         final int year = mCurrentDate.get(Calendar.YEAR);
 
-        if (callbackToClient
-                && (mOnDateChangedListener != null || mAutoFillChangeListener != null)) {
+        if (callbackToClient && mDateChangedListener != null) {
             final int monthOfYear = mCurrentDate.get(Calendar.MONTH);
             final int dayOfMonth = mCurrentDate.get(Calendar.DAY_OF_MONTH);
-            if (mOnDateChangedListener != null) {
-                mOnDateChangedListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
-            }
-            if (mAutoFillChangeListener != null) {
-                mAutoFillChangeListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
-            }
+            mDateChangedListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
         }
 
         mDayPickerView.setDate(mCurrentDate.getTimeInMillis());
@@ -425,8 +417,7 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     public void setMinDate(long minDate) {
         mTempDate.setTimeInMillis(minDate);
         if (mTempDate.get(Calendar.YEAR) == mMinDate.get(Calendar.YEAR)
-                && mTempDate.get(Calendar.DAY_OF_YEAR) == mMinDate.get(Calendar.DAY_OF_YEAR)) {
-            // Same day, no-op.
+                && mTempDate.get(Calendar.DAY_OF_YEAR) != mMinDate.get(Calendar.DAY_OF_YEAR)) {
             return;
         }
         if (mCurrentDate.before(mTempDate)) {
@@ -447,8 +438,7 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     public void setMaxDate(long maxDate) {
         mTempDate.setTimeInMillis(maxDate);
         if (mTempDate.get(Calendar.YEAR) == mMaxDate.get(Calendar.YEAR)
-                && mTempDate.get(Calendar.DAY_OF_YEAR) == mMaxDate.get(Calendar.DAY_OF_YEAR)) {
-            // Same day, no-op.
+                && mTempDate.get(Calendar.DAY_OF_YEAR) != mMaxDate.get(Calendar.DAY_OF_YEAR)) {
             return;
         }
         if (mCurrentDate.after(mTempDate)) {
@@ -546,27 +536,25 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
     @Override
     public void onRestoreInstanceState(Parcelable state) {
-        if (state instanceof SavedState) {
-            final SavedState ss = (SavedState) state;
+        final SavedState ss = (SavedState) state;
 
-            // TODO: Move instance state into DayPickerView, YearPickerView.
-            mCurrentDate.set(ss.getSelectedYear(), ss.getSelectedMonth(), ss.getSelectedDay());
-            mMinDate.setTimeInMillis(ss.getMinDate());
-            mMaxDate.setTimeInMillis(ss.getMaxDate());
+        // TODO: Move instance state into DayPickerView, YearPickerView.
+        mCurrentDate.set(ss.getSelectedYear(), ss.getSelectedMonth(), ss.getSelectedDay());
+        mMinDate.setTimeInMillis(ss.getMinDate());
+        mMaxDate.setTimeInMillis(ss.getMaxDate());
 
-            onCurrentDateChanged(false);
+        onCurrentDateChanged(false);
 
-            final int currentView = ss.getCurrentView();
-            setCurrentView(currentView);
+        final int currentView = ss.getCurrentView();
+        setCurrentView(currentView);
 
-            final int listPosition = ss.getListPosition();
-            if (listPosition != -1) {
-                if (currentView == VIEW_MONTH_DAY) {
-                    mDayPickerView.setPosition(listPosition);
-                } else if (currentView == VIEW_YEAR) {
-                    final int listPositionOffset = ss.getListPositionOffset();
-                    mYearPickerView.setSelectionFromTop(listPosition, listPositionOffset);
-                }
+        final int listPosition = ss.getListPosition();
+        if (listPosition != -1) {
+            if (currentView == VIEW_MONTH_DAY) {
+                mDayPickerView.setPosition(listPosition);
+            } else if (currentView == VIEW_YEAR) {
+                final int listPositionOffset = ss.getListPositionOffset();
+                mYearPickerView.setSelectionFromTop(listPosition, listPositionOffset);
             }
         }
     }
@@ -575,6 +563,11 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
         onPopulateAccessibilityEvent(event);
         return true;
+    }
+
+    @Override
+    public void onPopulateAccessibilityEvent(AccessibilityEvent event) {
+        event.getText().add(mCurrentDate.getTime().toString());
     }
 
     public CharSequence getAccessibilityClassName() {
@@ -605,5 +598,109 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
     private void tryVibrate() {
         mDelegator.performHapticFeedback(HapticFeedbackConstants.CALENDAR_DATE);
+    }
+
+    /**
+     * Class for managing state storing/restoring.
+     */
+    private static class SavedState extends View.BaseSavedState {
+        private final int mSelectedYear;
+        private final int mSelectedMonth;
+        private final int mSelectedDay;
+        private final long mMinDate;
+        private final long mMaxDate;
+        private final int mCurrentView;
+        private final int mListPosition;
+        private final int mListPositionOffset;
+
+        /**
+         * Constructor called from {@link DatePicker#onSaveInstanceState()}
+         */
+        private SavedState(Parcelable superState, int year, int month, int day,
+                long minDate, long maxDate, int currentView, int listPosition,
+                int listPositionOffset) {
+            super(superState);
+            mSelectedYear = year;
+            mSelectedMonth = month;
+            mSelectedDay = day;
+            mMinDate = minDate;
+            mMaxDate = maxDate;
+            mCurrentView = currentView;
+            mListPosition = listPosition;
+            mListPositionOffset = listPositionOffset;
+        }
+
+        /**
+         * Constructor called from {@link #CREATOR}
+         */
+        private SavedState(Parcel in) {
+            super(in);
+            mSelectedYear = in.readInt();
+            mSelectedMonth = in.readInt();
+            mSelectedDay = in.readInt();
+            mMinDate = in.readLong();
+            mMaxDate = in.readLong();
+            mCurrentView = in.readInt();
+            mListPosition = in.readInt();
+            mListPositionOffset = in.readInt();
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            super.writeToParcel(dest, flags);
+            dest.writeInt(mSelectedYear);
+            dest.writeInt(mSelectedMonth);
+            dest.writeInt(mSelectedDay);
+            dest.writeLong(mMinDate);
+            dest.writeLong(mMaxDate);
+            dest.writeInt(mCurrentView);
+            dest.writeInt(mListPosition);
+            dest.writeInt(mListPositionOffset);
+        }
+
+        public int getSelectedDay() {
+            return mSelectedDay;
+        }
+
+        public int getSelectedMonth() {
+            return mSelectedMonth;
+        }
+
+        public int getSelectedYear() {
+            return mSelectedYear;
+        }
+
+        public long getMinDate() {
+            return mMinDate;
+        }
+
+        public long getMaxDate() {
+            return mMaxDate;
+        }
+
+        public int getCurrentView() {
+            return mCurrentView;
+        }
+
+        public int getListPosition() {
+            return mListPosition;
+        }
+
+        public int getListPositionOffset() {
+            return mListPositionOffset;
+        }
+
+        @SuppressWarnings("all")
+        // suppress unused and hiding
+        public static final Parcelable.Creator<SavedState> CREATOR = new Creator<SavedState>() {
+
+            public SavedState createFromParcel(Parcel in) {
+                return new SavedState(in);
+            }
+
+            public SavedState[] newArray(int size) {
+                return new SavedState[size];
+            }
+        };
     }
 }

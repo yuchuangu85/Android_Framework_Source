@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -42,6 +13,7 @@ import java.lang.reflect.Type;
 import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.ConcurrentModificationException;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Hashtable;
@@ -49,28 +21,14 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.DoubleBinaryOperator;
-import java.util.function.Function;
-import java.util.function.IntBinaryOperator;
-import java.util.function.LongBinaryOperator;
-import java.util.function.Predicate;
-import java.util.function.ToDoubleBiFunction;
-import java.util.function.ToDoubleFunction;
-import java.util.function.ToIntBiFunction;
-import java.util.function.ToIntFunction;
-import java.util.function.ToLongBiFunction;
-import java.util.function.ToLongFunction;
-import java.util.stream.Stream;
 
 // BEGIN android-note
 // removed link to collections framework docs
+// removed links to hidden api
 // END android-note
 
 /**
@@ -94,14 +52,14 @@ import java.util.stream.Stream;
  * that key reporting the updated value.)  For aggregate operations
  * such as {@code putAll} and {@code clear}, concurrent retrievals may
  * reflect insertion or removal of only some entries.  Similarly,
- * Iterators, Spliterators and Enumerations return elements reflecting the
- * state of the hash table at some point at or since the creation of the
+ * Iterators and Enumerations return elements reflecting the state of
+ * the hash table at some point at or since the creation of the
  * iterator/enumeration.  They do <em>not</em> throw {@link
- * java.util.ConcurrentModificationException ConcurrentModificationException}.
- * However, iterators are designed to be used by only one thread at a time.
- * Bear in mind that the results of aggregate status methods including
- * {@code size}, {@code isEmpty}, and {@code containsValue} are typically
- * useful only when a map is not undergoing concurrent updates in other threads.
+ * ConcurrentModificationException}.  However, iterators are designed
+ * to be used by only one thread at a time.  Bear in mind that the
+ * results of aggregate status methods including {@code size}, {@code
+ * isEmpty}, and {@code containsValue} are typically useful only when
+ * a map is not undergoing concurrent updates in other threads.
  * Otherwise the results of these methods reflect transient states
  * that may be adequate for monitoring or estimation purposes, but not
  * for program control.
@@ -128,19 +86,6 @@ import java.util.stream.Stream;
  * hash table. To ameliorate impact, when keys are {@link Comparable},
  * this class may use comparison order among keys to help break ties.
  *
- * <p>A {@link Set} projection of a ConcurrentHashMap may be created
- * (using {@link #newKeySet()} or {@link #newKeySet(int)}), or viewed
- * (using {@link #keySet(Object)} when only keys are of interest, and the
- * mapped values are (perhaps transiently) not used or all take the
- * same mapping value.
- *
- * <p>A ConcurrentHashMap can be used as a scalable frequency map (a
- * form of histogram or multiset) by using {@link
- * java.util.concurrent.atomic.LongAdder} values and initializing via
- * {@link #computeIfAbsent computeIfAbsent}. For example, to add a count
- * to a {@code ConcurrentHashMap<String,LongAdder> freqs}, you can use
- * {@code freqs.computeIfAbsent(key, k -> new LongAdder()).increment();}
- *
  * <p>This class and its views and iterators implement all of the
  * <em>optional</em> methods of the {@link Map} and {@link Iterator}
  * interfaces.
@@ -148,121 +93,15 @@ import java.util.stream.Stream;
  * <p>Like {@link Hashtable} but unlike {@link HashMap}, this class
  * does <em>not</em> allow {@code null} to be used as a key or value.
  *
- * <p>ConcurrentHashMaps support a set of sequential and parallel bulk
- * operations that, unlike most {@link Stream} methods, are designed
- * to be safely, and often sensibly, applied even with maps that are
- * being concurrently updated by other threads; for example, when
- * computing a snapshot summary of the values in a shared registry.
- * There are three kinds of operation, each with four forms, accepting
- * functions with keys, values, entries, and (key, value) pairs as
- * arguments and/or return values. Because the elements of a
- * ConcurrentHashMap are not ordered in any particular way, and may be
- * processed in different orders in different parallel executions, the
- * correctness of supplied functions should not depend on any
- * ordering, or on any other objects or values that may transiently
- * change while computation is in progress; and except for forEach
- * actions, should ideally be side-effect-free. Bulk operations on
- * {@link java.util.Map.Entry} objects do not support method {@code
- * setValue}.
- *
- * <ul>
- * <li>forEach: Performs a given action on each element.
- * A variant form applies a given transformation on each element
- * before performing the action.
- *
- * <li>search: Returns the first available non-null result of
- * applying a given function on each element; skipping further
- * search when a result is found.
- *
- * <li>reduce: Accumulates each element.  The supplied reduction
- * function cannot rely on ordering (more formally, it should be
- * both associative and commutative).  There are five variants:
- *
- * <ul>
- *
- * <li>Plain reductions. (There is not a form of this method for
- * (key, value) function arguments since there is no corresponding
- * return type.)
- *
- * <li>Mapped reductions that accumulate the results of a given
- * function applied to each element.
- *
- * <li>Reductions to scalar doubles, longs, and ints, using a
- * given basis value.
- *
- * </ul>
- * </ul>
- *
- * <p>These bulk operations accept a {@code parallelismThreshold}
- * argument. Methods proceed sequentially if the current map size is
- * estimated to be less than the given threshold. Using a value of
- * {@code Long.MAX_VALUE} suppresses all parallelism.  Using a value
- * of {@code 1} results in maximal parallelism by partitioning into
- * enough subtasks to fully utilize the {@link
- * ForkJoinPool#commonPool()} that is used for all parallel
- * computations. Normally, you would initially choose one of these
- * extreme values, and then measure performance of using in-between
- * values that trade off overhead versus throughput.
- *
- * <p>The concurrency properties of bulk operations follow
- * from those of ConcurrentHashMap: Any non-null result returned
- * from {@code get(key)} and related access methods bears a
- * happens-before relation with the associated insertion or
- * update.  The result of any bulk operation reflects the
- * composition of these per-element relations (but is not
- * necessarily atomic with respect to the map as a whole unless it
- * is somehow known to be quiescent).  Conversely, because keys
- * and values in the map are never null, null serves as a reliable
- * atomic indicator of the current lack of any result.  To
- * maintain this property, null serves as an implicit basis for
- * all non-scalar reduction operations. For the double, long, and
- * int versions, the basis should be one that, when combined with
- * any other value, returns that other value (more formally, it
- * should be the identity element for the reduction). Most common
- * reductions have these properties; for example, computing a sum
- * with basis 0 or a minimum with basis MAX_VALUE.
- *
- * <p>Search and transformation functions provided as arguments
- * should similarly return null to indicate the lack of any result
- * (in which case it is not used). In the case of mapped
- * reductions, this also enables transformations to serve as
- * filters, returning null (or, in the case of primitive
- * specializations, the identity basis) if the element should not
- * be combined. You can create compound transformations and
- * filterings by composing them yourself under this "null means
- * there is nothing there now" rule before using them in search or
- * reduce operations.
- *
- * <p>Methods accepting and/or returning Entry arguments maintain
- * key-value associations. They may be useful for example when
- * finding the key for the greatest value. Note that "plain" Entry
- * arguments can be supplied using {@code new
- * AbstractMap.SimpleEntry(k,v)}.
- *
- * <p>Bulk operations may complete abruptly, throwing an
- * exception encountered in the application of a supplied
- * function. Bear in mind when handling such exceptions that other
- * concurrently executing functions could also have thrown
- * exceptions, or would have done so if the first exception had
- * not occurred.
- *
- * <p>Speedups for parallel compared to sequential forms are common
- * but not guaranteed.  Parallel operations involving brief functions
- * on small maps may execute more slowly than sequential forms if the
- * underlying work to parallelize the computation is more expensive
- * than the computation itself.  Similarly, parallelization may not
- * lead to much actual parallelism if all processors are busy
- * performing unrelated tasks.
- *
- * <p>All arguments to all task methods must be non-null.
- *
  * @since 1.5
  * @author Doug Lea
  * @param <K> the type of keys maintained by this map
  * @param <V> the type of mapped values
  */
-public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
-    implements ConcurrentMap<K,V>, Serializable {
+// android-note: removed documentation about hidden newKeySet and newKeySet(int) APIs.
+// android-note: Added "extends AbstractMap<K, V>.
+public class ConcurrentHashMap<K,V> extends AbstractMap<K, V>
+        implements ConcurrentMap<K,V>, Serializable {
     private static final long serialVersionUID = 7249069246763182397L;
 
     /*
@@ -477,7 +316,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *
      * Maintaining API and serialization compatibility with previous
      * versions of this class introduces several oddities. Mainly: We
-     * leave untouched but unused constructor arguments referring to
+     * leave untouched but unused constructor arguments refering to
      * concurrencyLevel. We accept a loadFactor constructor argument,
      * but apply it only to initial table capacity (which is the only
      * time that we can guarantee to honor it.) We also declare an
@@ -495,6 +334,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * internal ones), then sizing methods, trees, traversers, and
      * bulk operations.
      */
+
 
     /* ---------------- Constants -------------- */
 
@@ -572,7 +412,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * The number of bits used for generation stamp in sizeCtl.
      * Must be at least 6 for 32bit arrays.
      */
-    private static final int RESIZE_STAMP_BITS = 16;
+    private static int RESIZE_STAMP_BITS = 16;
 
     /**
      * The maximum number of threads that can help resize.
@@ -588,28 +428,19 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /*
      * Encodings for Node hash fields. See above for explanation.
      */
-    static final int MOVED     = -1; // hash for forwarding nodes
-    static final int TREEBIN   = -2; // hash for roots of trees
-    static final int RESERVED  = -3; // hash for transient reservations
+    static final int MOVED     = 0x8fffffff; // (-1) hash for forwarding nodes
+    static final int TREEBIN   = 0x80000000; // hash for roots of trees
+    static final int RESERVED  = 0x80000001; // hash for transient reservations
     static final int HASH_BITS = 0x7fffffff; // usable bits of normal node hash
 
     /** Number of CPUS, to place bounds on some sizings */
     static final int NCPU = Runtime.getRuntime().availableProcessors();
 
-    /**
-     * Serialized pseudo-fields, provided only for jdk7 compatibility.
-     * @serialField segments Segment[]
-     *   The segments, each of which is a specialized hash table.
-     * @serialField segmentMask int
-     *   Mask value for indexing into segments. The upper bits of a
-     *   key's hash code are used to choose the segment.
-     * @serialField segmentShift int
-     *   Shift value for indexing within segments.
-     */
+    /** For serialization compatibility. */
     private static final ObjectStreamField[] serialPersistentFields = {
         new ObjectStreamField("segments", Segment[].class),
         new ObjectStreamField("segmentMask", Integer.TYPE),
-        new ObjectStreamField("segmentShift", Integer.TYPE),
+        new ObjectStreamField("segmentShift", Integer.TYPE)
     };
 
     /* ---------------- Nodes -------------- */
@@ -626,7 +457,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         final int hash;
         final K key;
         volatile V val;
-        volatile Node<K,V> next;
+        Node<K,V> next;
 
         Node(int hash, K key, V val, Node<K,V> next) {
             this.hash = hash;
@@ -635,12 +466,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             this.next = next;
         }
 
-        public final K getKey()     { return key; }
-        public final V getValue()   { return val; }
-        public final int hashCode() { return key.hashCode() ^ val.hashCode(); }
-        public final String toString() {
-            return Helpers.mapEntryToString(key, val);
-        }
+        public final K getKey()       { return key; }
+        public final V getValue()     { return val; }
+        public final int hashCode()   { return key.hashCode() ^ val.hashCode(); }
+        public final String toString(){ return key + "=" + val; }
         public final V setValue(V value) {
             throw new UnsupportedOperationException();
         }
@@ -753,9 +582,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * errors by users, these checks must operate on local variables,
      * which accounts for some odd-looking inline assignments below.
      * Note that calls to setTabAt always occur within locked regions,
-     * and so in principle require only release ordering, not
-     * full volatile semantics, but are currently coded as volatile
-     * writes to be conservative.
+     * and so do not need full volatile semantics, but still require
+     * ordering to maintain concurrent readability.
      */
 
     @SuppressWarnings("unchecked")
@@ -769,7 +597,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     }
 
     static final <K,V> void setTabAt(Node<K,V>[] tab, int i, Node<K,V> v) {
-        U.putObjectVolatile(tab, ((long)i << ASHIFT) + ABASE, v);
+        U.putOrderedObject(tab, ((long)i << ASHIFT) + ABASE, v);
     }
 
     /* ---------------- Fields -------------- */
@@ -1064,8 +892,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                     p.val = value;
                             }
                         }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
                     }
                 }
                 if (binCount != 0) {
@@ -1168,8 +994,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                 }
                             }
                         }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
                     }
                 }
                 if (validated) {
@@ -1230,18 +1054,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * operations.  It does not support the {@code add} or
      * {@code addAll} operations.
      *
-     * <p> The set returned by this method is guaranteed to an instance of
-     * {@link KeySetView}.
-     *
-     * <p>The view's iterators and spliterators are
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     *
-     * <p>The view's {@code spliterator} reports {@link Spliterator#CONCURRENT},
-     * {@link Spliterator#DISTINCT}, and {@link Spliterator#NONNULL}.
+     * <p>The view's {@code iterator} is a "weakly consistent" iterator
+     * that will never throw {@link ConcurrentModificationException},
+     * and guarantees to traverse elements as they existed upon
+     * construction of the iterator, and may (but is not guaranteed to)
+     * reflect any modifications subsequent to construction.
      *
      * @return the set view
      */
-    // Android-changed: Return type for backwards compat. Was KeySetView<K,V>. http://b/28099367
+    // android-note : changed KeySetView<K,V> to Set<K> to maintain API compatibility.
     public Set<K> keySet() {
         KeySetView<K,V> ks;
         return (ks = keySet) != null ? ks : (keySet = new KeySetView<K,V>(this, null));
@@ -1257,11 +1078,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * {@code retainAll}, and {@code clear} operations.  It does not
      * support the {@code add} or {@code addAll} operations.
      *
-     * <p>The view's iterators and spliterators are
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     *
-     * <p>The view's {@code spliterator} reports {@link Spliterator#CONCURRENT}
-     * and {@link Spliterator#NONNULL}.
+     * <p>The view's {@code iterator} is a "weakly consistent" iterator
+     * that will never throw {@link ConcurrentModificationException},
+     * and guarantees to traverse elements as they existed upon
+     * construction of the iterator, and may (but is not guaranteed to)
+     * reflect any modifications subsequent to construction.
      *
      * @return the collection view
      */
@@ -1279,11 +1100,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * {@code removeAll}, {@code retainAll}, and {@code clear}
      * operations.
      *
-     * <p>The view's iterators and spliterators are
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     *
-     * <p>The view's {@code spliterator} reports {@link Spliterator#CONCURRENT},
-     * {@link Spliterator#DISTINCT}, and {@link Spliterator#NONNULL}.
+     * <p>The view's {@code iterator} is a "weakly consistent" iterator
+     * that will never throw {@link ConcurrentModificationException},
+     * and guarantees to traverse elements as they existed upon
+     * construction of the iterator, and may (but is not guaranteed to)
+     * reflect any modifications subsequent to construction.
      *
      * @return the set view
      */
@@ -1381,7 +1202,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * Stripped-down version of helper class used in previous version,
-     * declared for the sake of serialization compatibility.
+     * declared for the sake of serialization compatibility
      */
     static class Segment<K,V> extends ReentrantLock implements Serializable {
         private static final long serialVersionUID = 2249069246763182397L;
@@ -1393,10 +1214,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * Saves the state of the {@code ConcurrentHashMap} instance to a
      * stream (i.e., serializes it).
      * @param s the stream
-     * @throws java.io.IOException if an I/O error occurs
      * @serialData
-     * the serialized fields, followed by the key (Object) and value
-     * (Object) for each key-value mapping, followed by a null pair.
+     * the key (Object) and value (Object)
+     * for each key-value mapping, followed by a null pair.
      * The key-value mappings are emitted in no particular order.
      */
     private void writeObject(java.io.ObjectOutputStream s)
@@ -1411,8 +1231,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
         int segmentShift = 32 - sshift;
         int segmentMask = ssize - 1;
-        @SuppressWarnings("unchecked")
-        Segment<K,V>[] segments = (Segment<K,V>[])
+        @SuppressWarnings("unchecked") Segment<K,V>[] segments = (Segment<K,V>[])
             new Segment<?,?>[DEFAULT_CONCURRENCY_LEVEL];
         for (int i = 0; i < segments.length; ++i)
             segments[i] = new Segment<K,V>(LOAD_FACTOR);
@@ -1432,14 +1251,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
         s.writeObject(null);
         s.writeObject(null);
+        segments = null; // throw away
     }
 
     /**
      * Reconstitutes the instance from a stream (that is, deserializes it).
      * @param s the stream
-     * @throws ClassNotFoundException if the class of a serialized object
-     *         could not be found
-     * @throws java.io.IOException if an I/O error occurs
      */
     private void readObject(java.io.ObjectInputStream s)
         throws java.io.IOException, ClassNotFoundException {
@@ -1455,10 +1272,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         long size = 0L;
         Node<K,V> p = null;
         for (;;) {
-            @SuppressWarnings("unchecked")
-            K k = (K) s.readObject();
-            @SuppressWarnings("unchecked")
-            V v = (V) s.readObject();
+            @SuppressWarnings("unchecked") K k = (K) s.readObject();
+            @SuppressWarnings("unchecked") V v = (V) s.readObject();
             if (k != null && v != null) {
                 p = new Node<K,V>(spread(k.hashCode()), k, v, p);
                 ++size;
@@ -1477,7 +1292,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 n = tableSizeFor(sz + (sz >>> 1) + 1);
             }
             @SuppressWarnings("unchecked")
-            Node<K,V>[] tab = (Node<K,V>[])new Node<?,?>[n];
+                Node<K,V>[] tab = (Node<K,V>[])new Node<?,?>[n];
             int mask = n - 1;
             long added = 0L;
             while (p != null) {
@@ -1585,544 +1400,17 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             throw new NullPointerException();
         return replaceNode(key, value, null);
     }
-
-    // Overrides of JDK8+ Map extension method defaults
-
-    /**
-     * Returns the value to which the specified key is mapped, or the
-     * given default value if this map contains no mapping for the
-     * key.
-     *
-     * @param key the key whose associated value is to be returned
-     * @param defaultValue the value to return if this map contains
-     * no mapping for the given key
-     * @return the mapping for the key, if present; else the default value
-     * @throws NullPointerException if the specified key is null
-     */
-    public V getOrDefault(Object key, V defaultValue) {
-        V v;
-        return (v = get(key)) == null ? defaultValue : v;
-    }
-
-    public void forEach(BiConsumer<? super K, ? super V> action) {
-        if (action == null) throw new NullPointerException();
-        Node<K,V>[] t;
-        if ((t = table) != null) {
-            Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-            for (Node<K,V> p; (p = it.advance()) != null; ) {
-                action.accept(p.key, p.val);
-            }
-        }
-    }
-
-    public void replaceAll(BiFunction<? super K, ? super V, ? extends V> function) {
-        if (function == null) throw new NullPointerException();
-        Node<K,V>[] t;
-        if ((t = table) != null) {
-            Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-            for (Node<K,V> p; (p = it.advance()) != null; ) {
-                V oldValue = p.val;
-                for (K key = p.key;;) {
-                    V newValue = function.apply(key, oldValue);
-                    if (newValue == null)
-                        throw new NullPointerException();
-                    if (replaceNode(key, newValue, oldValue) != null ||
-                        (oldValue = get(key)) == null)
-                        break;
-                }
-            }
-        }
-    }
-
-    /**
-     * Helper method for EntrySetView.removeIf.
-     */
-    boolean removeEntryIf(Predicate<? super Entry<K,V>> function) {
-        if (function == null) throw new NullPointerException();
-        Node<K,V>[] t;
-        boolean removed = false;
-        if ((t = table) != null) {
-            Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-            for (Node<K,V> p; (p = it.advance()) != null; ) {
-                K k = p.key;
-                V v = p.val;
-                Map.Entry<K,V> e = new AbstractMap.SimpleImmutableEntry<>(k, v);
-                if (function.test(e) && replaceNode(k, null, v) != null)
-                    removed = true;
-            }
-        }
-        return removed;
-    }
-
-    /**
-     * Helper method for ValuesView.removeIf.
-     */
-    boolean removeValueIf(Predicate<? super V> function) {
-        if (function == null) throw new NullPointerException();
-        Node<K,V>[] t;
-        boolean removed = false;
-        if ((t = table) != null) {
-            Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-            for (Node<K,V> p; (p = it.advance()) != null; ) {
-                K k = p.key;
-                V v = p.val;
-                if (function.test(v) && replaceNode(k, null, v) != null)
-                    removed = true;
-            }
-        }
-        return removed;
-    }
-
-    /**
-     * If the specified key is not already associated with a value,
-     * attempts to compute its value using the given mapping function
-     * and enters it into this map unless {@code null}.  The entire
-     * method invocation is performed atomically, so the function is
-     * applied at most once per key.  Some attempted update operations
-     * on this map by other threads may be blocked while computation
-     * is in progress, so the computation should be short and simple,
-     * and must not attempt to update any other mappings of this map.
-     *
-     * @param key key with which the specified value is to be associated
-     * @param mappingFunction the function to compute a value
-     * @return the current (existing or computed) value associated with
-     *         the specified key, or null if the computed value is null
-     * @throws NullPointerException if the specified key or mappingFunction
-     *         is null
-     * @throws IllegalStateException if the computation detectably
-     *         attempts a recursive update to this map that would
-     *         otherwise never complete
-     * @throws RuntimeException or Error if the mappingFunction does so,
-     *         in which case the mapping is left unestablished
-     */
-    public V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
-        if (key == null || mappingFunction == null)
-            throw new NullPointerException();
-        int h = spread(key.hashCode());
-        V val = null;
-        int binCount = 0;
-        for (Node<K,V>[] tab = table;;) {
-            Node<K,V> f; int n, i, fh;
-            if (tab == null || (n = tab.length) == 0)
-                tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & h)) == null) {
-                Node<K,V> r = new ReservationNode<K,V>();
-                synchronized (r) {
-                    if (casTabAt(tab, i, null, r)) {
-                        binCount = 1;
-                        Node<K,V> node = null;
-                        try {
-                            if ((val = mappingFunction.apply(key)) != null)
-                                node = new Node<K,V>(h, key, val, null);
-                        } finally {
-                            setTabAt(tab, i, node);
-                        }
-                    }
-                }
-                if (binCount != 0)
-                    break;
-            }
-            else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);
-            else {
-                boolean added = false;
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
-                            binCount = 1;
-                            for (Node<K,V> e = f;; ++binCount) {
-                                K ek;
-                                if (e.hash == h &&
-                                    ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
-                                    val = e.val;
-                                    break;
-                                }
-                                Node<K,V> pred = e;
-                                if ((e = e.next) == null) {
-                                    if ((val = mappingFunction.apply(key)) != null) {
-                                        if (pred.next != null)
-                                            throw new IllegalStateException("Recursive update");
-                                        added = true;
-                                        pred.next = new Node<K,V>(h, key, val, null);
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        else if (f instanceof TreeBin) {
-                            binCount = 2;
-                            TreeBin<K,V> t = (TreeBin<K,V>)f;
-                            TreeNode<K,V> r, p;
-                            if ((r = t.root) != null &&
-                                (p = r.findTreeNode(h, key, null)) != null)
-                                val = p.val;
-                            else if ((val = mappingFunction.apply(key)) != null) {
-                                added = true;
-                                t.putTreeVal(h, key, val);
-                            }
-                        }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
-                    }
-                }
-                if (binCount != 0) {
-                    if (binCount >= TREEIFY_THRESHOLD)
-                        treeifyBin(tab, i);
-                    if (!added)
-                        return val;
-                    break;
-                }
-            }
-        }
-        if (val != null)
-            addCount(1L, binCount);
-        return val;
-    }
-
-    /**
-     * If the value for the specified key is present, attempts to
-     * compute a new mapping given the key and its current mapped
-     * value.  The entire method invocation is performed atomically.
-     * Some attempted update operations on this map by other threads
-     * may be blocked while computation is in progress, so the
-     * computation should be short and simple, and must not attempt to
-     * update any other mappings of this map.
-     *
-     * @param key key with which a value may be associated
-     * @param remappingFunction the function to compute a value
-     * @return the new value associated with the specified key, or null if none
-     * @throws NullPointerException if the specified key or remappingFunction
-     *         is null
-     * @throws IllegalStateException if the computation detectably
-     *         attempts a recursive update to this map that would
-     *         otherwise never complete
-     * @throws RuntimeException or Error if the remappingFunction does so,
-     *         in which case the mapping is unchanged
-     */
-    public V computeIfPresent(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
-        if (key == null || remappingFunction == null)
-            throw new NullPointerException();
-        int h = spread(key.hashCode());
-        V val = null;
-        int delta = 0;
-        int binCount = 0;
-        for (Node<K,V>[] tab = table;;) {
-            Node<K,V> f; int n, i, fh;
-            if (tab == null || (n = tab.length) == 0)
-                tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & h)) == null)
-                break;
-            else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);
-            else {
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
-                            binCount = 1;
-                            for (Node<K,V> e = f, pred = null;; ++binCount) {
-                                K ek;
-                                if (e.hash == h &&
-                                    ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
-                                    val = remappingFunction.apply(key, e.val);
-                                    if (val != null)
-                                        e.val = val;
-                                    else {
-                                        delta = -1;
-                                        Node<K,V> en = e.next;
-                                        if (pred != null)
-                                            pred.next = en;
-                                        else
-                                            setTabAt(tab, i, en);
-                                    }
-                                    break;
-                                }
-                                pred = e;
-                                if ((e = e.next) == null)
-                                    break;
-                            }
-                        }
-                        else if (f instanceof TreeBin) {
-                            binCount = 2;
-                            TreeBin<K,V> t = (TreeBin<K,V>)f;
-                            TreeNode<K,V> r, p;
-                            if ((r = t.root) != null &&
-                                (p = r.findTreeNode(h, key, null)) != null) {
-                                val = remappingFunction.apply(key, p.val);
-                                if (val != null)
-                                    p.val = val;
-                                else {
-                                    delta = -1;
-                                    if (t.removeTreeNode(p))
-                                        setTabAt(tab, i, untreeify(t.first));
-                                }
-                            }
-                        }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
-                    }
-                }
-                if (binCount != 0)
-                    break;
-            }
-        }
-        if (delta != 0)
-            addCount((long)delta, binCount);
-        return val;
-    }
-
-    /**
-     * Attempts to compute a mapping for the specified key and its
-     * current mapped value (or {@code null} if there is no current
-     * mapping). The entire method invocation is performed atomically.
-     * Some attempted update operations on this map by other threads
-     * may be blocked while computation is in progress, so the
-     * computation should be short and simple, and must not attempt to
-     * update any other mappings of this Map.
-     *
-     * @param key key with which the specified value is to be associated
-     * @param remappingFunction the function to compute a value
-     * @return the new value associated with the specified key, or null if none
-     * @throws NullPointerException if the specified key or remappingFunction
-     *         is null
-     * @throws IllegalStateException if the computation detectably
-     *         attempts a recursive update to this map that would
-     *         otherwise never complete
-     * @throws RuntimeException or Error if the remappingFunction does so,
-     *         in which case the mapping is unchanged
-     */
-    public V compute(K key,
-                     BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
-        if (key == null || remappingFunction == null)
-            throw new NullPointerException();
-        int h = spread(key.hashCode());
-        V val = null;
-        int delta = 0;
-        int binCount = 0;
-        for (Node<K,V>[] tab = table;;) {
-            Node<K,V> f; int n, i, fh;
-            if (tab == null || (n = tab.length) == 0)
-                tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & h)) == null) {
-                Node<K,V> r = new ReservationNode<K,V>();
-                synchronized (r) {
-                    if (casTabAt(tab, i, null, r)) {
-                        binCount = 1;
-                        Node<K,V> node = null;
-                        try {
-                            if ((val = remappingFunction.apply(key, null)) != null) {
-                                delta = 1;
-                                node = new Node<K,V>(h, key, val, null);
-                            }
-                        } finally {
-                            setTabAt(tab, i, node);
-                        }
-                    }
-                }
-                if (binCount != 0)
-                    break;
-            }
-            else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);
-            else {
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
-                            binCount = 1;
-                            for (Node<K,V> e = f, pred = null;; ++binCount) {
-                                K ek;
-                                if (e.hash == h &&
-                                    ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
-                                    val = remappingFunction.apply(key, e.val);
-                                    if (val != null)
-                                        e.val = val;
-                                    else {
-                                        delta = -1;
-                                        Node<K,V> en = e.next;
-                                        if (pred != null)
-                                            pred.next = en;
-                                        else
-                                            setTabAt(tab, i, en);
-                                    }
-                                    break;
-                                }
-                                pred = e;
-                                if ((e = e.next) == null) {
-                                    val = remappingFunction.apply(key, null);
-                                    if (val != null) {
-                                        if (pred.next != null)
-                                            throw new IllegalStateException("Recursive update");
-                                        delta = 1;
-                                        pred.next =
-                                            new Node<K,V>(h, key, val, null);
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        else if (f instanceof TreeBin) {
-                            binCount = 1;
-                            TreeBin<K,V> t = (TreeBin<K,V>)f;
-                            TreeNode<K,V> r, p;
-                            if ((r = t.root) != null)
-                                p = r.findTreeNode(h, key, null);
-                            else
-                                p = null;
-                            V pv = (p == null) ? null : p.val;
-                            val = remappingFunction.apply(key, pv);
-                            if (val != null) {
-                                if (p != null)
-                                    p.val = val;
-                                else {
-                                    delta = 1;
-                                    t.putTreeVal(h, key, val);
-                                }
-                            }
-                            else if (p != null) {
-                                delta = -1;
-                                if (t.removeTreeNode(p))
-                                    setTabAt(tab, i, untreeify(t.first));
-                            }
-                        }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
-                    }
-                }
-                if (binCount != 0) {
-                    if (binCount >= TREEIFY_THRESHOLD)
-                        treeifyBin(tab, i);
-                    break;
-                }
-            }
-        }
-        if (delta != 0)
-            addCount((long)delta, binCount);
-        return val;
-    }
-
-    /**
-     * If the specified key is not already associated with a
-     * (non-null) value, associates it with the given value.
-     * Otherwise, replaces the value with the results of the given
-     * remapping function, or removes if {@code null}. The entire
-     * method invocation is performed atomically.  Some attempted
-     * update operations on this map by other threads may be blocked
-     * while computation is in progress, so the computation should be
-     * short and simple, and must not attempt to update any other
-     * mappings of this Map.
-     *
-     * @param key key with which the specified value is to be associated
-     * @param value the value to use if absent
-     * @param remappingFunction the function to recompute a value if present
-     * @return the new value associated with the specified key, or null if none
-     * @throws NullPointerException if the specified key or the
-     *         remappingFunction is null
-     * @throws RuntimeException or Error if the remappingFunction does so,
-     *         in which case the mapping is unchanged
-     */
-    public V merge(K key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
-        if (key == null || value == null || remappingFunction == null)
-            throw new NullPointerException();
-        int h = spread(key.hashCode());
-        V val = null;
-        int delta = 0;
-        int binCount = 0;
-        for (Node<K,V>[] tab = table;;) {
-            Node<K,V> f; int n, i, fh;
-            if (tab == null || (n = tab.length) == 0)
-                tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & h)) == null) {
-                if (casTabAt(tab, i, null, new Node<K,V>(h, key, value, null))) {
-                    delta = 1;
-                    val = value;
-                    break;
-                }
-            }
-            else if ((fh = f.hash) == MOVED)
-                tab = helpTransfer(tab, f);
-            else {
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
-                            binCount = 1;
-                            for (Node<K,V> e = f, pred = null;; ++binCount) {
-                                K ek;
-                                if (e.hash == h &&
-                                    ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
-                                    val = remappingFunction.apply(e.val, value);
-                                    if (val != null)
-                                        e.val = val;
-                                    else {
-                                        delta = -1;
-                                        Node<K,V> en = e.next;
-                                        if (pred != null)
-                                            pred.next = en;
-                                        else
-                                            setTabAt(tab, i, en);
-                                    }
-                                    break;
-                                }
-                                pred = e;
-                                if ((e = e.next) == null) {
-                                    delta = 1;
-                                    val = value;
-                                    pred.next =
-                                        new Node<K,V>(h, key, val, null);
-                                    break;
-                                }
-                            }
-                        }
-                        else if (f instanceof TreeBin) {
-                            binCount = 2;
-                            TreeBin<K,V> t = (TreeBin<K,V>)f;
-                            TreeNode<K,V> r = t.root;
-                            TreeNode<K,V> p = (r == null) ? null :
-                                r.findTreeNode(h, key, null);
-                            val = (p == null) ? value :
-                                remappingFunction.apply(p.val, value);
-                            if (val != null) {
-                                if (p != null)
-                                    p.val = val;
-                                else {
-                                    delta = 1;
-                                    t.putTreeVal(h, key, val);
-                                }
-                            }
-                            else if (p != null) {
-                                delta = -1;
-                                if (t.removeTreeNode(p))
-                                    setTabAt(tab, i, untreeify(t.first));
-                            }
-                        }
-                        else if (f instanceof ReservationNode)
-                            throw new IllegalStateException("Recursive update");
-                    }
-                }
-                if (binCount != 0) {
-                    if (binCount >= TREEIFY_THRESHOLD)
-                        treeifyBin(tab, i);
-                    break;
-                }
-            }
-        }
-        if (delta != 0)
-            addCount((long)delta, binCount);
-        return val;
-    }
-
     // Hashtable legacy methods
 
     /**
-     * Tests if some key maps into the specified value in this table.
+     * Legacy method testing if some key maps into the specified value
+     * in this table.
      *
-     * <p>Note that this method is identical in functionality to
+     * This method is identical in functionality to
      * {@link #containsValue(Object)}, and exists solely to ensure
      * full compatibility with class {@link java.util.Hashtable},
      * which supported this method prior to introduction of the
-     * Java Collections Framework.
+     * Java Collections framework.
      *
      * @param  value a value to search for
      * @return {@code true} if and only if some key maps to the
@@ -2131,7 +1419,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *         {@code false} otherwise
      * @throws NullPointerException if the specified value is null
      */
+    // android-note : removed @deprecated tag from javadoc.
     public boolean contains(Object value) {
+        // BEGIN android-note
+        // removed deprecation
+        // END android-note
         return containsValue(value);
     }
 
@@ -2170,6 +1462,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *
      * @return the number of mappings
      * @since 1.8
+     *
+     * @hide
      */
     public long mappingCount() {
         long n = sumCount();
@@ -2183,6 +1477,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @param <K> the element type of the returned set
      * @return the new set
      * @since 1.8
+     *
+     * @hide
      */
     public static <K> KeySetView<K,Boolean> newKeySet() {
         return new KeySetView<K,Boolean>
@@ -2200,6 +1496,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @throws IllegalArgumentException if the initial capacity of
      * elements is negative
      * @since 1.8
+     *
+     * @hide
      */
     public static <K> KeySetView<K,Boolean> newKeySet(int initialCapacity) {
         return new KeySetView<K,Boolean>
@@ -2216,6 +1514,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @param mappedValue the mapped value to use for any additions
      * @return the set view
      * @throws NullPointerException if the mappedValue is null
+     *
+     * @hide
      */
     public KeySetView<K,V> keySet(V mappedValue) {
         if (mappedValue == null)
@@ -2236,34 +1536,25 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
 
         Node<K,V> find(int h, Object k) {
-            // loop to avoid arbitrarily deep recursion on forwarding nodes
-            outer: for (Node<K,V>[] tab = nextTable;;) {
-                Node<K,V> e; int n;
-                if (k == null || tab == null || (n = tab.length) == 0 ||
-                    (e = tabAt(tab, (n - 1) & h)) == null)
-                    return null;
-                for (;;) {
+            Node<K,V> e; int n;
+            Node<K,V>[] tab = nextTable;
+            if (k != null && tab != null && (n = tab.length) > 0 &&
+                (e = tabAt(tab, (n - 1) & h)) != null) {
+                do {
                     int eh; K ek;
                     if ((eh = e.hash) == h &&
                         ((ek = e.key) == k || (ek != null && k.equals(ek))))
                         return e;
-                    if (eh < 0) {
-                        if (e instanceof ForwardingNode) {
-                            tab = ((ForwardingNode<K,V>)e).nextTable;
-                            continue outer;
-                        }
-                        else
-                            return e.find(h, k);
-                    }
-                    if ((e = e.next) == null)
-                        return null;
-                }
+                    if (eh < 0)
+                        return e.find(h, k);
+                } while ((e = e.next) != null);
             }
+            return null;
         }
     }
 
     /**
-     * A place-holder node used in computeIfAbsent and compute.
+     * A place-holder node used in computeIfAbsent and compute
      */
     static final class ReservationNode<K,V> extends Node<K,V> {
         ReservationNode() {
@@ -2325,13 +1616,14 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         CounterCell[] as; long b, s;
         if ((as = counterCells) != null ||
             !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
-            CounterCell a; long v; int m;
+            CounterHashCode hc; CounterCell a; long v; int m;
             boolean uncontended = true;
-            if (as == null || (m = as.length - 1) < 0 ||
-                (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
+            if ((hc = threadCounterHashCode.get()) == null ||
+                as == null || (m = as.length - 1) < 0 ||
+                (a = as[m & hc.code]) == null ||
                 !(uncontended =
                   U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
-                fullAddCount(x, uncontended);
+                fullAddCount(x, hc, uncontended);
                 return;
             }
             if (check <= 1)
@@ -2412,8 +1704,17 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 break;
             else if (tab == table) {
                 int rs = resizeStamp(n);
-                if (U.compareAndSwapInt(this, SIZECTL, sc,
-                                        (rs << RESIZE_STAMP_SHIFT) + 2))
+                if (sc < 0) {
+                    Node<K,V>[] nt;
+                    if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
+                        sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
+                        transferIndex <= 0)
+                        break;
+                    if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
+                        transfer(tab, nt);
+                }
+                else if (U.compareAndSwapInt(this, SIZECTL, sc,
+                                             (rs << RESIZE_STAMP_SHIFT) + 2))
                     transfer(tab, null);
             }
         }
@@ -2556,112 +1857,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
     }
 
-    /* ---------------- Counter support -------------- */
-
-    /**
-     * A padded cell for distributing counts.  Adapted from LongAdder
-     * and Striped64.  See their internal docs for explanation.
-     */
-    //@jdk.internal.vm.annotation.Contended // Android-removed
-    static final class CounterCell {
-        volatile long value;
-        CounterCell(long x) { value = x; }
-    }
-
-    final long sumCount() {
-        CounterCell[] as = counterCells; CounterCell a;
-        long sum = baseCount;
-        if (as != null) {
-            for (int i = 0; i < as.length; ++i) {
-                if ((a = as[i]) != null)
-                    sum += a.value;
-            }
-        }
-        return sum;
-    }
-
-    // See LongAdder version for explanation
-    private final void fullAddCount(long x, boolean wasUncontended) {
-        int h;
-        if ((h = ThreadLocalRandom.getProbe()) == 0) {
-            ThreadLocalRandom.localInit();      // force initialization
-            h = ThreadLocalRandom.getProbe();
-            wasUncontended = true;
-        }
-        boolean collide = false;                // True if last slot nonempty
-        for (;;) {
-            CounterCell[] as; CounterCell a; int n; long v;
-            if ((as = counterCells) != null && (n = as.length) > 0) {
-                if ((a = as[(n - 1) & h]) == null) {
-                    if (cellsBusy == 0) {            // Try to attach new Cell
-                        CounterCell r = new CounterCell(x); // Optimistic create
-                        if (cellsBusy == 0 &&
-                            U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
-                            boolean created = false;
-                            try {               // Recheck under lock
-                                CounterCell[] rs; int m, j;
-                                if ((rs = counterCells) != null &&
-                                    (m = rs.length) > 0 &&
-                                    rs[j = (m - 1) & h] == null) {
-                                    rs[j] = r;
-                                    created = true;
-                                }
-                            } finally {
-                                cellsBusy = 0;
-                            }
-                            if (created)
-                                break;
-                            continue;           // Slot is now non-empty
-                        }
-                    }
-                    collide = false;
-                }
-                else if (!wasUncontended)       // CAS already known to fail
-                    wasUncontended = true;      // Continue after rehash
-                else if (U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))
-                    break;
-                else if (counterCells != as || n >= NCPU)
-                    collide = false;            // At max size or stale
-                else if (!collide)
-                    collide = true;
-                else if (cellsBusy == 0 &&
-                         U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
-                    try {
-                        if (counterCells == as) {// Expand table unless stale
-                            CounterCell[] rs = new CounterCell[n << 1];
-                            for (int i = 0; i < n; ++i)
-                                rs[i] = as[i];
-                            counterCells = rs;
-                        }
-                    } finally {
-                        cellsBusy = 0;
-                    }
-                    collide = false;
-                    continue;                   // Retry with expanded table
-                }
-                h = ThreadLocalRandom.advanceProbe(h);
-            }
-            else if (cellsBusy == 0 && counterCells == as &&
-                     U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
-                boolean init = false;
-                try {                           // Initialize table
-                    if (counterCells == as) {
-                        CounterCell[] rs = new CounterCell[2];
-                        rs[h & 1] = new CounterCell(x);
-                        counterCells = rs;
-                        init = true;
-                    }
-                } finally {
-                    cellsBusy = 0;
-                }
-                if (init)
-                    break;
-            }
-            else if (U.compareAndSwapLong(this, BASECOUNT, v = baseCount, v + x))
-                break;                          // Fall back on using base
-        }
-    }
-
     /* ---------------- Conversion from/to TreeBins -------------- */
 
     /**
@@ -2669,7 +1864,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * too small, in which case resizes instead.
      */
     private final void treeifyBin(Node<K,V>[] tab, int index) {
-        Node<K,V> b; int n;
+        Node<K,V> b; int n, sc;
         if (tab != null) {
             if ((n = tab.length) < MIN_TREEIFY_CAPACITY)
                 tryPresize(n << 1);
@@ -2713,7 +1908,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /* ---------------- TreeNodes -------------- */
 
     /**
-     * Nodes for use in TreeBins.
+     * Nodes for use in TreeBins
      */
     static final class TreeNode<K,V> extends Node<K,V> {
         TreeNode<K,V> parent;  // red-black tree links
@@ -2765,6 +1960,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             return null;
         }
     }
+
 
     /* ---------------- TreeBins -------------- */
 
@@ -2832,7 +2028,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                   (kc = comparableClassFor(k)) == null) ||
                                  (dir = compareComparables(kc, k, pk)) == 0)
                             dir = tieBreakOrder(k, pk);
-                        TreeNode<K,V> xp = p;
+                            TreeNode<K,V> xp = p;
                         if ((p = (dir <= 0) ? p.left : p.right) == null) {
                             x.parent = xp;
                             if (dir <= 0)
@@ -2910,9 +2106,13 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                             p = ((r = root) == null ? null :
                                  r.findTreeNode(h, k, null));
                         } finally {
+
                             Thread w;
-                            if (U.getAndAddInt(this, LOCKSTATE, -READER) ==
-                                (READER|WAITER) && (w = waiter) != null)
+                            int ls;
+                            do {} while (!U.compareAndSwapInt
+                                         (this, LOCKSTATE,
+                                          ls = lockState, ls - READER));
+                            if (ls == (READER|WAITER) && (w = waiter) != null)
                                 LockSupport.unpark(w);
                         }
                         return p;
@@ -2922,6 +2122,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             return null;
         }
 
+        /**
+         * Finds or adds a node.
+         * @return null if added
+         */
         /**
          * Finds or adds a node.
          * @return null if added
@@ -3276,7 +2480,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
 
         /**
-         * Checks invariants recursively for the tree of Nodes rooted at t.
+         * Recursive invariant check
          */
         static <K,V> boolean checkInvariants(TreeNode<K,V> t) {
             TreeNode<K,V> tp = t.parent, tl = t.left, tr = t.right,
@@ -3300,13 +2504,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             return true;
         }
 
-        private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
+        private static final sun.misc.Unsafe U;
         private static final long LOCKSTATE;
         static {
             try {
+                U = sun.misc.Unsafe.getUnsafe();
+                Class<?> k = TreeBin.class;
                 LOCKSTATE = U.objectFieldOffset
-                    (TreeBin.class.getDeclaredField("lockState"));
-            } catch (ReflectiveOperationException e) {
+                    (k.getDeclaredField("lockState"));
+            } catch (Exception e) {
                 throw new Error(e);
             }
         }
@@ -3521,7 +2727,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     }
 
     /**
-     * Exported Entry for EntryIterator.
+     * Exported Entry for EntryIterator
      */
     static final class MapEntry<K,V> implements Map.Entry<K,V> {
         final K key; // non-null
@@ -3535,9 +2741,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         public K getKey()        { return key; }
         public V getValue()      { return val; }
         public int hashCode()    { return key.hashCode() ^ val.hashCode(); }
-        public String toString() {
-            return Helpers.mapEntryToString(key, val);
-        }
+        public String toString() { return key + "=" + val; }
 
         public boolean equals(Object o) {
             Object k, v; Map.Entry<?,?> e;
@@ -3564,866 +2768,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             return v;
         }
     }
-
-    static final class KeySpliterator<K,V> extends Traverser<K,V>
-        implements Spliterator<K> {
-        long est;               // size estimate
-        KeySpliterator(Node<K,V>[] tab, int size, int index, int limit,
-                       long est) {
-            super(tab, size, index, limit);
-            this.est = est;
-        }
-
-        public KeySpliterator<K,V> trySplit() {
-            int i, f, h;
-            return (h = ((i = baseIndex) + (f = baseLimit)) >>> 1) <= i ? null :
-                new KeySpliterator<K,V>(tab, baseSize, baseLimit = h,
-                                        f, est >>>= 1);
-        }
-
-        public void forEachRemaining(Consumer<? super K> action) {
-            if (action == null) throw new NullPointerException();
-            for (Node<K,V> p; (p = advance()) != null;)
-                action.accept(p.key);
-        }
-
-        public boolean tryAdvance(Consumer<? super K> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V> p;
-            if ((p = advance()) == null)
-                return false;
-            action.accept(p.key);
-            return true;
-        }
-
-        public long estimateSize() { return est; }
-
-        public int characteristics() {
-            return Spliterator.DISTINCT | Spliterator.CONCURRENT |
-                Spliterator.NONNULL;
-        }
-    }
-
-    static final class ValueSpliterator<K,V> extends Traverser<K,V>
-        implements Spliterator<V> {
-        long est;               // size estimate
-        ValueSpliterator(Node<K,V>[] tab, int size, int index, int limit,
-                         long est) {
-            super(tab, size, index, limit);
-            this.est = est;
-        }
-
-        public ValueSpliterator<K,V> trySplit() {
-            int i, f, h;
-            return (h = ((i = baseIndex) + (f = baseLimit)) >>> 1) <= i ? null :
-                new ValueSpliterator<K,V>(tab, baseSize, baseLimit = h,
-                                          f, est >>>= 1);
-        }
-
-        public void forEachRemaining(Consumer<? super V> action) {
-            if (action == null) throw new NullPointerException();
-            for (Node<K,V> p; (p = advance()) != null;)
-                action.accept(p.val);
-        }
-
-        public boolean tryAdvance(Consumer<? super V> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V> p;
-            if ((p = advance()) == null)
-                return false;
-            action.accept(p.val);
-            return true;
-        }
-
-        public long estimateSize() { return est; }
-
-        public int characteristics() {
-            return Spliterator.CONCURRENT | Spliterator.NONNULL;
-        }
-    }
-
-    static final class EntrySpliterator<K,V> extends Traverser<K,V>
-        implements Spliterator<Map.Entry<K,V>> {
-        final ConcurrentHashMap<K,V> map; // To export MapEntry
-        long est;               // size estimate
-        EntrySpliterator(Node<K,V>[] tab, int size, int index, int limit,
-                         long est, ConcurrentHashMap<K,V> map) {
-            super(tab, size, index, limit);
-            this.map = map;
-            this.est = est;
-        }
-
-        public EntrySpliterator<K,V> trySplit() {
-            int i, f, h;
-            return (h = ((i = baseIndex) + (f = baseLimit)) >>> 1) <= i ? null :
-                new EntrySpliterator<K,V>(tab, baseSize, baseLimit = h,
-                                          f, est >>>= 1, map);
-        }
-
-        public void forEachRemaining(Consumer<? super Map.Entry<K,V>> action) {
-            if (action == null) throw new NullPointerException();
-            for (Node<K,V> p; (p = advance()) != null; )
-                action.accept(new MapEntry<K,V>(p.key, p.val, map));
-        }
-
-        public boolean tryAdvance(Consumer<? super Map.Entry<K,V>> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V> p;
-            if ((p = advance()) == null)
-                return false;
-            action.accept(new MapEntry<K,V>(p.key, p.val, map));
-            return true;
-        }
-
-        public long estimateSize() { return est; }
-
-        public int characteristics() {
-            return Spliterator.DISTINCT | Spliterator.CONCURRENT |
-                Spliterator.NONNULL;
-        }
-    }
-
-    // Parallel bulk operations
-
-    /**
-     * Computes initial batch value for bulk tasks. The returned value
-     * is approximately exp2 of the number of times (minus one) to
-     * split task by two before executing leaf action. This value is
-     * faster to compute and more convenient to use as a guide to
-     * splitting than is the depth, since it is used while dividing by
-     * two anyway.
-     */
-    final int batchFor(long b) {
-        long n;
-        if (b == Long.MAX_VALUE || (n = sumCount()) <= 1L || n < b)
-            return 0;
-        int sp = ForkJoinPool.getCommonPoolParallelism() << 2; // slack of 4
-        return (b <= 0L || (n /= b) >= sp) ? sp : (int)n;
-    }
-
-    /**
-     * Performs the given action for each (key, value).
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param action the action
-     * @since 1.8
-     */
-    public void forEach(long parallelismThreshold,
-                        BiConsumer<? super K,? super V> action) {
-        if (action == null) throw new NullPointerException();
-        new ForEachMappingTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             action).invoke();
-    }
-
-    /**
-     * Performs the given action for each non-null transformation
-     * of each (key, value).
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case the action is not applied)
-     * @param action the action
-     * @param <U> the return type of the transformer
-     * @since 1.8
-     */
-    public <U> void forEach(long parallelismThreshold,
-                            BiFunction<? super K, ? super V, ? extends U> transformer,
-                            Consumer<? super U> action) {
-        if (transformer == null || action == null)
-            throw new NullPointerException();
-        new ForEachTransformedMappingTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             transformer, action).invoke();
-    }
-
-    /**
-     * Returns a non-null result from applying the given search
-     * function on each (key, value), or null if none.  Upon
-     * success, further element processing is suppressed and the
-     * results of any other parallel invocations of the search
-     * function are ignored.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param searchFunction a function returning a non-null
-     * result on success, else null
-     * @param <U> the return type of the search function
-     * @return a non-null result from applying the given search
-     * function on each (key, value), or null if none
-     * @since 1.8
-     */
-    public <U> U search(long parallelismThreshold,
-                        BiFunction<? super K, ? super V, ? extends U> searchFunction) {
-        if (searchFunction == null) throw new NullPointerException();
-        return new SearchMappingsTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             searchFunction, new AtomicReference<U>()).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all (key, value) pairs using the given reducer to
-     * combine values, or null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case it is not combined)
-     * @param reducer a commutative associative combining function
-     * @param <U> the return type of the transformer
-     * @return the result of accumulating the given transformation
-     * of all (key, value) pairs
-     * @since 1.8
-     */
-    public <U> U reduce(long parallelismThreshold,
-                        BiFunction<? super K, ? super V, ? extends U> transformer,
-                        BiFunction<? super U, ? super U, ? extends U> reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceMappingsTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all (key, value) pairs using the given reducer to
-     * combine values, and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all (key, value) pairs
-     * @since 1.8
-     */
-    public double reduceToDouble(long parallelismThreshold,
-                                 ToDoubleBiFunction<? super K, ? super V> transformer,
-                                 double basis,
-                                 DoubleBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceMappingsToDoubleTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all (key, value) pairs using the given reducer to
-     * combine values, and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all (key, value) pairs
-     * @since 1.8
-     */
-    public long reduceToLong(long parallelismThreshold,
-                             ToLongBiFunction<? super K, ? super V> transformer,
-                             long basis,
-                             LongBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceMappingsToLongTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all (key, value) pairs using the given reducer to
-     * combine values, and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all (key, value) pairs
-     * @since 1.8
-     */
-    public int reduceToInt(long parallelismThreshold,
-                           ToIntBiFunction<? super K, ? super V> transformer,
-                           int basis,
-                           IntBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceMappingsToIntTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Performs the given action for each key.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param action the action
-     * @since 1.8
-     */
-    public void forEachKey(long parallelismThreshold,
-                           Consumer<? super K> action) {
-        if (action == null) throw new NullPointerException();
-        new ForEachKeyTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             action).invoke();
-    }
-
-    /**
-     * Performs the given action for each non-null transformation
-     * of each key.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case the action is not applied)
-     * @param action the action
-     * @param <U> the return type of the transformer
-     * @since 1.8
-     */
-    public <U> void forEachKey(long parallelismThreshold,
-                               Function<? super K, ? extends U> transformer,
-                               Consumer<? super U> action) {
-        if (transformer == null || action == null)
-            throw new NullPointerException();
-        new ForEachTransformedKeyTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             transformer, action).invoke();
-    }
-
-    /**
-     * Returns a non-null result from applying the given search
-     * function on each key, or null if none. Upon success,
-     * further element processing is suppressed and the results of
-     * any other parallel invocations of the search function are
-     * ignored.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param searchFunction a function returning a non-null
-     * result on success, else null
-     * @param <U> the return type of the search function
-     * @return a non-null result from applying the given search
-     * function on each key, or null if none
-     * @since 1.8
-     */
-    public <U> U searchKeys(long parallelismThreshold,
-                            Function<? super K, ? extends U> searchFunction) {
-        if (searchFunction == null) throw new NullPointerException();
-        return new SearchKeysTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             searchFunction, new AtomicReference<U>()).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating all keys using the given
-     * reducer to combine values, or null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating all keys using the given
-     * reducer to combine values, or null if none
-     * @since 1.8
-     */
-    public K reduceKeys(long parallelismThreshold,
-                        BiFunction<? super K, ? super K, ? extends K> reducer) {
-        if (reducer == null) throw new NullPointerException();
-        return new ReduceKeysTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all keys using the given reducer to combine values, or
-     * null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case it is not combined)
-     * @param reducer a commutative associative combining function
-     * @param <U> the return type of the transformer
-     * @return the result of accumulating the given transformation
-     * of all keys
-     * @since 1.8
-     */
-    public <U> U reduceKeys(long parallelismThreshold,
-                            Function<? super K, ? extends U> transformer,
-         BiFunction<? super U, ? super U, ? extends U> reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceKeysTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all keys using the given reducer to combine values, and
-     * the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all keys
-     * @since 1.8
-     */
-    public double reduceKeysToDouble(long parallelismThreshold,
-                                     ToDoubleFunction<? super K> transformer,
-                                     double basis,
-                                     DoubleBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceKeysToDoubleTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all keys using the given reducer to combine values, and
-     * the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all keys
-     * @since 1.8
-     */
-    public long reduceKeysToLong(long parallelismThreshold,
-                                 ToLongFunction<? super K> transformer,
-                                 long basis,
-                                 LongBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceKeysToLongTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all keys using the given reducer to combine values, and
-     * the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all keys
-     * @since 1.8
-     */
-    public int reduceKeysToInt(long parallelismThreshold,
-                               ToIntFunction<? super K> transformer,
-                               int basis,
-                               IntBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceKeysToIntTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Performs the given action for each value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param action the action
-     * @since 1.8
-     */
-    public void forEachValue(long parallelismThreshold,
-                             Consumer<? super V> action) {
-        if (action == null)
-            throw new NullPointerException();
-        new ForEachValueTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             action).invoke();
-    }
-
-    /**
-     * Performs the given action for each non-null transformation
-     * of each value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case the action is not applied)
-     * @param action the action
-     * @param <U> the return type of the transformer
-     * @since 1.8
-     */
-    public <U> void forEachValue(long parallelismThreshold,
-                                 Function<? super V, ? extends U> transformer,
-                                 Consumer<? super U> action) {
-        if (transformer == null || action == null)
-            throw new NullPointerException();
-        new ForEachTransformedValueTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             transformer, action).invoke();
-    }
-
-    /**
-     * Returns a non-null result from applying the given search
-     * function on each value, or null if none.  Upon success,
-     * further element processing is suppressed and the results of
-     * any other parallel invocations of the search function are
-     * ignored.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param searchFunction a function returning a non-null
-     * result on success, else null
-     * @param <U> the return type of the search function
-     * @return a non-null result from applying the given search
-     * function on each value, or null if none
-     * @since 1.8
-     */
-    public <U> U searchValues(long parallelismThreshold,
-                              Function<? super V, ? extends U> searchFunction) {
-        if (searchFunction == null) throw new NullPointerException();
-        return new SearchValuesTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             searchFunction, new AtomicReference<U>()).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating all values using the
-     * given reducer to combine values, or null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating all values
-     * @since 1.8
-     */
-    public V reduceValues(long parallelismThreshold,
-                          BiFunction<? super V, ? super V, ? extends V> reducer) {
-        if (reducer == null) throw new NullPointerException();
-        return new ReduceValuesTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all values using the given reducer to combine values, or
-     * null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case it is not combined)
-     * @param reducer a commutative associative combining function
-     * @param <U> the return type of the transformer
-     * @return the result of accumulating the given transformation
-     * of all values
-     * @since 1.8
-     */
-    public <U> U reduceValues(long parallelismThreshold,
-                              Function<? super V, ? extends U> transformer,
-                              BiFunction<? super U, ? super U, ? extends U> reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceValuesTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all values using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all values
-     * @since 1.8
-     */
-    public double reduceValuesToDouble(long parallelismThreshold,
-                                       ToDoubleFunction<? super V> transformer,
-                                       double basis,
-                                       DoubleBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceValuesToDoubleTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all values using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all values
-     * @since 1.8
-     */
-    public long reduceValuesToLong(long parallelismThreshold,
-                                   ToLongFunction<? super V> transformer,
-                                   long basis,
-                                   LongBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceValuesToLongTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all values using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all values
-     * @since 1.8
-     */
-    public int reduceValuesToInt(long parallelismThreshold,
-                                 ToIntFunction<? super V> transformer,
-                                 int basis,
-                                 IntBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceValuesToIntTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Performs the given action for each entry.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param action the action
-     * @since 1.8
-     */
-    public void forEachEntry(long parallelismThreshold,
-                             Consumer<? super Map.Entry<K,V>> action) {
-        if (action == null) throw new NullPointerException();
-        new ForEachEntryTask<K,V>(null, batchFor(parallelismThreshold), 0, 0, table,
-                                  action).invoke();
-    }
-
-    /**
-     * Performs the given action for each non-null transformation
-     * of each entry.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case the action is not applied)
-     * @param action the action
-     * @param <U> the return type of the transformer
-     * @since 1.8
-     */
-    public <U> void forEachEntry(long parallelismThreshold,
-                                 Function<Map.Entry<K,V>, ? extends U> transformer,
-                                 Consumer<? super U> action) {
-        if (transformer == null || action == null)
-            throw new NullPointerException();
-        new ForEachTransformedEntryTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             transformer, action).invoke();
-    }
-
-    /**
-     * Returns a non-null result from applying the given search
-     * function on each entry, or null if none.  Upon success,
-     * further element processing is suppressed and the results of
-     * any other parallel invocations of the search function are
-     * ignored.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param searchFunction a function returning a non-null
-     * result on success, else null
-     * @param <U> the return type of the search function
-     * @return a non-null result from applying the given search
-     * function on each entry, or null if none
-     * @since 1.8
-     */
-    public <U> U searchEntries(long parallelismThreshold,
-                               Function<Map.Entry<K,V>, ? extends U> searchFunction) {
-        if (searchFunction == null) throw new NullPointerException();
-        return new SearchEntriesTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             searchFunction, new AtomicReference<U>()).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating all entries using the
-     * given reducer to combine values, or null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating all entries
-     * @since 1.8
-     */
-    public Map.Entry<K,V> reduceEntries(long parallelismThreshold,
-                                        BiFunction<Map.Entry<K,V>, Map.Entry<K,V>, ? extends Map.Entry<K,V>> reducer) {
-        if (reducer == null) throw new NullPointerException();
-        return new ReduceEntriesTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all entries using the given reducer to combine values,
-     * or null if none.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element, or null if there is no transformation (in
-     * which case it is not combined)
-     * @param reducer a commutative associative combining function
-     * @param <U> the return type of the transformer
-     * @return the result of accumulating the given transformation
-     * of all entries
-     * @since 1.8
-     */
-    public <U> U reduceEntries(long parallelismThreshold,
-                               Function<Map.Entry<K,V>, ? extends U> transformer,
-                               BiFunction<? super U, ? super U, ? extends U> reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceEntriesTask<K,V,U>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all entries using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all entries
-     * @since 1.8
-     */
-    public double reduceEntriesToDouble(long parallelismThreshold,
-                                        ToDoubleFunction<Map.Entry<K,V>> transformer,
-                                        double basis,
-                                        DoubleBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceEntriesToDoubleTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all entries using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all entries
-     * @since 1.8
-     */
-    public long reduceEntriesToLong(long parallelismThreshold,
-                                    ToLongFunction<Map.Entry<K,V>> transformer,
-                                    long basis,
-                                    LongBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceEntriesToLongTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
-    /**
-     * Returns the result of accumulating the given transformation
-     * of all entries using the given reducer to combine values,
-     * and the given basis as an identity value.
-     *
-     * @param parallelismThreshold the (estimated) number of elements
-     * needed for this operation to be executed in parallel
-     * @param transformer a function returning the transformation
-     * for an element
-     * @param basis the identity (initial default value) for the reduction
-     * @param reducer a commutative associative combining function
-     * @return the result of accumulating the given transformation
-     * of all entries
-     * @since 1.8
-     */
-    public int reduceEntriesToInt(long parallelismThreshold,
-                                  ToIntFunction<Map.Entry<K,V>> transformer,
-                                  int basis,
-                                  IntBinaryOperator reducer) {
-        if (transformer == null || reducer == null)
-            throw new NullPointerException();
-        return new MapReduceEntriesToIntTask<K,V>
-            (null, batchFor(parallelismThreshold), 0, 0, table,
-             null, transformer, basis, reducer).invoke();
-    }
-
 
     /* ----------------Views -------------- */
 
@@ -4454,30 +2798,30 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         // implementations below rely on concrete classes supplying these
         // abstract methods
         /**
-         * Returns an iterator over the elements in this collection.
-         *
-         * <p>The returned iterator is
-         * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-         *
-         * @return an iterator over the elements in this collection
+         * Returns a "weakly consistent" iterator that will never
+         * throw {@link ConcurrentModificationException}, and
+         * guarantees to traverse elements as they existed upon
+         * construction of the iterator, and may (but is not
+         * guaranteed to) reflect any modifications subsequent to
+         * construction.
          */
         public abstract Iterator<E> iterator();
         public abstract boolean contains(Object o);
         public abstract boolean remove(Object o);
 
-        private static final String OOME_MSG = "Required array size too large";
+        private static final String oomeMsg = "Required array size too large";
 
         public final Object[] toArray() {
             long sz = map.mappingCount();
             if (sz > MAX_ARRAY_SIZE)
-                throw new OutOfMemoryError(OOME_MSG);
+                throw new OutOfMemoryError(oomeMsg);
             int n = (int)sz;
             Object[] r = new Object[n];
             int i = 0;
             for (E e : this) {
                 if (i == n) {
                     if (n >= MAX_ARRAY_SIZE)
-                        throw new OutOfMemoryError(OOME_MSG);
+                        throw new OutOfMemoryError(oomeMsg);
                     if (n >= MAX_ARRAY_SIZE - (MAX_ARRAY_SIZE >>> 1) - 1)
                         n = MAX_ARRAY_SIZE;
                     else
@@ -4493,7 +2837,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         public final <T> T[] toArray(T[] a) {
             long sz = map.mappingCount();
             if (sz > MAX_ARRAY_SIZE)
-                throw new OutOfMemoryError(OOME_MSG);
+                throw new OutOfMemoryError(oomeMsg);
             int m = (int)sz;
             T[] r = (a.length >= m) ? a :
                 (T[])java.lang.reflect.Array
@@ -4503,7 +2847,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             for (E e : this) {
                 if (i == n) {
                     if (n >= MAX_ARRAY_SIZE)
-                        throw new OutOfMemoryError(OOME_MSG);
+                        throw new OutOfMemoryError(oomeMsg);
                     if (n >= MAX_ARRAY_SIZE - (MAX_ARRAY_SIZE >>> 1) - 1)
                         n = MAX_ARRAY_SIZE;
                     else
@@ -4557,7 +2901,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
 
         public final boolean removeAll(Collection<?> c) {
-            if (c == null) throw new NullPointerException();
             boolean modified = false;
             for (Iterator<E> it = iterator(); it.hasNext();) {
                 if (c.contains(it.next())) {
@@ -4569,7 +2912,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         }
 
         public final boolean retainAll(Collection<?> c) {
-            if (c == null) throw new NullPointerException();
             boolean modified = false;
             for (Iterator<E> it = iterator(); it.hasNext();) {
                 if (!c.contains(it.next())) {
@@ -4586,12 +2928,14 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * A view of a ConcurrentHashMap as a {@link Set} of keys, in
      * which additions may optionally be enabled by mapping to a
      * common value.  This class cannot be directly instantiated.
-     * See {@link #keySet(Object) keySet(V)},
-     * {@link #newKeySet() newKeySet()},
-     * {@link #newKeySet(int) newKeySet(int)}.
+     * See {@link #keySet() keySet()},
+     * {@link #keySet(Object) keySet(V)},
      *
      * @since 1.8
+     *
+     * @hide
      */
+    // android-note: removed references to hidden APIs.
     public static class KeySetView<K,V> extends CollectionView<K,V,K>
         implements Set<K>, java.io.Serializable {
         private static final long serialVersionUID = 7249069246763182397L;
@@ -4691,23 +3035,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                      (containsAll(c) && c.containsAll(this))));
         }
 
-        public Spliterator<K> spliterator() {
-            Node<K,V>[] t;
-            ConcurrentHashMap<K,V> m = map;
-            long n = m.sumCount();
-            int f = (t = m.table) == null ? 0 : t.length;
-            return new KeySpliterator<K,V>(t, f, 0, f, n < 0L ? 0L : n);
-        }
-
-        public void forEach(Consumer<? super K> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V>[] t;
-            if ((t = map.table) != null) {
-                Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-                for (Node<K,V> p; (p = it.advance()) != null; )
-                    action.accept(p.key);
-            }
-        }
     }
 
     /**
@@ -4749,27 +3076,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             throw new UnsupportedOperationException();
         }
 
-        public boolean removeIf(Predicate<? super V> filter) {
-            return map.removeValueIf(filter);
-        }
-
-        public Spliterator<V> spliterator() {
-            Node<K,V>[] t;
-            ConcurrentHashMap<K,V> m = map;
-            long n = m.sumCount();
-            int f = (t = m.table) == null ? 0 : t.length;
-            return new ValueSpliterator<K,V>(t, f, 0, f, n < 0L ? 0L : n);
-        }
-
-        public void forEach(Consumer<? super V> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V>[] t;
-            if ((t = map.table) != null) {
-                Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-                for (Node<K,V> p; (p = it.advance()) != null; )
-                    action.accept(p.val);
-            }
-        }
     }
 
     /**
@@ -4822,10 +3128,6 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             return added;
         }
 
-        public boolean removeIf(Predicate<? super Entry<K,V>> filter) {
-            return map.removeEntryIf(filter);
-        }
-
         public final int hashCode() {
             int h = 0;
             Node<K,V>[] t;
@@ -4845,1532 +3147,181 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                      (containsAll(c) && c.containsAll(this))));
         }
 
-        public Spliterator<Map.Entry<K,V>> spliterator() {
-            Node<K,V>[] t;
-            ConcurrentHashMap<K,V> m = map;
-            long n = m.sumCount();
-            int f = (t = m.table) == null ? 0 : t.length;
-            return new EntrySpliterator<K,V>(t, f, 0, f, n < 0L ? 0L : n, m);
-        }
-
-        public void forEach(Consumer<? super Map.Entry<K,V>> action) {
-            if (action == null) throw new NullPointerException();
-            Node<K,V>[] t;
-            if ((t = map.table) != null) {
-                Traverser<K,V> it = new Traverser<K,V>(t, t.length, 0, t.length);
-                for (Node<K,V> p; (p = it.advance()) != null; )
-                    action.accept(new MapEntry<K,V>(p.key, p.val, map));
-            }
-        }
-
     }
 
-    // -------------------------------------------------------
+
+    /* ---------------- Counters -------------- */
+
+    // Adapted from LongAdder and Striped64.
+    // See their internal docs for explanation.
+
+    // A padded cell for distributing counts
+    static final class CounterCell {
+        volatile long p0, p1, p2, p3, p4, p5, p6;
+        volatile long value;
+        volatile long q0, q1, q2, q3, q4, q5, q6;
+        CounterCell(long x) { value = x; }
+    }
 
     /**
-     * Base class for bulk tasks. Repeats some fields and code from
-     * class Traverser, because we need to subclass CountedCompleter.
+     * Holder for the thread-local hash code determining which
+     * CounterCell to use. The code is initialized via the
+     * counterHashCodeGenerator, but may be moved upon collisions.
      */
-    @SuppressWarnings("serial")
-    abstract static class BulkTask<K,V,R> extends CountedCompleter<R> {
-        Node<K,V>[] tab;        // same as Traverser
-        Node<K,V> next;
-        TableStack<K,V> stack, spare;
-        int index;
-        int baseIndex;
-        int baseLimit;
-        final int baseSize;
-        int batch;              // split control
-
-        BulkTask(BulkTask<K,V,?> par, int b, int i, int f, Node<K,V>[] t) {
-            super(par);
-            this.batch = b;
-            this.index = this.baseIndex = i;
-            if ((this.tab = t) == null)
-                this.baseSize = this.baseLimit = 0;
-            else if (par == null)
-                this.baseSize = this.baseLimit = t.length;
-            else {
-                this.baseLimit = f;
-                this.baseSize = par.baseSize;
-            }
-        }
-
-        /**
-         * Same as Traverser version.
-         */
-        final Node<K,V> advance() {
-            Node<K,V> e;
-            if ((e = next) != null)
-                e = e.next;
-            for (;;) {
-                Node<K,V>[] t; int i, n;
-                if (e != null)
-                    return next = e;
-                if (baseIndex >= baseLimit || (t = tab) == null ||
-                    (n = t.length) <= (i = index) || i < 0)
-                    return next = null;
-                if ((e = tabAt(t, i)) != null && e.hash < 0) {
-                    if (e instanceof ForwardingNode) {
-                        tab = ((ForwardingNode<K,V>)e).nextTable;
-                        e = null;
-                        pushState(t, i, n);
-                        continue;
-                    }
-                    else if (e instanceof TreeBin)
-                        e = ((TreeBin<K,V>)e).first;
-                    else
-                        e = null;
-                }
-                if (stack != null)
-                    recoverState(n);
-                else if ((index = i + baseSize) >= n)
-                    index = ++baseIndex;
-            }
-        }
-
-        private void pushState(Node<K,V>[] t, int i, int n) {
-            TableStack<K,V> s = spare;
-            if (s != null)
-                spare = s.next;
-            else
-                s = new TableStack<K,V>();
-            s.tab = t;
-            s.length = n;
-            s.index = i;
-            s.next = stack;
-            stack = s;
-        }
-
-        private void recoverState(int n) {
-            TableStack<K,V> s; int len;
-            while ((s = stack) != null && (index += (len = s.length)) >= n) {
-                n = len;
-                index = s.index;
-                tab = s.tab;
-                s.tab = null;
-                TableStack<K,V> next = s.next;
-                s.next = spare; // save for reuse
-                stack = next;
-                spare = s;
-            }
-            if (s == null && (index += baseSize) >= n)
-                index = ++baseIndex;
-        }
+    static final class CounterHashCode {
+        int code;
     }
 
-    /*
-     * Task classes. Coded in a regular but ugly format/style to
-     * simplify checks that each variant differs in the right way from
-     * others. The null screenings exist because compilers cannot tell
-     * that we've already null-checked task arguments, so we force
-     * simplest hoisted bypass to help avoid convoluted traps.
+    /**
+     * Generates initial value for per-thread CounterHashCodes.
      */
-    @SuppressWarnings("serial")
-    static final class ForEachKeyTask<K,V>
-        extends BulkTask<K,V,Void> {
-        final Consumer<? super K> action;
-        ForEachKeyTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Consumer<? super K> action) {
-            super(p, b, i, f, t);
-            this.action = action;
-        }
-        public final void compute() {
-            final Consumer<? super K> action;
-            if ((action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachKeyTask<K,V>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null;)
-                    action.accept(p.key);
-                propagateCompletion();
+    static final AtomicInteger counterHashCodeGenerator = new AtomicInteger();
+
+    /**
+     * Increment for counterHashCodeGenerator. See class ThreadLocal
+     * for explanation.
+     */
+    static final int SEED_INCREMENT = 0x61c88647;
+
+    /**
+     * Per-thread counter hash codes. Shared across all instances.
+     */
+    static final ThreadLocal<CounterHashCode> threadCounterHashCode =
+        new ThreadLocal<CounterHashCode>();
+
+    final long sumCount() {
+        CounterCell[] as = counterCells; CounterCell a;
+        long sum = baseCount;
+        if (as != null) {
+            for (int i = 0; i < as.length; ++i) {
+                if ((a = as[i]) != null)
+                    sum += a.value;
             }
         }
+        return sum;
     }
 
-    @SuppressWarnings("serial")
-    static final class ForEachValueTask<K,V>
-        extends BulkTask<K,V,Void> {
-        final Consumer<? super V> action;
-        ForEachValueTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Consumer<? super V> action) {
-            super(p, b, i, f, t);
-            this.action = action;
+    // See LongAdder version for explanation
+    private final void fullAddCount(long x, CounterHashCode hc,
+                                    boolean wasUncontended) {
+        int h;
+        if (hc == null) {
+            hc = new CounterHashCode();
+            int s = counterHashCodeGenerator.addAndGet(SEED_INCREMENT);
+            h = hc.code = (s == 0) ? 1 : s; // Avoid zero
+            threadCounterHashCode.set(hc);
         }
-        public final void compute() {
-            final Consumer<? super V> action;
-            if ((action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachValueTask<K,V>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null;)
-                    action.accept(p.val);
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachEntryTask<K,V>
-        extends BulkTask<K,V,Void> {
-        final Consumer<? super Entry<K,V>> action;
-        ForEachEntryTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Consumer<? super Entry<K,V>> action) {
-            super(p, b, i, f, t);
-            this.action = action;
-        }
-        public final void compute() {
-            final Consumer<? super Entry<K,V>> action;
-            if ((action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachEntryTask<K,V>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    action.accept(p);
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachMappingTask<K,V>
-        extends BulkTask<K,V,Void> {
-        final BiConsumer<? super K, ? super V> action;
-        ForEachMappingTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             BiConsumer<? super K,? super V> action) {
-            super(p, b, i, f, t);
-            this.action = action;
-        }
-        public final void compute() {
-            final BiConsumer<? super K, ? super V> action;
-            if ((action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachMappingTask<K,V>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    action.accept(p.key, p.val);
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachTransformedKeyTask<K,V,U>
-        extends BulkTask<K,V,Void> {
-        final Function<? super K, ? extends U> transformer;
-        final Consumer<? super U> action;
-        ForEachTransformedKeyTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<? super K, ? extends U> transformer, Consumer<? super U> action) {
-            super(p, b, i, f, t);
-            this.transformer = transformer; this.action = action;
-        }
-        public final void compute() {
-            final Function<? super K, ? extends U> transformer;
-            final Consumer<? super U> action;
-            if ((transformer = this.transformer) != null &&
-                (action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachTransformedKeyTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         transformer, action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.key)) != null)
-                        action.accept(u);
-                }
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachTransformedValueTask<K,V,U>
-        extends BulkTask<K,V,Void> {
-        final Function<? super V, ? extends U> transformer;
-        final Consumer<? super U> action;
-        ForEachTransformedValueTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<? super V, ? extends U> transformer, Consumer<? super U> action) {
-            super(p, b, i, f, t);
-            this.transformer = transformer; this.action = action;
-        }
-        public final void compute() {
-            final Function<? super V, ? extends U> transformer;
-            final Consumer<? super U> action;
-            if ((transformer = this.transformer) != null &&
-                (action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachTransformedValueTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         transformer, action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.val)) != null)
-                        action.accept(u);
-                }
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachTransformedEntryTask<K,V,U>
-        extends BulkTask<K,V,Void> {
-        final Function<Map.Entry<K,V>, ? extends U> transformer;
-        final Consumer<? super U> action;
-        ForEachTransformedEntryTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<Map.Entry<K,V>, ? extends U> transformer, Consumer<? super U> action) {
-            super(p, b, i, f, t);
-            this.transformer = transformer; this.action = action;
-        }
-        public final void compute() {
-            final Function<Map.Entry<K,V>, ? extends U> transformer;
-            final Consumer<? super U> action;
-            if ((transformer = this.transformer) != null &&
-                (action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachTransformedEntryTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         transformer, action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p)) != null)
-                        action.accept(u);
-                }
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ForEachTransformedMappingTask<K,V,U>
-        extends BulkTask<K,V,Void> {
-        final BiFunction<? super K, ? super V, ? extends U> transformer;
-        final Consumer<? super U> action;
-        ForEachTransformedMappingTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             BiFunction<? super K, ? super V, ? extends U> transformer,
-             Consumer<? super U> action) {
-            super(p, b, i, f, t);
-            this.transformer = transformer; this.action = action;
-        }
-        public final void compute() {
-            final BiFunction<? super K, ? super V, ? extends U> transformer;
-            final Consumer<? super U> action;
-            if ((transformer = this.transformer) != null &&
-                (action = this.action) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    new ForEachTransformedMappingTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         transformer, action).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.key, p.val)) != null)
-                        action.accept(u);
-                }
-                propagateCompletion();
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class SearchKeysTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<? super K, ? extends U> searchFunction;
-        final AtomicReference<U> result;
-        SearchKeysTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<? super K, ? extends U> searchFunction,
-             AtomicReference<U> result) {
-            super(p, b, i, f, t);
-            this.searchFunction = searchFunction; this.result = result;
-        }
-        public final U getRawResult() { return result.get(); }
-        public final void compute() {
-            final Function<? super K, ? extends U> searchFunction;
-            final AtomicReference<U> result;
-            if ((searchFunction = this.searchFunction) != null &&
-                (result = this.result) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    if (result.get() != null)
-                        return;
-                    addToPendingCount(1);
-                    new SearchKeysTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         searchFunction, result).fork();
-                }
-                while (result.get() == null) {
-                    U u;
-                    Node<K,V> p;
-                    if ((p = advance()) == null) {
-                        propagateCompletion();
-                        break;
+        else
+            h = hc.code;
+        boolean collide = false;                // True if last slot nonempty
+        for (;;) {
+            CounterCell[] as; CounterCell a; int n; long v;
+            if ((as = counterCells) != null && (n = as.length) > 0) {
+                if ((a = as[(n - 1) & h]) == null) {
+                    if (cellsBusy == 0) {            // Try to attach new Cell
+                        CounterCell r = new CounterCell(x); // Optimistic create
+                        if (cellsBusy == 0 &&
+                            U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+                            boolean created = false;
+                            try {               // Recheck under lock
+                                CounterCell[] rs; int m, j;
+                                if ((rs = counterCells) != null &&
+                                    (m = rs.length) > 0 &&
+                                    rs[j = (m - 1) & h] == null) {
+                                    rs[j] = r;
+                                    created = true;
+                                }
+                            } finally {
+                                cellsBusy = 0;
+                            }
+                            if (created)
+                                break;
+                            continue;           // Slot is now non-empty
+                        }
                     }
-                    if ((u = searchFunction.apply(p.key)) != null) {
-                        if (result.compareAndSet(null, u))
-                            quietlyCompleteRoot();
-                        break;
-                    }
+                    collide = false;
                 }
+                else if (!wasUncontended)       // CAS already known to fail
+                    wasUncontended = true;      // Continue after rehash
+                else if (U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))
+                    break;
+                else if (counterCells != as || n >= NCPU)
+                    collide = false;            // At max size or stale
+                else if (!collide)
+                    collide = true;
+                else if (cellsBusy == 0 &&
+                         U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+                    try {
+                        if (counterCells == as) {// Expand table unless stale
+                            CounterCell[] rs = new CounterCell[n << 1];
+                            for (int i = 0; i < n; ++i)
+                                rs[i] = as[i];
+                            counterCells = rs;
+                        }
+                    } finally {
+                        cellsBusy = 0;
+                    }
+                    collide = false;
+                    continue;                   // Retry with expanded table
+                }
+                h ^= h << 13;                   // Rehash
+                h ^= h >>> 17;
+                h ^= h << 5;
             }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class SearchValuesTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<? super V, ? extends U> searchFunction;
-        final AtomicReference<U> result;
-        SearchValuesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<? super V, ? extends U> searchFunction,
-             AtomicReference<U> result) {
-            super(p, b, i, f, t);
-            this.searchFunction = searchFunction; this.result = result;
-        }
-        public final U getRawResult() { return result.get(); }
-        public final void compute() {
-            final Function<? super V, ? extends U> searchFunction;
-            final AtomicReference<U> result;
-            if ((searchFunction = this.searchFunction) != null &&
-                (result = this.result) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    if (result.get() != null)
-                        return;
-                    addToPendingCount(1);
-                    new SearchValuesTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         searchFunction, result).fork();
-                }
-                while (result.get() == null) {
-                    U u;
-                    Node<K,V> p;
-                    if ((p = advance()) == null) {
-                        propagateCompletion();
-                        break;
+            else if (cellsBusy == 0 && counterCells == as &&
+                     U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+                boolean init = false;
+                try {                           // Initialize table
+                    if (counterCells == as) {
+                        CounterCell[] rs = new CounterCell[2];
+                        rs[h & 1] = new CounterCell(x);
+                        counterCells = rs;
+                        init = true;
                     }
-                    if ((u = searchFunction.apply(p.val)) != null) {
-                        if (result.compareAndSet(null, u))
-                            quietlyCompleteRoot();
-                        break;
-                    }
+                } finally {
+                    cellsBusy = 0;
                 }
+                if (init)
+                    break;
             }
+            else if (U.compareAndSwapLong(this, BASECOUNT, v = baseCount, v + x))
+                break;                          // Fall back on using base
         }
-    }
-
-    @SuppressWarnings("serial")
-    static final class SearchEntriesTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<Entry<K,V>, ? extends U> searchFunction;
-        final AtomicReference<U> result;
-        SearchEntriesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             Function<Entry<K,V>, ? extends U> searchFunction,
-             AtomicReference<U> result) {
-            super(p, b, i, f, t);
-            this.searchFunction = searchFunction; this.result = result;
-        }
-        public final U getRawResult() { return result.get(); }
-        public final void compute() {
-            final Function<Entry<K,V>, ? extends U> searchFunction;
-            final AtomicReference<U> result;
-            if ((searchFunction = this.searchFunction) != null &&
-                (result = this.result) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    if (result.get() != null)
-                        return;
-                    addToPendingCount(1);
-                    new SearchEntriesTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         searchFunction, result).fork();
-                }
-                while (result.get() == null) {
-                    U u;
-                    Node<K,V> p;
-                    if ((p = advance()) == null) {
-                        propagateCompletion();
-                        break;
-                    }
-                    if ((u = searchFunction.apply(p)) != null) {
-                        if (result.compareAndSet(null, u))
-                            quietlyCompleteRoot();
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class SearchMappingsTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final BiFunction<? super K, ? super V, ? extends U> searchFunction;
-        final AtomicReference<U> result;
-        SearchMappingsTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             BiFunction<? super K, ? super V, ? extends U> searchFunction,
-             AtomicReference<U> result) {
-            super(p, b, i, f, t);
-            this.searchFunction = searchFunction; this.result = result;
-        }
-        public final U getRawResult() { return result.get(); }
-        public final void compute() {
-            final BiFunction<? super K, ? super V, ? extends U> searchFunction;
-            final AtomicReference<U> result;
-            if ((searchFunction = this.searchFunction) != null &&
-                (result = this.result) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    if (result.get() != null)
-                        return;
-                    addToPendingCount(1);
-                    new SearchMappingsTask<K,V,U>
-                        (this, batch >>>= 1, baseLimit = h, f, tab,
-                         searchFunction, result).fork();
-                }
-                while (result.get() == null) {
-                    U u;
-                    Node<K,V> p;
-                    if ((p = advance()) == null) {
-                        propagateCompletion();
-                        break;
-                    }
-                    if ((u = searchFunction.apply(p.key, p.val)) != null) {
-                        if (result.compareAndSet(null, u))
-                            quietlyCompleteRoot();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ReduceKeysTask<K,V>
-        extends BulkTask<K,V,K> {
-        final BiFunction<? super K, ? super K, ? extends K> reducer;
-        K result;
-        ReduceKeysTask<K,V> rights, nextRight;
-        ReduceKeysTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             ReduceKeysTask<K,V> nextRight,
-             BiFunction<? super K, ? super K, ? extends K> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.reducer = reducer;
-        }
-        public final K getRawResult() { return result; }
-        public final void compute() {
-            final BiFunction<? super K, ? super K, ? extends K> reducer;
-            if ((reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new ReduceKeysTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, reducer)).fork();
-                }
-                K r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    K u = p.key;
-                    r = (r == null) ? u : u == null ? r : reducer.apply(r, u);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    ReduceKeysTask<K,V>
-                        t = (ReduceKeysTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        K tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ReduceValuesTask<K,V>
-        extends BulkTask<K,V,V> {
-        final BiFunction<? super V, ? super V, ? extends V> reducer;
-        V result;
-        ReduceValuesTask<K,V> rights, nextRight;
-        ReduceValuesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             ReduceValuesTask<K,V> nextRight,
-             BiFunction<? super V, ? super V, ? extends V> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.reducer = reducer;
-        }
-        public final V getRawResult() { return result; }
-        public final void compute() {
-            final BiFunction<? super V, ? super V, ? extends V> reducer;
-            if ((reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new ReduceValuesTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, reducer)).fork();
-                }
-                V r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    V v = p.val;
-                    r = (r == null) ? v : reducer.apply(r, v);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    ReduceValuesTask<K,V>
-                        t = (ReduceValuesTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        V tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class ReduceEntriesTask<K,V>
-        extends BulkTask<K,V,Map.Entry<K,V>> {
-        final BiFunction<Map.Entry<K,V>, Map.Entry<K,V>, ? extends Map.Entry<K,V>> reducer;
-        Map.Entry<K,V> result;
-        ReduceEntriesTask<K,V> rights, nextRight;
-        ReduceEntriesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             ReduceEntriesTask<K,V> nextRight,
-             BiFunction<Entry<K,V>, Map.Entry<K,V>, ? extends Map.Entry<K,V>> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.reducer = reducer;
-        }
-        public final Map.Entry<K,V> getRawResult() { return result; }
-        public final void compute() {
-            final BiFunction<Map.Entry<K,V>, Map.Entry<K,V>, ? extends Map.Entry<K,V>> reducer;
-            if ((reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new ReduceEntriesTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, reducer)).fork();
-                }
-                Map.Entry<K,V> r = null;
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = (r == null) ? p : reducer.apply(r, p);
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    ReduceEntriesTask<K,V>
-                        t = (ReduceEntriesTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        Map.Entry<K,V> tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceKeysTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<? super K, ? extends U> transformer;
-        final BiFunction<? super U, ? super U, ? extends U> reducer;
-        U result;
-        MapReduceKeysTask<K,V,U> rights, nextRight;
-        MapReduceKeysTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceKeysTask<K,V,U> nextRight,
-             Function<? super K, ? extends U> transformer,
-             BiFunction<? super U, ? super U, ? extends U> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.reducer = reducer;
-        }
-        public final U getRawResult() { return result; }
-        public final void compute() {
-            final Function<? super K, ? extends U> transformer;
-            final BiFunction<? super U, ? super U, ? extends U> reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceKeysTask<K,V,U>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, reducer)).fork();
-                }
-                U r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.key)) != null)
-                        r = (r == null) ? u : reducer.apply(r, u);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceKeysTask<K,V,U>
-                        t = (MapReduceKeysTask<K,V,U>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        U tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceValuesTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<? super V, ? extends U> transformer;
-        final BiFunction<? super U, ? super U, ? extends U> reducer;
-        U result;
-        MapReduceValuesTask<K,V,U> rights, nextRight;
-        MapReduceValuesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceValuesTask<K,V,U> nextRight,
-             Function<? super V, ? extends U> transformer,
-             BiFunction<? super U, ? super U, ? extends U> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.reducer = reducer;
-        }
-        public final U getRawResult() { return result; }
-        public final void compute() {
-            final Function<? super V, ? extends U> transformer;
-            final BiFunction<? super U, ? super U, ? extends U> reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceValuesTask<K,V,U>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, reducer)).fork();
-                }
-                U r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.val)) != null)
-                        r = (r == null) ? u : reducer.apply(r, u);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceValuesTask<K,V,U>
-                        t = (MapReduceValuesTask<K,V,U>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        U tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceEntriesTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final Function<Map.Entry<K,V>, ? extends U> transformer;
-        final BiFunction<? super U, ? super U, ? extends U> reducer;
-        U result;
-        MapReduceEntriesTask<K,V,U> rights, nextRight;
-        MapReduceEntriesTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceEntriesTask<K,V,U> nextRight,
-             Function<Map.Entry<K,V>, ? extends U> transformer,
-             BiFunction<? super U, ? super U, ? extends U> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.reducer = reducer;
-        }
-        public final U getRawResult() { return result; }
-        public final void compute() {
-            final Function<Map.Entry<K,V>, ? extends U> transformer;
-            final BiFunction<? super U, ? super U, ? extends U> reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceEntriesTask<K,V,U>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, reducer)).fork();
-                }
-                U r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p)) != null)
-                        r = (r == null) ? u : reducer.apply(r, u);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceEntriesTask<K,V,U>
-                        t = (MapReduceEntriesTask<K,V,U>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        U tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceMappingsTask<K,V,U>
-        extends BulkTask<K,V,U> {
-        final BiFunction<? super K, ? super V, ? extends U> transformer;
-        final BiFunction<? super U, ? super U, ? extends U> reducer;
-        U result;
-        MapReduceMappingsTask<K,V,U> rights, nextRight;
-        MapReduceMappingsTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceMappingsTask<K,V,U> nextRight,
-             BiFunction<? super K, ? super V, ? extends U> transformer,
-             BiFunction<? super U, ? super U, ? extends U> reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.reducer = reducer;
-        }
-        public final U getRawResult() { return result; }
-        public final void compute() {
-            final BiFunction<? super K, ? super V, ? extends U> transformer;
-            final BiFunction<? super U, ? super U, ? extends U> reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceMappingsTask<K,V,U>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, reducer)).fork();
-                }
-                U r = null;
-                for (Node<K,V> p; (p = advance()) != null; ) {
-                    U u;
-                    if ((u = transformer.apply(p.key, p.val)) != null)
-                        r = (r == null) ? u : reducer.apply(r, u);
-                }
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceMappingsTask<K,V,U>
-                        t = (MapReduceMappingsTask<K,V,U>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        U tr, sr;
-                        if ((sr = s.result) != null)
-                            t.result = (((tr = t.result) == null) ? sr :
-                                        reducer.apply(tr, sr));
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceKeysToDoubleTask<K,V>
-        extends BulkTask<K,V,Double> {
-        final ToDoubleFunction<? super K> transformer;
-        final DoubleBinaryOperator reducer;
-        final double basis;
-        double result;
-        MapReduceKeysToDoubleTask<K,V> rights, nextRight;
-        MapReduceKeysToDoubleTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceKeysToDoubleTask<K,V> nextRight,
-             ToDoubleFunction<? super K> transformer,
-             double basis,
-             DoubleBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Double getRawResult() { return result; }
-        public final void compute() {
-            final ToDoubleFunction<? super K> transformer;
-            final DoubleBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                double r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceKeysToDoubleTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsDouble(r, transformer.applyAsDouble(p.key));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceKeysToDoubleTask<K,V>
-                        t = (MapReduceKeysToDoubleTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsDouble(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceValuesToDoubleTask<K,V>
-        extends BulkTask<K,V,Double> {
-        final ToDoubleFunction<? super V> transformer;
-        final DoubleBinaryOperator reducer;
-        final double basis;
-        double result;
-        MapReduceValuesToDoubleTask<K,V> rights, nextRight;
-        MapReduceValuesToDoubleTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceValuesToDoubleTask<K,V> nextRight,
-             ToDoubleFunction<? super V> transformer,
-             double basis,
-             DoubleBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Double getRawResult() { return result; }
-        public final void compute() {
-            final ToDoubleFunction<? super V> transformer;
-            final DoubleBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                double r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceValuesToDoubleTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsDouble(r, transformer.applyAsDouble(p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceValuesToDoubleTask<K,V>
-                        t = (MapReduceValuesToDoubleTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsDouble(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceEntriesToDoubleTask<K,V>
-        extends BulkTask<K,V,Double> {
-        final ToDoubleFunction<Map.Entry<K,V>> transformer;
-        final DoubleBinaryOperator reducer;
-        final double basis;
-        double result;
-        MapReduceEntriesToDoubleTask<K,V> rights, nextRight;
-        MapReduceEntriesToDoubleTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceEntriesToDoubleTask<K,V> nextRight,
-             ToDoubleFunction<Map.Entry<K,V>> transformer,
-             double basis,
-             DoubleBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Double getRawResult() { return result; }
-        public final void compute() {
-            final ToDoubleFunction<Map.Entry<K,V>> transformer;
-            final DoubleBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                double r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceEntriesToDoubleTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsDouble(r, transformer.applyAsDouble(p));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceEntriesToDoubleTask<K,V>
-                        t = (MapReduceEntriesToDoubleTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsDouble(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceMappingsToDoubleTask<K,V>
-        extends BulkTask<K,V,Double> {
-        final ToDoubleBiFunction<? super K, ? super V> transformer;
-        final DoubleBinaryOperator reducer;
-        final double basis;
-        double result;
-        MapReduceMappingsToDoubleTask<K,V> rights, nextRight;
-        MapReduceMappingsToDoubleTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceMappingsToDoubleTask<K,V> nextRight,
-             ToDoubleBiFunction<? super K, ? super V> transformer,
-             double basis,
-             DoubleBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Double getRawResult() { return result; }
-        public final void compute() {
-            final ToDoubleBiFunction<? super K, ? super V> transformer;
-            final DoubleBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                double r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceMappingsToDoubleTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsDouble(r, transformer.applyAsDouble(p.key, p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceMappingsToDoubleTask<K,V>
-                        t = (MapReduceMappingsToDoubleTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsDouble(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceKeysToLongTask<K,V>
-        extends BulkTask<K,V,Long> {
-        final ToLongFunction<? super K> transformer;
-        final LongBinaryOperator reducer;
-        final long basis;
-        long result;
-        MapReduceKeysToLongTask<K,V> rights, nextRight;
-        MapReduceKeysToLongTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceKeysToLongTask<K,V> nextRight,
-             ToLongFunction<? super K> transformer,
-             long basis,
-             LongBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Long getRawResult() { return result; }
-        public final void compute() {
-            final ToLongFunction<? super K> transformer;
-            final LongBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                long r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceKeysToLongTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsLong(r, transformer.applyAsLong(p.key));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceKeysToLongTask<K,V>
-                        t = (MapReduceKeysToLongTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsLong(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceValuesToLongTask<K,V>
-        extends BulkTask<K,V,Long> {
-        final ToLongFunction<? super V> transformer;
-        final LongBinaryOperator reducer;
-        final long basis;
-        long result;
-        MapReduceValuesToLongTask<K,V> rights, nextRight;
-        MapReduceValuesToLongTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceValuesToLongTask<K,V> nextRight,
-             ToLongFunction<? super V> transformer,
-             long basis,
-             LongBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Long getRawResult() { return result; }
-        public final void compute() {
-            final ToLongFunction<? super V> transformer;
-            final LongBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                long r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceValuesToLongTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsLong(r, transformer.applyAsLong(p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceValuesToLongTask<K,V>
-                        t = (MapReduceValuesToLongTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsLong(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceEntriesToLongTask<K,V>
-        extends BulkTask<K,V,Long> {
-        final ToLongFunction<Map.Entry<K,V>> transformer;
-        final LongBinaryOperator reducer;
-        final long basis;
-        long result;
-        MapReduceEntriesToLongTask<K,V> rights, nextRight;
-        MapReduceEntriesToLongTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceEntriesToLongTask<K,V> nextRight,
-             ToLongFunction<Map.Entry<K,V>> transformer,
-             long basis,
-             LongBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Long getRawResult() { return result; }
-        public final void compute() {
-            final ToLongFunction<Map.Entry<K,V>> transformer;
-            final LongBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                long r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceEntriesToLongTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsLong(r, transformer.applyAsLong(p));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceEntriesToLongTask<K,V>
-                        t = (MapReduceEntriesToLongTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsLong(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceMappingsToLongTask<K,V>
-        extends BulkTask<K,V,Long> {
-        final ToLongBiFunction<? super K, ? super V> transformer;
-        final LongBinaryOperator reducer;
-        final long basis;
-        long result;
-        MapReduceMappingsToLongTask<K,V> rights, nextRight;
-        MapReduceMappingsToLongTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceMappingsToLongTask<K,V> nextRight,
-             ToLongBiFunction<? super K, ? super V> transformer,
-             long basis,
-             LongBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Long getRawResult() { return result; }
-        public final void compute() {
-            final ToLongBiFunction<? super K, ? super V> transformer;
-            final LongBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                long r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceMappingsToLongTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsLong(r, transformer.applyAsLong(p.key, p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceMappingsToLongTask<K,V>
-                        t = (MapReduceMappingsToLongTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsLong(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceKeysToIntTask<K,V>
-        extends BulkTask<K,V,Integer> {
-        final ToIntFunction<? super K> transformer;
-        final IntBinaryOperator reducer;
-        final int basis;
-        int result;
-        MapReduceKeysToIntTask<K,V> rights, nextRight;
-        MapReduceKeysToIntTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceKeysToIntTask<K,V> nextRight,
-             ToIntFunction<? super K> transformer,
-             int basis,
-             IntBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Integer getRawResult() { return result; }
-        public final void compute() {
-            final ToIntFunction<? super K> transformer;
-            final IntBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                int r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceKeysToIntTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsInt(r, transformer.applyAsInt(p.key));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceKeysToIntTask<K,V>
-                        t = (MapReduceKeysToIntTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsInt(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceValuesToIntTask<K,V>
-        extends BulkTask<K,V,Integer> {
-        final ToIntFunction<? super V> transformer;
-        final IntBinaryOperator reducer;
-        final int basis;
-        int result;
-        MapReduceValuesToIntTask<K,V> rights, nextRight;
-        MapReduceValuesToIntTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceValuesToIntTask<K,V> nextRight,
-             ToIntFunction<? super V> transformer,
-             int basis,
-             IntBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Integer getRawResult() { return result; }
-        public final void compute() {
-            final ToIntFunction<? super V> transformer;
-            final IntBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                int r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceValuesToIntTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsInt(r, transformer.applyAsInt(p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceValuesToIntTask<K,V>
-                        t = (MapReduceValuesToIntTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsInt(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceEntriesToIntTask<K,V>
-        extends BulkTask<K,V,Integer> {
-        final ToIntFunction<Map.Entry<K,V>> transformer;
-        final IntBinaryOperator reducer;
-        final int basis;
-        int result;
-        MapReduceEntriesToIntTask<K,V> rights, nextRight;
-        MapReduceEntriesToIntTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceEntriesToIntTask<K,V> nextRight,
-             ToIntFunction<Map.Entry<K,V>> transformer,
-             int basis,
-             IntBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Integer getRawResult() { return result; }
-        public final void compute() {
-            final ToIntFunction<Map.Entry<K,V>> transformer;
-            final IntBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                int r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceEntriesToIntTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsInt(r, transformer.applyAsInt(p));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceEntriesToIntTask<K,V>
-                        t = (MapReduceEntriesToIntTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsInt(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
-    }
-
-    @SuppressWarnings("serial")
-    static final class MapReduceMappingsToIntTask<K,V>
-        extends BulkTask<K,V,Integer> {
-        final ToIntBiFunction<? super K, ? super V> transformer;
-        final IntBinaryOperator reducer;
-        final int basis;
-        int result;
-        MapReduceMappingsToIntTask<K,V> rights, nextRight;
-        MapReduceMappingsToIntTask
-            (BulkTask<K,V,?> p, int b, int i, int f, Node<K,V>[] t,
-             MapReduceMappingsToIntTask<K,V> nextRight,
-             ToIntBiFunction<? super K, ? super V> transformer,
-             int basis,
-             IntBinaryOperator reducer) {
-            super(p, b, i, f, t); this.nextRight = nextRight;
-            this.transformer = transformer;
-            this.basis = basis; this.reducer = reducer;
-        }
-        public final Integer getRawResult() { return result; }
-        public final void compute() {
-            final ToIntBiFunction<? super K, ? super V> transformer;
-            final IntBinaryOperator reducer;
-            if ((transformer = this.transformer) != null &&
-                (reducer = this.reducer) != null) {
-                int r = this.basis;
-                for (int i = baseIndex, f, h; batch > 0 &&
-                         (h = ((f = baseLimit) + i) >>> 1) > i;) {
-                    addToPendingCount(1);
-                    (rights = new MapReduceMappingsToIntTask<K,V>
-                     (this, batch >>>= 1, baseLimit = h, f, tab,
-                      rights, transformer, r, reducer)).fork();
-                }
-                for (Node<K,V> p; (p = advance()) != null; )
-                    r = reducer.applyAsInt(r, transformer.applyAsInt(p.key, p.val));
-                result = r;
-                CountedCompleter<?> c;
-                for (c = firstComplete(); c != null; c = c.nextComplete()) {
-                    @SuppressWarnings("unchecked")
-                    MapReduceMappingsToIntTask<K,V>
-                        t = (MapReduceMappingsToIntTask<K,V>)c,
-                        s = t.rights;
-                    while (s != null) {
-                        t.result = reducer.applyAsInt(t.result, s.result);
-                        s = t.rights = s.nextRight;
-                    }
-                }
-            }
-        }
+        hc.code = h;                            // Record index for next time
     }
 
     // Unsafe mechanics
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
+    private static final sun.misc.Unsafe U;
     private static final long SIZECTL;
     private static final long TRANSFERINDEX;
     private static final long BASECOUNT;
     private static final long CELLSBUSY;
     private static final long CELLVALUE;
-    private static final int ABASE;
+    private static final long ABASE;
     private static final int ASHIFT;
 
     static {
         try {
+            U = sun.misc.Unsafe.getUnsafe();
+            Class<?> k = ConcurrentHashMap.class;
             SIZECTL = U.objectFieldOffset
-                (ConcurrentHashMap.class.getDeclaredField("sizeCtl"));
+                (k.getDeclaredField("sizeCtl"));
             TRANSFERINDEX = U.objectFieldOffset
-                (ConcurrentHashMap.class.getDeclaredField("transferIndex"));
+                (k.getDeclaredField("transferIndex"));
             BASECOUNT = U.objectFieldOffset
-                (ConcurrentHashMap.class.getDeclaredField("baseCount"));
+                (k.getDeclaredField("baseCount"));
             CELLSBUSY = U.objectFieldOffset
-                (ConcurrentHashMap.class.getDeclaredField("cellsBusy"));
-
+                (k.getDeclaredField("cellsBusy"));
+            Class<?> ck = CounterCell.class;
             CELLVALUE = U.objectFieldOffset
-                (CounterCell.class.getDeclaredField("value"));
-
-            ABASE = U.arrayBaseOffset(Node[].class);
-            int scale = U.arrayIndexScale(Node[].class);
+                (ck.getDeclaredField("value"));
+            Class<?> ak = Node[].class;
+            ABASE = U.arrayBaseOffset(ak);
+            int scale = U.arrayIndexScale(ak);
             if ((scale & (scale - 1)) != 0)
-                throw new Error("array index scale not a power of two");
+                throw new Error("data type scale not a power of two");
             ASHIFT = 31 - Integer.numberOfLeadingZeros(scale);
-        } catch (ReflectiveOperationException e) {
+        } catch (Exception e) {
             throw new Error(e);
         }
 
@@ -6378,4 +3329,5 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         // LockSupport.park: https://bugs.openjdk.java.net/browse/JDK-8074773
         Class<?> ensureLoaded = LockSupport.class;
     }
+
 }

@@ -32,8 +32,18 @@ import android.widget.AutoCompleteTextView.Validator;
 })
 public class AutoCompleteTextViewBindingAdapter {
 
-    @BindingAdapter(value = {"android:fixText", "android:isValid"}, requireAll = false)
-    public static void setValidator(AutoCompleteTextView view, final FixText fixText,
+    @BindingAdapter("android:fixText")
+    public static void setListener(AutoCompleteTextView view, FixText listener) {
+        setListener(view, listener, null);
+    }
+
+    @BindingAdapter("android:isValid")
+    public static void setListener(AutoCompleteTextView view, IsValid listener) {
+        setListener(view, null, listener);
+    }
+
+    @BindingAdapter({"android:fixText", "android:isValid"})
+    public static void setListener(AutoCompleteTextView view, final FixText fixText,
             final IsValid isValid) {
         if (fixText == null && isValid == null) {
             view.setValidator(null);
@@ -60,15 +70,24 @@ public class AutoCompleteTextViewBindingAdapter {
         }
     }
 
-    @BindingAdapter(value = {"android:onItemSelected", "android:onNothingSelected"},
-            requireAll = false)
-    public static void setOnItemSelectedListener(AutoCompleteTextView view,
-            final OnItemSelected selected, final OnNothingSelected nothingSelected) {
+    @BindingAdapter("android:onItemSelected")
+    public static void setListener(AutoCompleteTextView view, OnItemSelected listener) {
+        setListener(view, listener, null);
+    }
+
+    @BindingAdapter("android:onNothingSelected")
+    public static void setListener(AutoCompleteTextView view, OnNothingSelected listener) {
+        setListener(view, null, listener);
+    }
+
+    @BindingAdapter({"android:onItemSelected", "android:onNothingSelected"})
+    public static void setListener(AutoCompleteTextView view, final OnItemSelected selected,
+            final OnNothingSelected nothingSelected) {
         if (selected == null && nothingSelected == null) {
             view.setOnItemSelectedListener(null);
         } else {
             view.setOnItemSelectedListener(
-                    new OnItemSelectedComponentListener(selected, nothingSelected, null));
+                    new OnItemSelectedComponentListener(selected, nothingSelected));
         }
     }
 

@@ -17,20 +17,16 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.CharBuffer;
-import java.nio.DoubleBuffer;
-import java.nio.FloatBuffer;
-import java.nio.IntBuffer;
-import java.nio.LongBuffer;
-import java.nio.ShortBuffer;
-import java.nio.channels.FileChannel;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 
-public class ByteBufferBenchmark {
+import java.io.*;
+import java.nio.*;
+import java.nio.channels.*;
+import java.util.Arrays;
+import java.util.Collection;
+
+public class ByteBufferBenchmark extends SimpleBenchmark {
     public enum MyByteOrder {
         BIG(ByteOrder.BIG_ENDIAN), LITTLE(ByteOrder.LITTLE_ENDIAN);
         final ByteOrder byteOrder;

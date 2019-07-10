@@ -24,7 +24,7 @@ import android.telephony.Rlog;
  * saves the parameters from a action_fail_bringup intent. See
  * {@link DataConnection#doOnConnect} and {@see DcTesterFailBringUpAll} for more info.
  */
-public class DcFailBringUp {
+class DcFailBringUp {
     private static final String LOG_TAG = "DcFailBringUp";
     private static final boolean DBG = true;
 
@@ -34,7 +34,7 @@ public class DcFailBringUp {
 
     // counter with its --ei option name and default value
     static final String COUNTER = "counter";
-    static final int DEFAULT_COUNTER = 2;
+    static final int DEFAULT_COUNTER = 1;
     int mCounter;
 
     // failCause with its --ei option name and default value
@@ -60,7 +60,7 @@ public class DcFailBringUp {
         }
     }
 
-    public void saveParameters(int counter, int failCause, int suggestedRetryTime) {
+    void saveParameters(int counter, int failCause, int suggestedRetryTime) {
         mCounter = counter;
         mFailCause = DcFailCause.fromInt(failCause);
         mSuggestedRetryTime = suggestedRetryTime;

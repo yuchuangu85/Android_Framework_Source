@@ -30,21 +30,16 @@ import com.android.internal.R;
  * orientation when it can't fit its child views horizontally.
  */
 public class ButtonBarLayout extends LinearLayout {
-    /** Amount of the second button to "peek" above the fold when stacked. */
-    private static final int PEEK_BUTTON_DP = 16;
-
     /** Whether the current configuration allows stacking. */
     private boolean mAllowStacking;
 
     private int mLastWidthSize = -1;
 
-    private int mMinimumHeight = 0;
-
     public ButtonBarLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
 
         final TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.ButtonBarLayout);
-        mAllowStacking = ta.getBoolean(R.styleable.ButtonBarLayout_allowStacking, true);
+        mAllowStacking = ta.getBoolean(R.styleable.ButtonBarLayout_allowStacking, false);
         ta.recycle();
     }
 
@@ -102,49 +97,11 @@ public class ButtonBarLayout extends LinearLayout {
         if (needsRemeasure) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
-
-        // Compute minimum height such that, when stacked, some portion of the
-        // second button is visible.
-        int minHeight = 0;
-        final int firstVisible = getNextVisibleChildIndex(0);
-        if (firstVisible >= 0) {
-            final View firstButton = getChildAt(firstVisible);
-            final LayoutParams firstParams = (LayoutParams) firstButton.getLayoutParams();
-            minHeight += getPaddingTop() + firstButton.getMeasuredHeight()
-                    + firstParams.topMargin + firstParams.bottomMargin;
-            if (isStacked()) {
-                final int secondVisible = getNextVisibleChildIndex(firstVisible + 1);
-                if (secondVisible >= 0) {
-                    minHeight += getChildAt(secondVisible).getPaddingTop()
-                            + PEEK_BUTTON_DP * getResources().getDisplayMetrics().density;
-                }
-            } else {
-                minHeight += getPaddingBottom();
-            }
-        }
-
-        if (getMinimumHeight() != minHeight) {
-            setMinimumHeight(minHeight);
-        }
-    }
-
-    private int getNextVisibleChildIndex(int index) {
-        for (int i = index, count = getChildCount(); i < count; i++) {
-            if (getChildAt(i).getVisibility() == View.VISIBLE) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    @Override
-    public int getMinimumHeight() {
-        return Math.max(mMinimumHeight, super.getMinimumHeight());
     }
 
     private void setStacked(boolean stacked) {
         setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        setGravity(stacked ? Gravity.END : Gravity.BOTTOM);
+        setGravity(stacked ? Gravity.RIGHT : Gravity.BOTTOM);
 
         final View spacer = findViewById(R.id.spacer);
         if (spacer != null) {

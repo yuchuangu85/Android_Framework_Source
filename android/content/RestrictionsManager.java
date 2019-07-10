@@ -16,7 +16,6 @@
 
 package android.content;
 
-import android.annotation.SystemService;
 import android.app.Activity;
 import android.app.admin.DevicePolicyManager;
 import android.content.pm.ApplicationInfo;
@@ -121,7 +120,6 @@ import java.util.List;
  * @see DevicePolicyManager#setRestrictionsProvider(ComponentName, ComponentName)
  * @see DevicePolicyManager#setApplicationRestrictions(ComponentName, String, Bundle)
  */
-@SystemService(Context.RESTRICTIONS_SERVICE)
 public class RestrictionsManager {
 
     private static final String TAG = "RestrictionsManager";
@@ -424,7 +422,7 @@ public class RestrictionsManager {
                 return mService.getApplicationRestrictions(mContext.getPackageName());
             }
         } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
+            Log.w(TAG, "Couldn't reach service");
         }
         return null;
     }
@@ -441,7 +439,7 @@ public class RestrictionsManager {
                 return mService.hasRestrictionsProvider();
             }
         } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
+            Log.w(TAG, "Couldn't reach service");
         }
         return false;
     }
@@ -479,7 +477,7 @@ public class RestrictionsManager {
                         request);
             }
         } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
+            Log.w(TAG, "Couldn't reach service");
         }
     }
 
@@ -489,7 +487,7 @@ public class RestrictionsManager {
                 return mService.createLocalApprovalIntent();
             }
         } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
+            Log.w(TAG, "Couldn't reach service");
         }
         return null;
     }
@@ -521,7 +519,7 @@ public class RestrictionsManager {
                 mService.notifyPermissionResponse(packageName, response);
             }
         } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
+            Log.w(TAG, "Couldn't reach service");
         }
     }
 
@@ -679,8 +677,7 @@ public class RestrictionsManager {
      * <table>
      *     <tr><th>RestrictionEntry</th><th>Bundle</th></tr>
      *     <tr><td>{@link RestrictionEntry#TYPE_BOOLEAN}</td><td>{@link Bundle#putBoolean}</td></tr>
-     *     <tr><td>{@link RestrictionEntry#TYPE_CHOICE},
-     *     {@link RestrictionEntry#TYPE_MULTI_SELECT}</td>
+     *     <tr><td>{@link RestrictionEntry#TYPE_CHOICE}, {@link RestrictionEntry#TYPE_CHOICE}</td>
      *     <td>{@link Bundle#putStringArray}</td></tr>
      *     <tr><td>{@link RestrictionEntry#TYPE_INTEGER}</td><td>{@link Bundle#putInt}</td></tr>
      *     <tr><td>{@link RestrictionEntry#TYPE_STRING}</td><td>{@link Bundle#putString}</td></tr>
@@ -721,20 +718,10 @@ public class RestrictionsManager {
                 bundle.putBundle(entry.getKey(), childBundle);
                 break;
             case RestrictionEntry.TYPE_BUNDLE_ARRAY:
-                RestrictionEntry[] bundleRestrictionArray = entry.getRestrictions();
-                Bundle[] bundleArray = new Bundle[bundleRestrictionArray.length];
-                for (int i = 0; i < bundleRestrictionArray.length; i++) {
-                    RestrictionEntry[] bundleRestrictions =
-                            bundleRestrictionArray[i].getRestrictions();
-                    if (bundleRestrictions == null) {
-                        // Non-bundle entry found in bundle array.
-                        Log.w(TAG, "addRestrictionToBundle: " +
-                                "Non-bundle entry found in bundle array");
-                        bundleArray[i] = new Bundle();
-                    } else {
-                        bundleArray[i] = convertRestrictionsToBundle(Arrays.asList(
-                                bundleRestrictions));
-                    }
+                restrictions = entry.getRestrictions();
+                Bundle[] bundleArray = new Bundle[restrictions.length];
+                for (int i = 0; i < restrictions.length; i++) {
+                    bundleArray[i] = addRestrictionToBundle(new Bundle(), restrictions[i]);
                 }
                 bundle.putParcelableArray(entry.getKey(), bundleArray);
                 break;

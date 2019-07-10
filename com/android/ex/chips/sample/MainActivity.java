@@ -19,65 +19,27 @@ import android.os.Bundle;
 import android.text.util.Rfc822Tokenizer;
 import android.widget.MultiAutoCompleteTextView;
 import android.app.Activity;
-import android.util.Log;
 
 import com.android.ex.chips.BaseRecipientAdapter;
 import com.android.ex.chips.RecipientEditTextView;
-import com.android.ex.chips.RecipientEditTextView.PermissionsRequestItemClickedListener;
-import com.android.ex.chips.RecipientEditTextView.RecipientChipAddedListener;
-import com.android.ex.chips.RecipientEditTextView.RecipientChipDeletedListener;
-import com.android.ex.chips.RecipientEntry;
 
-public class MainActivity extends Activity
-    implements PermissionsRequestItemClickedListener, RecipientChipDeletedListener,
-        RecipientChipAddedListener {
-
-    private RecipientEditTextView mEmailRetv;
-    private RecipientEditTextView mPhoneRetv;
+public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        mEmailRetv = (RecipientEditTextView) findViewById(R.id.email_retv);
-        mEmailRetv.setTokenizer(new Rfc822Tokenizer());
-        final BaseRecipientAdapter emailAdapter = new BaseRecipientAdapter(this);
-        emailAdapter.setShowRequestPermissionsItem(true);
-        mEmailRetv.setAdapter(emailAdapter);
-        mEmailRetv.setPermissionsRequestItemClickedListener(this);
+        final RecipientEditTextView emailRetv =
+                (RecipientEditTextView) findViewById(R.id.email_retv);
+        emailRetv.setTokenizer(new Rfc822Tokenizer());
+        emailRetv.setAdapter(new BaseRecipientAdapter(this));
 
-
-        mPhoneRetv = (RecipientEditTextView) findViewById(R.id.phone_retv);
-        mPhoneRetv.setTokenizer(new MultiAutoCompleteTextView.CommaTokenizer());
-        final BaseRecipientAdapter phoneAdapter =
-                new BaseRecipientAdapter(BaseRecipientAdapter.QUERY_TYPE_PHONE, this);
-        phoneAdapter.setShowRequestPermissionsItem(true);
-        mPhoneRetv.setAdapter(phoneAdapter);
-        mPhoneRetv.setPermissionsRequestItemClickedListener(this);
-        mEmailRetv.setRecipientChipAddedListener(this);
-        mEmailRetv.setRecipientChipDeletedListener(this);
+        final RecipientEditTextView phoneRetv =
+                (RecipientEditTextView) findViewById(R.id.phone_retv);
+        phoneRetv.setTokenizer(new MultiAutoCompleteTextView.CommaTokenizer());
+        phoneRetv.setAdapter(
+                new BaseRecipientAdapter(BaseRecipientAdapter.QUERY_TYPE_PHONE, this));
     }
 
-    @Override
-    public void onPermissionsRequestItemClicked(
-            RecipientEditTextView view, String[] permissions) {
-        requestPermissions(permissions, 0 /* requestCode */);
-    }
-
-    @Override
-    public void onPermissionRequestDismissed() {
-        mEmailRetv.getAdapter().setShowRequestPermissionsItem(false);
-        mPhoneRetv.getAdapter().setShowRequestPermissionsItem(false);
-    }
-
-    @Override
-    public void onRecipientChipAdded(RecipientEntry entry) {
-        Log.i("ChipsSample", entry.getDisplayName() + " recipient chip added");
-    }
-
-    @Override
-    public void onRecipientChipDeleted(RecipientEntry entry) {
-        Log.i("ChipsSample", entry.getDisplayName() + " recipient chip removed");
-    }
 }

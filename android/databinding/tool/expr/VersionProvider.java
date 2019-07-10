@@ -21,5 +21,5 @@ package android.databinding.tool.expr;
  * This number is used when caching values in code generation. (like flags)
  */
 public interface VersionProvider {
-    int getVersion();
+    public int getVersion();
 }

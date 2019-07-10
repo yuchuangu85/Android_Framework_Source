@@ -16,59 +16,49 @@
 
 package com.android.server.wm;
 
-import android.os.IBinder;
+import android.os.Looper;
 import android.os.Process;
-import android.os.RemoteException;
-import android.os.UserHandle;
 import android.view.Display;
 import android.view.InputChannel;
+import android.view.InputEventReceiver;
 import android.view.WindowManager;
+import android.view.WindowManagerPolicy;
+
 import com.android.server.input.InputApplicationHandle;
 import com.android.server.input.InputWindowHandle;
 
-import java.io.PrintWriter;
-
-class InputConsumerImpl implements IBinder.DeathRecipient {
+public final class InputConsumerImpl implements WindowManagerPolicy.InputConsumer {
     final WindowManagerService mService;
     final InputChannel mServerChannel, mClientChannel;
     final InputApplicationHandle mApplicationHandle;
     final InputWindowHandle mWindowHandle;
+    final InputEventReceiver mInputEventReceiver;
+    final int mWindowLayer;
 
-    final IBinder mToken;
-    final String mName;
-    final int mClientPid;
-    final UserHandle mClientUser;
-
-    InputConsumerImpl(WindowManagerService service, IBinder token, String name,
-            InputChannel inputChannel, int clientPid, UserHandle clientUser) {
+    public InputConsumerImpl(WindowManagerService service, Looper looper,
+            InputEventReceiver.Factory inputEventReceiverFactory) {
+        String name = "input consumer";
         mService = service;
-        mToken = token;
-        mName = name;
-        mClientPid = clientPid;
-        mClientUser = clientUser;
 
         InputChannel[] channels = InputChannel.openInputChannelPair(name);
         mServerChannel = channels[0];
-        if (inputChannel != null) {
-            channels[1].transferTo(inputChannel);
-            channels[1].dispose();
-            mClientChannel = inputChannel;
-        } else {
-            mClientChannel = channels[1];
-        }
+        mClientChannel = channels[1];
         mService.mInputManager.registerInputChannel(mServerChannel, null);
+
+        mInputEventReceiver = inputEventReceiverFactory.createInputEventReceiver(
+                mClientChannel, looper);
 
         mApplicationHandle = new InputApplicationHandle(null);
         mApplicationHandle.name = name;
         mApplicationHandle.dispatchingTimeoutNanos =
                 WindowManagerService.DEFAULT_INPUT_DISPATCHING_TIMEOUT_NANOS;
 
-        mWindowHandle = new InputWindowHandle(mApplicationHandle, null, null,
-                Display.DEFAULT_DISPLAY);
+        mWindowHandle = new InputWindowHandle(mApplicationHandle, null, Display.DEFAULT_DISPLAY);
         mWindowHandle.name = name;
         mWindowHandle.inputChannel = mServerChannel;
         mWindowHandle.layoutParamsType = WindowManager.LayoutParams.TYPE_INPUT_CONSUMER;
-        mWindowHandle.layer = getLayerLw(mWindowHandle.layoutParamsType);
+        mWindowLayer = getLayerLw(mWindowHandle.layoutParamsType);
+        mWindowHandle.layer = mWindowLayer;
         mWindowHandle.layoutParamsFlags = 0;
         mWindowHandle.dispatchingTimeoutNanos =
                 WindowManagerService.DEFAULT_INPUT_DISPATCHING_TIMEOUT_NANOS;
@@ -83,26 +73,6 @@ class InputConsumerImpl implements IBinder.DeathRecipient {
         mWindowHandle.scaleFactor = 1.0f;
     }
 
-    void linkToDeathRecipient() {
-        if (mToken == null) {
-            return;
-        }
-
-        try {
-            mToken.linkToDeath(this, 0);
-        } catch (RemoteException e) {
-            // Client died, do nothing
-        }
-    }
-
-    void unlinkFromDeathRecipient() {
-        if (mToken == null) {
-            return;
-        }
-
-        mToken.unlinkToDeath(this, 0);
-    }
-
     void layout(int dw, int dh) {
         mWindowHandle.touchableRegion.set(0, 0, dw, dh);
         mWindowHandle.frameLeft = 0;
@@ -111,29 +81,21 @@ class InputConsumerImpl implements IBinder.DeathRecipient {
         mWindowHandle.frameBottom = dh;
     }
 
-    private int getLayerLw(int windowType) {
-        return mService.mPolicy.getWindowLayerFromTypeLw(windowType)
-                * WindowManagerService.TYPE_LAYER_MULTIPLIER
-                + WindowManagerService.TYPE_LAYER_OFFSET;
-    }
-
-    void disposeChannelsLw() {
-        mService.mInputManager.unregisterInputChannel(mServerChannel);
-        mClientChannel.dispose();
-        mServerChannel.dispose();
-        unlinkFromDeathRecipient();
-    }
-
     @Override
-    public void binderDied() {
-        synchronized (mService.getWindowManagerLock()) {
-            // Clean up the input consumer
-            mService.mInputMonitor.destroyInputConsumer(mName);
-            unlinkFromDeathRecipient();
+    public void dismiss() {
+        synchronized (mService.mWindowMap) {
+            if (mService.removeInputConsumer()) {
+                mInputEventReceiver.dispose();
+                mService.mInputManager.unregisterInputChannel(mServerChannel);
+                mClientChannel.dispose();
+                mServerChannel.dispose();
+            }
         }
     }
 
-    void dump(PrintWriter pw, String name, String prefix) {
-        pw.println(prefix + "  name=" + name + " pid=" + mClientPid + " user=" + mClientUser);
+    private int getLayerLw(int windowType) {
+        return mService.mPolicy.windowTypeToLayerLw(windowType)
+                * WindowManagerService.TYPE_LAYER_MULTIPLIER
+                + WindowManagerService.TYPE_LAYER_OFFSET;
     }
 }

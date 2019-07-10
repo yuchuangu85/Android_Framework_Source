@@ -20,29 +20,28 @@ import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
-import android.annotation.UserIdInt;
 import android.annotation.XmlRes;
 import android.content.ComponentName;
 import android.content.ContentResolver;
-import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.ChangedPackages;
 import android.content.pm.ComponentInfo;
+import android.content.pm.ContainerEncryptionParams;
 import android.content.pm.FeatureInfo;
 import android.content.pm.IOnPermissionsChangeListener;
 import android.content.pm.IPackageDataObserver;
 import android.content.pm.IPackageDeleteObserver;
+import android.content.pm.IPackageInstallObserver;
 import android.content.pm.IPackageManager;
 import android.content.pm.IPackageMoveObserver;
 import android.content.pm.IPackageStatsObserver;
-import android.content.pm.InstantAppInfo;
 import android.content.pm.InstrumentationInfo;
 import android.content.pm.IntentFilterVerificationInfo;
 import android.content.pm.KeySet;
+import android.content.pm.ManifestDigest;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageItemInfo;
@@ -53,10 +52,9 @@ import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.SharedLibraryInfo;
+import android.content.pm.UserInfo;
+import android.content.pm.VerificationParams;
 import android.content.pm.VerifierDeviceIdentity;
-import android.content.pm.VersionedPackage;
-import android.content.pm.dex.ArtManager;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
 import android.graphics.Bitmap;
@@ -64,13 +62,11 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.LayerDrawable;
-import android.os.Build;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemProperties;
@@ -78,41 +74,28 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
-import android.provider.Settings;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.system.OsConstants;
-import android.system.StructStat;
 import android.util.ArrayMap;
-import android.util.IconDrawableFactory;
-import android.util.LauncherIcons;
 import android.util.Log;
 import android.view.Display;
 
+import dalvik.system.VMRuntime;
+
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
 import com.android.internal.util.UserIcons;
 
-import dalvik.system.VMRuntime;
-
-import libcore.util.EmptyArray;
-
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** @hide */
-public class ApplicationPackageManager extends PackageManager {
+/*package*/
+final class ApplicationPackageManager extends PackageManager {
     private static final String TAG = "ApplicationPackageManager";
     private final static boolean DEBUG_ICONS = false;
-
-    private static final int DEFAULT_EPHEMERAL_COOKIE_MAX_SIZE_BYTES = 16384; // 16KB
 
     // Default flags to use with PackageManager when no flags are given.
     private final static int sDefaultFlags = PackageManager.GET_SHARED_LIBRARY_FILES;
@@ -123,8 +106,6 @@ public class ApplicationPackageManager extends PackageManager {
     private UserManager mUserManager;
     @GuardedBy("mLock")
     private PackageInstaller mInstaller;
-    @GuardedBy("mLock")
-    private ArtManager mArtManager;
 
     @GuardedBy("mDelegates")
     private final ArrayList<MoveCallbackDelegate> mDelegates = new ArrayList<>();
@@ -142,42 +123,17 @@ public class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
-    public int getUserId() {
-        return mContext.getUserId();
-    }
-
-    @Override
     public PackageInfo getPackageInfo(String packageName, int flags)
             throws NameNotFoundException {
-        return getPackageInfoAsUser(packageName, flags, mContext.getUserId());
-    }
-
-    @Override
-    public PackageInfo getPackageInfo(VersionedPackage versionedPackage, int flags)
-            throws NameNotFoundException {
         try {
-            PackageInfo pi = mPM.getPackageInfoVersioned(versionedPackage, flags,
-                    mContext.getUserId());
+            PackageInfo pi = mPM.getPackageInfo(packageName, flags, mContext.getUserId());
             if (pi != null) {
                 return pi;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
-        throw new NameNotFoundException(versionedPackage.toString());
-    }
 
-    @Override
-    public PackageInfo getPackageInfoAsUser(String packageName, int flags, int userId)
-            throws NameNotFoundException {
-        try {
-            PackageInfo pi = mPM.getPackageInfo(packageName, flags, userId);
-            if (pi != null) {
-                return pi;
-            }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
         throw new NameNotFoundException(packageName);
     }
 
@@ -186,7 +142,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.currentToCanonicalPackageNames(names);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -195,7 +151,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.canonicalToCurrentPackageNames(names);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -229,18 +185,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public Intent getLeanbackLaunchIntentForPackage(String packageName) {
-        return getLaunchIntentForPackageAndCategory(packageName, Intent.CATEGORY_LEANBACK_LAUNCHER);
-    }
-
-    @Override
-    public Intent getCarLaunchIntentForPackage(String packageName) {
-        return getLaunchIntentForPackageAndCategory(packageName, Intent.CATEGORY_CAR_LAUNCHER);
-    }
-
-    private Intent getLaunchIntentForPackageAndCategory(String packageName, String category) {
-        // Try to find a main launcher activity for the given categories.
+        // Try to find a main leanback_launcher activity.
         Intent intentToResolve = new Intent(Intent.ACTION_MAIN);
-        intentToResolve.addCategory(category);
+        intentToResolve.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         intentToResolve.setPackage(packageName);
         List<ResolveInfo> ris = queryIntentActivities(intentToResolve, 0);
 
@@ -255,45 +202,30 @@ public class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
-    public int[] getPackageGids(String packageName) throws NameNotFoundException {
-        return getPackageGids(packageName, 0);
-    }
-
-    @Override
-    public int[] getPackageGids(String packageName, int flags)
+    public int[] getPackageGids(String packageName)
             throws NameNotFoundException {
         try {
-            int[] gids = mPM.getPackageGids(packageName, flags, mContext.getUserId());
+            int[] gids = mPM.getPackageGids(packageName, mContext.getUserId());
             if (gids != null) {
                 return gids;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(packageName);
     }
 
     @Override
-    public int getPackageUid(String packageName, int flags) throws NameNotFoundException {
-        return getPackageUidAsUser(packageName, flags, mContext.getUserId());
-    }
-
-    @Override
-    public int getPackageUidAsUser(String packageName, int userId) throws NameNotFoundException {
-        return getPackageUidAsUser(packageName, 0, userId);
-    }
-
-    @Override
-    public int getPackageUidAsUser(String packageName, int flags, int userId)
+    public int getPackageUid(String packageName, int userHandle)
             throws NameNotFoundException {
         try {
-            int uid = mPM.getPackageUid(packageName, flags, userId);
+            int uid = mPM.getPackageUid(packageName, userHandle);
             if (uid >= 0) {
                 return uid;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(packageName);
@@ -303,99 +235,76 @@ public class ApplicationPackageManager extends PackageManager {
     public PermissionInfo getPermissionInfo(String name, int flags)
             throws NameNotFoundException {
         try {
-            PermissionInfo pi = mPM.getPermissionInfo(name,
-                    mContext.getOpPackageName(), flags);
+            PermissionInfo pi = mPM.getPermissionInfo(name, flags);
             if (pi != null) {
                 return pi;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(name);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<PermissionInfo> queryPermissionsByGroup(String group, int flags)
             throws NameNotFoundException {
         try {
-            ParceledListSlice<PermissionInfo> parceledList =
-                    mPM.queryPermissionsByGroup(group, flags);
-            if (parceledList != null) {
-                List<PermissionInfo> pi = parceledList.getList();
-                if (pi != null) {
-                    return pi;
-                }
+            List<PermissionInfo> pi = mPM.queryPermissionsByGroup(group, flags);
+            if (pi != null) {
+                return pi;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(group);
     }
 
     @Override
-    public boolean isPermissionReviewModeEnabled() {
-        return mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_permissionReviewRequired);
-    }
-
-    @Override
     public PermissionGroupInfo getPermissionGroupInfo(String name,
-            int flags) throws NameNotFoundException {
+                                                      int flags) throws NameNotFoundException {
         try {
             PermissionGroupInfo pgi = mPM.getPermissionGroupInfo(name, flags);
             if (pgi != null) {
                 return pgi;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(name);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<PermissionGroupInfo> getAllPermissionGroups(int flags) {
         try {
-            ParceledListSlice<PermissionGroupInfo> parceledList =
-                    mPM.getAllPermissionGroups(flags);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.getAllPermissionGroups(flags);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
     public ApplicationInfo getApplicationInfo(String packageName, int flags)
             throws NameNotFoundException {
-        return getApplicationInfoAsUser(packageName, flags, mContext.getUserId());
-    }
-
-    @Override
-    public ApplicationInfo getApplicationInfoAsUser(String packageName, int flags, int userId)
-            throws NameNotFoundException {
         try {
-            ApplicationInfo ai = mPM.getApplicationInfo(packageName, flags, userId);
+            ApplicationInfo ai = mPM.getApplicationInfo(packageName, flags, mContext.getUserId());
             if (ai != null) {
                 // This is a temporary hack. Callers must use
                 // createPackageContext(packageName).getApplicationInfo() to
                 // get the right paths.
-                return maybeAdjustApplicationInfo(ai);
+                maybeAdjustApplicationInfo(ai);
+                return ai;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(packageName);
     }
 
-    private static ApplicationInfo maybeAdjustApplicationInfo(ApplicationInfo info) {
+    private static void maybeAdjustApplicationInfo(ApplicationInfo info) {
         // If we're dealing with a multi-arch application that has both
         // 32 and 64 bit shared libraries, we might need to choose the secondary
         // depending on what the current runtime's instruction set is.
@@ -412,13 +321,11 @@ public class ApplicationPackageManager extends PackageManager {
             // Everything will be set up correctly because info.nativeLibraryDir will
             // correspond to the right ISA.
             if (runtimeIsa.equals(secondaryIsa)) {
-                ApplicationInfo modified = new ApplicationInfo(info);
-                modified.nativeLibraryDir = info.secondaryNativeLibraryDir;
-                return modified;
+                info.nativeLibraryDir = info.secondaryNativeLibraryDir;
             }
         }
-        return info;
     }
+
 
     @Override
     public ActivityInfo getActivityInfo(ComponentName className, int flags)
@@ -429,7 +336,7 @@ public class ApplicationPackageManager extends PackageManager {
                 return ai;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(className.toString());
@@ -444,7 +351,7 @@ public class ApplicationPackageManager extends PackageManager {
                 return ai;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(className.toString());
@@ -459,7 +366,7 @@ public class ApplicationPackageManager extends PackageManager {
                 return si;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(className.toString());
@@ -474,7 +381,7 @@ public class ApplicationPackageManager extends PackageManager {
                 return pi;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(className.toString());
@@ -485,93 +392,25 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getSystemSharedLibraryNames();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    @Override
-    public @NonNull List<SharedLibraryInfo> getSharedLibraries(int flags) {
-        return getSharedLibrariesAsUser(flags, mContext.getUserId());
-    }
-
-    /** @hide */
-    @Override
-    @SuppressWarnings("unchecked")
-    public @NonNull List<SharedLibraryInfo> getSharedLibrariesAsUser(int flags, int userId) {
-        try {
-            ParceledListSlice<SharedLibraryInfo> sharedLibs = mPM.getSharedLibraries(
-                    mContext.getOpPackageName(), flags, userId);
-            if (sharedLibs == null) {
-                return Collections.emptyList();
-            }
-            return sharedLibs.getList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    @Override
-    public @NonNull String getServicesSystemSharedLibraryPackageName() {
-        try {
-            return mPM.getServicesSystemSharedLibraryPackageName();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * @hide
-     */
-    public @NonNull String getSharedSystemSharedLibraryPackageName() {
-        try {
-            return mPM.getSharedSystemSharedLibraryPackageName();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
-    public ChangedPackages getChangedPackages(int sequenceNumber) {
-        try {
-            return mPM.getChangedPackages(sequenceNumber, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
     public FeatureInfo[] getSystemAvailableFeatures() {
         try {
-            ParceledListSlice<FeatureInfo> parceledList =
-                    mPM.getSystemAvailableFeatures();
-            if (parceledList == null) {
-                return new FeatureInfo[0];
-            }
-            final List<FeatureInfo> list = parceledList.getList();
-            final FeatureInfo[] res = new FeatureInfo[list.size()];
-            for (int i = 0; i < res.length; i++) {
-                res[i] = list.get(i);
-            }
-            return res;
+            return mPM.getSystemAvailableFeatures();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
     public boolean hasSystemFeature(String name) {
-        return hasSystemFeature(name, 0);
-    }
-
-    @Override
-    public boolean hasSystemFeature(String name, int version) {
         try {
-            return mPM.hasSystemFeature(name, version);
+            return mPM.hasSystemFeature(name);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -580,7 +419,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.checkPermission(permName, pkgName, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -589,7 +428,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.isPermissionRevokedByPolicy(permName, pkgName, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -603,7 +442,7 @@ public class ApplicationPackageManager extends PackageManager {
                 try {
                     mPermissionsControllerPackageName = mPM.getPermissionControllerPackageName();
                 } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
+                    throw new RuntimeException("Package manager has died", e);
                 }
             }
             return mPermissionsControllerPackageName;
@@ -615,7 +454,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.addPermission(info);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -624,7 +463,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.addPermissionAsync(info);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -633,7 +472,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.removePermission(name);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -643,7 +482,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.grantRuntimePermission(packageName, permissionName, user.getIdentifier());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -653,7 +492,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.revokeRuntimePermission(packageName, permissionName, user.getIdentifier());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -662,7 +501,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getPermissionFlags(permissionName, packageName, user.getIdentifier());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -673,7 +512,7 @@ public class ApplicationPackageManager extends PackageManager {
             mPM.updatePermissionFlags(permissionName, packageName, flagMask,
                     flagValues, user.getIdentifier());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -683,7 +522,7 @@ public class ApplicationPackageManager extends PackageManager {
             return mPM.shouldShowRequestPermissionRationale(permission,
                     mContext.getPackageName(), mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -692,7 +531,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.checkSignatures(pkg1, pkg2);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -701,27 +540,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.checkUidSignatures(uid1, uid2);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public boolean hasSigningCertificate(
-            String packageName, byte[] certificate, @PackageManager.CertificateInputType int type) {
-        try {
-            return mPM.hasSigningCertificate(packageName, certificate, type);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public boolean hasSigningCertificate(
-            int uid, byte[] certificate, @PackageManager.CertificateInputType int type) {
-        try {
-            return mPM.hasUidSigningCertificate(uid, certificate, type);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -730,7 +549,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getPackagesForUid(uid);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -739,16 +558,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getNameForUid(uid);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public String[] getNamesForUids(int[] uids) {
-        try {
-            return mPM.getNamesForUids(uids);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -761,7 +571,7 @@ public class ApplicationPackageManager extends PackageManager {
                 return uid;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
         throw new NameNotFoundException("No shared userid for user:"+sharedUserName);
     }
@@ -769,22 +579,17 @@ public class ApplicationPackageManager extends PackageManager {
     @SuppressWarnings("unchecked")
     @Override
     public List<PackageInfo> getInstalledPackages(int flags) {
-        return getInstalledPackagesAsUser(flags, mContext.getUserId());
+        return getInstalledPackages(flags, mContext.getUserId());
     }
 
     /** @hide */
     @Override
-    @SuppressWarnings("unchecked")
-    public List<PackageInfo> getInstalledPackagesAsUser(int flags, int userId) {
+    public List<PackageInfo> getInstalledPackages(int flags, int userId) {
         try {
-            ParceledListSlice<PackageInfo> parceledList =
-                    mPM.getInstalledPackages(flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            ParceledListSlice<PackageInfo> slice = mPM.getInstalledPackages(flags, userId);
+            return slice.getList();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -794,136 +599,23 @@ public class ApplicationPackageManager extends PackageManager {
             String[] permissions, int flags) {
         final int userId = mContext.getUserId();
         try {
-            ParceledListSlice<PackageInfo> parceledList =
-                    mPM.getPackagesHoldingPermissions(permissions, flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            ParceledListSlice<PackageInfo> slice = mPM.getPackagesHoldingPermissions(
+                    permissions, flags, userId);
+            return slice.getList();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public List<ApplicationInfo> getInstalledApplications(int flags) {
-        return getInstalledApplicationsAsUser(flags, mContext.getUserId());
-    }
-
-    /** @hide */
-    @SuppressWarnings("unchecked")
-    @Override
-    public List<ApplicationInfo> getInstalledApplicationsAsUser(int flags, int userId) {
+        final int userId = mContext.getUserId();
         try {
-            ParceledListSlice<ApplicationInfo> parceledList =
-                    mPM.getInstalledApplications(flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            ParceledListSlice<ApplicationInfo> slice = mPM.getInstalledApplications(flags, userId);
+            return slice.getList();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    @SuppressWarnings("unchecked")
-    @Override
-    public List<InstantAppInfo> getInstantApps() {
-        try {
-            ParceledListSlice<InstantAppInfo> slice =
-                    mPM.getInstantApps(mContext.getUserId());
-            if (slice != null) {
-                return slice.getList();
-            }
-            return Collections.emptyList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    @Override
-    public Drawable getInstantAppIcon(String packageName) {
-        try {
-            Bitmap bitmap = mPM.getInstantAppIcon(
-                    packageName, mContext.getUserId());
-            if (bitmap != null) {
-                return new BitmapDrawable(null, bitmap);
-            }
-            return null;
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public boolean isInstantApp() {
-        return isInstantApp(mContext.getPackageName());
-    }
-
-    @Override
-    public boolean isInstantApp(String packageName) {
-        try {
-            return mPM.isInstantApp(packageName, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    public int getInstantAppCookieMaxBytes() {
-        return Settings.Global.getInt(mContext.getContentResolver(),
-                Settings.Global.EPHEMERAL_COOKIE_MAX_SIZE_BYTES,
-                DEFAULT_EPHEMERAL_COOKIE_MAX_SIZE_BYTES);
-    }
-
-    @Override
-    public int getInstantAppCookieMaxSize() {
-        return getInstantAppCookieMaxBytes();
-    }
-
-    @Override
-    public @NonNull byte[] getInstantAppCookie() {
-        try {
-            final byte[] cookie = mPM.getInstantAppCookie(
-                    mContext.getPackageName(), mContext.getUserId());
-            if (cookie != null) {
-                return cookie;
-            } else {
-                return EmptyArray.BYTE;
-            }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public void clearInstantAppCookie() {
-        updateInstantAppCookie(null);
-    }
-
-    @Override
-    public void updateInstantAppCookie(@NonNull byte[] cookie) {
-        if (cookie != null && cookie.length > getInstantAppCookieMaxBytes()) {
-            throw new IllegalArgumentException("instant cookie longer than "
-                    + getInstantAppCookieMaxBytes());
-        }
-        try {
-            mPM.setInstantAppCookie(mContext.getPackageName(),
-                    cookie, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public boolean setInstantAppCookie(@NonNull byte[] cookie) {
-        try {
-            return mPM.setInstantAppCookie(mContext.getPackageName(),
-                    cookie, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -941,7 +633,7 @@ public class ApplicationPackageManager extends PackageManager {
                 flags,
                 userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -953,25 +645,20 @@ public class ApplicationPackageManager extends PackageManager {
 
     /** @hide Same as above but for a specific user */
     @Override
-    @SuppressWarnings("unchecked")
     public List<ResolveInfo> queryIntentActivitiesAsUser(Intent intent,
-            int flags, int userId) {
+                                                   int flags, int userId) {
         try {
-            ParceledListSlice<ResolveInfo> parceledList =
-                    mPM.queryIntentActivities(intent,
-                            intent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                            flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.queryIntentActivities(
+                intent,
+                intent.resolveTypeIfNeeded(mContext.getContentResolver()),
+                flags,
+                userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<ResolveInfo> queryIntentActivityOptions(
         ComponentName caller, Intent[] specifics, Intent intent,
         int flags) {
@@ -995,15 +682,11 @@ public class ApplicationPackageManager extends PackageManager {
         }
 
         try {
-            ParceledListSlice<ResolveInfo> parceledList =
-                    mPM.queryIntentActivityOptions(caller, specifics, specificTypes, intent,
-                    intent.resolveTypeIfNeeded(resolver), flags, mContext.getUserId());
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.queryIntentActivityOptions(caller, specifics,
+                                                  specificTypes, intent, intent.resolveTypeIfNeeded(resolver),
+                                                  flags, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1011,60 +694,46 @@ public class ApplicationPackageManager extends PackageManager {
      * @hide
      */
     @Override
-    @SuppressWarnings("unchecked")
-    public List<ResolveInfo> queryBroadcastReceiversAsUser(Intent intent, int flags, int userId) {
+    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, int flags, int userId) {
         try {
-            ParceledListSlice<ResolveInfo> parceledList =
-                    mPM.queryIntentReceivers(intent,
-                            intent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                            flags,  userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, int flags) {
-        return queryBroadcastReceiversAsUser(intent, flags, mContext.getUserId());
-    }
-
-    @Override
-    public ResolveInfo resolveServiceAsUser(Intent intent, @ResolveInfoFlags int flags,
-            @UserIdInt int userId) {
-        try {
-            return mPM.resolveService(
+            return mPM.queryIntentReceivers(
                 intent,
                 intent.resolveTypeIfNeeded(mContext.getContentResolver()),
                 flags,
                 userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
-    public ResolveInfo resolveService(Intent intent, int flags) {
-        return resolveServiceAsUser(intent, flags, mContext.getUserId());
+    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, int flags) {
+        return queryBroadcastReceivers(intent, flags, mContext.getUserId());
     }
 
     @Override
-    @SuppressWarnings("unchecked")
+    public ResolveInfo resolveService(Intent intent, int flags) {
+        try {
+            return mPM.resolveService(
+                intent,
+                intent.resolveTypeIfNeeded(mContext.getContentResolver()),
+                flags,
+                mContext.getUserId());
+        } catch (RemoteException e) {
+            throw new RuntimeException("Package manager has died", e);
+        }
+    }
+
+    @Override
     public List<ResolveInfo> queryIntentServicesAsUser(Intent intent, int flags, int userId) {
         try {
-            ParceledListSlice<ResolveInfo> parceledList =
-                    mPM.queryIntentServices(intent,
-                    intent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                    flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.queryIntentServices(
+                intent,
+                intent.resolveTypeIfNeeded(mContext.getContentResolver()),
+                flags,
+                userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1074,20 +743,13 @@ public class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<ResolveInfo> queryIntentContentProvidersAsUser(
             Intent intent, int flags, int userId) {
         try {
-            ParceledListSlice<ResolveInfo> parceledList =
-                    mPM.queryIntentContentProviders(intent,
-                            intent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                            flags, userId);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.queryIntentContentProviders(intent,
+                    intent.resolveTypeIfNeeded(mContext.getContentResolver()), flags, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1107,26 +769,19 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.resolveContentProvider(name, flags, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
     @Override
     public List<ProviderInfo> queryContentProviders(String processName,
-            int uid, int flags) {
-        return queryContentProviders(processName, uid, flags, null);
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<ProviderInfo> queryContentProviders(String processName,
-            int uid, int flags, String metaDataKey) {
+                                                    int uid, int flags) {
         try {
-            ParceledListSlice<ProviderInfo> slice =
-                    mPM.queryContentProviders(processName, uid, flags, metaDataKey);
-            return slice != null ? slice.getList() : Collections.<ProviderInfo>emptyList();
+            ParceledListSlice<ProviderInfo> slice
+                    = mPM.queryContentProviders(processName, uid, flags);
+            return slice != null ? slice.getList() : null;
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1141,25 +796,19 @@ public class ApplicationPackageManager extends PackageManager {
                 return ii;
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
 
         throw new NameNotFoundException(className.toString());
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<InstrumentationInfo> queryInstrumentation(
         String targetPackage, int flags) {
         try {
-            ParceledListSlice<InstrumentationInfo> parceledList =
-                    mPM.queryInstrumentation(targetPackage, flags);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.queryInstrumentation(targetPackage, flags);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1325,13 +974,12 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public Drawable getUserBadgedIcon(Drawable icon, UserHandle user) {
-        if (!isManagedProfile(user.getIdentifier())) {
+        final int badgeResId = getBadgeResIdForUser(user.getIdentifier());
+        if (badgeResId == 0) {
             return icon;
         }
-        Drawable badge = new LauncherIcons(mContext).getBadgeDrawable(
-                com.android.internal.R.drawable.ic_corp_icon_badge_case,
-                getUserBadgeColor(user));
-        return getBadgedDrawable(icon, badge, null, true);
+        Drawable badgeIcon = getDrawable("system", badgeResId, null);
+        return getBadgedDrawable(icon, badgeIcon, null, true);
     }
 
     @Override
@@ -1344,61 +992,25 @@ public class ApplicationPackageManager extends PackageManager {
         return getBadgedDrawable(drawable, badgeDrawable, badgeLocation, true);
     }
 
-    @VisibleForTesting
-    public static final int[] CORP_BADGE_LABEL_RES_ID = new int[] {
-        com.android.internal.R.string.managed_profile_label_badge,
-        com.android.internal.R.string.managed_profile_label_badge_2,
-        com.android.internal.R.string.managed_profile_label_badge_3
-    };
-
-    private int getUserBadgeColor(UserHandle user) {
-        return IconDrawableFactory.getUserBadgeColor(getUserManager(), user.getIdentifier());
-    }
-
     @Override
     public Drawable getUserBadgeForDensity(UserHandle user, int density) {
-        Drawable badgeColor = getManagedProfileIconForDensity(user,
-                com.android.internal.R.drawable.ic_corp_badge_color, density);
-        if (badgeColor == null) {
-            return null;
-        }
-        Drawable badgeForeground = getDrawableForDensity(
-                com.android.internal.R.drawable.ic_corp_badge_case, density);
-        badgeForeground.setTint(getUserBadgeColor(user));
-        Drawable badge = new LayerDrawable(new Drawable[] {badgeColor, badgeForeground });
-        return badge;
-    }
-
-    @Override
-    public Drawable getUserBadgeForDensityNoBackground(UserHandle user, int density) {
-        Drawable badge = getManagedProfileIconForDensity(user,
-                com.android.internal.R.drawable.ic_corp_badge_no_background, density);
-        if (badge != null) {
-            badge.setTint(getUserBadgeColor(user));
-        }
-        return badge;
-    }
-
-    private Drawable getDrawableForDensity(int drawableId, int density) {
-        if (density <= 0) {
-            density = mContext.getResources().getDisplayMetrics().densityDpi;
-        }
-        return Resources.getSystem().getDrawableForDensity(drawableId, density);
-    }
-
-    private Drawable getManagedProfileIconForDensity(UserHandle user, int drawableId, int density) {
-        if (isManagedProfile(user.getIdentifier())) {
-            return getDrawableForDensity(drawableId, density);
+        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            if (density <= 0) {
+                density = mContext.getResources().getDisplayMetrics().densityDpi;
+            }
+            return Resources.getSystem().getDrawableForDensity(
+                    com.android.internal.R.drawable.ic_corp_badge, density);
         }
         return null;
     }
 
     @Override
     public CharSequence getUserBadgedLabel(CharSequence label, UserHandle user) {
-        if (isManagedProfile(user.getIdentifier())) {
-            int badge = getUserManager().getManagedProfileBadge(user.getIdentifier());
-            int resourceId = CORP_BADGE_LABEL_RES_ID[badge % CORP_BADGE_LABEL_RES_ID.length];
-            return Resources.getSystem().getString(resourceId, label);
+        UserInfo userInfo = getUserIfProfile(user.getIdentifier());
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            return Resources.getSystem().getString(
+                    com.android.internal.R.string.managed_profile_label_badge, label);
         }
         return label;
     }
@@ -1414,19 +1026,18 @@ public class ApplicationPackageManager extends PackageManager {
     public Resources getResourcesForApplication(@NonNull ApplicationInfo app)
             throws NameNotFoundException {
         if (app.packageName.equals("system")) {
-            return mContext.mMainThread.getSystemUiContext().getResources();
+            return mContext.mMainThread.getSystemContext().getResources();
         }
         final boolean sameUid = (app.uid == Process.myUid());
         final Resources r = mContext.mMainThread.getTopLevelResources(
-                    sameUid ? app.sourceDir : app.publicSourceDir,
-                    sameUid ? app.splitSourceDirs : app.splitPublicSourceDirs,
-                    app.resourceDirs, app.sharedLibraryFiles, Display.DEFAULT_DISPLAY,
-                    mContext.mPackageInfo);
+                sameUid ? app.sourceDir : app.publicSourceDir,
+                sameUid ? app.splitSourceDirs : app.splitPublicSourceDirs,
+                app.resourceDirs, app.sharedLibraryFiles, Display.DEFAULT_DISPLAY,
+                null, mContext.mPackageInfo);
         if (r != null) {
             return r;
         }
         throw new NameNotFoundException("Unable to open " + app.publicSourceDir);
-
     }
 
     @Override
@@ -1445,7 +1056,7 @@ public class ApplicationPackageManager extends PackageManager {
                     "Call does not support special user #" + userId);
         }
         if ("system".equals(appPackageName)) {
-            return mContext.mMainThread.getSystemUiContext().getResources();
+            return mContext.mMainThread.getSystemContext().getResources();
         }
         try {
             ApplicationInfo ai = mPM.getApplicationInfo(appPackageName, sDefaultFlags, userId);
@@ -1453,22 +1064,20 @@ public class ApplicationPackageManager extends PackageManager {
                 return getResourcesForApplication(ai);
             }
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
         throw new NameNotFoundException("Package " + appPackageName + " doesn't exist");
     }
 
-    volatile int mCachedSafeMode = -1;
-
-    @Override
-    public boolean isSafeMode() {
+    int mCachedSafeMode = -1;
+    @Override public boolean isSafeMode() {
         try {
             if (mCachedSafeMode < 0) {
                 mCachedSafeMode = mPM.isSafeMode() ? 1 : 0;
             }
             return mCachedSafeMode != 0;
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw new RuntimeException("Package manager has died", e);
         }
     }
 
@@ -1484,7 +1093,7 @@ public class ApplicationPackageManager extends PackageManager {
                 mPM.addOnPermissionsChangeListener(delegate);
                 mPermissionListeners.put(listener, delegate);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw new RuntimeException("Package manager has died", e);
             }
         }
     }
@@ -1498,7 +1107,7 @@ public class ApplicationPackageManager extends PackageManager {
                     mPM.removeOnPermissionsChangeListener(delegate);
                     mPermissionListeners.remove(listener);
                 } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
+                    throw new RuntimeException("Package manager has died", e);
                 }
             }
         }
@@ -1511,7 +1120,7 @@ public class ApplicationPackageManager extends PackageManager {
         }
     }
 
-    protected ApplicationPackageManager(ContextImpl context,
+    ApplicationPackageManager(ContextImpl context,
                               IPackageManager pm) {
         mContext = context;
         mPM = pm;
@@ -1553,7 +1162,7 @@ public class ApplicationPackageManager extends PackageManager {
 
     static void handlePackageBroadcast(int cmd, String[] pkgList, boolean hasPkgInfo) {
         boolean immediateGc = false;
-        if (cmd == ApplicationThreadConstants.EXTERNAL_STORAGE_UNAVAILABLE) {
+        if (cmd == IApplicationThread.EXTERNAL_STORAGE_UNAVAILABLE) {
             immediateGc = true;
         }
         if (pkgList != null && (pkgList.length > 0)) {
@@ -1723,34 +1332,89 @@ public class ApplicationPackageManager extends PackageManager {
     }
 
     @Override
-    public int installExistingPackage(String packageName) throws NameNotFoundException {
-        return installExistingPackage(packageName, PackageManager.INSTALL_REASON_UNKNOWN);
+    public void installPackage(Uri packageURI, IPackageInstallObserver observer, int flags,
+                               String installerPackageName) {
+        final VerificationParams verificationParams = new VerificationParams(null, null,
+                null, VerificationParams.NO_UID, null);
+        installCommon(packageURI, new LegacyPackageInstallObserver(observer), flags,
+                installerPackageName, verificationParams, null);
     }
 
     @Override
-    public int installExistingPackage(String packageName, int installReason)
-            throws NameNotFoundException {
-        return installExistingPackageAsUser(packageName, installReason, mContext.getUserId());
+    public void installPackageWithVerification(Uri packageURI, IPackageInstallObserver observer,
+            int flags, String installerPackageName, Uri verificationURI,
+            ManifestDigest manifestDigest, ContainerEncryptionParams encryptionParams) {
+        final VerificationParams verificationParams = new VerificationParams(verificationURI, null,
+                null, VerificationParams.NO_UID, manifestDigest);
+        installCommon(packageURI, new LegacyPackageInstallObserver(observer), flags,
+                installerPackageName, verificationParams, encryptionParams);
     }
 
     @Override
-    public int installExistingPackageAsUser(String packageName, int userId)
-            throws NameNotFoundException {
-        return installExistingPackageAsUser(packageName, PackageManager.INSTALL_REASON_UNKNOWN,
-                userId);
+    public void installPackageWithVerificationAndEncryption(Uri packageURI,
+            IPackageInstallObserver observer, int flags, String installerPackageName,
+            VerificationParams verificationParams, ContainerEncryptionParams encryptionParams) {
+        installCommon(packageURI, new LegacyPackageInstallObserver(observer), flags,
+                installerPackageName, verificationParams, encryptionParams);
     }
 
-    private int installExistingPackageAsUser(String packageName, int installReason, int userId)
+    @Override
+    public void installPackage(Uri packageURI, PackageInstallObserver observer,
+            int flags, String installerPackageName) {
+        final VerificationParams verificationParams = new VerificationParams(null, null,
+                null, VerificationParams.NO_UID, null);
+        installCommon(packageURI, observer, flags, installerPackageName, verificationParams, null);
+    }
+
+    @Override
+    public void installPackageWithVerification(Uri packageURI,
+            PackageInstallObserver observer, int flags, String installerPackageName,
+            Uri verificationURI, ManifestDigest manifestDigest,
+            ContainerEncryptionParams encryptionParams) {
+        final VerificationParams verificationParams = new VerificationParams(verificationURI, null,
+                null, VerificationParams.NO_UID, manifestDigest);
+        installCommon(packageURI, observer, flags, installerPackageName, verificationParams,
+                encryptionParams);
+    }
+
+    @Override
+    public void installPackageWithVerificationAndEncryption(Uri packageURI,
+            PackageInstallObserver observer, int flags, String installerPackageName,
+            VerificationParams verificationParams, ContainerEncryptionParams encryptionParams) {
+        installCommon(packageURI, observer, flags, installerPackageName, verificationParams,
+                encryptionParams);
+    }
+
+    private void installCommon(Uri packageURI,
+            PackageInstallObserver observer, int flags, String installerPackageName,
+            VerificationParams verificationParams, ContainerEncryptionParams encryptionParams) {
+        if (!"file".equals(packageURI.getScheme())) {
+            throw new UnsupportedOperationException("Only file:// URIs are supported");
+        }
+        if (encryptionParams != null) {
+            throw new UnsupportedOperationException("ContainerEncryptionParams not supported");
+        }
+
+        final String originPath = packageURI.getPath();
+        try {
+            mPM.installPackage(originPath, observer.getBinder(), flags, installerPackageName,
+                    verificationParams, null);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+    @Override
+    public int installExistingPackage(String packageName)
             throws NameNotFoundException {
         try {
-            int res = mPM.installExistingPackageAsUser(packageName, userId, 0 /*installFlags*/,
-                    installReason);
+            int res = mPM.installExistingPackageAsUser(packageName, UserHandle.myUserId());
             if (res == INSTALL_FAILED_INVALID_URI) {
                 throw new NameNotFoundException("Package " + packageName + " doesn't exist");
             }
             return res;
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            throw new NameNotFoundException("Package " + packageName + " doesn't exist");
         }
     }
 
@@ -1759,7 +1423,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.verifyPendingInstall(id, response);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -1769,82 +1433,76 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.extendVerificationTimeout(id, verificationCodeAtTimeout, millisecondsToDelay);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
     @Override
-    public void verifyIntentFilter(int id, int verificationCode, List<String> failedDomains) {
+    public void verifyIntentFilter(int id, int verificationCode, List<String> outFailedDomains) {
         try {
-            mPM.verifyIntentFilter(id, verificationCode, failedDomains);
+            mPM.verifyIntentFilter(id, verificationCode, outFailedDomains);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
     @Override
-    public int getIntentVerificationStatusAsUser(String packageName, int userId) {
+    public int getIntentVerificationStatus(String packageName, int userId) {
         try {
             return mPM.getIntentVerificationStatus(packageName, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED;
         }
     }
 
     @Override
-    public boolean updateIntentVerificationStatusAsUser(String packageName, int status, int userId) {
+    public boolean updateIntentVerificationStatus(String packageName, int status, int userId) {
         try {
             return mPM.updateIntentVerificationStatus(packageName, status, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return false;
         }
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<IntentFilterVerificationInfo> getIntentFilterVerifications(String packageName) {
         try {
-            ParceledListSlice<IntentFilterVerificationInfo> parceledList =
-                    mPM.getIntentFilterVerifications(packageName);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.getIntentFilterVerifications(packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return null;
         }
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<IntentFilter> getAllIntentFilters(String packageName) {
         try {
-            ParceledListSlice<IntentFilter> parceledList =
-                    mPM.getAllIntentFilters(packageName);
-            if (parceledList == null) {
-                return Collections.emptyList();
-            }
-            return parceledList.getList();
+            return mPM.getAllIntentFilters(packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return null;
         }
     }
 
     @Override
-    public String getDefaultBrowserPackageNameAsUser(int userId) {
+    public String getDefaultBrowserPackageName(int userId) {
         try {
             return mPM.getDefaultBrowserPackageName(userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return null;
         }
     }
 
     @Override
-    public boolean setDefaultBrowserPackageNameAsUser(String packageName, int userId) {
+    public boolean setDefaultBrowserPackageName(String packageName, int userId) {
         try {
             return mPM.setDefaultBrowserPackageName(packageName, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
+            return false;
         }
     }
 
@@ -1854,16 +1512,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.setInstallerPackageName(targetPackage, installerPackageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public void setUpdateAvailable(String packageName, boolean updateAvailable) {
-        try {
-            mPM.setUpdateAvailable(packageName, updateAvailable);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -1872,8 +1521,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getInstallerPackageName(packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
+        return null;
     }
 
     @Override
@@ -1881,7 +1531,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getMoveStatus(moveId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw e.rethrowAsRuntimeException();
         }
     }
 
@@ -1893,7 +1543,7 @@ public class ApplicationPackageManager extends PackageManager {
             try {
                 mPM.registerMoveCallback(delegate);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
             mDelegates.add(delegate);
         }
@@ -1908,7 +1558,7 @@ public class ApplicationPackageManager extends PackageManager {
                     try {
                         mPM.unregisterMoveCallback(delegate);
                     } catch (RemoteException e) {
-                        throw e.rethrowFromSystemServer();
+                        throw e.rethrowAsRuntimeException();
                     }
                     i.remove();
                 }
@@ -1930,19 +1580,13 @@ public class ApplicationPackageManager extends PackageManager {
 
             return mPM.movePackage(packageName, volumeUuid);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw e.rethrowAsRuntimeException();
         }
     }
 
     @Override
     public @Nullable VolumeInfo getPackageCurrentVolume(ApplicationInfo app) {
         final StorageManager storage = mContext.getSystemService(StorageManager.class);
-        return getPackageCurrentVolume(app, storage);
-    }
-
-    @VisibleForTesting
-    protected @Nullable VolumeInfo getPackageCurrentVolume(ApplicationInfo app,
-            StorageManager storage) {
         if (app.isInternal()) {
             return storage.findVolumeById(VolumeInfo.ID_PRIVATE_INTERNAL);
         } else if (app.isExternalAsec()) {
@@ -1954,53 +1598,28 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public @NonNull List<VolumeInfo> getPackageCandidateVolumes(ApplicationInfo app) {
-        final StorageManager storageManager = mContext.getSystemService(StorageManager.class);
-        return getPackageCandidateVolumes(app, storageManager, mPM);
-    }
-
-    @VisibleForTesting
-    protected @NonNull List<VolumeInfo> getPackageCandidateVolumes(ApplicationInfo app,
-            StorageManager storageManager, IPackageManager pm) {
-        final VolumeInfo currentVol = getPackageCurrentVolume(app, storageManager);
-        final List<VolumeInfo> vols = storageManager.getVolumes();
+        final StorageManager storage = mContext.getSystemService(StorageManager.class);
+        final VolumeInfo currentVol = getPackageCurrentVolume(app);
+        final List<VolumeInfo> vols = storage.getVolumes();
         final List<VolumeInfo> candidates = new ArrayList<>();
         for (VolumeInfo vol : vols) {
-            if (Objects.equals(vol, currentVol)
-                    || isPackageCandidateVolume(mContext, app, vol, pm)) {
+            if (Objects.equals(vol, currentVol) || isPackageCandidateVolume(app, vol)) {
                 candidates.add(vol);
             }
         }
         return candidates;
     }
 
-    @VisibleForTesting
-    protected boolean isForceAllowOnExternal(Context context) {
-        return Settings.Global.getInt(
-                context.getContentResolver(), Settings.Global.FORCE_ALLOW_ON_EXTERNAL, 0) != 0;
-    }
-
-    @VisibleForTesting
-    protected boolean isAllow3rdPartyOnInternal(Context context) {
-        return context.getResources().getBoolean(
-                com.android.internal.R.bool.config_allow3rdPartyAppOnInternal);
-    }
-
-    private boolean isPackageCandidateVolume(
-            ContextImpl context, ApplicationInfo app, VolumeInfo vol, IPackageManager pm) {
-        final boolean forceAllowOnExternal = isForceAllowOnExternal(context);
-
+    private static boolean isPackageCandidateVolume(ApplicationInfo app, VolumeInfo vol) {
+        // Private internal is always an option
         if (VolumeInfo.ID_PRIVATE_INTERNAL.equals(vol.getId())) {
-            return app.isSystemApp() || isAllow3rdPartyOnInternal(context);
+            return true;
         }
 
         // System apps and apps demanding internal storage can't be moved
         // anywhere else
-        if (app.isSystemApp()) {
-            return false;
-        }
-        if (!forceAllowOnExternal
-                && (app.installLocation == PackageInfo.INSTALL_LOCATION_INTERNAL_ONLY
-                        || app.installLocation == PackageInfo.INSTALL_LOCATION_UNSPECIFIED)) {
+        if (app.isSystemApp()
+                || app.installLocation == PackageInfo.INSTALL_LOCATION_INTERNAL_ONLY) {
             return false;
         }
 
@@ -2012,15 +1631,6 @@ public class ApplicationPackageManager extends PackageManager {
         // Moving into an ASEC on public primary is only option internal
         if (vol.isPrimaryPhysical()) {
             return app.isInternal();
-        }
-
-        // Some apps can't be moved. (e.g. device admins)
-        try {
-            if (pm.isPackageDeviceAdminOnAnyUser(app.packageName)) {
-                return false;
-            }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
         }
 
         // Otherwise we can move to any private volume
@@ -2041,7 +1651,7 @@ public class ApplicationPackageManager extends PackageManager {
 
             return mPM.movePrimaryStorage(volumeUuid);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw e.rethrowAsRuntimeException();
         }
     }
 
@@ -2089,17 +1699,10 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public void deletePackage(String packageName, IPackageDeleteObserver observer, int flags) {
-        deletePackageAsUser(packageName, observer, flags, mContext.getUserId());
-    }
-
-    @Override
-    public void deletePackageAsUser(String packageName, IPackageDeleteObserver observer,
-            int flags, int userId) {
         try {
-            mPM.deletePackageAsUser(packageName, PackageManager.VERSION_CODE_HIGHEST,
-                    observer, userId, flags);
+            mPM.deletePackageAsUser(packageName, observer, UserHandle.myUserId(), flags);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2109,7 +1712,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.clearApplicationUserData(packageName, observer, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
     @Override
@@ -2118,17 +1721,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.deleteApplicationCacheFiles(packageName, observer);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public void deleteApplicationCacheFilesAsUser(String packageName, int userId,
-            IPackageDataObserver observer) {
-        try {
-            mPM.deleteApplicationCacheFilesAsUser(packageName, userId, observer);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2136,111 +1729,56 @@ public class ApplicationPackageManager extends PackageManager {
     public void freeStorageAndNotify(String volumeUuid, long idealStorageSize,
             IPackageDataObserver observer) {
         try {
-            mPM.freeStorageAndNotify(volumeUuid, idealStorageSize, 0, observer);
+            mPM.freeStorageAndNotify(volumeUuid, idealStorageSize, observer);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
     @Override
     public void freeStorage(String volumeUuid, long freeStorageSize, IntentSender pi) {
         try {
-            mPM.freeStorage(volumeUuid, freeStorageSize, 0, pi);
+            mPM.freeStorage(volumeUuid, freeStorageSize, pi);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
     @Override
-    public String[] setPackagesSuspended(String[] packageNames, boolean suspended,
-            PersistableBundle appExtras, PersistableBundle launcherExtras,
-            String dialogMessage) {
-        try {
-            return mPM.setPackagesSuspendedAsUser(packageNames, suspended, appExtras,
-                    launcherExtras, dialogMessage, mContext.getOpPackageName(),
-                    mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public Bundle getSuspendedPackageAppExtras() {
-        final PersistableBundle extras;
-        try {
-            extras = mPM.getSuspendedPackageAppExtras(mContext.getOpPackageName(),
-                    mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-        return extras != null ? new Bundle(extras.deepCopy()) : null;
-    }
-
-    @Override
-    public boolean isPackageSuspendedForUser(String packageName, int userId) {
-        try {
-            return mPM.isPackageSuspendedForUser(packageName, userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    @Override
-    public boolean isPackageSuspended(String packageName) throws NameNotFoundException {
-        try {
-            return isPackageSuspendedForUser(packageName, mContext.getUserId());
-        } catch (IllegalArgumentException ie) {
-            throw new NameNotFoundException(packageName);
-        }
-    }
-
-    @Override
-    public boolean isPackageSuspended() {
-        return isPackageSuspendedForUser(mContext.getOpPackageName(), mContext.getUserId());
-    }
-
-    /** @hide */
-    @Override
-    public void setApplicationCategoryHint(String packageName, int categoryHint) {
-        try {
-            mPM.setApplicationCategoryHint(packageName, categoryHint,
-                    mContext.getOpPackageName());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public void getPackageSizeInfoAsUser(String packageName, int userHandle,
+    public void getPackageSizeInfo(String packageName, int userHandle,
             IPackageStatsObserver observer) {
-        final String msg = "Shame on you for calling the hidden API "
-                + "getPackageSizeInfoAsUser(). Shame!";
-        if (mContext.getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.O) {
-            throw new UnsupportedOperationException(msg);
-        } else if (observer != null) {
-            Log.d(TAG, msg);
-            try {
-                observer.onGetStatsCompleted(null, false);
-            } catch (RemoteException ignored) {
-            }
+        try {
+            mPM.getPackageSizeInfo(packageName, userHandle, observer);
+        } catch (RemoteException e) {
+            // Should never happen!
         }
     }
-
     @Override
     public void addPackageToPreferred(String packageName) {
-        Log.w(TAG, "addPackageToPreferred() is a no-op");
+        try {
+            mPM.addPackageToPreferred(packageName);
+        } catch (RemoteException e) {
+            // Should never happen!
+        }
     }
 
     @Override
     public void removePackageFromPreferred(String packageName) {
-        Log.w(TAG, "removePackageFromPreferred() is a no-op");
+        try {
+            mPM.removePackageFromPreferred(packageName);
+        } catch (RemoteException e) {
+            // Should never happen!
+        }
     }
 
     @Override
     public List<PackageInfo> getPreferredPackages(int flags) {
-        Log.w(TAG, "getPreferredPackages() is a no-op");
-        return Collections.emptyList();
+        try {
+            return mPM.getPreferredPackages(flags);
+        } catch (RemoteException e) {
+            // Should never happen!
+        }
+        return new ArrayList<PackageInfo>();
     }
 
     @Override
@@ -2249,17 +1787,17 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.addPreferredActivity(filter, match, set, activity, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
     @Override
-    public void addPreferredActivityAsUser(IntentFilter filter, int match,
+    public void addPreferredActivity(IntentFilter filter, int match,
             ComponentName[] set, ComponentName activity, int userId) {
         try {
             mPM.addPreferredActivity(filter, match, set, activity, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2267,9 +1805,9 @@ public class ApplicationPackageManager extends PackageManager {
     public void replacePreferredActivity(IntentFilter filter,
                                          int match, ComponentName[] set, ComponentName activity) {
         try {
-            mPM.replacePreferredActivity(filter, match, set, activity, mContext.getUserId());
+            mPM.replacePreferredActivity(filter, match, set, activity, UserHandle.myUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2280,7 +1818,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.replacePreferredActivity(filter, match, set, activity, userId);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2289,7 +1827,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.clearPackagePreferredActivities(packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2299,8 +1837,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getPreferredActivities(outFilters, outActivities, packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
+        return 0;
     }
 
     @Override
@@ -2308,8 +1847,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getHomeActivities(outActivities);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
+        return null;
     }
 
     @Override
@@ -2318,7 +1858,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.setComponentEnabledSetting(componentName, newState, flags, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2327,8 +1867,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getComponentEnabledSetting(componentName, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
+        return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
     }
 
     @Override
@@ -2338,7 +1879,7 @@ public class ApplicationPackageManager extends PackageManager {
             mPM.setApplicationEnabledSetting(packageName, newState, flags,
                     mContext.getUserId(), mContext.getOpPackageName());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2347,17 +1888,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getApplicationEnabledSetting(packageName, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
-    }
-
-    @Override
-    public void flushPackageRestrictionsAsUser(int userId) {
-        try {
-            mPM.flushPackageRestrictionsAsUser(userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
     }
 
     @Override
@@ -2366,18 +1899,20 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.setApplicationHiddenSettingAsUser(packageName, hidden,
                     user.getIdentifier());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        } catch (RemoteException re) {
+            // Should never happen!
         }
+        return false;
     }
 
     @Override
     public boolean getApplicationHiddenSettingAsUser(String packageName, UserHandle user) {
         try {
             return mPM.getApplicationHiddenSettingAsUser(packageName, user.getIdentifier());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        } catch (RemoteException re) {
+            // Should never happen!
         }
+        return false;
     }
 
     /** @hide */
@@ -2385,22 +1920,26 @@ public class ApplicationPackageManager extends PackageManager {
     public KeySet getKeySetByAlias(String packageName, String alias) {
         Preconditions.checkNotNull(packageName);
         Preconditions.checkNotNull(alias);
+        KeySet ks;
         try {
-            return mPM.getKeySetByAlias(packageName, alias);
+            ks = mPM.getKeySetByAlias(packageName, alias);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            return null;
         }
+        return ks;
     }
 
     /** @hide */
     @Override
     public KeySet getSigningKeySet(String packageName) {
         Preconditions.checkNotNull(packageName);
+        KeySet ks;
         try {
-            return mPM.getSigningKeySet(packageName);
+            ks = mPM.getSigningKeySet(packageName);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            return null;
         }
+        return ks;
     }
 
     /** @hide */
@@ -2411,7 +1950,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.isPackageSignedByKeySet(packageName, ks);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            return false;
         }
     }
 
@@ -2423,7 +1962,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.isPackageSignedByKeySetExactly(packageName, ks);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            return false;
         }
     }
 
@@ -2435,8 +1974,9 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.getVerifierDeviceIdentity();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
+        return null;
     }
 
     /**
@@ -2447,7 +1987,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.isUpgrade();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            return false;
         }
     }
 
@@ -2456,10 +1996,10 @@ public class ApplicationPackageManager extends PackageManager {
         synchronized (mLock) {
             if (mInstaller == null) {
                 try {
-                    mInstaller = new PackageInstaller(mPM.getPackageInstaller(),
+                    mInstaller = new PackageInstaller(mContext, this, mPM.getPackageInstaller(),
                             mContext.getPackageName(), mContext.getUserId());
                 } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
+                    throw e.rethrowAsRuntimeException();
                 }
             }
             return mInstaller;
@@ -2471,7 +2011,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             return mPM.isPackageAvailable(packageName, mContext.getUserId());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            throw e.rethrowAsRuntimeException();
         }
     }
 
@@ -2485,7 +2025,7 @@ public class ApplicationPackageManager extends PackageManager {
             mPM.addCrossProfileIntentFilter(filter, mContext.getOpPackageName(),
                     sourceUserId, targetUserId, flags);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2497,7 +2037,7 @@ public class ApplicationPackageManager extends PackageManager {
         try {
             mPM.clearCrossProfileIntentFilters(sourceUserId, mContext.getOpPackageName());
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // Should never happen!
         }
     }
 
@@ -2519,8 +2059,7 @@ public class ApplicationPackageManager extends PackageManager {
         if (itemInfo.showUserIcon != UserHandle.USER_NULL) {
             Bitmap bitmap = getUserManager().getUserIcon(itemInfo.showUserIcon);
             if (bitmap == null) {
-                return UserIcons.getDefaultUserIcon(
-                        mContext.getResources(), itemInfo.showUserIcon, /* light= */ false);
+                return UserIcons.getDefaultUserIcon(itemInfo.showUserIcon, /* light= */ false);
             }
             return new BitmapDrawable(bitmap);
         }
@@ -2587,20 +2126,23 @@ public class ApplicationPackageManager extends PackageManager {
         return drawable;
     }
 
-    private boolean isManagedProfile(int userId) {
-        return getUserManager().isManagedProfile(userId);
+    private int getBadgeResIdForUser(int userHandle) {
+        // Return the framework-provided badge.
+        UserInfo userInfo = getUserIfProfile(userHandle);
+        if (userInfo != null && userInfo.isManagedProfile()) {
+            return com.android.internal.R.drawable.ic_corp_icon_badge;
+        }
+        return 0;
     }
 
-    /**
-     * @hide
-     */
-    @Override
-    public int getInstallReason(String packageName, UserHandle user) {
-        try {
-            return mPM.getInstallReason(packageName, user.getIdentifier());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+    private UserInfo getUserIfProfile(int userHandle) {
+        List<UserInfo> userProfiles = getUserManager().getProfiles(UserHandle.myUserId());
+        for (UserInfo user : userProfiles) {
+            if (user.id == userHandle) {
+                return user;
+            }
         }
+        return null;
     }
 
     /** {@hide} */
@@ -2695,166 +2237,6 @@ public class ApplicationPackageManager extends PackageManager {
                 }
             }
             return false;
-        }
-    }
-
-    @Override
-    public boolean canRequestPackageInstalls() {
-        try {
-            return mPM.canRequestPackageInstalls(mContext.getPackageName(), mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public ComponentName getInstantAppResolverSettingsComponent() {
-        try {
-            return mPM.getInstantAppResolverSettingsComponent();
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public ComponentName getInstantAppInstallerComponent() {
-        try {
-            return mPM.getInstantAppInstallerComponent();
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public String getInstantAppAndroidId(String packageName, UserHandle user) {
-        try {
-            return mPM.getInstantAppAndroidId(packageName, user.getIdentifier());
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    private static class DexModuleRegisterResult {
-        final String dexModulePath;
-        final boolean success;
-        final String message;
-
-        private DexModuleRegisterResult(String dexModulePath, boolean success, String message) {
-            this.dexModulePath = dexModulePath;
-            this.success = success;
-            this.message = message;
-        }
-    }
-
-    private static class DexModuleRegisterCallbackDelegate
-            extends android.content.pm.IDexModuleRegisterCallback.Stub
-            implements Handler.Callback {
-        private static final int MSG_DEX_MODULE_REGISTERED = 1;
-        private final DexModuleRegisterCallback callback;
-        private final Handler mHandler;
-
-        DexModuleRegisterCallbackDelegate(@NonNull DexModuleRegisterCallback callback) {
-            this.callback = callback;
-            mHandler = new Handler(Looper.getMainLooper(), this);
-        }
-
-        @Override
-        public void onDexModuleRegistered(@NonNull String dexModulePath, boolean success,
-                @Nullable String message)throws RemoteException {
-            mHandler.obtainMessage(MSG_DEX_MODULE_REGISTERED,
-                    new DexModuleRegisterResult(dexModulePath, success, message)).sendToTarget();
-        }
-
-        @Override
-        public boolean handleMessage(Message msg) {
-            if (msg.what != MSG_DEX_MODULE_REGISTERED) {
-                return false;
-            }
-            DexModuleRegisterResult result = (DexModuleRegisterResult)msg.obj;
-            callback.onDexModuleRegistered(result.dexModulePath, result.success, result.message);
-            return true;
-        }
-    }
-
-    @Override
-    public void registerDexModule(@NonNull String dexModule,
-            @Nullable DexModuleRegisterCallback callback) {
-        // Check if this is a shared module by looking if the others can read it.
-        boolean isSharedModule = false;
-        try {
-            StructStat stat = Os.stat(dexModule);
-            if ((OsConstants.S_IROTH & stat.st_mode) != 0) {
-                isSharedModule = true;
-            }
-        } catch (ErrnoException e) {
-            callback.onDexModuleRegistered(dexModule, false,
-                    "Could not get stat the module file: " + e.getMessage());
-            return;
-        }
-
-        // Module path is ok.
-        // Create the callback delegate to be passed to package manager service.
-        DexModuleRegisterCallbackDelegate callbackDelegate = null;
-        if (callback != null) {
-            callbackDelegate = new DexModuleRegisterCallbackDelegate(callback);
-        }
-
-        // Invoke the package manager service.
-        try {
-            mPM.registerDexModule(mContext.getPackageName(), dexModule,
-                    isSharedModule, callbackDelegate);
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public CharSequence getHarmfulAppWarning(String packageName) {
-        try {
-            return mPM.getHarmfulAppWarning(packageName, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public void setHarmfulAppWarning(String packageName, CharSequence warning) {
-        try {
-            mPM.setHarmfulAppWarning(packageName, warning, mContext.getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public ArtManager getArtManager() {
-        synchronized (mLock) {
-            if (mArtManager == null) {
-                try {
-                    mArtManager = new ArtManager(mContext, mPM.getArtManager());
-                } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
-                }
-            }
-            return mArtManager;
-        }
-    }
-
-    @Override
-    public String getSystemTextClassifierPackageName() {
-        try {
-            return mPM.getSystemTextClassifierPackageName();
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        }
-    }
-
-    @Override
-    public boolean isPackageStateProtected(String packageName, int userId) {
-        try {
-            return mPM.isPackageStateProtected(packageName, userId);
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
         }
     }
 }

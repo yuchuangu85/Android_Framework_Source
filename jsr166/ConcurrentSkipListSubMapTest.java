@@ -28,7 +28,7 @@ public class ConcurrentSkipListSubMapTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ConcurrentSkipListSubMapTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**

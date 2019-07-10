@@ -18,14 +18,10 @@ package android.media;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.TestApi;
-import android.os.Parcel;
-import android.os.Parcelable;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
-import java.util.Objects;
 
 /**
  * The {@link AudioFormat} class is used to access a number of audio format and
@@ -213,7 +209,7 @@ import java.util.Objects;
  * AudioTrack.getPlaybackHeadPosition()}),
  * depending on the context where audio frame is used.
  */
-public final class AudioFormat implements Parcelable {
+public class AudioFormat {
 
     //---------------------------------------------------------
     // Constants
@@ -239,81 +235,22 @@ public final class AudioFormat implements Parcelable {
     public static final int ENCODING_DTS = 7;
     /** Audio data format: DTS HD compressed */
     public static final int ENCODING_DTS_HD = 8;
-    /** Audio data format: MP3 compressed */
+    /** Audio data format: MP3 compressed
+     * @hide
+     * */
     public static final int ENCODING_MP3 = 9;
-    /** Audio data format: AAC LC compressed */
+    /** Audio data format: AAC LC compressed
+     * @hide
+     * */
     public static final int ENCODING_AAC_LC = 10;
-    /** Audio data format: AAC HE V1 compressed */
+    /** Audio data format: AAC HE V1 compressed
+     * @hide
+     * */
     public static final int ENCODING_AAC_HE_V1 = 11;
-    /** Audio data format: AAC HE V2 compressed */
+    /** Audio data format: AAC HE V2 compressed
+     * @hide
+     * */
     public static final int ENCODING_AAC_HE_V2 = 12;
-
-    /** Audio data format: compressed audio wrapped in PCM for HDMI
-     * or S/PDIF passthrough.
-     * IEC61937 uses a stereo stream of 16-bit samples as the wrapper.
-     * So the channel mask for the track must be {@link #CHANNEL_OUT_STEREO}.
-     * Data should be written to the stream in a short[] array.
-     * If the data is written in a byte[] array then there may be endian problems
-     * on some platforms when converting to short internally.
-     */
-    public static final int ENCODING_IEC61937 = 13;
-    /** Audio data format: DOLBY TRUEHD compressed
-     **/
-    public static final int ENCODING_DOLBY_TRUEHD = 14;
-    /** Audio data format: AAC ELD compressed */
-    public static final int ENCODING_AAC_ELD = 15;
-    /** Audio data format: AAC xHE compressed */
-    public static final int ENCODING_AAC_XHE = 16;
-    /** Audio data format: AC-4 sync frame transport format */
-    public static final int ENCODING_AC4 = 17;
-    /** Audio data format: E-AC-3-JOC compressed
-     * E-AC-3-JOC streams can be decoded by downstream devices supporting {@link #ENCODING_E_AC3}.
-     * Use {@link #ENCODING_E_AC3} as the AudioTrack encoding when the downstream device
-     * supports {@link #ENCODING_E_AC3} but not {@link #ENCODING_E_AC3_JOC}.
-     **/
-    public static final int ENCODING_E_AC3_JOC = 18;
-
-    /** @hide */
-    public static String toLogFriendlyEncoding(int enc) {
-        switch(enc) {
-            case ENCODING_INVALID:
-                return "ENCODING_INVALID";
-            case ENCODING_PCM_16BIT:
-                return "ENCODING_PCM_16BIT";
-            case ENCODING_PCM_8BIT:
-                return "ENCODING_PCM_8BIT";
-            case ENCODING_PCM_FLOAT:
-                return "ENCODING_PCM_FLOAT";
-            case ENCODING_AC3:
-                return "ENCODING_AC3";
-            case ENCODING_E_AC3:
-                return "ENCODING_E_AC3";
-            case ENCODING_DTS:
-                return "ENCODING_DTS";
-            case ENCODING_DTS_HD:
-                return "ENCODING_DTS_HD";
-            case ENCODING_MP3:
-                return "ENCODING_MP3";
-            case ENCODING_AAC_LC:
-                return "ENCODING_AAC_LC";
-            case ENCODING_AAC_HE_V1:
-                return "ENCODING_AAC_HE_V1";
-            case ENCODING_AAC_HE_V2:
-                return "ENCODING_AAC_HE_V2";
-            case ENCODING_IEC61937:
-                return "ENCODING_IEC61937";
-            case ENCODING_DOLBY_TRUEHD:
-                return "ENCODING_DOLBY_TRUEHD";
-            case ENCODING_AAC_ELD:
-                return "ENCODING_AAC_ELD";
-            case ENCODING_AAC_XHE:
-                return "ENCODING_AAC_XHE";
-            case ENCODING_AC4:
-                return "ENCODING_AC4";
-            default :
-                return "invalid encoding " + enc;
-        }
-    }
 
     /** Invalid audio channel configuration */
     /** @deprecated Use {@link #CHANNEL_INVALID} instead.  */
@@ -391,24 +328,6 @@ public final class AudioFormat implements Parcelable {
             CHANNEL_OUT_LOW_FREQUENCY);
     // CHANNEL_OUT_ALL is not yet defined; if added then it should match AUDIO_CHANNEL_OUT_ALL
 
-    /** Minimum value for sample rate,
-     *  assuming AudioTrack and AudioRecord share the same limitations.
-     * @hide
-     */
-    // never unhide
-    public static final int SAMPLE_RATE_HZ_MIN = 4000;
-    /** Maximum value for sample rate,
-     *  assuming AudioTrack and AudioRecord share the same limitations.
-     * @hide
-     */
-    // never unhide
-    public static final int SAMPLE_RATE_HZ_MAX = 192000;
-    /** Sample rate will be a route-dependent value.
-     * For AudioTrack, it is usually the sink sample rate,
-     * and for AudioRecord it is usually the source sample rate.
-     */
-    public static final int SAMPLE_RATE_UNSPECIFIED = 0;
-
     /**
      * @hide
      * Return the input channel mask corresponding to an output channel mask.
@@ -438,7 +357,6 @@ public final class AudioFormat implements Parcelable {
      * @param mask a combination of the CHANNEL_IN_* definitions, even CHANNEL_IN_DEFAULT
      * @return number of channels for the mask
      */
-    @TestApi
     public static int channelCountFromInChannelMask(int mask) {
         return Integer.bitCount(mask);
     }
@@ -448,7 +366,6 @@ public final class AudioFormat implements Parcelable {
      * @param mask a combination of the CHANNEL_OUT_* definitions, but not CHANNEL_OUT_DEFAULT
      * @return number of channels for the mask
      */
-    @TestApi
     public static int channelCountFromOutChannelMask(int mask) {
         return Integer.bitCount(mask);
     }
@@ -495,14 +412,12 @@ public final class AudioFormat implements Parcelable {
     // CHANNEL_IN_ALL is not yet defined; if added then it should match AUDIO_CHANNEL_IN_ALL
 
     /** @hide */
-    @TestApi
     public static int getBytesPerSample(int audioFormat)
     {
         switch (audioFormat) {
         case ENCODING_PCM_8BIT:
             return 1;
         case ENCODING_PCM_16BIT:
-        case ENCODING_IEC61937:
         case ENCODING_DEFAULT:
             return 2;
         case ENCODING_PCM_FLOAT:
@@ -522,17 +437,12 @@ public final class AudioFormat implements Parcelable {
         case ENCODING_PCM_FLOAT:
         case ENCODING_AC3:
         case ENCODING_E_AC3:
-        case ENCODING_E_AC3_JOC:
         case ENCODING_DTS:
         case ENCODING_DTS_HD:
         case ENCODING_MP3:
         case ENCODING_AAC_LC:
         case ENCODING_AAC_HE_V1:
         case ENCODING_AAC_HE_V2:
-        case ENCODING_IEC61937:
-        case ENCODING_AAC_ELD:
-        case ENCODING_AAC_XHE:
-        case ENCODING_AC4:
             return true;
         default:
             return false;
@@ -548,17 +458,8 @@ public final class AudioFormat implements Parcelable {
         case ENCODING_PCM_FLOAT:
         case ENCODING_AC3:
         case ENCODING_E_AC3:
-        case ENCODING_E_AC3_JOC:
         case ENCODING_DTS:
         case ENCODING_DTS_HD:
-        case ENCODING_IEC61937:
-        case ENCODING_MP3:
-        case ENCODING_AAC_LC:
-        case ENCODING_AAC_HE_V1:
-        case ENCODING_AAC_HE_V2:
-        case ENCODING_AAC_ELD:
-        case ENCODING_AAC_XHE:
-        case ENCODING_AC4:
             return true;
         default:
             return false;
@@ -566,7 +467,6 @@ public final class AudioFormat implements Parcelable {
     }
 
     /** @hide */
-    @TestApi
     public static boolean isEncodingLinearPcm(int audioFormat)
     {
         switch (audioFormat) {
@@ -577,17 +477,12 @@ public final class AudioFormat implements Parcelable {
             return true;
         case ENCODING_AC3:
         case ENCODING_E_AC3:
-        case ENCODING_E_AC3_JOC:
         case ENCODING_DTS:
         case ENCODING_DTS_HD:
         case ENCODING_MP3:
         case ENCODING_AAC_LC:
         case ENCODING_AAC_HE_V1:
         case ENCODING_AAC_HE_V2:
-        case ENCODING_IEC61937: // wrapped in PCM but compressed
-        case ENCODING_AAC_ELD:
-        case ENCODING_AAC_XHE:
-        case ENCODING_AC4:
             return false;
         case ENCODING_INVALID:
         default:
@@ -595,34 +490,6 @@ public final class AudioFormat implements Parcelable {
         }
     }
 
-    /** @hide */
-    public static boolean isEncodingLinearFrames(int audioFormat)
-    {
-        switch (audioFormat) {
-        case ENCODING_PCM_8BIT:
-        case ENCODING_PCM_16BIT:
-        case ENCODING_PCM_FLOAT:
-        case ENCODING_IEC61937: // same size as stereo PCM
-        case ENCODING_DEFAULT:
-            return true;
-        case ENCODING_AC3:
-        case ENCODING_E_AC3:
-        case ENCODING_E_AC3_JOC:
-        case ENCODING_DTS:
-        case ENCODING_DTS_HD:
-        case ENCODING_MP3:
-        case ENCODING_AAC_LC:
-        case ENCODING_AAC_HE_V1:
-        case ENCODING_AAC_HE_V2:
-        case ENCODING_AAC_ELD:
-        case ENCODING_AAC_XHE:
-        case ENCODING_AC4:
-            return false;
-        case ENCODING_INVALID:
-        default:
-            throw new IllegalArgumentException("Bad audio format " + audioFormat);
-        }
-    }
     /**
      * Returns an array of public encoding values extracted from an array of
      * encoding values.
@@ -659,7 +526,7 @@ public final class AudioFormat implements Parcelable {
     }
 
     /**
-     * Constructor used by the JNI.  Parameters are not checked for validity.
+     * Constructor used by the JNI
      */
     // Update sound trigger JNI in core/jni/android_hardware_SoundTrigger.cpp when modifying this
     // constructor
@@ -708,9 +575,12 @@ public final class AudioFormat implements Parcelable {
     /**
      * Return the sample rate.
      * @return one of the values that can be set in {@link Builder#setSampleRate(int)} or
-     * {@link #SAMPLE_RATE_UNSPECIFIED} if not set.
+     * 0 if not set.
      */
     public int getSampleRate() {
+        if ((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_SAMPLE_RATE) == 0) {
+            return 0;
+        }
         return mSampleRate;
     }
 
@@ -765,12 +635,6 @@ public final class AudioFormat implements Parcelable {
         return mPropertySetMask;
     }
 
-    /** @hide */
-    public String toLogFriendlyString() {
-        return String.format("%dch %dHz %s",
-                getChannelCount(), mSampleRate, toLogFriendlyEncoding(mEncoding));
-    }
-
     /**
      * Builder class for {@link AudioFormat} objects.
      * Use this class to configure and create an AudioFormat instance. By setting format
@@ -788,7 +652,7 @@ public final class AudioFormat implements Parcelable {
      */
     public static class Builder {
         private int mEncoding = ENCODING_INVALID;
-        private int mSampleRate = SAMPLE_RATE_UNSPECIFIED;
+        private int mSampleRate = 0;
         private int mChannelMask = CHANNEL_INVALID;
         private int mChannelIndexMask = 0;
         private int mPropertySetMask = AUDIO_FORMAT_HAS_PROPERTY_NONE;
@@ -819,8 +683,6 @@ public final class AudioFormat implements Parcelable {
         public AudioFormat build() {
             AudioFormat af = new AudioFormat(1980/*ignored*/);
             af.mEncoding = mEncoding;
-            // not calling setSampleRate is equivalent to calling
-            // setSampleRate(SAMPLE_RATE_UNSPECIFIED)
             af.mSampleRate = mSampleRate;
             af.mChannelMask = mChannelMask;
             af.mChannelIndexMask = mChannelIndexMask;
@@ -830,7 +692,14 @@ public final class AudioFormat implements Parcelable {
 
         /**
          * Sets the data encoding format.
-         * @param encoding the specified encoding or default.
+         * @param encoding one of {@link AudioFormat#ENCODING_DEFAULT},
+         *     {@link AudioFormat#ENCODING_PCM_8BIT},
+         *     {@link AudioFormat#ENCODING_PCM_16BIT},
+         *     {@link AudioFormat#ENCODING_PCM_FLOAT},
+         *     {@link AudioFormat#ENCODING_AC3},
+         *     {@link AudioFormat#ENCODING_E_AC3}.
+         *     {@link AudioFormat#ENCODING_DTS},
+         *     {@link AudioFormat#ENCODING_DTS_HD}.
          * @return the same Builder instance.
          * @throws java.lang.IllegalArgumentException
          */
@@ -844,17 +713,8 @@ public final class AudioFormat implements Parcelable {
                 case ENCODING_PCM_FLOAT:
                 case ENCODING_AC3:
                 case ENCODING_E_AC3:
-                case ENCODING_E_AC3_JOC:
                 case ENCODING_DTS:
                 case ENCODING_DTS_HD:
-                case ENCODING_IEC61937:
-                case ENCODING_MP3:
-                case ENCODING_AAC_LC:
-                case ENCODING_AAC_HE_V1:
-                case ENCODING_AAC_HE_V2:
-                case ENCODING_AAC_ELD:
-                case ENCODING_AAC_XHE:
-                case ENCODING_AC4:
                     mEncoding = encoding;
                     break;
                 case ENCODING_INVALID:
@@ -899,7 +759,7 @@ public final class AudioFormat implements Parcelable {
          *    are specified but do not have the same channel count.
          */
         public @NonNull Builder setChannelMask(int channelMask) {
-            if (channelMask == CHANNEL_INVALID) {
+            if (channelMask == 0) {
                 throw new IllegalArgumentException("Invalid zero channel mask");
             } else if (/* channelMask != 0 && */ mChannelIndexMask != 0 &&
                     Integer.bitCount(channelMask) != Integer.bitCount(mChannelIndexMask)) {
@@ -971,11 +831,7 @@ public final class AudioFormat implements Parcelable {
          * @throws java.lang.IllegalArgumentException
          */
         public Builder setSampleRate(int sampleRate) throws IllegalArgumentException {
-            // TODO Consider whether to keep the MIN and MAX range checks here.
-            // It is not necessary and poses the problem of defining the limits independently from
-            // native implementation or platform capabilities.
-            if (((sampleRate < SAMPLE_RATE_HZ_MIN) || (sampleRate > SAMPLE_RATE_HZ_MAX)) &&
-                    sampleRate != SAMPLE_RATE_UNSPECIFIED) {
+            if ((sampleRate <= 0) || (sampleRate > 192000)) {
                 throw new IllegalArgumentException("Invalid sample rate " + sampleRate);
             }
             mSampleRate = sampleRate;
@@ -983,64 +839,6 @@ public final class AudioFormat implements Parcelable {
             return this;
         }
     }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-
-        AudioFormat that = (AudioFormat) o;
-
-        if (mPropertySetMask != that.mPropertySetMask) return false;
-
-        // return false if any of the properties is set and the values differ
-        return !((((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_ENCODING) != 0)
-                            && (mEncoding != that.mEncoding))
-                    || (((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_SAMPLE_RATE) != 0)
-                            && (mSampleRate != that.mSampleRate))
-                    || (((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_CHANNEL_MASK) != 0)
-                            && (mChannelMask != that.mChannelMask))
-                    || (((mPropertySetMask & AUDIO_FORMAT_HAS_PROPERTY_CHANNEL_INDEX_MASK) != 0)
-                            && (mChannelIndexMask != that.mChannelIndexMask)));
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(mPropertySetMask, mSampleRate, mEncoding, mChannelMask,
-                mChannelIndexMask);
-    }
-
-    @Override
-    public int describeContents() {
-        return 0;
-    }
-
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mPropertySetMask);
-        dest.writeInt(mEncoding);
-        dest.writeInt(mSampleRate);
-        dest.writeInt(mChannelMask);
-        dest.writeInt(mChannelIndexMask);
-    }
-
-    private AudioFormat(Parcel in) {
-        mPropertySetMask = in.readInt();
-        mEncoding = in.readInt();
-        mSampleRate = in.readInt();
-        mChannelMask = in.readInt();
-        mChannelIndexMask = in.readInt();
-    }
-
-    public static final Parcelable.Creator<AudioFormat> CREATOR =
-            new Parcelable.Creator<AudioFormat>() {
-        public AudioFormat createFromParcel(Parcel p) {
-            return new AudioFormat(p);
-        }
-        public AudioFormat[] newArray(int size) {
-            return new AudioFormat[size];
-        }
-    };
 
     @Override
     public String toString () {
@@ -1053,79 +851,17 @@ public final class AudioFormat implements Parcelable {
     }
 
     /** @hide */
-    @IntDef(flag = false, prefix = "ENCODING", value = {
+    @IntDef({
         ENCODING_DEFAULT,
         ENCODING_PCM_8BIT,
         ENCODING_PCM_16BIT,
         ENCODING_PCM_FLOAT,
         ENCODING_AC3,
         ENCODING_E_AC3,
-        ENCODING_E_AC3_JOC,
         ENCODING_DTS,
-        ENCODING_DTS_HD,
-        ENCODING_IEC61937,
-        ENCODING_AAC_HE_V1,
-        ENCODING_AAC_HE_V2,
-        ENCODING_AAC_LC,
-        ENCODING_AAC_ELD,
-        ENCODING_AAC_XHE,
-        ENCODING_AC4 }
-    )
+        ENCODING_DTS_HD
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Encoding {}
-
-    /** @hide */
-    public static final int[] SURROUND_SOUND_ENCODING = {
-            ENCODING_AC3,
-            ENCODING_E_AC3,
-            ENCODING_DTS,
-            ENCODING_DTS_HD,
-            ENCODING_AAC_LC,
-            ENCODING_DOLBY_TRUEHD,
-            ENCODING_E_AC3_JOC,
-    };
-
-    /** @hide */
-    @IntDef(flag = false, prefix = "ENCODING", value = {
-            ENCODING_AC3,
-            ENCODING_E_AC3,
-            ENCODING_DTS,
-            ENCODING_DTS_HD,
-            ENCODING_AAC_LC,
-            ENCODING_DOLBY_TRUEHD,
-            ENCODING_E_AC3_JOC }
-    )
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface SurroundSoundEncoding {}
-
-    /**
-     * @hide
-     *
-     * Return default name for a surround format. This is not an International name.
-     * It is just a default to use if an international name is not available.
-     *
-     * @param audioFormat a surround format
-     * @return short default name for the format, eg. “AC3” for ENCODING_AC3.
-     */
-    public static String toDisplayName(@SurroundSoundEncoding int audioFormat) {
-        switch (audioFormat) {
-            case ENCODING_AC3:
-                return "Dolby Digital (AC3)";
-            case ENCODING_E_AC3:
-                return "Dolby Digital Plus (E_AC3)";
-            case ENCODING_DTS:
-                return "DTS";
-            case ENCODING_DTS_HD:
-                return "DTS HD";
-            case ENCODING_AAC_LC:
-                return "AAC";
-            case ENCODING_DOLBY_TRUEHD:
-                return "Dolby TrueHD";
-            case ENCODING_E_AC3_JOC:
-                return "Dolby Atmos";
-            default:
-                return "Unknown surround sound format";
-        }
-    }
 
 }

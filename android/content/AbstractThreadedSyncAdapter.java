@@ -16,19 +16,12 @@
 
 package android.content;
 
-import static com.android.internal.util.function.pooled.PooledLambda.obtainMessage;
-
 import android.accounts.Account;
-import android.annotation.MainThread;
-import android.annotation.NonNull;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.Trace;
-import android.util.Log;
 
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -102,16 +95,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * </ul>
  */
 public abstract class AbstractThreadedSyncAdapter {
-    private static final String TAG = "SyncAdapter";
-
     /**
      * Kernel event log tag.  Also listed in data/etc/event-log-tags.
      * @deprecated Private constant.  May go away in the next release.
      */
     @Deprecated
     public static final int LOG_SYNC_DETAILS = 2743;
-
-    private static final boolean ENABLE_LOG = Build.IS_DEBUGGABLE && Log.isLoggable(TAG, Log.DEBUG);
 
     private final Context mContext;
     private final AtomicInteger mNumSyncStarts;
@@ -172,112 +161,72 @@ public abstract class AbstractThreadedSyncAdapter {
 
     private class ISyncAdapterImpl extends ISyncAdapter.Stub {
         @Override
-        public void onUnsyncableAccount(ISyncAdapterUnsyncableAccountCallback cb) {
-            Handler.getMain().sendMessage(obtainMessage(
-                    AbstractThreadedSyncAdapter::handleOnUnsyncableAccount,
-                    AbstractThreadedSyncAdapter.this, cb));
-        }
-
-        @Override
         public void startSync(ISyncContext syncContext, String authority, Account account,
                 Bundle extras) {
-            if (ENABLE_LOG) {
-                if (extras != null) {
-                    extras.size(); // Unparcel so its toString() will show the contents.
-                }
-                Log.d(TAG, "startSync() start " + authority + " " + account + " " + extras);
-            }
-            try {
-                final SyncContext syncContextClient = new SyncContext(syncContext);
+            final SyncContext syncContextClient = new SyncContext(syncContext);
 
-                boolean alreadyInProgress;
-                // synchronize to make sure that mSyncThreads doesn't change between when we
-                // check it and when we use it
-                final Account threadsKey = toSyncKey(account);
-                synchronized (mSyncThreadLock) {
-                    if (!mSyncThreads.containsKey(threadsKey)) {
-                        if (mAutoInitialize
-                                && extras != null
-                                && extras.getBoolean(
-                                        ContentResolver.SYNC_EXTRAS_INITIALIZE, false)) {
-                            try {
-                                if (ContentResolver.getIsSyncable(account, authority) < 0) {
-                                    ContentResolver.setIsSyncable(account, authority, 1);
-                                }
-                            } finally {
-                                syncContextClient.onFinished(new SyncResult());
+            boolean alreadyInProgress;
+            // synchronize to make sure that mSyncThreads doesn't change between when we
+            // check it and when we use it
+            final Account threadsKey = toSyncKey(account);
+            synchronized (mSyncThreadLock) {
+                if (!mSyncThreads.containsKey(threadsKey)) {
+                    if (mAutoInitialize
+                            && extras != null
+                            && extras.getBoolean(ContentResolver.SYNC_EXTRAS_INITIALIZE, false)) {
+                        try {
+                            if (ContentResolver.getIsSyncable(account, authority) < 0) {
+                                ContentResolver.setIsSyncable(account, authority, 1);
                             }
-                            return;
+                        } finally {
+                            syncContextClient.onFinished(new SyncResult());
                         }
-                        SyncThread syncThread = new SyncThread(
-                                "SyncAdapterThread-" + mNumSyncStarts.incrementAndGet(),
-                                syncContextClient, authority, account, extras);
-                        mSyncThreads.put(threadsKey, syncThread);
-                        syncThread.start();
-                        alreadyInProgress = false;
-                    } else {
-                        if (ENABLE_LOG) {
-                            Log.d(TAG, "  alreadyInProgress");
-                        }
-                        alreadyInProgress = true;
+                        return;
                     }
+                    SyncThread syncThread = new SyncThread(
+                            "SyncAdapterThread-" + mNumSyncStarts.incrementAndGet(),
+                            syncContextClient, authority, account, extras);
+                    mSyncThreads.put(threadsKey, syncThread);
+                    syncThread.start();
+                    alreadyInProgress = false;
+                } else {
+                    alreadyInProgress = true;
                 }
+            }
 
-                // do this outside since we don't want to call back into the syncContext while
-                // holding the synchronization lock
-                if (alreadyInProgress) {
-                    syncContextClient.onFinished(SyncResult.ALREADY_IN_PROGRESS);
-                }
-            } catch (RuntimeException | Error th) {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "startSync() caught exception", th);
-                }
-                throw th;
-            } finally {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "startSync() finishing");
-                }
+            // do this outside since we don't want to call back into the syncContext while
+            // holding the synchronization lock
+            if (alreadyInProgress) {
+                syncContextClient.onFinished(SyncResult.ALREADY_IN_PROGRESS);
             }
         }
 
         @Override
         public void cancelSync(ISyncContext syncContext) {
-            try {
-                // synchronize to make sure that mSyncThreads doesn't change between when we
-                // check it and when we use it
-                SyncThread info = null;
-                synchronized (mSyncThreadLock) {
-                    for (SyncThread current : mSyncThreads.values()) {
-                        if (current.mSyncContext.getSyncContextBinder() == syncContext.asBinder()) {
-                            info = current;
-                            break;
-                        }
+            // synchronize to make sure that mSyncThreads doesn't change between when we
+            // check it and when we use it
+            SyncThread info = null;
+            synchronized (mSyncThreadLock) {
+                for (SyncThread current : mSyncThreads.values()) {
+                    if (current.mSyncContext.getSyncContextBinder() == syncContext.asBinder()) {
+                        info = current;
+                        break;
                     }
-                }
-                if (info != null) {
-                    if (ENABLE_LOG) {
-                        Log.d(TAG, "cancelSync() " + info.mAuthority + " " + info.mAccount);
-                    }
-                    if (mAllowParallelSyncs) {
-                        onSyncCanceled(info);
-                    } else {
-                        onSyncCanceled();
-                    }
-                } else {
-                    if (ENABLE_LOG) {
-                        Log.w(TAG, "cancelSync() unknown context");
-                    }
-                }
-            } catch (RuntimeException | Error th) {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "cancelSync() caught exception", th);
-                }
-                throw th;
-            } finally {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "cancelSync() finishing");
                 }
             }
+            if (info != null) {
+                if (mAllowParallelSyncs) {
+                    onSyncCanceled(info);
+                } else {
+                    onSyncCanceled();
+                }
+            }
+        }
+
+        public void initialize(Account account, String authority) throws RemoteException {
+            Bundle extras = new Bundle();
+            extras.putBoolean(ContentResolver.SYNC_EXTRAS_INITIALIZE, true);
+            startSync(null, authority, account, extras);
         }
     }
 
@@ -307,10 +256,6 @@ public abstract class AbstractThreadedSyncAdapter {
         public void run() {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
 
-            if (ENABLE_LOG) {
-                Log.d(TAG, "Thread started");
-            }
-
             // Trace this sync instance.  Note, conceptually this should be in
             // SyncStorageEngine.insertStartSyncEvent(), but the trace functions require unique
             // threads in order to track overlapping operations, so we'll do it here for now.
@@ -320,15 +265,8 @@ public abstract class AbstractThreadedSyncAdapter {
             ContentProviderClient provider = null;
             try {
                 if (isCanceled()) {
-                    if (ENABLE_LOG) {
-                        Log.d(TAG, "Already canceled");
-                    }
                     return;
                 }
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "Calling onPerformSync...");
-                }
-
                 provider = mContext.getContentResolver().acquireContentProviderClient(mAuthority);
                 if (provider != null) {
                     AbstractThreadedSyncAdapter.this.onPerformSync(mAccount, mExtras,
@@ -336,23 +274,10 @@ public abstract class AbstractThreadedSyncAdapter {
                 } else {
                     syncResult.databaseError = true;
                 }
-
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "onPerformSync done");
-                }
-
             } catch (SecurityException e) {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "SecurityException", e);
-                }
                 AbstractThreadedSyncAdapter.this.onSecurityException(mAccount, mExtras,
                         mAuthority, syncResult);
                 syncResult.databaseError = true;
-            } catch (RuntimeException | Error th) {
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "caught exception", th);
-                }
-                throw th;
             } finally {
                 Trace.traceEnd(Trace.TRACE_TAG_SYNC_MANAGER);
 
@@ -367,10 +292,6 @@ public abstract class AbstractThreadedSyncAdapter {
                 synchronized (mSyncThreadLock) {
                     mSyncThreads.remove(mThreadsKey);
                 }
-
-                if (ENABLE_LOG) {
-                    Log.d(TAG, "Thread finished");
-                }
             }
         }
 
@@ -384,54 +305,6 @@ public abstract class AbstractThreadedSyncAdapter {
      */
     public final IBinder getSyncAdapterBinder() {
         return mISyncAdapterImpl.asBinder();
-    }
-
-    /**
-     * Handle a call of onUnsyncableAccount.
-     *
-     * @param cb The callback to report the return value to
-     */
-    private void handleOnUnsyncableAccount(@NonNull ISyncAdapterUnsyncableAccountCallback cb) {
-        boolean doSync;
-        try {
-            doSync = onUnsyncableAccount();
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Exception while calling onUnsyncableAccount, assuming 'true'", e);
-            doSync = true;
-        }
-
-        try {
-            cb.onUnsyncableAccountDone(doSync);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Could not report result of onUnsyncableAccount", e);
-        }
-    }
-
-    /**
-     * Allows to defer syncing until all accounts are properly set up.
-     *
-     * <p>Called when a account / authority pair
-     * <ul>
-     * <li>that can be handled by this adapter</li>
-     * <li>{@link ContentResolver#requestSync(SyncRequest) is synced}</li>
-     * <li>and the account/provider {@link ContentResolver#getIsSyncable(Account, String) has
-     * unknown state (<0)}.</li>
-     * </ul>
-     *
-     * <p>This might be called on a different service connection as {@link #onPerformSync}.
-     *
-     * <p>The system expects this method to immediately return. If the call stalls the system
-     * behaves as if this method returned {@code true}. If it is required to perform a longer task
-     * (such as interacting with the user), return {@code false} and proceed in a difference
-     * context, such as an {@link android.app.Activity}, or foreground service. The sync can then be
-     * rescheduled once the account becomes syncable.
-     *
-     * @return If {@code false} syncing is deferred. Returns {@code true} by default, i.e. by
-     *         default syncing starts immediately.
-     */
-    @MainThread
-    public boolean onUnsyncableAccount() {
-        return true;
     }
 
     /**

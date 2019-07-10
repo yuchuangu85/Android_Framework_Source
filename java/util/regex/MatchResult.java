@@ -1,188 +1,83 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util.regex;
 
 /**
- * The result of a match operation.
- *
- * <p>This interface contains query methods used to determine the
- * results of a match against a regular expression. The match boundaries,
- * groups and group boundaries can be seen but not modified through
- * a <code>MatchResult</code>.
- *
- * @author  Michael McCloskey
- * @see Matcher
- * @since 1.5
+ * Holds the results of a successful match of a {@link Pattern} against a
+ * given string. Typically this is an instance of {@link Matcher}, but
+ * since that's a mutable class it's also possible to freeze its current
+ * state using {@link Matcher#toMatchResult}.
  */
 public interface MatchResult {
 
     /**
-     * Returns the start index of the match.
-     *
-     * @return  The index of the first character matched
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
+     * Returns the index of the first character following the text that matched
+     * the whole regular expression.
      */
-    public int start();
+    int end();
 
     /**
-     * Returns the start index of the subsequence captured by the given group
-     * during this match.
-     *
-     * <p> <a href="Pattern.html#cg">Capturing groups</a> are indexed from left
-     * to right, starting at one.  Group zero denotes the entire pattern, so
-     * the expression <i>m.</i><tt>start(0)</tt> is equivalent to
-     * <i>m.</i><tt>start()</tt>.  </p>
-     *
-     * @param  group
-     *         The index of a capturing group in this matcher's pattern
-     *
-     * @return  The index of the first character captured by the group,
-     *          or <tt>-1</tt> if the match was successful but the group
-     *          itself did not match anything
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If there is no capturing group in the pattern
-     *          with the given index
+     * Returns the index of the first character following the text that matched
+     * a given group. See {@link #group} for an explanation of group indexes.
      */
-    public int start(int group);
+    int end(int group);
 
     /**
-     * Returns the offset after the last character matched.
-     *
-     * @return  The offset after the last character matched
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
+     * Returns the text that matched the whole regular expression.
      */
-    public int end();
+    String group();
 
     /**
-     * Returns the offset after the last character of the subsequence
-     * captured by the given group during this match.
+     * Returns the text that matched a given group of the regular expression.
      *
-     * <p> <a href="Pattern.html#cg">Capturing groups</a> are indexed from left
-     * to right, starting at one.  Group zero denotes the entire pattern, so
-     * the expression <i>m.</i><tt>end(0)</tt> is equivalent to
-     * <i>m.</i><tt>end()</tt>.  </p>
+     * <p>Explicit capturing groups in the pattern are numbered left to right in order
+     * of their <i>opening</i> parenthesis, starting at 1.
+     * The special group 0 represents the entire match (as if the entire pattern is surrounded
+     * by an implicit capturing group).
+     * For example, "a((b)c)" matching "abc" would give the following groups:
+     * <pre>
+     * 0 "abc"
+     * 1 "bc"
+     * 2 "b"
+     * </pre>
      *
-     * @param  group
-     *         The index of a capturing group in this matcher's pattern
-     *
-     * @return  The offset after the last character captured by the group,
-     *          or <tt>-1</tt> if the match was successful
-     *          but the group itself did not match anything
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If there is no capturing group in the pattern
-     *          with the given index
+     * <p>An optional capturing group that failed to match as part of an overall
+     * successful match (for example, "a(b)?c" matching "ac") returns null.
+     * A capturing group that matched the empty string (for example, "a(b?)c" matching "ac")
+     * returns the empty string.
      */
-    public int end(int group);
+    String group(int group);
 
     /**
-     * Returns the input subsequence matched by the previous match.
-     *
-     * <p> For a matcher <i>m</i> with input sequence <i>s</i>,
-     * the expressions <i>m.</i><tt>group()</tt> and
-     * <i>s.</i><tt>substring(</tt><i>m.</i><tt>start(),</tt>&nbsp;<i>m.</i><tt>end())</tt>
-     * are equivalent.  </p>
-     *
-     * <p> Note that some patterns, for example <tt>a*</tt>, match the empty
-     * string.  This method will return the empty string when the pattern
-     * successfully matches the empty string in the input.  </p>
-     *
-     * @return The (possibly empty) subsequence matched by the previous match,
-     *         in string form
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
+     * Returns the number of groups in the results, which is always equal to
+     * the number of groups in the original regular expression.
      */
-    public String group();
+    int groupCount();
 
     /**
-     * Returns the input subsequence captured by the given group during the
-     * previous match operation.
-     *
-     * <p> For a matcher <i>m</i>, input sequence <i>s</i>, and group index
-     * <i>g</i>, the expressions <i>m.</i><tt>group(</tt><i>g</i><tt>)</tt> and
-     * <i>s.</i><tt>substring(</tt><i>m.</i><tt>start(</tt><i>g</i><tt>),</tt>&nbsp;<i>m.</i><tt>end(</tt><i>g</i><tt>))</tt>
-     * are equivalent.  </p>
-     *
-     * <p> <a href="Pattern.html#cg">Capturing groups</a> are indexed from left
-     * to right, starting at one.  Group zero denotes the entire pattern, so
-     * the expression <tt>m.group(0)</tt> is equivalent to <tt>m.group()</tt>.
-     * </p>
-     *
-     * <p> If the match was successful but the group specified failed to match
-     * any part of the input sequence, then <tt>null</tt> is returned. Note
-     * that some groups, for example <tt>(a*)</tt>, match the empty string.
-     * This method will return the empty string when such a group successfully
-     * matches the empty string in the input.  </p>
-     *
-     * @param  group
-     *         The index of a capturing group in this matcher's pattern
-     *
-     * @return  The (possibly empty) subsequence captured by the group
-     *          during the previous match, or <tt>null</tt> if the group
-     *          failed to match part of the input
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If there is no capturing group in the pattern
-     *          with the given index
+     * Returns the index of the first character of the text that matched the
+     * whole regular expression.
      */
-    public String group(int group);
+    int start();
 
     /**
-     * Returns the number of capturing groups in this match result's pattern.
-     *
-     * <p> Group zero denotes the entire pattern by convention. It is not
-     * included in this count.
-     *
-     * <p> Any non-negative integer smaller than or equal to the value
-     * returned by this method is guaranteed to be a valid group index for
-     * this matcher.  </p>
-     *
-     * @return The number of capturing groups in this matcher's pattern
+     * Returns the index of the first character of the text that matched a given
+     * group. See {@link #group} for an explanation of group indexes.
      */
-    public int groupCount();
-
+    int start(int group);
 }

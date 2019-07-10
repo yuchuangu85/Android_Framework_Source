@@ -16,8 +16,9 @@
 package android.hardware.camera2.legacy;
 
 import android.hardware.camera2.CaptureRequest;
-import android.hardware.camera2.utils.SubmitInfo;
+import android.hardware.camera2.utils.LongParcelable;
 import android.util.Log;
+import android.util.Pair;
 
 import java.util.ArrayDeque;
 import java.util.List;
@@ -40,28 +41,6 @@ public class RequestQueue {
     private int mCurrentRequestId = 0;
     private final List<Long> mJpegSurfaceIds;
 
-    public final class RequestQueueEntry {
-        private final BurstHolder mBurstHolder;
-        private final Long mFrameNumber;
-        private final boolean mQueueEmpty;
-
-        public BurstHolder getBurstHolder() {
-            return mBurstHolder;
-        }
-        public Long getFrameNumber() {
-            return mFrameNumber;
-        }
-        public boolean isQueueEmpty() {
-            return mQueueEmpty;
-        }
-
-        public RequestQueueEntry(BurstHolder burstHolder, Long frameNumber, boolean queueEmpty) {
-            mBurstHolder = burstHolder;
-            mFrameNumber = frameNumber;
-            mQueueEmpty = queueEmpty;
-        }
-    }
-
     public RequestQueue(List<Long> jpegSurfaceIds) {
         mJpegSurfaceIds = jpegSurfaceIds;
     }
@@ -71,12 +50,10 @@ public class RequestQueue {
      *
      * <p>If a repeating burst is returned, it will not be removed.</p>
      *
-     * @return an entry containing the next burst, the current frame number, and flag about whether
-     * request queue becomes empty. Null if no burst exists.
+     * @return a pair containing the next burst and the current frame number, or null if none exist.
      */
-    public synchronized RequestQueueEntry getNext() {
+    public synchronized Pair<BurstHolder, Long> getNext() {
         BurstHolder next = mRequestQueue.poll();
-        boolean queueEmptied = (next != null && mRequestQueue.size() == 0);
         if (next == null && mRepeatingRequest != null) {
             next = mRepeatingRequest;
             mCurrentRepeatingFrameNumber = mCurrentFrameNumber +
@@ -87,7 +64,7 @@ public class RequestQueue {
             return null;
         }
 
-        RequestQueueEntry ret =  new RequestQueueEntry(next, mCurrentFrameNumber, queueEmptied);
+        Pair<BurstHolder, Long> ret =  new Pair<BurstHolder, Long>(next, mCurrentFrameNumber);
         mCurrentFrameNumber += next.getNumberOfRequests();
         return ret;
     }
@@ -134,29 +111,31 @@ public class RequestQueue {
      *
      * @param requests the burst of requests to add to the queue.
      * @param repeating true if the burst is repeating.
-     * @return the submission info, including the new request id, and the last frame number, which
-     *   contains either the frame number of the last frame that will be returned for this request,
-     *   or the frame number of the last frame that will be returned for the current repeating
-     *   request if this burst is set to be repeating.
+     * @param frameNumber an output argument that contains either the frame number of the last frame
+     *                    that will be returned for this request, or the frame number of the last
+     *                    frame that will be returned for the current repeating request if this
+     *                    burst is set to be repeating.
+     * @return the request id.
      */
-    public synchronized SubmitInfo submit(CaptureRequest[] requests, boolean repeating) {
+    public synchronized int submit(List<CaptureRequest> requests, boolean repeating,
+            /*out*/LongParcelable frameNumber) {
         int requestId = mCurrentRequestId++;
         BurstHolder burst = new BurstHolder(requestId, repeating, requests, mJpegSurfaceIds);
-        long lastFrame = INVALID_FRAME;
+        long ret = INVALID_FRAME;
         if (burst.isRepeating()) {
             Log.i(TAG, "Repeating capture request set.");
             if (mRepeatingRequest != null) {
-                lastFrame = (mCurrentRepeatingFrameNumber == INVALID_FRAME) ? INVALID_FRAME :
+                ret = (mCurrentRepeatingFrameNumber == INVALID_FRAME) ? INVALID_FRAME :
                         mCurrentRepeatingFrameNumber - 1;
             }
             mCurrentRepeatingFrameNumber = INVALID_FRAME;
             mRepeatingRequest = burst;
         } else {
             mRequestQueue.offer(burst);
-            lastFrame = calculateLastFrame(burst.getRequestId());
+            ret = calculateLastFrame(burst.getRequestId());
         }
-        SubmitInfo info = new SubmitInfo(requestId, lastFrame);
-        return info;
+        frameNumber.setNumber(ret);
+        return requestId;
     }
 
     private long calculateLastFrame(int requestId) {

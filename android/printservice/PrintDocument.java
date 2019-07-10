@@ -16,8 +16,6 @@
 
 package android.printservice;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.print.PrintDocumentInfo;
@@ -56,7 +54,7 @@ public final class PrintDocument {
      *
      * @return The document info.
      */
-    public @NonNull PrintDocumentInfo getInfo() {
+    public PrintDocumentInfo getInfo() {
         PrintService.throwIfNotCalledOnMainThread();
         return mInfo;
     }
@@ -71,7 +69,7 @@ public final class PrintDocument {
      *
      * @return A file descriptor for reading the data.
      */
-    public @Nullable ParcelFileDescriptor getData() {
+    public ParcelFileDescriptor getData() {
         PrintService.throwIfNotCalledOnMainThread();
         ParcelFileDescriptor source = null;
         ParcelFileDescriptor sink = null;

@@ -70,7 +70,7 @@ public class Duration
             index++;
         }
 
-        if (len <= index) {
+        if (len < index) {
             return ;
         }
 
@@ -81,9 +81,6 @@ public class Duration
                     + index);
         }
         index++;
-        if (len <= index) {
-            return;
-        }
         c = str.charAt(index);
         if (c == 'T') {
             index++;

@@ -19,37 +19,42 @@ package com.android.internal.telephony.imsphone;
 import android.content.Context;
 import android.net.LinkProperties;
 import android.os.AsyncResult;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
-import android.os.WorkSource;
 import android.telephony.CellInfo;
 import android.telephony.CellLocation;
-import android.telephony.NetworkScanRequest;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
-import android.util.Pair;
+import android.telephony.Rlog;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
+import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
+import com.android.internal.telephony.dataconnection.DataConnection;
+import com.android.internal.telephony.cdma.CDMAPhone;
+import com.android.internal.telephony.gsm.GSMPhone;
+import com.android.internal.telephony.CallManager;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccPhoneBookInterfaceManager;
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.OperatorInfo;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.internal.telephony.PhoneSubInfo;
 import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.telephony.dataconnection.DataConnection;
+import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.ArrayList;
 import java.util.List;
 
-abstract class ImsPhoneBase extends Phone {
+abstract class ImsPhoneBase extends PhoneBase {
     private static final String LOG_TAG = "ImsPhoneBase";
 
     private RegistrantList mRingbackRegistrants = new RegistrantList();
@@ -57,13 +62,12 @@ abstract class ImsPhoneBase extends Phone {
     private RegistrantList mTtyModeReceivedRegistrants = new RegistrantList();
     private PhoneConstants.State mState = PhoneConstants.State.IDLE;
 
-    public ImsPhoneBase(String name, Context context, PhoneNotifier notifier,
-                        boolean unitTestMode) {
-        super(name, notifier, context, new ImsPhoneCommandInterface(context), unitTestMode);
+    public ImsPhoneBase(String name, Context context, PhoneNotifier notifier) {
+        super(name, notifier, context, new ImsPhoneCommandInterface(context), false);
     }
 
     @Override
-    public void migrateFrom(Phone from) {
+    public void migrateFrom(PhoneBase from) {
         super.migrateFrom(from);
         migrate(mRingbackRegistrants, ((ImsPhoneBase)from).mRingbackRegistrants);
     }
@@ -78,14 +82,12 @@ abstract class ImsPhoneBase extends Phone {
         mRingbackRegistrants.remove(h);
     }
 
-    @Override
-    public void startRingbackTone() {
+    protected void startRingbackTone() {
         AsyncResult result = new AsyncResult(null, Boolean.TRUE, null);
         mRingbackRegistrants.notifyRegistrants(result);
     }
 
-    @Override
-    public void stopRingbackTone() {
+    protected void stopRingbackTone() {
         AsyncResult result = new AsyncResult(null, Boolean.FALSE, null);
         mRingbackRegistrants.notifyRegistrants(result);
     }
@@ -100,25 +102,14 @@ abstract class ImsPhoneBase extends Phone {
         mOnHoldRegistrants.remove(h);
     }
 
-    /**
-     * Signals all registrants that the remote hold tone should be started for a connection.
-     *
-     * @param cn The connection.
-     */
-    @VisibleForTesting
-    public void startOnHoldTone(Connection cn) {
-        Pair<Connection, Boolean> result = new Pair<Connection, Boolean>(cn, Boolean.TRUE);
-        mOnHoldRegistrants.notifyRegistrants(new AsyncResult(null, result, null));
+    protected void startOnHoldTone() {
+        AsyncResult result = new AsyncResult(null, Boolean.TRUE, null);
+        mOnHoldRegistrants.notifyRegistrants(result);
     }
 
-    /**
-     * Signals all registrants that the remote hold tone should be stopped for a connection.
-     *
-     * @param cn The connection.
-     */
-    protected void stopOnHoldTone(Connection cn) {
-        Pair<Connection, Boolean> result = new Pair<Connection, Boolean>(cn, Boolean.FALSE);
-        mOnHoldRegistrants.notifyRegistrants(new AsyncResult(null, result, null));
+    protected void stopOnHoldTone() {
+        AsyncResult result = new AsyncResult(null, Boolean.FALSE, null);
+        mOnHoldRegistrants.notifyRegistrants(result);
     }
 
     @Override
@@ -141,7 +132,7 @@ abstract class ImsPhoneBase extends Phone {
         // FIXME: we may need to provide this when data connectivity is lost
         // or when server is down
         ServiceState s = new ServiceState();
-        s.setVoiceRegState(ServiceState.STATE_IN_SERVICE);
+        s.setState(ServiceState.STATE_IN_SERVICE);
         return s;
     }
 
@@ -149,12 +140,12 @@ abstract class ImsPhoneBase extends Phone {
      * @return all available cell information or null if none.
      */
     @Override
-    public List<CellInfo> getAllCellInfo(WorkSource workSource) {
-        return getServiceStateTracker().getAllCellInfo(workSource);
+    public List<CellInfo> getAllCellInfo() {
+        return getServiceStateTracker().getAllCellInfo();
     }
 
     @Override
-    public CellLocation getCellLocation(WorkSource workSource) {
+    public CellLocation getCellLocation() {
         return null;
     }
 
@@ -207,7 +198,7 @@ abstract class ImsPhoneBase extends Phone {
      * Notify any interested party of a Phone state change
      * {@link com.android.internal.telephony.PhoneConstants.State}
      */
-    public void notifyPhoneStateChanged() {
+    /* package */ void notifyPhoneStateChanged() {
         mNotifier.notifyPhoneState(this);
     }
 
@@ -216,22 +207,20 @@ abstract class ImsPhoneBase extends Phone {
      * {@link com.android.internal.telephony.Call.State}. Use this when changes
      * in the precise call state are needed, else use notifyPhoneStateChanged.
      */
-    public void notifyPreciseCallStateChanged() {
+    /* package */ void notifyPreciseCallStateChanged() {
         /* we'd love it if this was package-scoped*/
         super.notifyPreciseCallStateChangedP();
     }
 
-    public void notifyDisconnect(Connection cn) {
+    void notifyDisconnect(Connection cn) {
         mDisconnectRegistrants.notifyResult(cn);
-
-        mNotifier.notifyDisconnectCause(cn.getDisconnectCause(), cn.getPreciseDisconnectCause());
     }
 
     void notifyUnknownConnection() {
         mUnknownConnectionRegistrants.notifyResult(this);
     }
 
-    public void notifySuppServiceFailed(SuppService code) {
+    void notifySuppServiceFailed(SuppService code) {
         mSuppServiceFailedRegistrants.notifyResult(code);
     }
 
@@ -430,20 +419,21 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
-    }
-
-    @Override
-    public void stopNetworkScan(Message response) {
-    }
-
-    @Override
     public void setNetworkSelectionModeAutomatic(Message response) {
     }
 
     @Override
-    public void selectNetworkManually(OperatorInfo network, boolean persistSelection,
+    public void selectNetworkManually(
+            OperatorInfo network,
             Message response) {
+    }
+
+    @Override
+    public void getNeighboringCids(Message response) {
+    }
+
+    @Override
+    public void getDataCallList(Message response) {
     }
 
     public List<DataConnection> getCurrentDataConnectionList () {
@@ -472,17 +462,12 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isUserDataEnabled() {
+    public boolean getDataEnabled() {
         return false;
     }
 
     @Override
-    public boolean isDataEnabled() {
-        return false;
-    }
-
-    @Override
-    public void setUserDataEnabled(boolean enable) {
+    public void setDataEnabled(boolean enable) {
     }
 
 
@@ -495,8 +480,20 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isDataAllowed() {
+    public boolean isDataConnectivityPossible() {
         return false;
+    }
+
+    boolean updateCurrentCarrierInProvider() {
+        return false;
+    }
+
+    public void saveClirSetting(int commandInterfaceCLIRMode) {
+    }
+
+    @Override
+    public PhoneSubInfo getPhoneSubInfo(){
+        return null;
     }
 
     @Override
@@ -536,16 +533,6 @@ abstract class ImsPhoneBase extends Phone {
     public LinkProperties getLinkProperties(String apnType) {
         // FIXME: what's this for Volte?
         return null;
-    }
-
-    @Override
-    public void getCallBarring(String facility, String password, Message onComplete,
-            int serviceClass) {
-    }
-
-    @Override
-    public void setCallBarring(String facility, boolean lockState, String password,
-            Message onComplete, int serviceClass) {
     }
 
     @Override

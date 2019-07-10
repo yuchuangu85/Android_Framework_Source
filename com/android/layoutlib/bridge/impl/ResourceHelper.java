@@ -25,7 +25,6 @@ import com.android.internal.util.XmlUtils;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
-import com.android.layoutlib.bridge.android.RenderParamsFlags;
 import com.android.ninepatch.NinePatch;
 import com.android.ninepatch.NinePatchChunk;
 import com.android.resources.Density;
@@ -34,32 +33,20 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.res.ColorStateList;
-import android.content.res.ComplexColor;
-import android.content.res.ComplexColor_Accessor;
-import android.content.res.FontResourcesParser;
-import android.content.res.GradientColor;
-import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap_Delegate;
-import android.graphics.Color;
 import android.graphics.NinePatch_Delegate;
 import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.graphics.Typeface_Accessor;
-import android.graphics.Typeface_Delegate;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
-import android.text.FontConfig;
 import android.util.TypedValue;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -82,162 +69,101 @@ public final class ResourceHelper {
      * @return the color as an int
      * @throws NumberFormatException if the conversion failed.
      */
-    public static int getColor(@Nullable String value) {
-        if (value == null) {
-            throw new NumberFormatException("null value");
-        }
-
-        value = value.trim();
-        int len = value.length();
-
-        // make sure it's not longer than 32bit or smaller than the RGB format
-        if (len < 2 || len > 9) {
-            throw new NumberFormatException(String.format(
-                    "Color value '%s' has wrong size. Format is either" +
-                            "#AARRGGBB, #RRGGBB, #RGB, or #ARGB",
-                    value));
-        }
-
-        if (value.charAt(0) != '#') {
-            if (value.startsWith(SdkConstants.PREFIX_THEME_REF)) {
-                throw new NumberFormatException(String.format(
-                        "Attribute '%s' not found. Are you using the right theme?", value));
+    public static int getColor(String value) {
+        if (value != null) {
+            if (!value.startsWith("#")) {
+                if (value.startsWith(SdkConstants.PREFIX_THEME_REF)) {
+                    throw new NumberFormatException(String.format(
+                            "Attribute '%s' not found. Are you using the right theme?", value));
+                }
+                throw new NumberFormatException(
+                        String.format("Color value '%s' must start with #", value));
             }
-            throw new NumberFormatException(
-                    String.format("Color value '%s' must start with #", value));
+
+            value = value.substring(1);
+
+            // make sure it's not longer than 32bit
+            if (value.length() > 8) {
+                throw new NumberFormatException(String.format(
+                        "Color value '%s' is too long. Format is either" +
+                        "#AARRGGBB, #RRGGBB, #RGB, or #ARGB",
+                        value));
+            }
+
+            if (value.length() == 3) { // RGB format
+                char[] color = new char[8];
+                color[0] = color[1] = 'F';
+                color[2] = color[3] = value.charAt(0);
+                color[4] = color[5] = value.charAt(1);
+                color[6] = color[7] = value.charAt(2);
+                value = new String(color);
+            } else if (value.length() == 4) { // ARGB format
+                char[] color = new char[8];
+                color[0] = color[1] = value.charAt(0);
+                color[2] = color[3] = value.charAt(1);
+                color[4] = color[5] = value.charAt(2);
+                color[6] = color[7] = value.charAt(3);
+                value = new String(color);
+            } else if (value.length() == 6) {
+                value = "FF" + value;
+            }
+
+            // this is a RRGGBB or AARRGGBB value
+
+            // Integer.parseInt will fail to parse strings like "ff191919", so we use
+            // a Long, but cast the result back into an int, since we know that we're only
+            // dealing with 32 bit values.
+            return (int)Long.parseLong(value, 16);
         }
 
-        value = value.substring(1);
-
-        if (len == 4) { // RGB format
-            char[] color = new char[8];
-            color[0] = color[1] = 'F';
-            color[2] = color[3] = value.charAt(0);
-            color[4] = color[5] = value.charAt(1);
-            color[6] = color[7] = value.charAt(2);
-            value = new String(color);
-        } else if (len == 5) { // ARGB format
-            char[] color = new char[8];
-            color[0] = color[1] = value.charAt(0);
-            color[2] = color[3] = value.charAt(1);
-            color[4] = color[5] = value.charAt(2);
-            color[6] = color[7] = value.charAt(3);
-            value = new String(color);
-        } else if (len == 7) {
-            value = "FF" + value;
-        }
-
-        // this is a RRGGBB or AARRGGBB value
-
-        // Integer.parseInt will fail to parse strings like "ff191919", so we use
-        // a Long, but cast the result back into an int, since we know that we're only
-        // dealing with 32 bit values.
-        return (int)Long.parseLong(value, 16);
+        throw new NumberFormatException();
     }
 
-    /**
-     * Returns a {@link ComplexColor} from the given {@link ResourceValue}
-     *
-     * @param resValue the value containing a color value or a file path to a complex color
-     * definition
-     * @param context the current context
-     * @param theme the theme to use when resolving the complex color
-     * @param allowGradients when false, only {@link ColorStateList} will be returned. If a {@link
-     * GradientColor} is found, null will be returned.
-     */
-    @Nullable
-    private static ComplexColor getInternalComplexColor(@NonNull ResourceValue resValue,
-            @NonNull BridgeContext context, @Nullable Theme theme, boolean allowGradients) {
+    public static ColorStateList getColorStateList(ResourceValue resValue, BridgeContext context) {
         String value = resValue.getValue();
-        if (value == null || RenderResources.REFERENCE_NULL.equals(value)) {
-            return null;
-        }
-
-        // try to load the color state list from an int
-        try {
-            int color = getColor(value);
-            return ColorStateList.valueOf(color);
-        } catch (NumberFormatException ignored) {
-        }
-
-        try {
-            BridgeXmlBlockParser blockParser = getXmlBlockParser(context, resValue);
-            if (blockParser != null) {
+        if (value != null && !RenderResources.REFERENCE_NULL.equals(value)) {
+            // first check if the value is a file (xml most likely)
+            File f = new File(value);
+            if (f.isFile()) {
                 try {
-                    // Advance the parser to the first element so we can detect if it's a
-                    // color list or a gradient color
-                    int type;
-                    //noinspection StatementWithEmptyBody
-                    while ((type = blockParser.next()) != XmlPullParser.START_TAG
-                            && type != XmlPullParser.END_DOCUMENT) {
-                        // Seek parser to start tag.
-                    }
+                    // let the framework inflate the ColorStateList from the XML file, by
+                    // providing an XmlPullParser
+                    XmlPullParser parser = ParserFactory.create(f);
 
-                    if (type != XmlPullParser.START_TAG) {
-                        assert false : "No start tag found";
-                        return null;
+                    BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(
+                            parser, context, resValue.isFramework());
+                    try {
+                        return ColorStateList.createFromXml(context.getResources(), blockParser);
+                    } finally {
+                        blockParser.ensurePopped();
                     }
+                } catch (XmlPullParserException e) {
+                    Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+                            "Failed to configure parser for " + value, e, null /*data*/);
+                    // we'll return null below.
+                } catch (Exception e) {
+                    // this is an error and not warning since the file existence is
+                    // checked before attempting to parse it.
+                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
+                            "Failed to parse file " + value, e, null /*data*/);
 
-                    final String name = blockParser.getName();
-                    if (allowGradients && "gradient".equals(name)) {
-                        return ComplexColor_Accessor.createGradientColorFromXmlInner(
-                                context.getResources(),
-                                blockParser, blockParser,
-                                theme);
-                    } else if ("selector".equals(name)) {
-                        return ComplexColor_Accessor.createColorStateListFromXmlInner(
-                                context.getResources(),
-                                blockParser, blockParser,
-                                theme);
-                    }
-                } finally {
-                    blockParser.ensurePopped();
+                    return null;
+                }
+            } else {
+                // try to load the color state list from an int
+                try {
+                    int color = ResourceHelper.getColor(value);
+                    return ColorStateList.valueOf(color);
+                } catch (NumberFormatException e) {
+                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT,
+                            "Failed to convert " + value + " into a ColorStateList", e,
+                            null /*data*/);
+                    return null;
                 }
             }
-        } catch (XmlPullParserException e) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                    "Failed to configure parser for " + value, e, null /*data*/);
-            // we'll return null below.
-        } catch (Exception e) {
-            // this is an error and not warning since the file existence is
-            // checked before attempting to parse it.
-            Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
-                    "Failed to parse file " + value, e, null /*data*/);
-
-            return null;
         }
 
         return null;
-    }
-
-    /**
-     * Returns a {@link ColorStateList} from the given {@link ResourceValue}
-     *
-     * @param resValue the value containing a color value or a file path to a complex color
-     * definition
-     * @param context the current context
-     */
-    @Nullable
-    public static ColorStateList getColorStateList(@NonNull ResourceValue resValue,
-            @NonNull BridgeContext context, @Nullable Resources.Theme theme) {
-        return (ColorStateList) getInternalComplexColor(resValue, context,
-                theme != null ? theme : context.getTheme(),
-                false);
-    }
-
-    /**
-     * Returns a {@link ComplexColor} from the given {@link ResourceValue}
-     *
-     * @param resValue the value containing a color value or a file path to a complex color
-     * definition
-     * @param context the current context
-     */
-    @Nullable
-    public static ComplexColor getComplexColor(@NonNull ResourceValue resValue,
-            @NonNull BridgeContext context, @Nullable Resources.Theme theme) {
-        return getInternalComplexColor(resValue, context,
-                theme != null ? theme : context.getTheme(),
-                true);
     }
 
     /**
@@ -248,37 +174,6 @@ public final class ResourceHelper {
      */
     public static Drawable getDrawable(ResourceValue value, BridgeContext context) {
         return getDrawable(value, context, null);
-    }
-
-    /**
-     * Returns a {@link BridgeXmlBlockParser} to parse the given {@link ResourceValue}. The passed
-     * value must point to an XML resource.
-     */
-    @Nullable
-    public static BridgeXmlBlockParser getXmlBlockParser(@NonNull BridgeContext context,
-            @NonNull ResourceValue value)
-            throws FileNotFoundException, XmlPullParserException {
-        String stringValue = value.getValue();
-        if (RenderResources.REFERENCE_NULL.equals(stringValue)) {
-            return null;
-        }
-
-        XmlPullParser parser = null;
-
-        // Framework values never need a PSI parser. They do not change and the do not contain
-        // aapt:attr attributes.
-        if (!value.isFramework()) {
-            parser = context.getLayoutlibCallback().getParser(value);
-        }
-
-        if (parser == null) {
-            File xmlFile = new File(stringValue);
-            if (xmlFile.isFile()) {
-                parser = ParserFactory.create(xmlFile);
-            }
-        }
-
-        return new BridgeXmlBlockParser(parser, context, value.isFramework());
     }
 
     /**
@@ -298,27 +193,21 @@ public final class ResourceHelper {
         }
 
         String lowerCaseValue = stringValue.toLowerCase();
-        // try the simple case first. Attempt to get a color from the value
-        try {
-            int color = getColor(stringValue);
-            return new ColorDrawable(color);
-        } catch (NumberFormatException ignore) {
-        }
 
         Density density = Density.MEDIUM;
         if (value instanceof DensityBasedResourceValue) {
-            density = ((DensityBasedResourceValue) value).getResourceDensity();
-            if (density == Density.NODPI || density == Density.ANYDPI) {
-                density = Density.getEnum(context.getConfiguration().densityDpi);
-            }
+            density =
+                ((DensityBasedResourceValue)value).getResourceDensity();
         }
+
 
         if (lowerCaseValue.endsWith(NinePatch.EXTENSION_9PATCH)) {
             File file = new File(stringValue);
             if (file.isFile()) {
                 try {
-                    return getNinePatchDrawable(new FileInputStream(file), density,
-                            value.isFramework(), stringValue, context);
+                    return getNinePatchDrawable(
+                            new FileInputStream(file), density, value.isFramework(),
+                            stringValue, context);
                 } catch (IOException e) {
                     // failed to read the file, we'll return null below.
                     Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
@@ -327,21 +216,30 @@ public final class ResourceHelper {
             }
 
             return null;
-        } else if (lowerCaseValue.endsWith(".xml") || stringValue.startsWith("@aapt:_aapt/")) {
+        } else if (lowerCaseValue.endsWith(".xml")) {
             // create a block parser for the file
-            try {
-                BridgeXmlBlockParser blockParser = getXmlBlockParser(context, value);
-                if (blockParser != null) {
+            File f = new File(stringValue);
+            if (f.isFile()) {
+                try {
+                    // let the framework inflate the Drawable from the XML file.
+                    XmlPullParser parser = ParserFactory.create(f);
+
+                    BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(
+                            parser, context, value.isFramework());
                     try {
                         return Drawable.createFromXml(context.getResources(), blockParser, theme);
                     } finally {
                         blockParser.ensurePopped();
                     }
+                } catch (Exception e) {
+                    // this is an error and not warning since the file existence is checked before
+                    // attempting to parse it.
+                    Bridge.getLog().error(null, "Failed to parse file " + stringValue,
+                            e, null /*data*/);
                 }
-            } catch (Exception e) {
-                // this is an error and not warning since the file existence is checked before
-                // attempting to parse it.
-                Bridge.getLog().error(null, "Failed to parse file " + stringValue, e,
+            } else {
+                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+                        String.format("File %s does not exist (or is not a file)", stringValue),
                         null /*data*/);
             }
 
@@ -354,8 +252,8 @@ public final class ResourceHelper {
                             value.isFramework() ? null : context.getProjectKey());
 
                     if (bitmap == null) {
-                        bitmap =
-                                Bitmap_Delegate.createBitmap(bmpFile, false /*isMutable*/, density);
+                        bitmap = Bitmap_Delegate.createBitmap(bmpFile, false /*isMutable*/,
+                                density);
                         Bridge.setCachedBitmap(stringValue, bitmap,
                                 value.isFramework() ? null : context.getProjectKey());
                     }
@@ -366,42 +264,21 @@ public final class ResourceHelper {
                     Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
                             "Failed lot load " + bmpFile.getAbsolutePath(), e, null /*data*/);
                 }
+            } else {
+                // attempt to get a color from the value
+                try {
+                    int color = getColor(stringValue);
+                    return new ColorDrawable(color);
+                } catch (NumberFormatException e) {
+                    // we'll return null below.
+                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT,
+                            "Failed to convert " + stringValue + " into a drawable", e,
+                            null /*data*/);
+                }
             }
         }
 
         return null;
-    }
-
-    /**
-     * Returns a {@link Typeface} given a font name. The font name, can be a system font family
-     * (like sans-serif) or a full path if the font is to be loaded from resources.
-     */
-    public static Typeface getFont(String fontName, BridgeContext context, Theme theme, boolean
-            isFramework) {
-        if (fontName == null) {
-            return null;
-        }
-
-        if (Typeface_Accessor.isSystemFont(fontName)) {
-            // Shortcut for the case where we are asking for a system font name. Those are not
-            // loaded using external resources.
-            return null;
-        }
-
-
-        return Typeface_Delegate.createFromDisk(context, fontName, isFramework);
-    }
-
-    /**
-     * Returns a {@link Typeface} given a font name. The font name, can be a system font family
-     * (like sans-serif) or a full path if the font is to be loaded from resources.
-     */
-    public static Typeface getFont(ResourceValue value, BridgeContext context, Theme theme) {
-        if (value == null) {
-            return null;
-        }
-
-        return getFont(value.getValue(), context, theme, value.isFramework());
     }
 
     private static Drawable getNinePatchDrawable(InputStream inputStream, Density density,

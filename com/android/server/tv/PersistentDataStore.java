@@ -91,7 +91,7 @@ final class PersistentDataStore {
                 throw new IllegalStateException("User dir cannot be created: " + userDir);
             }
         }
-        mAtomicFile = new AtomicFile(new File(userDir, "tv-input-manager-state.xml"), "tv-input-state");
+        mAtomicFile = new AtomicFile(new File(userDir, "tv-input-manager-state.xml"));
     }
 
     public boolean isParentalControlsEnabled() {
@@ -251,7 +251,7 @@ final class PersistentDataStore {
                     throw new XmlPullParserException(
                             "Missing " + ATTR_ENABLED + " attribute on " + TAG_PARENTAL_CONTROLS);
                 }
-                mParentalControlsEnabled = Boolean.parseBoolean(enabled);
+                mParentalControlsEnabled = Boolean.valueOf(enabled);
             }
         }
     }

@@ -16,7 +16,6 @@
 
 package android.media.tv;
 
-import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.Rect;
 import android.media.PlaybackParams;
@@ -60,27 +59,20 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
     private static final int DO_RELAYOUT_OVERLAY_VIEW = 11;
     private static final int DO_REMOVE_OVERLAY_VIEW = 12;
     private static final int DO_UNBLOCK_CONTENT = 13;
-    private static final int DO_TIME_SHIFT_PLAY = 14;
-    private static final int DO_TIME_SHIFT_PAUSE = 15;
-    private static final int DO_TIME_SHIFT_RESUME = 16;
-    private static final int DO_TIME_SHIFT_SEEK_TO = 17;
-    private static final int DO_TIME_SHIFT_SET_PLAYBACK_PARAMS = 18;
-    private static final int DO_TIME_SHIFT_ENABLE_POSITION_TRACKING = 19;
-    private static final int DO_START_RECORDING = 20;
-    private static final int DO_STOP_RECORDING = 21;
+    private static final int DO_TIME_SHIFT_PAUSE = 14;
+    private static final int DO_TIME_SHIFT_RESUME = 15;
+    private static final int DO_TIME_SHIFT_SEEK_TO = 16;
+    private static final int DO_TIME_SHIFT_SET_PLAYBACK_PARAMS = 17;
+    private static final int DO_TIME_SHIFT_ENABLE_POSITION_TRACKING = 18;
 
-    private final boolean mIsRecordingSession;
     private final HandlerCaller mCaller;
 
     private TvInputService.Session mTvInputSessionImpl;
-    private TvInputService.RecordingSession mTvInputRecordingSessionImpl;
-
     private InputChannel mChannel;
     private TvInputEventReceiver mReceiver;
 
     public ITvInputSessionWrapper(Context context, TvInputService.Session sessionImpl,
             InputChannel channel) {
-        mIsRecordingSession = false;
         mCaller = new HandlerCaller(context, null, this, true /* asyncHandler */);
         mTvInputSessionImpl = sessionImpl;
         mChannel = channel;
@@ -89,38 +81,24 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
         }
     }
 
-    // For the recording session
-    public ITvInputSessionWrapper(Context context,
-            TvInputService.RecordingSession recordingSessionImpl) {
-        mIsRecordingSession = true;
-        mCaller = new HandlerCaller(context, null, this, true /* asyncHandler */);
-        mTvInputRecordingSessionImpl = recordingSessionImpl;
-    }
-
     @Override
     public void executeMessage(Message msg) {
-        if ((mIsRecordingSession && mTvInputRecordingSessionImpl == null)
-                || (!mIsRecordingSession && mTvInputSessionImpl == null)) {
+        if (mTvInputSessionImpl == null) {
             return;
         }
 
-        long startTime = System.nanoTime();
+        long startTime = System.currentTimeMillis();
         switch (msg.what) {
             case DO_RELEASE: {
-                if (mIsRecordingSession) {
-                    mTvInputRecordingSessionImpl.release();
-                    mTvInputRecordingSessionImpl = null;
-                } else {
-                    mTvInputSessionImpl.release();
-                    mTvInputSessionImpl = null;
-                    if (mReceiver != null) {
-                        mReceiver.dispose();
-                        mReceiver = null;
-                    }
-                    if (mChannel != null) {
-                        mChannel.dispose();
-                        mChannel = null;
-                    }
+                mTvInputSessionImpl.release();
+                mTvInputSessionImpl = null;
+                if (mReceiver != null) {
+                    mReceiver.dispose();
+                    mReceiver = null;
+                }
+                if (mChannel != null) {
+                    mChannel.dispose();
+                    mChannel = null;
                 }
                 break;
             }
@@ -144,11 +122,7 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
             }
             case DO_TUNE: {
                 SomeArgs args = (SomeArgs) msg.obj;
-                if (mIsRecordingSession) {
-                    mTvInputRecordingSessionImpl.tune((Uri) args.arg1, (Bundle) args.arg2);
-                } else {
-                    mTvInputSessionImpl.tune((Uri) args.arg1, (Bundle) args.arg2);
-                }
+                mTvInputSessionImpl.tune((Uri) args.arg1, (Bundle) args.arg2);
                 args.recycle();
                 break;
             }
@@ -164,12 +138,7 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
             }
             case DO_APP_PRIVATE_COMMAND: {
                 SomeArgs args = (SomeArgs) msg.obj;
-                if (mIsRecordingSession) {
-                    mTvInputRecordingSessionImpl.appPrivateCommand(
-                            (String) args.arg1, (Bundle) args.arg2);
-                } else {
-                    mTvInputSessionImpl.appPrivateCommand((String) args.arg1, (Bundle) args.arg2);
-                }
+                mTvInputSessionImpl.appPrivateCommand((String) args.arg1, (Bundle) args.arg2);
                 args.recycle();
                 break;
             }
@@ -189,10 +158,6 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
             }
             case DO_UNBLOCK_CONTENT: {
                 mTvInputSessionImpl.unblockContent((String) msg.obj);
-                break;
-            }
-            case DO_TIME_SHIFT_PLAY: {
-                mTvInputSessionImpl.timeShiftPlay((Uri) msg.obj);
                 break;
             }
             case DO_TIME_SHIFT_PAUSE: {
@@ -215,40 +180,30 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
                 mTvInputSessionImpl.timeShiftEnablePositionTracking((Boolean) msg.obj);
                 break;
             }
-            case DO_START_RECORDING: {
-                mTvInputRecordingSessionImpl.startRecording((Uri) msg.obj);
-                break;
-            }
-            case DO_STOP_RECORDING: {
-                mTvInputRecordingSessionImpl.stopRecording();
-                break;
-            }
             default: {
                 Log.w(TAG, "Unhandled message code: " + msg.what);
                 break;
             }
         }
-        long durationMs = (System.nanoTime() - startTime) / (1000 * 1000);
-        if (durationMs > EXECUTE_MESSAGE_TIMEOUT_SHORT_MILLIS) {
+        long duration = System.currentTimeMillis() - startTime;
+        if (duration > EXECUTE_MESSAGE_TIMEOUT_SHORT_MILLIS) {
             Log.w(TAG, "Handling message (" + msg.what + ") took too long time (duration="
-                    + durationMs + "ms)");
-            if (msg.what == DO_TUNE && durationMs > EXECUTE_MESSAGE_TUNE_TIMEOUT_MILLIS) {
-                throw new RuntimeException("Too much time to handle tune request. (" + durationMs
+                    + duration + "ms)");
+            if (msg.what == DO_TUNE && duration > EXECUTE_MESSAGE_TUNE_TIMEOUT_MILLIS) {
+                throw new RuntimeException("Too much time to handle tune request. (" + duration
                         + "ms > " + EXECUTE_MESSAGE_TUNE_TIMEOUT_MILLIS + "ms) "
                         + "Consider handling the tune request in a separate thread.");
             }
-            if (durationMs > EXECUTE_MESSAGE_TIMEOUT_LONG_MILLIS) {
+            if (duration > EXECUTE_MESSAGE_TIMEOUT_LONG_MILLIS) {
                 throw new RuntimeException("Too much time to handle a request. (type=" + msg.what +
-                        ", " + durationMs + "ms > " + EXECUTE_MESSAGE_TIMEOUT_LONG_MILLIS + "ms).");
+                        ", " + duration + "ms > " + EXECUTE_MESSAGE_TIMEOUT_LONG_MILLIS + "ms).");
             }
         }
     }
 
     @Override
     public void release() {
-        if (!mIsRecordingSession) {
-            mTvInputSessionImpl.scheduleOverlayViewCleanup();
-        }
+        mTvInputSessionImpl.scheduleOverlayViewCleanup();
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_RELEASE));
     }
 
@@ -319,12 +274,6 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
     }
 
     @Override
-    public void timeShiftPlay(Uri recordedProgramUri) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(
-                DO_TIME_SHIFT_PLAY, recordedProgramUri));
-    }
-
-    @Override
     public void timeShiftPause() {
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_TIME_SHIFT_PAUSE));
     }
@@ -351,23 +300,13 @@ public class ITvInputSessionWrapper extends ITvInputSession.Stub implements Hand
                 DO_TIME_SHIFT_ENABLE_POSITION_TRACKING, enable));
     }
 
-    @Override
-    public void startRecording(@Nullable Uri programUri) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_START_RECORDING, programUri));
-    }
-
-    @Override
-    public void stopRecording() {
-        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_STOP_RECORDING));
-    }
-
     private final class TvInputEventReceiver extends InputEventReceiver {
         public TvInputEventReceiver(InputChannel inputChannel, Looper looper) {
             super(inputChannel, looper);
         }
 
         @Override
-        public void onInputEvent(InputEvent event, int displayId) {
+        public void onInputEvent(InputEvent event) {
             if (mTvInputSessionImpl == null) {
                 // The session has been finished.
                 finishInputEvent(event, false);

@@ -28,7 +28,6 @@ import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -167,19 +166,13 @@ public class MakeCopy {
 
     private static void processLayoutFiles(String applicationPackage, File resTarget, File srcDir,
             File xmlDir, int minSdk, boolean isLibrary) {
+        ArrayList<File> resourceFolders = new ArrayList<File>();
+        resourceFolders.add(resTarget);
         MakeFileWriter makeFileWriter = new MakeFileWriter(srcDir);
         LayoutXmlProcessor xmlProcessor = new LayoutXmlProcessor(applicationPackage,
-                makeFileWriter, minSdk, isLibrary, new LayoutXmlProcessor.OriginalFileLookup() {
-            @Override
-            public File getOriginalFileFor(File file) {
-                return file;
-            }
-        });
+                resourceFolders, makeFileWriter, minSdk, isLibrary);
         try {
-            LayoutXmlProcessor.ResourceInput input = new LayoutXmlProcessor.ResourceInput(
-                    false, resTarget,resTarget
-            );
-            xmlProcessor.processResources(input);
+            xmlProcessor.processResources(minSdk);
             xmlProcessor.writeLayoutInfoFiles(xmlDir);
             // TODO Looks like make does not support excluding from libs ?
             xmlProcessor.writeInfoClass(null, xmlDir, null);

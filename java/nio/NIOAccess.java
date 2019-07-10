@@ -18,20 +18,16 @@ package java.nio;
 
 /**
  * This class is used via JNI by code in frameworks/base/.
- * @hide
  */
-// @VisibleForTesting : was default
-public final class NIOAccess {
+final class NIOAccess {
 
     /**
      * Returns the underlying native pointer to the data of the given
      * Buffer starting at the Buffer's current position, or 0 if the
      * Buffer is not backed by native heap storage.
-     * @hide
      */
-    // @VisibleForTesting : was default
-    public static long getBasePointer(Buffer b) {
-        long address = b.address;
+    static long getBasePointer(Buffer b) {
+        long address = b.effectiveDirectAddress;
         if (address == 0L) {
             return 0L;
         }

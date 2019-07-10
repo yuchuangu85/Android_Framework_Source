@@ -20,9 +20,9 @@ import com.android.ide.common.rendering.api.HardwareConfig;
 import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams;
+import com.android.ide.common.rendering.api.StyleResourceValue;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
-import com.android.layoutlib.bridge.android.RenderParamsFlags;
 import com.android.layoutlib.bridge.bars.AppCompatActionBar;
 import com.android.layoutlib.bridge.bars.BridgeActionBar;
 import com.android.layoutlib.bridge.bars.Config;
@@ -38,30 +38,24 @@ import android.annotation.NonNull;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
-import android.view.AttachInfo_Accessor;
 import android.view.View;
-import android.view.ViewRootImpl;
-import android.view.ViewRootImpl_Accessor;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
-import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 import static android.widget.LinearLayout.VERTICAL;
 import static com.android.layoutlib.bridge.impl.ResourceHelper.getBooleanThemeValue;
 
 /**
  * The Layout used to create the system decor.
- * <p>
+ *
  * The layout inflated will contain a content frame where the user's layout can be inflated.
  * <pre>
  *  +-------------------------------------------------+---+
  *  | Status bar                                      | N |
  *  +-------------------------------------------------+ a |
- *  | Title/Framework Action bar (optional)           | v |
- *  +-------------------------------------------------+   |
- *  | AppCompat Action bar (optional)                 |   |
+ *  | Title/Action bar (optional)                     | v |
  *  +-------------------------------------------------+   |
  *  | Content, vertical extending                     | b |
  *  |                                                 | a |
@@ -70,20 +64,19 @@ import static com.android.layoutlib.bridge.impl.ResourceHelper.getBooleanThemeVa
  * </pre>
  * or
  * <pre>
- *  +--------------------------------------+
- *  | Status bar                           |
- *  +--------------------------------------+
- *  | Title/Framework Action bar (optional)|
- *  +--------------------------------------+
- *  | AppCompat Action bar (optional)      |
- *  +--------------------------------------+
- *  | Content, vertical extending          |
- *  |                                      |
- *  |                                      |
- *  +--------------------------------------+
- *  | Nav bar                              |
- *  +--------------------------------------+
+ *  +-------------------------------------+
+ *  | Status bar                          |
+ *  +-------------------------------------+
+ *  | Title/Action bar (optional)         |
+ *  +-------------------------------------+
+ *  | Content, vertical extending         |
+ *  |                                     |
+ *  |                                     |
+ *  +-------------------------------------+
+ *  | Nav bar                             |
+ *  +-------------------------------------+
  * </pre>
+ *
  */
 class Layout extends RelativeLayout {
 
@@ -100,6 +93,7 @@ class Layout extends RelativeLayout {
     private static final String ATTR_WINDOW_TITLE_SIZE = "windowTitleSize";
     private static final String ATTR_WINDOW_TRANSLUCENT_STATUS = StatusBar.ATTR_TRANSLUCENT;
     private static final String ATTR_WINDOW_TRANSLUCENT_NAV = NavigationBar.ATTR_TRANSLUCENT;
+    private static final String PREFIX_THEME_APPCOMPAT = "Theme.AppCompat";
 
     // Default sizes
     private static final int DEFAULT_STATUS_BAR_HEIGHT = 25;
@@ -110,8 +104,7 @@ class Layout extends RelativeLayout {
     // layout params.
     private static final String ID_NAV_BAR = "navBar";
     private static final String ID_STATUS_BAR = "statusBar";
-    private static final String ID_APP_COMPAT_ACTION_BAR = "appCompatActionBar";
-    private static final String ID_FRAMEWORK_BAR = "frameworkBar";
+    private static final String ID_TITLE_BAR = "titleBar";
     // Prefix used with the above ids in order to make them unique in framework namespace.
     private static final String ID_PREFIX = "android_layoutlib_";
 
@@ -128,14 +121,7 @@ class Layout extends RelativeLayout {
 
     public Layout(@NonNull Builder builder) {
         super(builder.mContext);
-
         mBuilder = builder;
-        View frameworkActionBar = null;
-        View appCompatActionBar = null;
-        TitleBar titleBar = null;
-        StatusBar statusBar = null;
-        NavigationBar navBar = null;
-
         if (builder.mWindowBackground != null) {
             Drawable d = ResourceHelper.getDrawable(builder.mWindowBackground, builder.mContext);
             setBackground(d);
@@ -145,58 +131,49 @@ class Layout extends RelativeLayout {
         HardwareConfig hwConfig = getParams().getHardwareConfig();
         Density density = hwConfig.getDensity();
         boolean isRtl = Bridge.isLocaleRtl(getParams().getLocale());
-        setLayoutDirection(isRtl ? LAYOUT_DIRECTION_RTL : LAYOUT_DIRECTION_LTR);
+        setLayoutDirection(isRtl? LAYOUT_DIRECTION_RTL : LAYOUT_DIRECTION_LTR);
 
+        NavigationBar navBar = null;
         if (mBuilder.hasNavBar()) {
             navBar = createNavBar(getContext(), density, isRtl, getParams().isRtlSupported(),
                     simulatedPlatformVersion);
         }
 
-        if (builder.hasStatusBar()) {
+        StatusBar statusBar = null;
+        if (builder.mStatusBarSize > 0) {
             statusBar = createStatusBar(getContext(), density, isRtl, getParams().isRtlSupported(),
                     simulatedPlatformVersion);
         }
 
-        if (mBuilder.hasAppCompatActionBar()) {
-            BridgeActionBar bar = createActionBar(getContext(), getParams(), true);
+        View actionBar = null;
+        TitleBar titleBar = null;
+        if (builder.mActionBarSize > 0) {
+            BridgeActionBar bar = createActionBar(getContext(), getParams());
             mContentRoot = bar.getContentRoot();
-            appCompatActionBar = bar.getRootView();
-        }
-
-        // Title bar must appear on top of the Action bar
-        if (mBuilder.hasTitleBar()) {
+            actionBar = bar.getRootView();
+        } else if (mBuilder.mTitleBarSize > 0) {
             titleBar = createTitleBar(getContext(), getParams().getAppLabel(),
                     simulatedPlatformVersion);
-        } else if (mBuilder.hasFrameworkActionBar()) {
-            BridgeActionBar bar = createActionBar(getContext(), getParams(), false);
-            if(mContentRoot == null) {
-                // We only set the content root if the AppCompat action bar did not already
-                // provide it
-                mContentRoot = bar.getContentRoot();
-            }
-            frameworkActionBar = bar.getRootView();
         }
 
-        addViews(titleBar, mContentRoot == null ? (mContentRoot = createContentFrame()) : frameworkActionBar,
-                statusBar, navBar, appCompatActionBar);
+        addViews(titleBar, mContentRoot == null ? (mContentRoot = createContentFrame()) : actionBar,
+                statusBar, navBar);
         // Done with the builder. Don't hold a reference to it.
         mBuilder = null;
-    }
+     }
 
     @NonNull
     private FrameLayout createContentFrame() {
         FrameLayout contentRoot = new FrameLayout(getContext());
         LayoutParams params = createLayoutParams(MATCH_PARENT, MATCH_PARENT);
         int rule = mBuilder.isNavBarVertical() ? START_OF : ABOVE;
-        if (mBuilder.hasSolidNavBar()) {
+        if (mBuilder.hasNavBar() && mBuilder.solidBars()) {
             params.addRule(rule, getId(ID_NAV_BAR));
         }
         int below = -1;
-        if (mBuilder.mAppCompatActionBarSize > 0) {
-            below = getId(ID_APP_COMPAT_ACTION_BAR);
-        } else if (mBuilder.hasFrameworkActionBar() || mBuilder.hasTitleBar()) {
-            below = getId(ID_FRAMEWORK_BAR);
-        } else if (mBuilder.hasSolidStatusBar()) {
+        if (mBuilder.mActionBarSize <= 0 && mBuilder.mTitleBarSize > 0) {
+            below = getId(ID_TITLE_BAR);
+        } else if (mBuilder.hasStatusBar() && mBuilder.solidBars()) {
             below = getId(ID_STATUS_BAR);
         }
         if (below != -1) {
@@ -230,14 +207,14 @@ class Layout extends RelativeLayout {
 
     @NonNull
     @Override
-    public BridgeContext getContext() {
+    public BridgeContext getContext(){
         return (BridgeContext) super.getContext();
     }
 
     /**
-     * @param isRtl whether the current locale is an RTL locale.
-     * @param isRtlSupported whether the applications supports RTL (i.e. has supportsRtl=true in the
-     * manifest and targetSdkVersion >= 17.
+     * @param isRtl    whether the current locale is an RTL locale.
+     * @param isRtlSupported    whether the applications supports RTL (i.e. has supportsRtl=true
+     * in the manifest and targetSdkVersion >= 17.
      */
     @NonNull
     private StatusBar createStatusBar(BridgeContext context, Density density, boolean isRtl,
@@ -254,44 +231,22 @@ class Layout extends RelativeLayout {
     }
 
     private BridgeActionBar createActionBar(@NonNull BridgeContext context,
-            @NonNull SessionParams params, boolean appCompatActionBar) {
-        boolean isMenu = "menu".equals(params.getFlag(RenderParamsFlags.FLAG_KEY_ROOT_TAG));
-        String id;
-
-        // For the framework action bar, we set the height to MATCH_PARENT only if there is no
-        // AppCompat ActionBar below it
-        int heightRule = appCompatActionBar || !mBuilder.hasAppCompatActionBar() ? MATCH_PARENT :
-          WRAP_CONTENT;
-        LayoutParams layoutParams = createLayoutParams(MATCH_PARENT, heightRule);
-        int rule = mBuilder.isNavBarVertical() ? START_OF : ABOVE;
-        if (mBuilder.hasSolidNavBar()) {
-            // If there
-            if(rule == START_OF || appCompatActionBar || !mBuilder.hasAppCompatActionBar()) {
-                layoutParams.addRule(rule, getId(ID_NAV_BAR));
-            }
-        }
-
-
+            @NonNull SessionParams params) {
         BridgeActionBar actionBar;
-        if (appCompatActionBar && !isMenu) {
+        if (mBuilder.isThemeAppCompat()) {
             actionBar = new AppCompatActionBar(context, params);
-            id = ID_APP_COMPAT_ACTION_BAR;
-
-            if (mBuilder.hasTitleBar() || mBuilder.hasFrameworkActionBar()) {
-                layoutParams.addRule(BELOW, getId(ID_FRAMEWORK_BAR));
-            } else if (mBuilder.hasSolidStatusBar()) {
-                layoutParams.addRule(BELOW, getId(ID_STATUS_BAR));
-            }
         } else {
             actionBar = new FrameworkActionBar(context, params);
-            id = ID_FRAMEWORK_BAR;
-            if (mBuilder.hasSolidStatusBar()) {
-                layoutParams.addRule(BELOW, getId(ID_STATUS_BAR));
-            }
         }
-
+        LayoutParams layoutParams = createLayoutParams(MATCH_PARENT, MATCH_PARENT);
+        int rule = mBuilder.isNavBarVertical() ? START_OF : ABOVE;
+        if (mBuilder.hasNavBar() && mBuilder.solidBars()) {
+            layoutParams.addRule(rule, getId(ID_NAV_BAR));
+        }
+        if (mBuilder.hasStatusBar() && mBuilder.solidBars()) {
+            layoutParams.addRule(BELOW, getId(ID_STATUS_BAR));
+        }
         actionBar.getRootView().setLayoutParams(layoutParams);
-        actionBar.getRootView().setId(getId(id));
         actionBar.createMenuPopup();
         return actionBar;
     }
@@ -301,30 +256,29 @@ class Layout extends RelativeLayout {
             int simulatedPlatformVersion) {
         TitleBar titleBar = new TitleBar(context, title, simulatedPlatformVersion);
         LayoutParams params = createLayoutParams(MATCH_PARENT, mBuilder.mTitleBarSize);
-        if (mBuilder.hasSolidStatusBar()) {
+        if (mBuilder.hasStatusBar() && mBuilder.solidBars()) {
             params.addRule(BELOW, getId(ID_STATUS_BAR));
         }
-        if (mBuilder.isNavBarVertical() && mBuilder.hasSolidNavBar()) {
+        if (mBuilder.isNavBarVertical() && mBuilder.solidBars()) {
             params.addRule(START_OF, getId(ID_NAV_BAR));
         }
         titleBar.setLayoutParams(params);
-        titleBar.setId(getId(ID_FRAMEWORK_BAR));
+        titleBar.setId(getId(ID_TITLE_BAR));
         return titleBar;
     }
 
     /**
-     * @param isRtl whether the current locale is an RTL locale.
-     * @param isRtlSupported whether the applications supports RTL (i.e. has supportsRtl=true in the
-     * manifest and targetSdkVersion >= 17.
+     * @param isRtl    whether the current locale is an RTL locale.
+     * @param isRtlSupported    whether the applications supports RTL (i.e. has supportsRtl=true
+     * in the manifest and targetSdkVersion >= 17.
      */
     @NonNull
     private NavigationBar createNavBar(BridgeContext context, Density density, boolean isRtl,
             boolean isRtlSupported, int simulatedPlatformVersion) {
         int orientation = mBuilder.mNavBarOrientation;
         int size = mBuilder.mNavBarSize;
-        NavigationBar navBar =
-                new NavigationBar(context, density, orientation, isRtl, isRtlSupported,
-                        simulatedPlatformVersion);
+        NavigationBar navBar = new NavigationBar(context, density, orientation, isRtl,
+                isRtlSupported, simulatedPlatformVersion);
         boolean isVertical = mBuilder.isNavBarVertical();
         int w = isVertical ? size : MATCH_PARENT;
         int h = isVertical ? MATCH_PARENT : size;
@@ -347,18 +301,6 @@ class Layout extends RelativeLayout {
         return Bridge.getResourceId(ResourceType.ID, ID_PREFIX + name);
     }
 
-    @SuppressWarnings("deprecation")
-    @Override
-    public void requestFitSystemWindows() {
-        // The framework call would usually bubble up to ViewRootImpl but, in layoutlib, Layout will
-        // act as view root for most purposes. That way, we can also save going through the Handler
-        // to dispatch the new applied insets.
-        ViewRootImpl root = AttachInfo_Accessor.getRootView(this);
-        if (root != null) {
-            ViewRootImpl_Accessor.dispatchApplyInsets(root, this);
-        }
-    }
-
     /**
      * A helper class to help initialize the Layout.
      */
@@ -368,30 +310,30 @@ class Layout extends RelativeLayout {
         @NonNull
         private final BridgeContext mContext;
         private final RenderResources mResources;
-
+        
         private final boolean mWindowIsFloating;
         private ResourceValue mWindowBackground;
         private int mStatusBarSize;
         private int mNavBarSize;
         private int mNavBarOrientation;
-        private int mAppCompatActionBarSize;
-        private int mFrameworkActionBarSize;
+        private int mActionBarSize;
         private int mTitleBarSize;
         private boolean mTranslucentStatus;
         private boolean mTranslucentNav;
+
+        private Boolean mIsThemeAppCompat;
 
         public Builder(@NonNull SessionParams params, @NonNull BridgeContext context) {
             mParams = params;
             mContext = context;
             mResources = mParams.getResources();
             mWindowIsFloating = getBooleanThemeValue(mResources, ATTR_WINDOW_FLOATING, true, true);
-
+            
             findBackground();
 
             if (!mParams.isForceNoDecor()) {
                 findStatusBar();
-                findFrameworkBar();
-                findAppCompatActionBar();
+                findActionBar();
                 findNavBar();
             }
         }
@@ -409,77 +351,27 @@ class Layout extends RelativeLayout {
             if (!windowFullScreen && !mWindowIsFloating) {
                 mStatusBarSize =
                         getDimension(ATTR_STATUS_BAR_HEIGHT, true, DEFAULT_STATUS_BAR_HEIGHT);
-                mTranslucentStatus =
-                        getBooleanThemeValue(mResources, ATTR_WINDOW_TRANSLUCENT_STATUS, true,
-                                false);
+                mTranslucentStatus = getBooleanThemeValue(mResources,
+                        ATTR_WINDOW_TRANSLUCENT_STATUS, true, false);
             }
         }
 
-        /**
-         * The behavior is different wether the App is using AppCompat or not.
-         * <h1>With App compat :</h1>
-         * <li> framework ("android:") attributes have to effect
-         * <li> windowNoTile=true hides the AppCompatActionBar
-         * <li> windowActionBar=false throws an exception
-         */
-        private void findAppCompatActionBar() {
-            if (mWindowIsFloating || !mContext.isAppCompatTheme()) {
-                return;
-            }
-
-            boolean windowNoTitle =
-                    getBooleanThemeValue(mResources, ATTR_WINDOW_NO_TITLE, false, false);
-
-            boolean windowActionBar =
-                    getBooleanThemeValue(mResources, ATTR_WINDOW_ACTION_BAR, false, true);
-
-            if (!windowNoTitle && windowActionBar) {
-                mAppCompatActionBarSize =
-                        getDimension(ATTR_ACTION_BAR_SIZE, false, DEFAULT_TITLE_BAR_HEIGHT);
-            }
-        }
-
-        /**
-         * Find if we should show either the titleBar or the framework ActionBar
-         * <p>
-         * <h1> Without App compat :</h1>
-         * <li> windowNoTitle has no effect
-         * <li> android:windowNoTile=true hides the <b>ActionBar</b>
-         * <li> android:windowActionBar=true/false toggles between ActionBar/TitleBar
-         * </ul>
-         * <pre>
-         * +------------------------------------------------------------+
-         * |               |         android:windowNoTitle              |
-         * |android:       |    TRUE             |      FALSE           |
-         * |windowActionBar|---------------------+----------------------+
-         * |    TRUE       | Nothing             | ActionBar (Default)  |
-         * |    FALSE      | Nothing             | TitleBar             |
-         * +---------------+--------------------------------------------+
-         * </pre>
-         *
-         * @see #findAppCompatActionBar()
-         */
-        private void findFrameworkBar() {
+        private void  findActionBar() {
             if (mWindowIsFloating) {
                 return;
             }
-            boolean frameworkWindowNoTitle =
-                    getBooleanThemeValue(mResources, ATTR_WINDOW_NO_TITLE, true, false);
-
             // Check if an actionbar is needed
-            boolean isMenu = "menu".equals(mParams.getFlag(RenderParamsFlags.FLAG_KEY_ROOT_TAG));
-
-
-            boolean windowActionBar =
-                    getBooleanThemeValue(mResources, ATTR_WINDOW_ACTION_BAR, true, true);
-
-            if (!frameworkWindowNoTitle || isMenu) {
-                if (isMenu || windowActionBar) {
-                    mFrameworkActionBarSize =
-                            getDimension(ATTR_ACTION_BAR_SIZE, true, DEFAULT_TITLE_BAR_HEIGHT);
-                } else {
+            boolean windowActionBar = getBooleanThemeValue(mResources, ATTR_WINDOW_ACTION_BAR,
+                    !isThemeAppCompat(), true);
+            if (windowActionBar) {
+                mActionBarSize = getDimension(ATTR_ACTION_BAR_SIZE, true, DEFAULT_TITLE_BAR_HEIGHT);
+            } else {
+                // Maybe the gingerbread era title bar is needed
+                boolean windowNoTitle =
+                        getBooleanThemeValue(mResources, ATTR_WINDOW_NO_TITLE, true, false);
+                if (!windowNoTitle) {
                     mTitleBarSize =
-                            getDimension(ATTR_WINDOW_TITLE_SIZE, false, DEFAULT_TITLE_BAR_HEIGHT);
+                            getDimension(ATTR_WINDOW_TITLE_SIZE, true, DEFAULT_TITLE_BAR_HEIGHT);
                 }
             }
         }
@@ -502,15 +394,13 @@ class Layout extends RelativeLayout {
                 }
 
                 mNavBarOrientation = barOnBottom ? LinearLayout.HORIZONTAL : VERTICAL;
-                mNavBarSize =
-                        getDimension(barOnBottom ? ATTR_NAV_BAR_HEIGHT : ATTR_NAV_BAR_WIDTH, true,
-                                DEFAULT_NAV_BAR_SIZE);
-                mTranslucentNav =
-                        getBooleanThemeValue(mResources, ATTR_WINDOW_TRANSLUCENT_NAV, true, false);
+                mNavBarSize = getDimension(barOnBottom ? ATTR_NAV_BAR_HEIGHT : ATTR_NAV_BAR_WIDTH,
+                        true, DEFAULT_NAV_BAR_SIZE);
+                mTranslucentNav = getBooleanThemeValue(mResources,
+                        ATTR_WINDOW_TRANSLUCENT_NAV, true, false);
             }
         }
 
-        @SuppressWarnings("SameParameterValue")
         private int getDimension(String attr, boolean isFramework, int defaultValue) {
             ResourceValue value = mResources.findItemInTheme(attr, isFramework);
             value = mResources.resolveResValue(value);
@@ -527,18 +417,39 @@ class Layout extends RelativeLayout {
             return mParams.getHardwareConfig().hasSoftwareButtons();
         }
 
-        /**
-         * Return true if the nav bar is present and not translucent
-         */
-        private boolean hasSolidNavBar() {
-            return hasNavBar() && !mTranslucentNav;
+        private boolean isThemeAppCompat() {
+            // If a cached value exists, return it.
+            if (mIsThemeAppCompat != null) {
+                return mIsThemeAppCompat;
+            }
+            // Ideally, we should check if the corresponding activity extends
+            // android.support.v7.app.ActionBarActivity, and not care about the theme name at all.
+            StyleResourceValue defaultTheme = mResources.getDefaultTheme();
+            // We can't simply check for parent using resources.themeIsParentOf() since the
+            // inheritance structure isn't really what one would expect. The first common parent
+            // between Theme.AppCompat.Light and Theme.AppCompat is Theme.Material (for v21).
+            boolean isThemeAppCompat = false;
+            for (int i = 0; i < 50; i++) {
+                if (defaultTheme == null) {
+                    break;
+                }
+                // for loop ensures that we don't run into cyclic theme inheritance.
+                if (defaultTheme.getName().startsWith(PREFIX_THEME_APPCOMPAT)) {
+                    isThemeAppCompat = true;
+                    break;
+                }
+                defaultTheme = mResources.getParent(defaultTheme);
+            }
+            mIsThemeAppCompat = isThemeAppCompat;
+            return isThemeAppCompat;
         }
 
         /**
-         * Return true if the status bar is present and not translucent
+         * Return true if the status bar or nav bar are present, they are not translucent (i.e
+         * content doesn't overlap with them).
          */
-        private boolean hasSolidStatusBar() {
-            return hasStatusBar() && !mTranslucentStatus;
+        private boolean solidBars() {
+            return !(hasNavBar() && mTranslucentNav) && !(hasStatusBar() && mTranslucentStatus);
         }
 
         private boolean hasNavBar() {
@@ -546,16 +457,8 @@ class Layout extends RelativeLayout {
                     hasSoftwareButtons() && mNavBarSize > 0;
         }
 
-        private boolean hasTitleBar() {
-            return mTitleBarSize > 0;
-        }
-
         private boolean hasStatusBar() {
             return mStatusBarSize > 0;
-        }
-
-        private boolean hasAppCompatActionBar() {
-            return mAppCompatActionBarSize > 0;
         }
 
         /**
@@ -563,10 +466,6 @@ class Layout extends RelativeLayout {
          */
         private boolean isNavBarVertical() {
             return hasNavBar() && mNavBarOrientation == VERTICAL;
-        }
-
-        private boolean hasFrameworkActionBar() {
-            return mFrameworkActionBarSize > 0;
         }
     }
 }

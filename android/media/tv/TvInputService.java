@@ -16,8 +16,6 @@
 
 package android.media.tv;
 
-import android.annotation.FloatRange;
-import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
@@ -77,8 +75,6 @@ import java.util.Set;
 public abstract class TvInputService extends Service {
     private static final boolean DEBUG = false;
     private static final String TAG = "TvInputService";
-
-    private static final int DETACH_OVERLAY_VIEW_TIMEOUT_MS = 5000;
 
     /**
      * This is the interface name that a service implementing a TV input should say that it support
@@ -140,38 +136,26 @@ public abstract class TvInputService extends Service {
             }
 
             @Override
-            public void createRecordingSession(ITvInputSessionCallback cb, String inputId) {
-                if (cb == null) {
-                    return;
-                }
-                SomeArgs args = SomeArgs.obtain();
-                args.arg1 = cb;
-                args.arg2 = inputId;
-                mServiceHandler.obtainMessage(ServiceHandler.DO_CREATE_RECORDING_SESSION, args)
-                        .sendToTarget();
-            }
-
-            @Override
             public void notifyHardwareAdded(TvInputHardwareInfo hardwareInfo) {
-                mServiceHandler.obtainMessage(ServiceHandler.DO_ADD_HARDWARE_INPUT,
+                mServiceHandler.obtainMessage(ServiceHandler.DO_ADD_HARDWARE_TV_INPUT,
                         hardwareInfo).sendToTarget();
             }
 
             @Override
             public void notifyHardwareRemoved(TvInputHardwareInfo hardwareInfo) {
-                mServiceHandler.obtainMessage(ServiceHandler.DO_REMOVE_HARDWARE_INPUT,
+                mServiceHandler.obtainMessage(ServiceHandler.DO_REMOVE_HARDWARE_TV_INPUT,
                         hardwareInfo).sendToTarget();
             }
 
             @Override
             public void notifyHdmiDeviceAdded(HdmiDeviceInfo deviceInfo) {
-                mServiceHandler.obtainMessage(ServiceHandler.DO_ADD_HDMI_INPUT,
+                mServiceHandler.obtainMessage(ServiceHandler.DO_ADD_HDMI_TV_INPUT,
                         deviceInfo).sendToTarget();
             }
 
             @Override
             public void notifyHdmiDeviceRemoved(HdmiDeviceInfo deviceInfo) {
-                mServiceHandler.obtainMessage(ServiceHandler.DO_REMOVE_HDMI_INPUT,
+                mServiceHandler.obtainMessage(ServiceHandler.DO_REMOVE_HDMI_TV_INPUT,
                         deviceInfo).sendToTarget();
             }
         };
@@ -188,19 +172,6 @@ public abstract class TvInputService extends Service {
      */
     @Nullable
     public abstract Session onCreateSession(String inputId);
-
-    /**
-     * Returns a concrete implementation of {@link RecordingSession}.
-     *
-     * <p>May return {@code null} if this TV input service fails to create a recording session for
-     * some reason.
-     *
-     * @param inputId The ID of the TV input associated with the recording session.
-     */
-    @Nullable
-    public RecordingSession onCreateRecordingSession(String inputId) {
-        return null;
-    }
 
     /**
      * Returns a new {@link TvInputInfo} object if this service is responsible for
@@ -270,6 +241,7 @@ public abstract class TvInputService extends Service {
      * Base class for derived classes to implement to provide a TV input session.
      */
     public abstract static class Session implements KeyEvent.Callback {
+        private static final int DETACH_OVERLAY_VIEW_TIMEOUT_MS = 5000;
         private static final int POSITION_UPDATE_INTERVAL_MS = 1000;
 
         private final KeyEvent.DispatcherState mDispatcherState = new KeyEvent.DispatcherState();
@@ -284,8 +256,8 @@ public abstract class TvInputService extends Service {
         private boolean mOverlayViewEnabled;
         private IBinder mWindowToken;
         private Rect mOverlayFrame;
-        private long mStartPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
-        private long mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
+        private long mStartPositionMs;
+        private long mCurrentPositionMs;
         private final TimeShiftPositionTrackingRunnable
                 mTimeShiftPositionTrackingRunnable = new TimeShiftPositionTrackingRunnable();
 
@@ -304,6 +276,7 @@ public abstract class TvInputService extends Service {
             mContext = context;
             mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
             mHandler = new Handler(context.getMainLooper());
+            mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
         }
 
         /**
@@ -349,7 +322,7 @@ public abstract class TvInputService extends Service {
         @SystemApi
         public void notifySessionEvent(@NonNull final String eventType, final Bundle eventArgs) {
             Preconditions.checkNotNull(eventType);
-            executeOrPostRunnableOnMainThread(new Runnable() {
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -374,8 +347,7 @@ public abstract class TvInputService extends Service {
          * @param channelUri The URI of the new channel.
          */
         public void notifyChannelRetuned(final Uri channelUri) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -400,11 +372,22 @@ public abstract class TvInputService extends Service {
          * with a different track ID.
          *
          * @param tracks A list which includes track information.
+         * @throws IllegalArgumentException if {@code tracks} contains redundant tracks.
          */
         public void notifyTracksChanged(final List<TvTrackInfo> tracks) {
+            Set<String> trackIdSet = new HashSet<>();
+            for (TvTrackInfo track : tracks) {
+                String trackId = track.getId();
+                if (trackIdSet.contains(trackId)) {
+                    throw new IllegalArgumentException("redundant track ID: " + trackId);
+                }
+                trackIdSet.add(trackId);
+            }
+            trackIdSet.clear();
+
+            // TODO: Validate the track list.
             final List<TvTrackInfo> tracksCopy = new ArrayList<>(tracks);
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -434,8 +417,7 @@ public abstract class TvInputService extends Service {
          * @see #onSelectTrack
          */
         public void notifyTrackSelected(final int type, final String trackId) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -455,14 +437,13 @@ public abstract class TvInputService extends Service {
          * until this method is called.
          *
          * <p>The TV input service must call this method as soon as the content rendered onto its
-         * surface is ready for viewing. This method must be called each time {@link #onTune}
+         * surface is ready for viewing. This method must be called each time {@link #onTune(Uri)}
          * is called.
          *
          * @see #notifyVideoUnavailable
          */
         public void notifyVideoAvailable() {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -492,14 +473,12 @@ public abstract class TvInputService extends Service {
          *            </ul>
          * @see #notifyVideoAvailable
          */
-        public void notifyVideoUnavailable(
-                @TvInputManager.VideoUnavailableReason final int reason) {
+        public void notifyVideoUnavailable(final int reason) {
             if (reason < TvInputManager.VIDEO_UNAVAILABLE_REASON_START
                     || reason > TvInputManager.VIDEO_UNAVAILABLE_REASON_END) {
-                Log.e(TAG, "notifyVideoUnavailable - unknown reason: " + reason);
+                throw new IllegalArgumentException("Unknown reason: " + reason);
             }
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -539,8 +518,7 @@ public abstract class TvInputService extends Service {
          * @see TvInputManager
          */
         public void notifyContentAllowed() {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -584,8 +562,7 @@ public abstract class TvInputService extends Service {
          */
         public void notifyContentBlocked(@NonNull final TvContentRating rating) {
             Preconditions.checkNotNull(rating);
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -625,13 +602,10 @@ public abstract class TvInputService extends Service {
          * <li>{@link TvInputManager#TIME_SHIFT_STATUS_AVAILABLE}
          * </ul>
          */
-        public void notifyTimeShiftStatusChanged(@TvInputManager.TimeShiftStatus final int status) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+        public void notifyTimeShiftStatusChanged(final int status) {
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
-                    timeShiftEnablePositionTracking(
-                            status == TvInputManager.TIME_SHIFT_STATUS_AVAILABLE);
                     try {
                         if (DEBUG) Log.d(TAG, "notifyTimeShiftStatusChanged");
                         if (mSessionCallback != null) {
@@ -645,8 +619,7 @@ public abstract class TvInputService extends Service {
         }
 
         private void notifyTimeShiftStartPositionChanged(final long timeMs) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -662,8 +635,7 @@ public abstract class TvInputService extends Service {
         }
 
         private void notifyTimeShiftCurrentPositionChanged(final long timeMs) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -693,8 +665,7 @@ public abstract class TvInputService extends Service {
             if (left > right || top > bottom) {
                 throw new IllegalArgumentException("Invalid parameter");
             }
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
+            executeOrPostRunnable(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -745,7 +716,7 @@ public abstract class TvInputService extends Service {
          * Called when the application sets the surface.
          *
          * <p>The TV input service should render video onto the given surface. When called with
-         * {@code null}, the input service should immediately free any references to the
+         * {@code null}, the input service should immediately release any references to the
          * currently set surface and stop using it.
          *
          * @param surface The surface to be used for video rendering. Can be {@code null}.
@@ -789,7 +760,7 @@ public abstract class TvInputService extends Service {
          *
          * @param volume A volume value between {@code 0.0f} to {@code 1.0f}.
          */
-        public abstract void onSetStreamVolume(@FloatRange(from = 0.0, to = 1.0) float volume);
+        public abstract void onSetStreamVolume(float volume);
 
         /**
          * Tunes to a given channel.
@@ -804,17 +775,14 @@ public abstract class TvInputService extends Service {
         public abstract boolean onTune(Uri channelUri);
 
         /**
-         * Tunes to a given channel. Override this method in order to handle domain-specific
-         * features that are only known between certain TV inputs and their clients.
-         *
-         * <p>The default implementation calls {@link #onTune(Uri)}.
+         * Calls {@link #onTune(Uri)}. Override this method in order to handle {@code params}.
          *
          * @param channelUri The URI of the channel.
-         * @param params Domain-specific data for this tune request. Keys <em>must</em> be a scoped
-         *            name, i.e. prefixed with a package name you own, so that different developers
-         *            will not create conflicting keys.
+         * @param params The extra parameters from other applications.
          * @return {@code true} if the tuning was successful, {@code false} otherwise.
+         * @hide
          */
+        @SystemApi
         public boolean onTune(Uri channelUri, Bundle params) {
             return onTune(channelUri);
         }
@@ -873,7 +841,9 @@ public abstract class TvInputService extends Service {
          *            i.e. prefixed with a package name you own, so that different developers will
          *            not create conflicting commands.
          * @param data Any data to include with the command.
+         * @hide
          */
+        @SystemApi
         public void onAppPrivateCommand(@NonNull String action, Bundle data) {
         }
 
@@ -888,28 +858,13 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Called when the application requests to play a given recorded TV program.
-         *
-         * @param recordedProgramUri The URI of a recorded TV program.
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetStartPosition()
-         * @see #onTimeShiftGetCurrentPosition()
-         */
-        public void onTimeShiftPlay(Uri recordedProgramUri) {
-        }
-
-        /**
          * Called when the application requests to pause playback.
          *
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetStartPosition()
-         * @see #onTimeShiftGetCurrentPosition()
+         * @see #onTimeShiftResume
+         * @see #onTimeShiftSeekTo
+         * @see #onTimeShiftSetPlaybackParams
+         * @see #onTimeShiftGetStartPosition
+         * @see #onTimeShiftGetCurrentPosition
          */
         public void onTimeShiftPause() {
         }
@@ -917,12 +872,11 @@ public abstract class TvInputService extends Service {
         /**
          * Called when the application requests to resume playback.
          *
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetStartPosition()
-         * @see #onTimeShiftGetCurrentPosition()
+         * @see #onTimeShiftPause
+         * @see #onTimeShiftSeekTo
+         * @see #onTimeShiftSetPlaybackParams
+         * @see #onTimeShiftGetStartPosition
+         * @see #onTimeShiftGetCurrentPosition
          */
         public void onTimeShiftResume() {
         }
@@ -934,12 +888,11 @@ public abstract class TvInputService extends Service {
          * not in the range.
          *
          * @param timeMs The time position to seek to, in milliseconds since the epoch.
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetStartPosition()
-         * @see #onTimeShiftGetCurrentPosition()
+         * @see #onTimeShiftResume
+         * @see #onTimeShiftPause
+         * @see #onTimeShiftSetPlaybackParams
+         * @see #onTimeShiftGetStartPosition
+         * @see #onTimeShiftGetCurrentPosition
          */
         public void onTimeShiftSeekTo(long timeMs) {
         }
@@ -952,58 +905,50 @@ public abstract class TvInputService extends Service {
          * parameters previously set.
          *
          * @param params The playback params.
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftGetStartPosition()
-         * @see #onTimeShiftGetCurrentPosition()
+         * @see #onTimeShiftResume
+         * @see #onTimeShiftPause
+         * @see #onTimeShiftSeekTo
+         * @see #onTimeShiftGetStartPosition
+         * @see #onTimeShiftGetCurrentPosition
          */
         public void onTimeShiftSetPlaybackParams(PlaybackParams params) {
         }
 
         /**
-         * Returns the start position for time shifting, in milliseconds since the epoch.
+         * Returns the start playback position for time shifting, in milliseconds since the epoch.
          * Returns {@link TvInputManager#TIME_SHIFT_INVALID_TIME} if the position is unknown at the
          * moment.
          *
-         * <p>The start position for time shifting indicates the earliest possible time the user can
-         * seek to. Initially this is equivalent to the time when the implementation starts
-         * recording. Later it may be adjusted because there is insufficient space or the duration
-         * of recording is limited by the implementation. The application does not allow the user to
-         * seek to a position earlier than the start position.
+         * <p>The start playback position of the time shifted program should be adjusted when the
+         * implementation cannot retain the whole recorded program due to some reason (e.g.
+         * limitation on storage space). It is the earliest possible time position that the user can
+         * seek to, thus failure to notifying its change immediately might result in bad experience
+         * where the application allows the user to seek to an invalid time position.
          *
-         * <p>For playback of a recorded program initiated by {@link #onTimeShiftPlay(Uri)}, the
-         * start position should be 0 and does not change.
-         *
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetCurrentPosition()
+         * @see #onTimeShiftResume
+         * @see #onTimeShiftPause
+         * @see #onTimeShiftSeekTo
+         * @see #onTimeShiftSetPlaybackParams
+         * @see #onTimeShiftGetCurrentPosition
          */
         public long onTimeShiftGetStartPosition() {
             return TvInputManager.TIME_SHIFT_INVALID_TIME;
         }
 
         /**
-         * Returns the current position for time shifting, in milliseconds since the epoch.
+         * Returns the current playback position for time shifting, in milliseconds since the epoch.
          * Returns {@link TvInputManager#TIME_SHIFT_INVALID_TIME} if the position is unknown at the
          * moment.
          *
-         * <p>The current position for time shifting is the same as the current position of
-         * playback. It should be equal to or greater than the start position reported by
-         * {@link #onTimeShiftGetStartPosition()}. When playback is completed, the current position
-         * should stay where the playback ends, in other words, the returned value of this mehtod
-         * should be equal to the start position plus the duration of the program.
+         * <p>Note that the current playback position should be equal to or greater than the start
+         * playback position reported by {@link #onTimeShiftGetStartPosition}. Failure to notifying
+         * the correct current position might lead to bad user experience.
          *
-         * @see #onTimeShiftPlay(Uri)
-         * @see #onTimeShiftResume()
-         * @see #onTimeShiftPause()
-         * @see #onTimeShiftSeekTo(long)
-         * @see #onTimeShiftSetPlaybackParams(PlaybackParams)
-         * @see #onTimeShiftGetStartPosition()
+         * @see #onTimeShiftResume
+         * @see #onTimeShiftPause
+         * @see #onTimeShiftSeekTo
+         * @see #onTimeShiftSetPlaybackParams
+         * @see #onTimeShiftGetStartPosition
          */
         public long onTimeShiftGetCurrentPosition() {
             return TvInputManager.TIME_SHIFT_INVALID_TIME;
@@ -1182,7 +1127,7 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Calls {@link #onTune(Uri, Bundle)}.
+         * Calls {@link #onTune}.
          */
         void tune(Uri channelUri, Bundle params) {
             mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
@@ -1248,7 +1193,7 @@ public abstract class TvInputService extends Service {
             // Creates a container view to check hanging on the overlay view detaching.
             // Adding/removing the overlay view to/from the container make the view attach/detach
             // logic run on the main thread.
-            mOverlayViewContainer = new FrameLayout(mContext.getApplicationContext());
+            mOverlayViewContainer = new FrameLayout(mContext);
             mOverlayViewContainer.addView(mOverlayView);
             // TvView's window type is TYPE_APPLICATION_MEDIA and we want to create
             // an overlay window above the media window but below the application window.
@@ -1315,14 +1260,6 @@ public abstract class TvInputService extends Service {
                 mOverlayViewContainer = null;
                 mWindowParams = null;
             }
-        }
-
-        /**
-         * Calls {@link #onTimeShiftPlay(Uri)}.
-         */
-        void timeShiftPlay(Uri recordedProgramUri) {
-            mCurrentPositionMs = 0;
-            onTimeShiftPlay(recordedProgramUri);
         }
 
         /**
@@ -1448,7 +1385,7 @@ public abstract class TvInputService extends Service {
             }
         }
 
-        private void executeOrPostRunnableOnMainThread(Runnable action) {
+        private void executeOrPostRunnable(Runnable action) {
             synchronized(mLock) {
                 if (mSessionCallback == null) {
                     // The session is not initialized yet.
@@ -1468,8 +1405,7 @@ public abstract class TvInputService extends Service {
             @Override
             public void run() {
                 long startPositionMs = onTimeShiftGetStartPosition();
-                if (mStartPositionMs == TvInputManager.TIME_SHIFT_INVALID_TIME
-                        || mStartPositionMs != startPositionMs) {
+                if (mStartPositionMs != startPositionMs) {
                     mStartPositionMs = startPositionMs;
                     notifyTimeShiftStartPositionChanged(startPositionMs);
                 }
@@ -1480,8 +1416,7 @@ public abstract class TvInputService extends Service {
                             + "position.");
                     currentPositionMs = mStartPositionMs;
                 }
-                if (mCurrentPositionMs == TvInputManager.TIME_SHIFT_INVALID_TIME
-                        || mCurrentPositionMs != currentPositionMs) {
+                if (mCurrentPositionMs != currentPositionMs) {
                     mCurrentPositionMs = currentPositionMs;
                     notifyTimeShiftCurrentPositionChanged(currentPositionMs);
                 }
@@ -1490,320 +1425,25 @@ public abstract class TvInputService extends Service {
                         POSITION_UPDATE_INTERVAL_MS);
             }
         }
-    }
 
-    private static final class OverlayViewCleanUpTask extends AsyncTask<View, Void, Void> {
-        @Override
-        protected Void doInBackground(View... views) {
-            View overlayViewParent = views[0];
-            try {
-                Thread.sleep(DETACH_OVERLAY_VIEW_TIMEOUT_MS);
-            } catch (InterruptedException e) {
+        private final class OverlayViewCleanUpTask extends AsyncTask<View, Void, Void> {
+            @Override
+            protected Void doInBackground(View... views) {
+                View overlayViewParent = views[0];
+                try {
+                    Thread.sleep(DETACH_OVERLAY_VIEW_TIMEOUT_MS);
+                } catch (InterruptedException e) {
+                    return null;
+                }
+                if (isCancelled()) {
+                    return null;
+                }
+                if (overlayViewParent.isAttachedToWindow()) {
+                    Log.e(TAG, "Time out on releasing overlay view. Killing "
+                            + overlayViewParent.getContext().getPackageName());
+                    Process.killProcess(Process.myPid());
+                }
                 return null;
-            }
-            if (isCancelled()) {
-                return null;
-            }
-            if (overlayViewParent.isAttachedToWindow()) {
-                Log.e(TAG, "Time out on releasing overlay view. Killing "
-                        + overlayViewParent.getContext().getPackageName());
-                Process.killProcess(Process.myPid());
-            }
-            return null;
-        }
-    }
-
-    /**
-     * Base class for derived classes to implement to provide a TV input recording session.
-     */
-    public abstract static class RecordingSession {
-        final Handler mHandler;
-
-        private final Object mLock = new Object();
-        // @GuardedBy("mLock")
-        private ITvInputSessionCallback mSessionCallback;
-        // @GuardedBy("mLock")
-        private final List<Runnable> mPendingActions = new ArrayList<>();
-
-        /**
-         * Creates a new RecordingSession.
-         *
-         * @param context The context of the application
-         */
-        public RecordingSession(Context context) {
-            mHandler = new Handler(context.getMainLooper());
-        }
-
-        /**
-         * Informs the application that this recording session has been tuned to the given channel
-         * and is ready to start recording.
-         *
-         * <p>Upon receiving a call to {@link #onTune(Uri)}, the session is expected to tune to the
-         * passed channel and call this method to indicate that it is now available for immediate
-         * recording. When {@link #onStartRecording(Uri)} is called, recording must start with
-         * minimal delay.
-         *
-         * @param channelUri The URI of a channel.
-         */
-        public void notifyTuned(Uri channelUri) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
-                @Override
-                public void run() {
-                    try {
-                        if (DEBUG) Log.d(TAG, "notifyTuned");
-                        if (mSessionCallback != null) {
-                            mSessionCallback.onTuned(channelUri);
-                        }
-                    } catch (RemoteException e) {
-                        Log.w(TAG, "error in notifyTuned", e);
-                    }
-                }
-            });
-        }
-
-        /**
-         * Informs the application that this recording session has stopped recording and created a
-         * new data entry in the {@link TvContract.RecordedPrograms} table that describes the newly
-         * recorded program.
-         *
-         * <p>The recording session must call this method in response to {@link #onStopRecording()}.
-         * The session may call it even before receiving a call to {@link #onStopRecording()} if a
-         * partially recorded program is available when there is an error.
-         *
-         * @param recordedProgramUri The URI of the newly recorded program.
-         */
-        public void notifyRecordingStopped(final Uri recordedProgramUri) {
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
-                @Override
-                public void run() {
-                    try {
-                        if (DEBUG) Log.d(TAG, "notifyRecordingStopped");
-                        if (mSessionCallback != null) {
-                            mSessionCallback.onRecordingStopped(recordedProgramUri);
-                        }
-                    } catch (RemoteException e) {
-                        Log.w(TAG, "error in notifyRecordingStopped", e);
-                    }
-                }
-            });
-        }
-
-        /**
-         * Informs the application that there is an error and this recording session is no longer
-         * able to start or continue recording. It may be called at any time after the recording
-         * session is created until {@link #onRelease()} is called.
-         *
-         * <p>The application may release the current session upon receiving the error code through
-         * {@link TvRecordingClient.RecordingCallback#onError(int)}. The session may call
-         * {@link #notifyRecordingStopped(Uri)} if a partially recorded but still playable program
-         * is available, before calling this method.
-         *
-         * @param error The error code. Should be one of the followings.
-         * <ul>
-         * <li>{@link TvInputManager#RECORDING_ERROR_UNKNOWN}
-         * <li>{@link TvInputManager#RECORDING_ERROR_INSUFFICIENT_SPACE}
-         * <li>{@link TvInputManager#RECORDING_ERROR_RESOURCE_BUSY}
-         * </ul>
-         */
-        public void notifyError(@TvInputManager.RecordingError int error) {
-            if (error < TvInputManager.RECORDING_ERROR_START
-                    || error > TvInputManager.RECORDING_ERROR_END) {
-                Log.w(TAG, "notifyError - invalid error code (" + error
-                        + ") is changed to RECORDING_ERROR_UNKNOWN.");
-                error = TvInputManager.RECORDING_ERROR_UNKNOWN;
-            }
-            final int validError = error;
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
-                @Override
-                public void run() {
-                    try {
-                        if (DEBUG) Log.d(TAG, "notifyError");
-                        if (mSessionCallback != null) {
-                            mSessionCallback.onError(validError);
-                        }
-                    } catch (RemoteException e) {
-                        Log.w(TAG, "error in notifyError", e);
-                    }
-                }
-            });
-        }
-
-        /**
-         * Dispatches an event to the application using this recording session.
-         *
-         * @param eventType The type of the event.
-         * @param eventArgs Optional arguments of the event.
-         * @hide
-         */
-        @SystemApi
-        public void notifySessionEvent(@NonNull final String eventType, final Bundle eventArgs) {
-            Preconditions.checkNotNull(eventType);
-            executeOrPostRunnableOnMainThread(new Runnable() {
-                @MainThread
-                @Override
-                public void run() {
-                    try {
-                        if (DEBUG) Log.d(TAG, "notifySessionEvent(" + eventType + ")");
-                        if (mSessionCallback != null) {
-                            mSessionCallback.onSessionEvent(eventType, eventArgs);
-                        }
-                    } catch (RemoteException e) {
-                        Log.w(TAG, "error in sending event (event=" + eventType + ")", e);
-                    }
-                }
-            });
-        }
-
-        /**
-         * Called when the application requests to tune to a given channel for TV program recording.
-         *
-         * <p>The application may call this method before starting or after stopping recording, but
-         * not during recording.
-         *
-         * <p>The session must call {@link #notifyTuned(Uri)} if the tune request was fulfilled, or
-         * {@link #notifyError(int)} otherwise.
-         *
-         * @param channelUri The URI of a channel.
-         */
-        public abstract void onTune(Uri channelUri);
-
-        /**
-         * Called when the application requests to tune to a given channel for TV program recording.
-         * Override this method in order to handle domain-specific features that are only known
-         * between certain TV inputs and their clients.
-         *
-         * <p>The application may call this method before starting or after stopping recording, but
-         * not during recording. The default implementation calls {@link #onTune(Uri)}.
-         *
-         * <p>The session must call {@link #notifyTuned(Uri)} if the tune request was fulfilled, or
-         * {@link #notifyError(int)} otherwise.
-         *
-         * @param channelUri The URI of a channel.
-         * @param params Domain-specific data for this tune request. Keys <em>must</em> be a scoped
-         *            name, i.e. prefixed with a package name you own, so that different developers
-         *            will not create conflicting keys.
-         */
-        public void onTune(Uri channelUri, Bundle params) {
-            onTune(channelUri);
-        }
-
-        /**
-         * Called when the application requests to start TV program recording. Recording must start
-         * immediately when this method is called.
-         *
-         * <p>The application may supply the URI for a TV program for filling in program specific
-         * data fields in the {@link android.media.tv.TvContract.RecordedPrograms} table.
-         * A non-null {@code programUri} implies the started recording should be of that specific
-         * program, whereas null {@code programUri} does not impose such a requirement and the
-         * recording can span across multiple TV programs. In either case, the application must call
-         * {@link TvRecordingClient#stopRecording()} to stop the recording.
-         *
-         * <p>The session must call {@link #notifyError(int)} if the start request cannot be
-         * fulfilled.
-         *
-         * @param programUri The URI for the TV program to record, built by
-         *            {@link TvContract#buildProgramUri(long)}. Can be {@code null}.
-         */
-        public abstract void onStartRecording(@Nullable Uri programUri);
-
-        /**
-         * Called when the application requests to stop TV program recording. Recording must stop
-         * immediately when this method is called.
-         *
-         * <p>The session must create a new data entry in the
-         * {@link android.media.tv.TvContract.RecordedPrograms} table that describes the newly
-         * recorded program and call {@link #notifyRecordingStopped(Uri)} with the URI to that
-         * entry.
-         * If the stop request cannot be fulfilled, the session must call {@link #notifyError(int)}.
-         *
-         */
-        public abstract void onStopRecording();
-
-
-        /**
-         * Called when the application requests to release all the resources held by this recording
-         * session.
-         */
-        public abstract void onRelease();
-
-        /**
-         * Processes a private command sent from the application to the TV input. This can be used
-         * to provide domain-specific features that are only known between certain TV inputs and
-         * their clients.
-         *
-         * @param action Name of the command to be performed. This <em>must</em> be a scoped name,
-         *            i.e. prefixed with a package name you own, so that different developers will
-         *            not create conflicting commands.
-         * @param data Any data to include with the command.
-         */
-        public void onAppPrivateCommand(@NonNull String action, Bundle data) {
-        }
-
-        /**
-         * Calls {@link #onTune(Uri, Bundle)}.
-         *
-         */
-        void tune(Uri channelUri, Bundle params) {
-            onTune(channelUri, params);
-        }
-
-        /**
-         * Calls {@link #onRelease()}.
-         *
-         */
-        void release() {
-            onRelease();
-        }
-
-        /**
-         * Calls {@link #onStartRecording(Uri)}.
-         *
-         */
-        void startRecording(@Nullable  Uri programUri) {
-            onStartRecording(programUri);
-        }
-
-        /**
-         * Calls {@link #onStopRecording()}.
-         *
-         */
-        void stopRecording() {
-            onStopRecording();
-        }
-
-        /**
-         * Calls {@link #onAppPrivateCommand(String, Bundle)}.
-         */
-        void appPrivateCommand(String action, Bundle data) {
-            onAppPrivateCommand(action, data);
-        }
-
-        private void initialize(ITvInputSessionCallback callback) {
-            synchronized(mLock) {
-                mSessionCallback = callback;
-                for (Runnable runnable : mPendingActions) {
-                    runnable.run();
-                }
-                mPendingActions.clear();
-            }
-        }
-
-        private void executeOrPostRunnableOnMainThread(Runnable action) {
-            synchronized(mLock) {
-                if (mSessionCallback == null) {
-                    // The session is not initialized yet.
-                    mPendingActions.add(action);
-                } else {
-                    if (mHandler.getLooper().isCurrentThread()) {
-                        action.run();
-                    } else {
-                        // Posts the runnable if this is not called from the main thread
-                        mHandler.post(action);
-                    }
-                }
             }
         }
     }
@@ -1818,7 +1458,7 @@ public abstract class TvInputService extends Service {
      * a hardware TV Input (e.g. HDMI 1) and forward the application's surface to the session so
      * that the user can see the screen of the hardware TV Input when she tunes to a channel from
      * this TV input. The implementation of this class is expected to change the channel of the
-     * external set-top box via a proprietary protocol when {@link HardwareSession#onTune} is
+     * external set-top box via a proprietary protocol when {@link HardwareSession#onTune(Uri)} is
      * requested by the application.
      *
      * <p>Note that this class is not for inputs for internal hardware like built-in tuner and HDMI
@@ -1922,15 +1562,6 @@ public abstract class TvInputService extends Service {
          * </ul>
          */
         public void onHardwareVideoUnavailable(int reason) { }
-
-        @Override
-        void release() {
-            if (mHardwareSession != null) {
-                mHardwareSession.release();
-                mHardwareSession = null;
-            }
-            super.release();
-        }
     }
 
     /** @hide */
@@ -1957,43 +1588,42 @@ public abstract class TvInputService extends Service {
     private final class ServiceHandler extends Handler {
         private static final int DO_CREATE_SESSION = 1;
         private static final int DO_NOTIFY_SESSION_CREATED = 2;
-        private static final int DO_CREATE_RECORDING_SESSION = 3;
-        private static final int DO_ADD_HARDWARE_INPUT = 4;
-        private static final int DO_REMOVE_HARDWARE_INPUT = 5;
-        private static final int DO_ADD_HDMI_INPUT = 6;
-        private static final int DO_REMOVE_HDMI_INPUT = 7;
+        private static final int DO_ADD_HARDWARE_TV_INPUT = 3;
+        private static final int DO_REMOVE_HARDWARE_TV_INPUT = 4;
+        private static final int DO_ADD_HDMI_TV_INPUT = 5;
+        private static final int DO_REMOVE_HDMI_TV_INPUT = 6;
 
-        private void broadcastAddHardwareInput(int deviceId, TvInputInfo inputInfo) {
+        private void broadcastAddHardwareTvInput(int deviceId, TvInputInfo inputInfo) {
             int n = mCallbacks.beginBroadcast();
             for (int i = 0; i < n; ++i) {
                 try {
-                    mCallbacks.getBroadcastItem(i).addHardwareInput(deviceId, inputInfo);
+                    mCallbacks.getBroadcastItem(i).addHardwareTvInput(deviceId, inputInfo);
                 } catch (RemoteException e) {
-                    Log.e(TAG, "error in broadcastAddHardwareInput", e);
+                    Log.e(TAG, "error in broadcastAddHardwareTvInput", e);
                 }
             }
             mCallbacks.finishBroadcast();
         }
 
-        private void broadcastAddHdmiInput(int id, TvInputInfo inputInfo) {
+        private void broadcastAddHdmiTvInput(int id, TvInputInfo inputInfo) {
             int n = mCallbacks.beginBroadcast();
             for (int i = 0; i < n; ++i) {
                 try {
-                    mCallbacks.getBroadcastItem(i).addHdmiInput(id, inputInfo);
+                    mCallbacks.getBroadcastItem(i).addHdmiTvInput(id, inputInfo);
                 } catch (RemoteException e) {
-                    Log.e(TAG, "error in broadcastAddHdmiInput", e);
+                    Log.e(TAG, "error in broadcastAddHdmiTvInput", e);
                 }
             }
             mCallbacks.finishBroadcast();
         }
 
-        private void broadcastRemoveHardwareInput(String inputId) {
+        private void broadcastRemoveTvInput(String inputId) {
             int n = mCallbacks.beginBroadcast();
             for (int i = 0; i < n; ++i) {
                 try {
-                    mCallbacks.getBroadcastItem(i).removeHardwareInput(inputId);
+                    mCallbacks.getBroadcastItem(i).removeTvInput(inputId);
                 } catch (RemoteException e) {
-                    Log.e(TAG, "error in broadcastRemoveHardwareInput", e);
+                    Log.e(TAG, "error in broadcastRemoveTvInput", e);
                 }
             }
             mCallbacks.finishBroadcast();
@@ -2074,60 +1704,35 @@ public abstract class TvInputService extends Service {
                     args.recycle();
                     return;
                 }
-                case DO_CREATE_RECORDING_SESSION: {
-                    SomeArgs args = (SomeArgs) msg.obj;
-                    ITvInputSessionCallback cb = (ITvInputSessionCallback) args.arg1;
-                    String inputId = (String) args.arg2;
-                    args.recycle();
-                    RecordingSession recordingSessionImpl = onCreateRecordingSession(inputId);
-                    if (recordingSessionImpl == null) {
-                        try {
-                            // Failed to create a recording session.
-                            cb.onSessionCreated(null, null);
-                        } catch (RemoteException e) {
-                            Log.e(TAG, "error in onSessionCreated", e);
-                        }
-                        return;
-                    }
-                    ITvInputSession stub = new ITvInputSessionWrapper(TvInputService.this,
-                            recordingSessionImpl);
-                    try {
-                        cb.onSessionCreated(stub, null);
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "error in onSessionCreated", e);
-                    }
-                    recordingSessionImpl.initialize(cb);
-                    return;
-                }
-                case DO_ADD_HARDWARE_INPUT: {
+                case DO_ADD_HARDWARE_TV_INPUT: {
                     TvInputHardwareInfo hardwareInfo = (TvInputHardwareInfo) msg.obj;
                     TvInputInfo inputInfo = onHardwareAdded(hardwareInfo);
                     if (inputInfo != null) {
-                        broadcastAddHardwareInput(hardwareInfo.getDeviceId(), inputInfo);
+                        broadcastAddHardwareTvInput(hardwareInfo.getDeviceId(), inputInfo);
                     }
                     return;
                 }
-                case DO_REMOVE_HARDWARE_INPUT: {
+                case DO_REMOVE_HARDWARE_TV_INPUT: {
                     TvInputHardwareInfo hardwareInfo = (TvInputHardwareInfo) msg.obj;
                     String inputId = onHardwareRemoved(hardwareInfo);
                     if (inputId != null) {
-                        broadcastRemoveHardwareInput(inputId);
+                        broadcastRemoveTvInput(inputId);
                     }
                     return;
                 }
-                case DO_ADD_HDMI_INPUT: {
+                case DO_ADD_HDMI_TV_INPUT: {
                     HdmiDeviceInfo deviceInfo = (HdmiDeviceInfo) msg.obj;
                     TvInputInfo inputInfo = onHdmiDeviceAdded(deviceInfo);
                     if (inputInfo != null) {
-                        broadcastAddHdmiInput(deviceInfo.getId(), inputInfo);
+                        broadcastAddHdmiTvInput(deviceInfo.getId(), inputInfo);
                     }
                     return;
                 }
-                case DO_REMOVE_HDMI_INPUT: {
+                case DO_REMOVE_HDMI_TV_INPUT: {
                     HdmiDeviceInfo deviceInfo = (HdmiDeviceInfo) msg.obj;
                     String inputId = onHdmiDeviceRemoved(deviceInfo);
                     if (inputId != null) {
-                        broadcastRemoveHardwareInput(inputId);
+                        broadcastRemoveTvInput(inputId);
                     }
                     return;
                 }

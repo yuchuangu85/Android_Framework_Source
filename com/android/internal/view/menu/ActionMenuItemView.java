@@ -20,22 +20,26 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ActionMenuView;
-import android.widget.ForwardingListener;
+import android.widget.ListPopupWindow;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.ListPopupWindow.ForwardingListener;
 
 /**
  * @hide
  */
 public class ActionMenuItemView extends TextView
-        implements MenuView.ItemView, View.OnClickListener, ActionMenuView.ActionMenuChildView {
+        implements MenuView.ItemView, View.OnClickListener, View.OnLongClickListener,
+        ActionMenuView.ActionMenuChildView {
     private static final String TAG = "ActionMenuItemView";
 
     private MenuItemImpl mItemData;
@@ -68,7 +72,8 @@ public class ActionMenuItemView extends TextView
     public ActionMenuItemView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
         final Resources res = context.getResources();
-        mAllowTextWithIcon = shouldAllowTextWithIcon();
+        mAllowTextWithIcon = res.getBoolean(
+                com.android.internal.R.bool.config_allowActionMenuItemTextWithIcon);
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 com.android.internal.R.styleable.ActionMenuItemView, defStyleAttr, defStyleRes);
         mMinWidth = a.getDimensionPixelSize(
@@ -79,29 +84,18 @@ public class ActionMenuItemView extends TextView
         mMaxIconSize = (int) (MAX_ICON_SIZE * density + 0.5f);
 
         setOnClickListener(this);
+        setOnLongClickListener(this);
 
         mSavedPaddingLeft = -1;
-        setSaveEnabled(false);
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
-        mAllowTextWithIcon = shouldAllowTextWithIcon();
+        mAllowTextWithIcon = getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_allowActionMenuItemTextWithIcon);
         updateTextButtonVisibility();
-    }
-
-    /**
-     * Whether action menu items should obey the "withText" showAsAction flag. This may be set to
-     * false for situations where space is extremely limited. -->
-     */
-    private boolean shouldAllowTextWithIcon() {
-        final Configuration configuration = getContext().getResources().getConfiguration();
-        final int width = configuration.screenWidthDp;
-        final int height = configuration.screenHeightDp;
-        return  width >= 480 || (width >= 640 && height >= 480)
-                || configuration.orientation == Configuration.ORIENTATION_LANDSCAPE;
     }
 
     @Override
@@ -119,7 +113,7 @@ public class ActionMenuItemView extends TextView
         mItemData = itemData;
 
         setIcon(itemData.getIcon());
-        setTitle(itemData.getTitleForItemView(this)); // Title is only displayed if there is no icon
+        setTitle(itemData.getTitleForItemView(this)); // Title only takes effect if there is no icon
         setId(itemData.getItemId());
 
         setVisibility(itemData.isVisible() ? View.VISIBLE : View.GONE);
@@ -183,23 +177,6 @@ public class ActionMenuItemView extends TextView
                 (mItemData.showsTextAsAction() && (mAllowTextWithIcon || mExpandedFormat));
 
         setText(visible ? mTitle : null);
-
-        final CharSequence contentDescription = mItemData.getContentDescription();
-        if (TextUtils.isEmpty(contentDescription)) {
-            // Use the uncondensed title for content description, but only if the title is not
-            // shown already.
-            setContentDescription(visible ? null : mItemData.getTitle());
-        } else {
-            setContentDescription(contentDescription);
-        }
-
-        final CharSequence tooltipText = mItemData.getTooltipText();
-        if (TextUtils.isEmpty(tooltipText)) {
-            // Use the uncondensed title for tooltip, but only if the title is not shown already.
-            setTooltipText(visible ? null : mItemData.getTitle());
-        } else {
-            setTooltipText(tooltipText);
-        }
     }
 
     public void setIcon(Drawable icon) {
@@ -235,6 +212,7 @@ public class ActionMenuItemView extends TextView
     public void setTitle(CharSequence title) {
         mTitle = title;
 
+        setContentDescription(mTitle);
         updateTextButtonVisibility();
     }
 
@@ -269,6 +247,40 @@ public class ActionMenuItemView extends TextView
 
     public boolean needsDividerAfter() {
         return hasText();
+    }
+
+    @Override
+    public boolean onLongClick(View v) {
+        if (hasText()) {
+            // Don't show the cheat sheet for items that already show text.
+            return false;
+        }
+
+        final int[] screenPos = new int[2];
+        final Rect displayFrame = new Rect();
+        getLocationOnScreen(screenPos);
+        getWindowVisibleDisplayFrame(displayFrame);
+
+        final Context context = getContext();
+        final int width = getWidth();
+        final int height = getHeight();
+        final int midy = screenPos[1] + height / 2;
+        int referenceX = screenPos[0] + width / 2;
+        if (v.getLayoutDirection() == View.LAYOUT_DIRECTION_LTR) {
+            final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+            referenceX = screenWidth - referenceX; // mirror
+        }
+        Toast cheatSheet = Toast.makeText(context, mItemData.getTitle(), Toast.LENGTH_SHORT);
+        if (midy < displayFrame.height()) {
+            // Show along the top; follow action buttons
+            cheatSheet.setGravity(Gravity.TOP | Gravity.END, referenceX,
+                    screenPos[1] + height - displayFrame.top);
+        } else {
+            // Show along the bottom center
+            cheatSheet.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, height);
+        }
+        cheatSheet.show();
+        return true;
     }
 
     @Override
@@ -308,7 +320,7 @@ public class ActionMenuItemView extends TextView
         }
 
         @Override
-        public ShowableListMenu getPopup() {
+        public ListPopupWindow getPopup() {
             if (mPopupCallback != null) {
                 return mPopupCallback.getPopup();
             }
@@ -319,21 +331,24 @@ public class ActionMenuItemView extends TextView
         protected boolean onForwardingStarted() {
             // Call the invoker, then check if the expected popup is showing.
             if (mItemInvoker != null && mItemInvoker.invokeItem(mItemData)) {
-                final ShowableListMenu popup = getPopup();
+                final ListPopupWindow popup = getPopup();
                 return popup != null && popup.isShowing();
+            }
+            return false;
+        }
+
+        @Override
+        protected boolean onForwardingStopped() {
+            final ListPopupWindow popup = getPopup();
+            if (popup != null) {
+                popup.dismiss();
+                return true;
             }
             return false;
         }
     }
 
-    @Override
-    public void onRestoreInstanceState(Parcelable state) {
-        // This might get called with the state of ActionView since it shares the same ID with
-        // ActionMenuItemView. Do not restore this state as ActionMenuItemView never saved it.
-        super.onRestoreInstanceState(null);
-    }
-
     public static abstract class PopupCallback {
-        public abstract ShowableListMenu getPopup();
+        public abstract ListPopupWindow getPopup();
     }
 }

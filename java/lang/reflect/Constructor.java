@@ -1,403 +1,340 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Copyright (C) 2008 The Android Open Source Project
  *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang.reflect;
 
-import dalvik.annotation.optimization.FastNative;
-import libcore.util.EmptyArray;
-
-import sun.reflect.CallerSensitive;
+import com.android.dex.Dex;
 import java.lang.annotation.Annotation;
 import java.util.Comparator;
+import java.util.List;
+import libcore.reflect.AnnotationAccess;
+import libcore.reflect.Types;
 
 /**
- * {@code Constructor} provides information about, and access to, a single
- * constructor for a class.
+ * This class represents a constructor. Information about the constructor can be
+ * accessed, and the constructor can be invoked dynamically.
  *
- * <p>{@code Constructor} permits widening conversions to occur when matching the
- * actual parameters to newInstance() with the underlying
- * constructor's formal parameters, but throws an
- * {@code IllegalArgumentException} if a narrowing conversion would occur.
- *
- * @param <T> the class in which the constructor is declared
- *
- * @see Member
- * @see java.lang.Class
- * @see java.lang.Class#getConstructors()
- * @see java.lang.Class#getConstructor(Class[])
- * @see java.lang.Class#getDeclaredConstructors()
- *
- * @author      Kenneth Russell
- * @author      Nakul Saraiya
+ * @param <T> the class that declares this constructor
  */
-public final class Constructor<T> extends Executable {
-    // Android-changed: Extensive modifications made throughout the class for ART.
-    // Android-changed: Many fields and methods removed / modified.
-    // Android-removed: Type annotations runtime code. Not supported on Android.
-    // Android-removed: Declared vs actual parameter annotation indexes handling.
+public final class Constructor<T> extends AbstractMethod implements GenericDeclaration, Member {
 
     private static final Comparator<Method> ORDER_BY_SIGNATURE = null; // Unused; must match Method.
 
-    private final Class<?> serializationClass;
-    private final Class<?> serializationCtor;
-
     private Constructor() {
-      this(null, null);
     }
 
-    private Constructor(Class<?> serializationCtor,
-        Class<?> serializationClass) {
-        this.serializationCtor = serializationCtor;
-        this.serializationClass = serializationClass;
+    public Annotation[] getAnnotations() {
+        return super.getAnnotations();
     }
 
     /**
-     * @hide
+     * Returns the modifiers for this constructor. The {@link Modifier} class
+     * should be used to decode the result.
      */
-    public Constructor<T> serializationCopy(Class<?> ctor, Class<?> cl) {
-        return new Constructor<T>(ctor, cl);
-    }
-
-    @Override
-    boolean hasGenericInformation() {
-        // Android-changed: hasGenericInformation() implemented using Executable.
-        return super.hasGenericInformationInternal();
+    @Override public int getModifiers() {
+        return super.getModifiers();
     }
 
     /**
-     * {@inheritDoc}
+     * Returns true if this constructor takes a variable number of arguments.
      */
-    @Override
-    // Android-changed: getDeclaringClass() implemented using Executable.
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public Class<T> getDeclaringClass() {
-        return (Class<T>) super.getDeclaringClassInternal();
-    }
-
-    /**
-     * Returns the name of this constructor, as a string.  This is
-     * the binary name of the constructor's declaring class.
-     */
-    @Override
-    public String getName() {
-        return getDeclaringClass().getName();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public int getModifiers() {
-        // Android-changed: getModifiers() implemented using Executable.
-        return super.getModifiersInternal();
-    }
-
-    /**
-     * {@inheritDoc}
-     * @throws GenericSignatureFormatError {@inheritDoc}
-     * @since 1.5
-     */
-    @Override
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public TypeVariable<Constructor<T>>[] getTypeParameters() {
-        // Android-changed: getTypeParameters() partly implemented using Executable.
-        GenericInfo info = getMethodOrConstructorGenericInfoInternal();
-        return (TypeVariable<Constructor<T>>[]) info.formalTypeParameters.clone();
-    }
-
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public Class<?>[] getParameterTypes() {
-        // Android-changed: getParameterTypes() partly implemented using Executable.
-        Class<?>[] paramTypes = super.getParameterTypesInternal();
-        if (paramTypes == null) {
-            return EmptyArray.CLASS;
-        }
-
-        return paramTypes;
-    }
-
-    /**
-     * {@inheritDoc}
-     * @since 1.8
-     */
-    public int getParameterCount() {
-        // Android-changed: getParameterCount() implemented using Executable.
-        return super.getParameterCountInternal();
-    }
-
-    /**
-     * {@inheritDoc}
-     * @throws GenericSignatureFormatError {@inheritDoc}
-     * @throws TypeNotPresentException {@inheritDoc}
-     * @throws MalformedParameterizedTypeException {@inheritDoc}
-     * @since 1.5
-     */
-    @Override
-    public Type[] getGenericParameterTypes() {
-        return super.getGenericParameterTypes();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    // Android-changed: getExceptionTypes() implemented in native code.
-    @FastNative
-    public native Class<?>[] getExceptionTypes();
-
-    /**
-     * {@inheritDoc}
-     * @throws GenericSignatureFormatError {@inheritDoc}
-     * @throws TypeNotPresentException {@inheritDoc}
-     * @throws MalformedParameterizedTypeException {@inheritDoc}
-     * @since 1.5
-     */
-    @Override
-    public Type[] getGenericExceptionTypes() {
-        return super.getGenericExceptionTypes();
-    }
-
-    /**
-     * Compares this {@code Constructor} against the specified object.
-     * Returns true if the objects are the same.  Two {@code Constructor} objects are
-     * the same if they were declared by the same class and have the
-     * same formal parameter types.
-     */
-    public boolean equals(Object obj) {
-        if (obj != null && obj instanceof Constructor) {
-            Constructor<?> other = (Constructor<?>)obj;
-            if (getDeclaringClass() == other.getDeclaringClass()) {
-                // Android-changed: Use getParameterTypes() instead of deleted parameterTypes field
-                return equalParamTypes(getParameterTypes(), other.getParameterTypes());
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Returns a hashcode for this {@code Constructor}. The hashcode is
-     * the same as the hashcode for the underlying constructor's
-     * declaring class name.
-     */
-    public int hashCode() {
-        return getDeclaringClass().getName().hashCode();
-    }
-
-    /**
-     * Returns a string describing this {@code Constructor}.  The string is
-     * formatted as the constructor access modifiers, if any,
-     * followed by the fully-qualified name of the declaring class,
-     * followed by a parenthesized, comma-separated list of the
-     * constructor's formal parameter types.  For example:
-     * <pre>
-     *    public java.util.Hashtable(int,float)
-     * </pre>
-     *
-     * <p>The only possible modifiers for constructors are the access
-     * modifiers {@code public}, {@code protected} or
-     * {@code private}.  Only one of these may appear, or none if the
-     * constructor has default (package) access.
-     *
-     * @return a string describing this {@code Constructor}
-     * @jls 8.8.3. Constructor Modifiers
-     */
-    public String toString() {
-        // Android-changed: Use getParameterTypes() / getExceptionTypes() instead of deleted fields
-        return sharedToString(Modifier.constructorModifiers(),
-                              false,
-                              getParameterTypes(),
-                              getExceptionTypes());
-    }
-
-    @Override
-    void specificToStringHeader(StringBuilder sb) {
-        sb.append(getDeclaringClass().getTypeName());
-    }
-
-    /**
-     * Returns a string describing this {@code Constructor},
-     * including type parameters.  The string is formatted as the
-     * constructor access modifiers, if any, followed by an
-     * angle-bracketed comma separated list of the constructor's type
-     * parameters, if any, followed by the fully-qualified name of the
-     * declaring class, followed by a parenthesized, comma-separated
-     * list of the constructor's generic formal parameter types.
-     *
-     * If this constructor was declared to take a variable number of
-     * arguments, instead of denoting the last parameter as
-     * "<tt><i>Type</i>[]</tt>", it is denoted as
-     * "<tt><i>Type</i>...</tt>".
-     *
-     * A space is used to separate access modifiers from one another
-     * and from the type parameters or return type.  If there are no
-     * type parameters, the type parameter list is elided; if the type
-     * parameter list is present, a space separates the list from the
-     * class name.  If the constructor is declared to throw
-     * exceptions, the parameter list is followed by a space, followed
-     * by the word "{@code throws}" followed by a
-     * comma-separated list of the thrown exception types.
-     *
-     * <p>The only possible modifiers for constructors are the access
-     * modifiers {@code public}, {@code protected} or
-     * {@code private}.  Only one of these may appear, or none if the
-     * constructor has default (package) access.
-     *
-     * @return a string describing this {@code Constructor},
-     * include type parameters
-     *
-     * @since 1.5
-     * @jls 8.8.3. Constructor Modifiers
-     */
-    @Override
-    public String toGenericString() {
-        return sharedToGenericString(Modifier.constructorModifiers(), false);
-    }
-
-    @Override
-    void specificToGenericStringHeader(StringBuilder sb) {
-        specificToStringHeader(sb);
-    }
-
-    /**
-     * Uses the constructor represented by this {@code Constructor} object to
-     * create and initialize a new instance of the constructor's
-     * declaring class, with the specified initialization parameters.
-     * Individual parameters are automatically unwrapped to match
-     * primitive formal parameters, and both primitive and reference
-     * parameters are subject to method invocation conversions as necessary.
-     *
-     * <p>If the number of formal parameters required by the underlying constructor
-     * is 0, the supplied {@code initargs} array may be of length 0 or null.
-     *
-     * <p>If the constructor's declaring class is an inner class in a
-     * non-static context, the first argument to the constructor needs
-     * to be the enclosing instance; see section 15.9.3 of
-     * <cite>The Java&trade; Language Specification</cite>.
-     *
-     * <p>If the required access and argument checks succeed and the
-     * instantiation will proceed, the constructor's declaring class
-     * is initialized if it has not already been initialized.
-     *
-     * <p>If the constructor completes normally, returns the newly
-     * created and initialized instance.
-     *
-     * @param initargs array of objects to be passed as arguments to
-     * the constructor call; values of primitive types are wrapped in
-     * a wrapper object of the appropriate type (e.g. a {@code float}
-     * in a {@link java.lang.Float Float})
-     *
-     * @return a new object created by calling the constructor
-     * this object represents
-     *
-     * @exception IllegalAccessException    if this {@code Constructor} object
-     *              is enforcing Java language access control and the underlying
-     *              constructor is inaccessible.
-     * @exception IllegalArgumentException  if the number of actual
-     *              and formal parameters differ; if an unwrapping
-     *              conversion for primitive arguments fails; or if,
-     *              after possible unwrapping, a parameter value
-     *              cannot be converted to the corresponding formal
-     *              parameter type by a method invocation conversion; if
-     *              this constructor pertains to an enum type.
-     * @exception InstantiationException    if the class that declares the
-     *              underlying constructor represents an abstract class.
-     * @exception InvocationTargetException if the underlying constructor
-     *              throws an exception.
-     * @exception ExceptionInInitializerError if the initialization provoked
-     *              by this method fails.
-     */
-    // BEGIN Android-changed: newInstance(Object...) implemented differently.
-    @CallerSensitive
-    public T newInstance(Object ... initargs)
-        throws InstantiationException, IllegalAccessException,
-               IllegalArgumentException, InvocationTargetException
-    {
-        if (serializationClass == null) {
-            return newInstance0(initargs);
-        } else {
-            return (T) newInstanceFromSerialization(serializationCtor, serializationClass);
-        }
-    }
-
-    @FastNative
-    private static native Object newInstanceFromSerialization(Class<?> ctorClass, Class<?> allocClass)
-        throws InstantiationException, IllegalArgumentException, InvocationTargetException;
-
-    @FastNative
-    private native T newInstance0(Object... args) throws InstantiationException,
-            IllegalAccessException, IllegalArgumentException, InvocationTargetException;
-    // END Android-changed: newInstance(Object...) implemented differently.
-
-    /**
-     * {@inheritDoc}
-     * @since 1.5
-     */
-    @Override
     public boolean isVarArgs() {
         return super.isVarArgs();
     }
 
     /**
-     * {@inheritDoc}
-     * @jls 13.1 The Form of a Binary
-     * @since 1.5
+     * Returns true if this constructor is synthetic (artificially introduced by the compiler).
      */
-    @Override
-    public boolean isSynthetic() {
+    @Override public boolean isSynthetic() {
         return super.isSynthetic();
     }
 
     /**
-     * {@inheritDoc}
-     * @throws NullPointerException  {@inheritDoc}
-     * @since 1.5
+     * Returns the name of this constructor.
      */
-    public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
-        return super.getAnnotation(annotationClass);
+    @Override public String getName() {
+        return getDeclaringClass().getName();
+    }
+
+    /**
+     * Returns the class that declares this constructor.
+     */
+    @Override public Class<T> getDeclaringClass() {
+        return (Class<T>) super.getDeclaringClass();
+    }
+
+    /**
+     * Returns the exception types as an array of {@code Class} instances. If
+     * this constructor has no declared exceptions, an empty array will be
+     * returned.
+     */
+    public Class<?>[] getExceptionTypes() {
+        // TODO: use dex cache to speed looking up class
+        return AnnotationAccess.getExceptions(this);
+    }
+
+    /**
+     * Returns an array of the {@code Class} objects associated with the
+     * parameter types of this constructor. If the constructor was declared with
+     * no parameters, an empty array will be returned.
+     */
+    @Override public Class<?>[] getParameterTypes() {
+        return super.getParameterTypes();
     }
 
     /**
      * {@inheritDoc}
-     * @since 1.5
+     *
+     * <p>Equivalent to {@code getDeclaringClass().getName().hashCode()}.
      */
-    public Annotation[] getDeclaredAnnotations()  {
-        return super.getDeclaredAnnotations();
+    @Override public int hashCode() {
+        return getDeclaringClass().getName().hashCode();
     }
 
     /**
-     * {@inheritDoc}
-     * @since 1.5
+     * Returns true if {@code other} has the same declaring class and parameters
+     * as this constructor.
+     */
+    @Override public boolean equals(Object other) {
+        return super.equals(other);
+    }
+
+    @Override public TypeVariable<Constructor<T>>[] getTypeParameters() {
+        GenericInfo info = getMethodOrConstructorGenericInfo();
+        return (TypeVariable<Constructor<T>>[]) info.formalTypeParameters.clone();
+    }
+
+    /**
+     * Returns the string representation of the constructor's declaration,
+     * including the type parameters.
+     *
+     * @return the string representation of the constructor's declaration
+     */
+    public String toGenericString() {
+        return super.toGenericString();
+    }
+
+    /**
+     * Returns the generic parameter types as an array of {@code Type}
+     * instances, in declaration order. If this constructor has no generic
+     * parameters, an empty array is returned.
+     *
+     * @return the parameter types
+     *
+     * @throws GenericSignatureFormatError
+     *             if the generic constructor signature is invalid
+     * @throws TypeNotPresentException
+     *             if any parameter type points to a missing type
+     * @throws MalformedParameterizedTypeException
+     *             if any parameter type points to a type that cannot be
+     *             instantiated for some reason
+     */
+    public Type[] getGenericParameterTypes() {
+        return super.getGenericParameterTypes();
+    }
+
+    /**
+     * Returns the exception types as an array of {@code Type} instances. If
+     * this constructor has no declared exceptions, an empty array will be
+     * returned.
+     *
+     * @return an array of generic exception types
+     *
+     * @throws GenericSignatureFormatError
+     *             if the generic constructor signature is invalid
+     * @throws TypeNotPresentException
+     *             if any exception type points to a missing type
+     * @throws MalformedParameterizedTypeException
+     *             if any exception type points to a type that cannot be
+     *             instantiated for some reason
+     */
+    public Type[] getGenericExceptionTypes() {
+        return super.getGenericExceptionTypes();
+    }
+
+    @Override public Annotation[] getDeclaredAnnotations() {
+        List<Annotation> result = AnnotationAccess.getDeclaredAnnotations(this);
+        return result.toArray(new Annotation[result.size()]);
+    }
+
+    @Override public boolean isAnnotationPresent(Class<? extends Annotation> annotationType) {
+        if (annotationType == null) {
+            throw new NullPointerException("annotationType == null");
+        }
+        return AnnotationAccess.isDeclaredAnnotationPresent(this, annotationType);
+    }
+
+    @Override public <A extends Annotation> A getAnnotation(Class<A> annotationType) {
+        if (annotationType == null) {
+            throw new NullPointerException("annotationType == null");
+        }
+        return AnnotationAccess.getDeclaredAnnotation(this, annotationType);
+    }
+
+    /**
+     * Returns an array of arrays that represent the annotations of the formal
+     * parameters of this constructor. If there are no parameters on this
+     * constructor, then an empty array is returned. If there are no annotations
+     * set, then an array of empty arrays is returned.
+     *
+     * @return an array of arrays of {@code Annotation} instances
+     */
+    public Annotation[][] getParameterAnnotations() {
+        return AnnotationAccess.getParameterAnnotations(
+            declaringClassOfOverriddenMethod, dexMethodIndex);
+    }
+
+    /**
+     * Returns the constructor's signature in non-printable form. This is called
+     * (only) from IO native code and needed for deriving the serialVersionUID
+     * of the class
+     *
+     * @return the constructor's signature
+     */
+    @SuppressWarnings("unused")
+    String getSignature() {
+        StringBuilder result = new StringBuilder();
+
+        result.append('(');
+        Class<?>[] parameterTypes = getParameterTypes();
+        for (Class<?> parameterType : parameterTypes) {
+            result.append(Types.getSignature(parameterType));
+        }
+        result.append(")V");
+
+        return result.toString();
+    }
+
+    /**
+     * Returns a new instance of the declaring class, initialized by dynamically
+     * invoking the constructor represented by this {@code Constructor} object.
+     * This reproduces the effect of {@code new declaringClass(arg1, arg2, ... ,
+     * argN)} This method performs the following:
+     * <ul>
+     * <li>A new instance of the declaring class is created. If the declaring
+     * class cannot be instantiated (i.e. abstract class, an interface, an array
+     * type, or a primitive type) then an InstantiationException is thrown.</li>
+     * <li>If this Constructor object is enforcing access control (see
+     * {@link AccessibleObject}) and this constructor is not accessible from the
+     * current context, an IllegalAccessException is thrown.</li>
+     * <li>If the number of arguments passed and the number of parameters do not
+     * match, an IllegalArgumentException is thrown.</li>
+     * <li>For each argument passed:
+     * <ul>
+     * <li>If the corresponding parameter type is a primitive type, the argument
+     * is unboxed. If the unboxing fails, an IllegalArgumentException is
+     * thrown.</li>
+     * <li>If the resulting argument cannot be converted to the parameter type
+     * via a widening conversion, an IllegalArgumentException is thrown.</li>
+     * </ul>
+     * <li>The constructor represented by this {@code Constructor} object is
+     * then invoked. If an exception is thrown during the invocation, it is
+     * caught and wrapped in an InvocationTargetException. This exception is
+     * then thrown. If the invocation completes normally, the newly initialized
+     * object is returned.
+     * </ul>
+     *
+     * @param args
+     *            the arguments to the constructor
+     *
+     * @return the new, initialized, object
+     *
+     * @exception InstantiationException
+     *                if the class cannot be instantiated
+     * @exception IllegalAccessException
+     *                if this constructor is not accessible
+     * @exception IllegalArgumentException
+     *                if an incorrect number of arguments are passed, or an
+     *                argument could not be converted by a widening conversion
+     * @exception InvocationTargetException
+     *                if an exception was thrown by the invoked constructor
+     *
+     * @see AccessibleObject
+     */
+    public native T newInstance(Object... args) throws InstantiationException,
+            IllegalAccessException, IllegalArgumentException, InvocationTargetException;
+
+    /**
+     * Returns a string containing a concise, human-readable description of this
+     * constructor. The format of the string is:
+     *
+     * <ol>
+     *   <li>modifiers (if any)
+     *   <li>declaring class name
+     *   <li>'('
+     *   <li>parameter types, separated by ',' (if any)
+     *   <li>')'
+     *   <li>'throws' plus exception types, separated by ',' (if any)
+     * </ol>
+     *
+     * For example:
+     * {@code public String(byte[],String) throws UnsupportedEncodingException}
+     *
+     * @return a printable representation for this constructor
      */
     @Override
-    public Annotation[][] getParameterAnnotations() {
-        // Android-changed: getParameterAnnotations() implemented using Executable.
-        return super.getParameterAnnotationsInternal();
+    public String toString() {
+        StringBuilder result = new StringBuilder(Modifier.toString(getModifiers()));
+
+        if (result.length() != 0) {
+            result.append(' ');
+        }
+        result.append(getDeclaringClass().getName());
+        result.append("(");
+        Class<?>[] parameterTypes = getParameterTypes();
+        result.append(Types.toString(parameterTypes));
+        result.append(")");
+        Class<?>[] exceptionTypes = getExceptionTypes();
+        if (exceptionTypes.length > 0) {
+            result.append(" throws ");
+            result.append(Types.toString(exceptionTypes));
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Attempts to set the accessible flag. Setting this to true prevents {@code
+     * IllegalAccessExceptions}.
+     */
+    public void setAccessible(boolean flag) {
+        Class<?> declaringClass = getDeclaringClass();
+        if (declaringClass == Class.class) {
+            throw new SecurityException("Can't make class constructor accessible");
+        } else if (declaringClass == Field.class) {
+            throw new SecurityException("Can't make field constructor accessible");
+        } else if (declaringClass == Method.class) {
+            throw new SecurityException("Can't make method constructor accessible");
+        }
+        super.setAccessible(flag);
     }
 }

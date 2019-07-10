@@ -16,7 +16,6 @@
 
 package android.os;
 
-import android.annotation.Nullable;
 import android.util.Log;
 
 import java.lang.ref.WeakReference;
@@ -205,8 +204,7 @@ public abstract class FileObserver {
      *
      * @param event The type of event which happened
      * @param path The path, relative to the main monitored file or directory,
-     *     of the file or directory which triggered the event.  This value can
-     *     be {@code null} for certain events, such as {@link #MOVE_SELF}.
+     *     of the file or directory which triggered the event
      */
-    public abstract void onEvent(int event, @Nullable String path);
+    public abstract void onEvent(int event, String path);
 }

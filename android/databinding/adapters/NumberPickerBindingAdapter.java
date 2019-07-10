@@ -15,49 +15,14 @@
  */
 package android.databinding.adapters;
 
-import android.databinding.BindingAdapter;
 import android.databinding.BindingMethod;
 import android.databinding.BindingMethods;
-import android.databinding.InverseBindingListener;
-import android.databinding.InverseBindingMethod;
-import android.databinding.InverseBindingMethods;
-import android.widget.CompoundButton;
-import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.NumberPicker;
-import android.widget.NumberPicker.OnValueChangeListener;
 
 @BindingMethods({
         @BindingMethod(type = NumberPicker.class, attribute = "android:format", method = "setFormatter"),
         @BindingMethod(type = NumberPicker.class, attribute = "android:onScrollStateChange", method = "setOnScrollListener"),
-})
-@InverseBindingMethods({
-        @InverseBindingMethod(type = NumberPicker.class, attribute = "android:value"),
+        @BindingMethod(type = NumberPicker.class, attribute = "android:onValueChange", method = "setOnValueChangedListener"),
 })
 public class NumberPickerBindingAdapter {
-
-    @BindingAdapter("android:value")
-    public static void setValue(NumberPicker view, int value) {
-        if (view.getValue() != value) {
-            view.setValue(value);
-        }
-    }
-
-    @BindingAdapter(value = {"android:onValueChange", "android:valueAttrChanged"},
-            requireAll = false)
-    public static void setListeners(NumberPicker view, final OnValueChangeListener listener,
-            final InverseBindingListener attrChange) {
-        if (attrChange == null) {
-            view.setOnValueChangedListener(listener);
-        } else {
-            view.setOnValueChangedListener(new OnValueChangeListener() {
-                @Override
-                public void onValueChange(NumberPicker picker, int oldVal, int newVal) {
-                    if (listener != null) {
-                        listener.onValueChange(picker, oldVal, newVal);
-                    }
-                    attrChange.onChange();
-                }
-            });
-        }
-    }
 }

@@ -42,18 +42,14 @@ import java.util.List;
 public class UiccSmsController extends ISms.Stub {
     static final String LOG_TAG = "RIL_UiccSmsController";
 
-    protected UiccSmsController() {
+    protected Phone[] mPhone;
+
+    protected UiccSmsController(Phone[] phone){
+        mPhone = phone;
+
         if (ServiceManager.getService("isms") == null) {
             ServiceManager.addService("isms", this);
         }
-    }
-
-    private Phone getPhone(int subId) {
-        Phone phone = PhoneFactory.getPhone(SubscriptionManager.getPhoneId(subId));
-        if (phone == null) {
-            phone = PhoneFactory.getDefaultPhone();
-        }
-        return phone;
     }
 
     @Override
@@ -148,28 +144,13 @@ public class UiccSmsController extends ISms.Stub {
 
     public void sendTextForSubscriberWithSelfPermissions(int subId, String callingPackage,
             String destAddr, String scAddr, String text, PendingIntent sentIntent,
-            PendingIntent deliveryIntent, boolean persistMessage) {
+            PendingIntent deliveryIntent) {
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.sendTextWithSelfPermissions(callingPackage, destAddr, scAddr, text,
-                    sentIntent, deliveryIntent, persistMessage);
+                    sentIntent, deliveryIntent);
         } else {
             Rlog.e(LOG_TAG,"sendText iccSmsIntMgr is null for" +
-                          " Subscription: " + subId);
-        }
-    }
-
-    @Override
-    public void sendTextForSubscriberWithOptions(int subId, String callingPackage,
-            String destAddr, String scAddr, String parts, PendingIntent sentIntents,
-            PendingIntent deliveryIntents, boolean persistMessage, int priority,
-            boolean expectMore, int validityPeriod) {
-        IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
-        if (iccSmsIntMgr != null ) {
-            iccSmsIntMgr.sendTextWithOptions(callingPackage, destAddr, scAddr, parts, sentIntents,
-                    deliveryIntents, persistMessage,  priority, expectMore, validityPeriod);
-        } else {
-            Rlog.e(LOG_TAG,"sendTextWithOptions iccSmsIntMgr is null for" +
                           " Subscription: " + subId);
         }
     }
@@ -195,22 +176,6 @@ public class UiccSmsController extends ISms.Stub {
             Rlog.e(LOG_TAG,"sendMultipartTextForSubscriber iccSmsIntMgr is null for" +
                           " Subscription: " + subId);
             sendErrorInPendingIntents(sentIntents, SmsManager.RESULT_ERROR_GENERIC_FAILURE);
-        }
-    }
-
-    @Override
-    public void sendMultipartTextForSubscriberWithOptions(int subId, String callingPackage,
-            String destAddr, String scAddr, List<String> parts, List<PendingIntent> sentIntents,
-            List<PendingIntent> deliveryIntents, boolean persistMessage, int priority,
-            boolean expectMore, int validityPeriod) {
-        IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
-        if (iccSmsIntMgr != null ) {
-            iccSmsIntMgr.sendMultipartTextWithOptions(callingPackage, destAddr, scAddr, parts,
-                    sentIntents, deliveryIntents, persistMessage,  priority, expectMore,
-                    validityPeriod);
-        } else {
-            Rlog.e(LOG_TAG,"sendMultipartTextWithOptions iccSmsIntMgr is null for" +
-                          " Subscription: " + subId);
         }
     }
 
@@ -355,26 +320,45 @@ public class UiccSmsController extends ISms.Stub {
     }
 
     /**
-     * Get sms interface manager object based on subscription.
-     * @return ICC SMS manager
-     */
+     * get sms interface manager object based on subscription.
+     **/
     private @Nullable IccSmsInterfaceManager getIccSmsInterfaceManager(int subId) {
-        return getPhone(subId).getIccSmsInterfaceManager();
+        if (!isActiveSubId(subId)) {
+            Rlog.e(LOG_TAG, "Subscription " + subId + " is inactive.");
+            return null;
+        }
+
+        int phoneId = SubscriptionController.getInstance().getPhoneId(subId) ;
+        //Fixme: for multi-subscription case
+        if (!SubscriptionManager.isValidPhoneId(phoneId)
+                || phoneId == SubscriptionManager.DEFAULT_PHONE_INDEX) {
+            phoneId = 0;
+        }
+
+        try {
+            return (IccSmsInterfaceManager)
+                ((PhoneProxy)mPhone[(int)phoneId]).getIccSmsInterfaceManager();
+        } catch (NullPointerException e) {
+            Rlog.e(LOG_TAG, "Exception is :"+e.toString()+" For subscription :"+subId );
+            e.printStackTrace();
+            return null;
+        } catch (ArrayIndexOutOfBoundsException e) {
+            Rlog.e(LOG_TAG, "Exception is :"+e.toString()+" For subscription :"+subId );
+            e.printStackTrace();
+            return null;
+        }
     }
 
     /**
-     * Get User preferred SMS subscription
-     * @return User preferred SMS subscription
-     */
+       Gets User preferred SMS subscription */
     @Override
     public int getPreferredSmsSubscription() {
         return SubscriptionController.getInstance().getDefaultSmsSubId();
     }
 
     /**
-     * Get SMS prompt property enabled or not
-     * @return True if SMS prompt is enabled.
-     */
+     * Get SMS prompt property,  enabled or not
+     **/
     @Override
     public boolean isSMSPromptEnabled() {
         return PhoneFactory.isSMSPromptEnabled();
@@ -408,9 +392,11 @@ public class UiccSmsController extends ISms.Stub {
         }
     }
 
-    @Override
-    public String createAppSpecificSmsToken(int subId, String callingPkg, PendingIntent intent) {
-        return getPhone(subId).getAppSmsManager().createAppSpecificSmsToken(callingPkg, intent);
+    /*
+     * @return true if the subId is active.
+     */
+    private boolean isActiveSubId(int subId) {
+        return SubscriptionController.getInstance().isActiveSubId(subId);
     }
 
     private void sendErrorInPendingIntent(@Nullable PendingIntent intent, int errorCode) {

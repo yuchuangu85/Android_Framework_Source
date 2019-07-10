@@ -34,12 +34,7 @@ import java.nio.ByteBuffer;
  */
 public class StructNlAttr {
     // Already aligned.
-    public static final int NLA_HEADERLEN  = 4;
-    public static final int NLA_F_NESTED   = (1 << 15);
-
-    public static short makeNestedType(short type) {
-        return (short) (type | NLA_F_NESTED);
-    }
+    public static final int NLA_HEADERLEN         = 4;
 
     // Return a (length, type) object only, without consuming any bytes in
     // |byteBuffer| and without copying or interpreting any value bytes.
@@ -51,17 +46,10 @@ public class StructNlAttr {
         }
         final int baseOffset = byteBuffer.position();
 
-        // Assume the byte order of the buffer is the expected byte order of the value.
-        final StructNlAttr struct = new StructNlAttr(byteBuffer.order());
-        // The byte order of nla_len and nla_type is always native.
-        final ByteOrder originalOrder = byteBuffer.order();
-        byteBuffer.order(ByteOrder.nativeOrder());
-        try {
-            struct.nla_len = byteBuffer.getShort();
-            struct.nla_type = byteBuffer.getShort();
-        } finally {
-            byteBuffer.order(originalOrder);
-        }
+        final StructNlAttr struct = new StructNlAttr();
+        struct.nla_len = byteBuffer.getShort();
+        struct.nla_type = byteBuffer.getShort();
+        struct.mByteOrder = byteBuffer.order();
 
         byteBuffer.position(baseOffset);
         if (struct.nla_len < NLA_HEADERLEN) {
@@ -90,65 +78,13 @@ public class StructNlAttr {
         return struct;
     }
 
-    public short nla_len = (short) NLA_HEADERLEN;
+    public short nla_len;
     public short nla_type;
     public byte[] nla_value;
+    public ByteOrder mByteOrder;
 
-    // The byte order used to read/write the value member. Netlink length and
-    // type members are always read/written in native order.
-    private ByteOrder mByteOrder = ByteOrder.nativeOrder();
-
-    public StructNlAttr() {}
-
-    public StructNlAttr(ByteOrder byteOrder) {
-        mByteOrder = byteOrder;
-    }
-
-    public StructNlAttr(short type, byte value) {
-        nla_type = type;
-        setValue(new byte[1]);
-        nla_value[0] = value;
-    }
-
-    public StructNlAttr(short type, short value) {
-        this(type, value, ByteOrder.nativeOrder());
-    }
-
-    public StructNlAttr(short type, short value, ByteOrder order) {
-        this(order);
-        nla_type = type;
-        setValue(new byte[SizeOf.SHORT]);
-        getValueAsByteBuffer().putShort(value);
-    }
-
-    public StructNlAttr(short type, int value) {
-        this(type, value, ByteOrder.nativeOrder());
-    }
-
-    public StructNlAttr(short type, int value, ByteOrder order) {
-        this(order);
-        nla_type = type;
-        setValue(new byte[SizeOf.INT]);
-        getValueAsByteBuffer().putInt(value);
-    }
-
-    public StructNlAttr(short type, InetAddress ip) {
-        nla_type = type;
-        setValue(ip.getAddress());
-    }
-
-    public StructNlAttr(short type, StructNlAttr... nested) {
-        this();
-        nla_type = makeNestedType(type);
-
-        int payloadLength = 0;
-        for (StructNlAttr nla : nested) payloadLength += nla.getAlignedLength();
-        setValue(new byte[payloadLength]);
-
-        final ByteBuffer buf = getValueAsByteBuffer();
-        for (StructNlAttr nla : nested) {
-            nla.pack(buf);
-        }
+    public StructNlAttr() {
+        mByteOrder = ByteOrder.nativeOrder();
     }
 
     public int getAlignedLength() {
@@ -181,23 +117,11 @@ public class StructNlAttr {
     }
 
     public void pack(ByteBuffer byteBuffer) {
-        final ByteOrder originalOrder = byteBuffer.order();
         final int originalPosition = byteBuffer.position();
-
-        byteBuffer.order(ByteOrder.nativeOrder());
-        try {
-            byteBuffer.putShort(nla_len);
-            byteBuffer.putShort(nla_type);
-            if (nla_value != null) byteBuffer.put(nla_value);
-        } finally {
-            byteBuffer.order(originalOrder);
-        }
+        byteBuffer.putShort(nla_len);
+        byteBuffer.putShort(nla_type);
+        byteBuffer.put(nla_value);
         byteBuffer.position(originalPosition + getAlignedLength());
-    }
-
-    private void setValue(byte[] value) {
-        nla_value = value;
-        nla_len = (short) (NLA_HEADERLEN + ((nla_value != null) ? nla_value.length : 0));
     }
 
     @Override

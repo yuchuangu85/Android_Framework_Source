@@ -16,13 +16,9 @@
 
 package com.android.providers.settings;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertTrue;
-
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.Log;
-import org.junit.Test;
 
 /**
 * Performance tests for the SettingContentProvider.
@@ -36,7 +32,6 @@ public class SettingsProviderPerformanceTest extends BaseSettingsProviderTest {
 
     private static final long MAX_AVERAGE_SET_AND_GET_SETTING_DURATION_MILLIS = 20;
 
-    @Test
     public void testSetAndGetPerformanceForGlobalViaFrontEndApi() throws Exception {
         // Start with a clean slate.
         insertStringViaProviderApi(SETTING_TYPE_GLOBAL,
@@ -52,7 +47,7 @@ public class SettingsProviderPerformanceTest extends BaseSettingsProviderTest {
 
                 // Make sure the setting changed.
                 String firstValue = getStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL,
-                        FAKE_SETTING_NAME, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_NAME, UserHandle.USER_OWNER);
                 assertEquals("Setting value didn't change", FAKE_SETTING_VALUE, firstValue);
 
                 // Set the setting to its second value.
@@ -61,7 +56,7 @@ public class SettingsProviderPerformanceTest extends BaseSettingsProviderTest {
 
                 // Make sure the setting changed.
                 String secondValue = getStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL,
-                        FAKE_SETTING_NAME, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_NAME, UserHandle.USER_OWNER);
                 assertEquals("Setting value didn't change", FAKE_SETTING_VALUE_1, secondValue);
             }
         } finally {
@@ -81,7 +76,6 @@ public class SettingsProviderPerformanceTest extends BaseSettingsProviderTest {
                 < MAX_AVERAGE_SET_AND_GET_SETTING_DURATION_MILLIS);
     }
 
-    @Test
     public void testSetAndGetPerformanceForGlobalViaProviderApi() throws Exception {
         // Start with a clean slate.
         deleteStringViaProviderApi(SETTING_TYPE_GLOBAL, FAKE_SETTING_NAME);
@@ -92,20 +86,20 @@ public class SettingsProviderPerformanceTest extends BaseSettingsProviderTest {
             for (int i = 0; i < ITERATION_COUNT; i++) {
                 // Set the setting to its first value.
                 setStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL, FAKE_SETTING_NAME,
-                        FAKE_SETTING_VALUE, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_VALUE, UserHandle.USER_OWNER);
 
                 // Make sure the setting changed.
                 String firstValue = getStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL,
-                        FAKE_SETTING_NAME, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_NAME, UserHandle.USER_OWNER);
                 assertEquals("Setting value didn't change", FAKE_SETTING_VALUE, firstValue);
 
                 // Set the setting to its second value.
                 setStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL, FAKE_SETTING_NAME,
-                        FAKE_SETTING_VALUE_1, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_VALUE_1, UserHandle.USER_OWNER);
 
                 // Make sure the setting changed.
                 String secondValue = getStringViaFrontEndApiSetting(SETTING_TYPE_GLOBAL,
-                        FAKE_SETTING_NAME, UserHandle.USER_SYSTEM);
+                        FAKE_SETTING_NAME, UserHandle.USER_OWNER);
                 assertEquals("Setting value didn't change", FAKE_SETTING_VALUE_1, secondValue);
             }
         } finally {

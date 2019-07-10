@@ -16,13 +16,9 @@
 
 package com.android.server;
 
-import static android.os.IServiceManager.DUMP_FLAG_PRIORITY_DEFAULT;
-
-import android.app.ActivityThread;
 import android.content.Context;
 import android.os.IBinder;
 import android.os.ServiceManager;
-import android.os.UserManager;
 
 /**
  * The base class for services running in the system process. Override and implement
@@ -66,11 +62,6 @@ public abstract class SystemService {
     public static final int PHASE_SYSTEM_SERVICES_READY = 500;
 
     /**
-     * After receiving this boot phase, services can safely call into device specific services.
-     */
-    public static final int PHASE_DEVICE_SPECIFIC_SERVICES_READY = 520;
-
-    /**
      * After receiving this boot phase, services can broadcast Intents.
      */
     public static final int PHASE_ACTIVITY_MANAGER_READY = 550;
@@ -112,16 +103,6 @@ public abstract class SystemService {
     }
 
     /**
-     * Get the system UI context. This context is to be used for displaying UI. It is themable,
-     * which means resources can be overridden at runtime. Do not use to retrieve properties that
-     * configure the behavior of the device that is not UX related.
-     */
-    public final Context getUiContext() {
-        // This has already been set up by the time any SystemServices are created.
-        return ActivityThread.currentActivityThread().getSystemUiContext();
-    }
-
-    /**
      * Returns true if the system is running in safe mode.
      * TODO: we should define in which phase this becomes valid
      */
@@ -152,22 +133,6 @@ public abstract class SystemService {
     public void onStartUser(int userHandle) {}
 
     /**
-     * Called when an existing user is in the process of being unlocked. This
-     * means the credential-encrypted storage for that user is now available,
-     * and encryption-aware component filtering is no longer in effect.
-     * <p>
-     * While dispatching this event to services, the user is in the
-     * {@code STATE_RUNNING_UNLOCKING} state, and once dispatching is finished
-     * the user will transition into the {@code STATE_RUNNING_UNLOCKED} state.
-     * Code written inside system services should use
-     * {@link UserManager#isUserUnlockingOrUnlocked(int)} to handle both of
-     * these states.
-     *
-     * @param userHandle The identifier of the user.
-     */
-    public void onUnlockUser(int userHandle) {}
-
-    /**
      * Called when switching to a different foreground user, for system services that have
      * special behavior for whichever user is currently in the foreground.  This is called
      * before any application processes are aware of the new user.
@@ -180,9 +145,6 @@ public abstract class SystemService {
      * state they maintain for running users.  This is called prior to sending the SHUTDOWN
      * broadcast to the user; it is a good place to stop making use of any resources of that
      * user (such as binding to a service running in the user).
-     *
-     * <p>NOTE: This is the last callback where the callee may access the target user's CE storage.
-     *
      * @param userHandle The identifier of the user.
      */
     public void onStopUser(int userHandle) {}
@@ -191,19 +153,12 @@ public abstract class SystemService {
      * Called when an existing user is stopping, for system services to finalize any per-user
      * state they maintain for running users.  This is called after all application process
      * teardown of the user is complete.
-     *
-     * <p>NOTE: When this callback is called, the CE storage for the target user may not be
-     * accessible already.  Use {@link #onStopUser} instead if you need to access the CE storage.
-     *
      * @param userHandle The identifier of the user.
      */
     public void onCleanupUser(int userHandle) {}
 
     /**
      * Publish the service so it is accessible to other services and apps.
-     *
-     * @param name the name of the new service
-     * @param service the service object
      */
     protected final void publishBinderService(String name, IBinder service) {
         publishBinderService(name, service, false);
@@ -211,29 +166,10 @@ public abstract class SystemService {
 
     /**
      * Publish the service so it is accessible to other services and apps.
-     *
-     * @param name the name of the new service
-     * @param service the service object
-     * @param allowIsolated set to true to allow isolated sandboxed processes
-     * to access this service
      */
     protected final void publishBinderService(String name, IBinder service,
             boolean allowIsolated) {
-        publishBinderService(name, service, allowIsolated, DUMP_FLAG_PRIORITY_DEFAULT);
-    }
-
-    /**
-     * Publish the service so it is accessible to other services and apps.
-     *
-     * @param name the name of the new service
-     * @param service the service object
-     * @param allowIsolated set to true to allow isolated sandboxed processes
-     * to access this service
-     * @param dumpPriority supported dump priority levels as a bitmask
-     */
-    protected final void publishBinderService(String name, IBinder service,
-            boolean allowIsolated, int dumpPriority) {
-        ServiceManager.addService(name, service, allowIsolated, dumpPriority);
+        ServiceManager.addService(name, service, allowIsolated);
     }
 
     /**

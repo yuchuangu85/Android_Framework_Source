@@ -16,6 +16,7 @@
 
 package android.hardware.camera2;
 
+import android.annotation.NonNull;
 import android.annotation.IntDef;
 import android.util.AndroidException;
 
@@ -80,16 +81,15 @@ public class CameraAccessException extends AndroidException {
      */
     public static final int CAMERA_DEPRECATED_HAL = 1000;
 
-    /** @hide */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "CAMERA_", "MAX_CAMERAS_IN_USE" }, value = {
-            CAMERA_IN_USE,
-            MAX_CAMERAS_IN_USE,
-            CAMERA_DISABLED,
-            CAMERA_DISCONNECTED,
-            CAMERA_ERROR
-    })
-    public @interface AccessError {}
+     /** @hide */
+     @Retention(RetentionPolicy.SOURCE)
+     @IntDef(
+         {CAMERA_IN_USE,
+          MAX_CAMERAS_IN_USE,
+          CAMERA_DISABLED,
+          CAMERA_DISCONNECTED,
+          CAMERA_ERROR})
+     public @interface AccessError {};
 
     // Make the eclipse warning about serializable exceptions go away
     private static final long serialVersionUID = 5630338637471475675L; // randomly generated
@@ -114,12 +114,12 @@ public class CameraAccessException extends AndroidException {
     }
 
     public CameraAccessException(@AccessError int problem, String message) {
-        super(getCombinedMessage(problem, message));
+        super(message);
         mReason = problem;
     }
 
     public CameraAccessException(@AccessError int problem, String message, Throwable cause) {
-        super(getCombinedMessage(problem, message), cause);
+        super(message, cause);
         mReason = problem;
     }
 
@@ -151,37 +151,4 @@ public class CameraAccessException extends AndroidException {
         }
         return null;
     }
-
-    private static String getCombinedMessage(@AccessError int problem, String message) {
-        String problemString = getProblemString(problem);
-        return String.format("%s (%d): %s", problemString, problem, message);
-    }
-
-    private static String getProblemString(int problem) {
-        String problemString;
-        switch (problem) {
-            case CAMERA_IN_USE:
-                problemString = "CAMERA_IN_USE";
-                break;
-            case MAX_CAMERAS_IN_USE:
-                problemString = "MAX_CAMERAS_IN_USE";
-                break;
-            case CAMERA_DISCONNECTED:
-                problemString = "CAMERA_DISCONNECTED";
-                break;
-            case CAMERA_DISABLED:
-                problemString = "CAMERA_DISABLED";
-                break;
-            case CAMERA_ERROR:
-                problemString = "CAMERA_ERROR";
-                break;
-            case CAMERA_DEPRECATED_HAL:
-                problemString = "CAMERA_DEPRECATED_HAL";
-                break;
-            default:
-                problemString = "<UNKNOWN ERROR>";
-        }
-        return problemString;
-    }
-
 }

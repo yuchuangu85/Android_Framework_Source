@@ -1,161 +1,131 @@
 /*
- * Copyright (c) 1994, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
+import java.util.Arrays;
+import libcore.util.SneakyThrow;
+
 /**
- * This class is the superclass of all classes that filter output
- * streams. These streams sit on top of an already existing output
- * stream (the <i>underlying</i> output stream) which it uses as its
- * basic sink of data, but possibly transforming the data along the
- * way or providing additional functionality.
- * <p>
- * The class <code>FilterOutputStream</code> itself simply overrides
- * all methods of <code>OutputStream</code> with versions that pass
- * all requests to the underlying output stream. Subclasses of
- * <code>FilterOutputStream</code> may further override some of these
- * methods as well as provide additional methods and fields.
+ * Wraps an existing {@link OutputStream} and performs some transformation on
+ * the output data while it is being written. Transformations can be anything
+ * from a simple byte-wise filtering output data to an on-the-fly compression or
+ * decompression of the underlying stream. Output streams that wrap another
+ * output stream and provide some additional functionality on top of it usually
+ * inherit from this class.
  *
- * @author  Jonathan Payne
- * @since   JDK1.0
+ * @see FilterOutputStream
  */
-public
-class FilterOutputStream extends OutputStream {
+public class FilterOutputStream extends OutputStream {
+
     /**
-     * The underlying output stream to be filtered.
+     * The target output stream for this filter stream.
      */
     protected OutputStream out;
 
     /**
-     * Creates an output stream filter built on top of the specified
-     * underlying output stream.
+     * Constructs a new {@code FilterOutputStream} with {@code out} as its
+     * target stream.
      *
-     * @param   out   the underlying output stream to be assigned to
-     *                the field <tt>this.out</tt> for later use, or
-     *                <code>null</code> if this instance is to be
-     *                created without an underlying stream.
+     * @param out
+     *            the target stream that this stream writes to.
      */
     public FilterOutputStream(OutputStream out) {
         this.out = out;
     }
 
     /**
-     * Writes the specified <code>byte</code> to this output stream.
-     * <p>
-     * The <code>write</code> method of <code>FilterOutputStream</code>
-     * calls the <code>write</code> method of its underlying output stream,
-     * that is, it performs <tt>out.write(b)</tt>.
-     * <p>
-     * Implements the abstract <tt>write</tt> method of <tt>OutputStream</tt>.
+     * Closes this stream. This implementation closes the target stream.
      *
-     * @param      b   the <code>byte</code>.
-     * @exception  IOException  if an I/O error occurs.
+     * @throws IOException
+     *             if an error occurs attempting to close this stream.
      */
-    public void write(int b) throws IOException {
-        out.write(b);
-    }
+    @Override
+    public void close() throws IOException {
+        Throwable thrown = null;
+        try {
+            flush();
+        } catch (Throwable e) {
+            thrown = e;
+        }
 
-    /**
-     * Writes <code>b.length</code> bytes to this output stream.
-     * <p>
-     * The <code>write</code> method of <code>FilterOutputStream</code>
-     * calls its <code>write</code> method of three arguments with the
-     * arguments <code>b</code>, <code>0</code>, and
-     * <code>b.length</code>.
-     * <p>
-     * Note that this method does not call the one-argument
-     * <code>write</code> method of its underlying stream with the single
-     * argument <code>b</code>.
-     *
-     * @param      b   the data to be written.
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterOutputStream#write(byte[], int, int)
-     */
-    public void write(byte b[]) throws IOException {
-        write(b, 0, b.length);
-    }
+        try {
+            out.close();
+        } catch (Throwable e) {
+            if (thrown == null) {
+                thrown = e;
+            }
+        }
 
-    /**
-     * Writes <code>len</code> bytes from the specified
-     * <code>byte</code> array starting at offset <code>off</code> to
-     * this output stream.
-     * <p>
-     * The <code>write</code> method of <code>FilterOutputStream</code>
-     * calls the <code>write</code> method of one argument on each
-     * <code>byte</code> to output.
-     * <p>
-     * Note that this method does not call the <code>write</code> method
-     * of its underlying input stream with the same arguments. Subclasses
-     * of <code>FilterOutputStream</code> should provide a more efficient
-     * implementation of this method.
-     *
-     * @param      b     the data.
-     * @param      off   the start offset in the data.
-     * @param      len   the number of bytes to write.
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterOutputStream#write(int)
-     */
-    public void write(byte b[], int off, int len) throws IOException {
-        if ((off | len | (b.length - (len + off)) | (off + len)) < 0)
-            throw new IndexOutOfBoundsException();
-
-        for (int i = 0 ; i < len ; i++) {
-            write(b[off + i]);
+        if (thrown != null) {
+            SneakyThrow.sneakyThrow(thrown);
         }
     }
 
     /**
-     * Flushes this output stream and forces any buffered output bytes
-     * to be written out to the stream.
-     * <p>
-     * The <code>flush</code> method of <code>FilterOutputStream</code>
-     * calls the <code>flush</code> method of its underlying output stream.
+     * Ensures that all pending data is sent out to the target stream. This
+     * implementation flushes the target stream.
      *
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterOutputStream#out
+     * @throws IOException
+     *             if an error occurs attempting to flush this stream.
      */
+    @Override
     public void flush() throws IOException {
         out.flush();
     }
 
     /**
-     * Closes this output stream and releases any system resources
-     * associated with the stream.
-     * <p>
-     * The <code>close</code> method of <code>FilterOutputStream</code>
-     * calls its <code>flush</code> method, and then calls the
-     * <code>close</code> method of its underlying output stream.
+     * Writes {@code count} bytes from the byte array {@code buffer} starting at
+     * {@code offset} to the target stream.
      *
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterOutputStream#flush()
-     * @see        java.io.FilterOutputStream#out
+     * @param buffer
+     *            the buffer to write.
+     * @param offset
+     *            the index of the first byte in {@code buffer} to write.
+     * @param length
+     *            the number of bytes in {@code buffer} to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if
+     *             {@code offset + count} is bigger than the length of
+     *             {@code buffer}.
+     * @throws IOException
+     *             if an I/O error occurs while writing to this stream.
      */
-    @SuppressWarnings("try")
-    public void close() throws IOException {
-        try (OutputStream ostream = out) {
-            flush();
+    @Override
+    public void write(byte[] buffer, int offset, int length) throws IOException {
+        Arrays.checkOffsetAndCount(buffer.length, offset, length);
+        for (int i = 0; i < length; i++) {
+            // Call write() instead of out.write() since subclasses could
+            // override the write() method.
+            write(buffer[offset + i]);
         }
+    }
+
+    /**
+     * Writes one byte to the target stream. Only the low order byte of the
+     * integer {@code oneByte} is written.
+     *
+     * @param oneByte
+     *            the byte to be written.
+     * @throws IOException
+     *             if an I/O error occurs while writing to this stream.
+     */
+    @Override
+    public void write(int oneByte) throws IOException {
+        out.write(oneByte);
     }
 }

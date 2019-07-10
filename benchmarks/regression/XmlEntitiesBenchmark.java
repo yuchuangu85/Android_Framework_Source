@@ -16,8 +16,8 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.io.StringReader;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -26,7 +26,7 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
 // http://code.google.com/p/android/issues/detail?id=18102
-public final class XmlEntitiesBenchmark {
+public final class XmlEntitiesBenchmark extends SimpleBenchmark {
   
   @Param({"10", "100", "1000"}) int length;
   @Param({"0", "0.5", "1.0"}) float entityFraction;
@@ -37,8 +37,7 @@ public final class XmlEntitiesBenchmark {
   /** a string like {@code <doc>&amp;&amp;++</doc>}. */
   private String xml;
 
-  @BeforeExperiment
-  protected void setUp() throws Exception {
+  @Override protected void setUp() throws Exception {
     xmlPullParserFactory = XmlPullParserFactory.newInstance();
     documentBuilderFactory = DocumentBuilderFactory.newInstance();
 

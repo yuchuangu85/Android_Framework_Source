@@ -85,7 +85,7 @@ public class AppWidget {
         private SetBindAppWidgetPermissionCommand parseSetGrantBindAppWidgetPermissionCommand(
                 boolean granted) {
             String packageName = null;
-            int userId = UserHandle.USER_SYSTEM;
+            int userId = UserHandle.USER_OWNER;
             for (String argument; (argument = mTokenizer.nextArg()) != null;) {
                 if (ARGUMENT_PACKAGE.equals(argument)) {
                     packageName = argumentValueRequired(argument);

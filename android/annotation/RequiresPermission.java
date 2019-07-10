@@ -15,8 +15,6 @@
  */
 package android.annotation;
 
-import android.content.Intent;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
@@ -24,7 +22,6 @@ import static java.lang.annotation.ElementType.ANNOTATION_TYPE;
 import static java.lang.annotation.ElementType.CONSTRUCTOR;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.METHOD;
-import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
@@ -32,53 +29,33 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * <p/>
  * Example of requiring a single permission:
  * <pre>{@code
- *   {@literal @}RequiresPermission(Manifest.permission.SET_WALLPAPER)
+ *   &#64;RequiresPermission(Manifest.permission.SET_WALLPAPER)
  *   public abstract void setWallpaper(Bitmap bitmap) throws IOException;
  *
- *   {@literal @}RequiresPermission(ACCESS_COARSE_LOCATION)
+ *   &#64;RequiresPermission(ACCESS_COARSE_LOCATION)
  *   public abstract Location getLastKnownLocation(String provider);
  * }</pre>
  * Example of requiring at least one permission from a set:
  * <pre>{@code
- *   {@literal @}RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
+ *   &#64;RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
  *   public abstract Location getLastKnownLocation(String provider);
  * }</pre>
  * Example of requiring multiple permissions:
  * <pre>{@code
- *   {@literal @}RequiresPermission(allOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
+ *   &#64;RequiresPermission(allOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
  *   public abstract Location getLastKnownLocation(String provider);
  * }</pre>
  * Example of requiring separate read and write permissions for a content provider:
  * <pre>{@code
- *   {@literal @}RequiresPermission.Read(@RequiresPermission(READ_HISTORY_BOOKMARKS))
- *   {@literal @}RequiresPermission.Write(@RequiresPermission(WRITE_HISTORY_BOOKMARKS))
+ *   &#64;RequiresPermission.Read(&#64;RequiresPermission(READ_HISTORY_BOOKMARKS))
+ *   &#64;RequiresPermission.Write(&#64;RequiresPermission(WRITE_HISTORY_BOOKMARKS))
  *   public static final Uri BOOKMARKS_URI = Uri.parse("content://browser/bookmarks");
- * }</pre>
- * <p>
- * When specified on a parameter, the annotation indicates that the method requires
- * a permission which depends on the value of the parameter. For example, consider
- * {@link android.app.Activity#startActivity(Intent)}:
- * <pre>{@code
- *   public void startActivity(@RequiresPermission Intent intent) { ... }
- * }</pre>
- * Notice how there are no actual permission names listed in the annotation. The actual
- * permissions required will depend on the particular intent passed in. For example,
- * the code may look like this:
- * <pre>{@code
- *   Intent intent = new Intent(Intent.ACTION_CALL);
- *   startActivity(intent);
- * }</pre>
- * and the actual permission requirement for this particular intent is described on
- * the Intent name itself:
- * <pre>{@code
- *   {@literal @}RequiresPermission(Manifest.permission.CALL_PHONE)
- *   public static final String ACTION_CALL = "android.intent.action.CALL";
  * }</pre>
  *
  * @hide
  */
 @Retention(SOURCE)
-@Target({ANNOTATION_TYPE,METHOD,CONSTRUCTOR,FIELD,PARAMETER})
+@Target({ANNOTATION_TYPE,METHOD,CONSTRUCTOR,FIELD})
 public @interface RequiresPermission {
     /**
      * The name of the permission that is required, if precisely one permission
@@ -110,28 +87,18 @@ public @interface RequiresPermission {
     boolean conditional() default false;
 
     /**
-     * Specifies that the given permission is required for read operations.
-     * <p>
-     * When specified on a parameter, the annotation indicates that the method requires
-     * a permission which depends on the value of the parameter (and typically
-     * the corresponding field passed in will be one of a set of constants which have
-     * been annotated with a <code>@RequiresPermission</code> annotation.)
+     * Specifies that the given permission is required for read operations
      */
-    @Target({FIELD, METHOD, PARAMETER})
+    @Target(FIELD)
     @interface Read {
-        RequiresPermission value() default @RequiresPermission;
+        RequiresPermission value();
     }
 
     /**
-     * Specifies that the given permission is required for write operations.
-     * <p>
-     * When specified on a parameter, the annotation indicates that the method requires
-     * a permission which depends on the value of the parameter (and typically
-     * the corresponding field passed in will be one of a set of constants which have
-     * been annotated with a <code>@RequiresPermission</code> annotation.)
+     * Specifies that the given permission is required for write operations
      */
-    @Target({FIELD, METHOD, PARAMETER})
+    @Target(FIELD)
     @interface Write {
-        RequiresPermission value() default @RequiresPermission;
+        RequiresPermission value();
     }
 }

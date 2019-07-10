@@ -94,7 +94,7 @@ public final class GeofenceProxy {
 
     private void bindHardwareGeofence() {
         mContext.bindServiceAsUser(new Intent(mContext, GeofenceHardwareService.class),
-                mServiceConnection, Context.BIND_AUTO_CREATE, UserHandle.SYSTEM);
+                mServiceConnection, Context.BIND_AUTO_CREATE, UserHandle.OWNER);
     }
 
     private ServiceConnection mServiceConnection = new ServiceConnection() {
@@ -116,17 +116,15 @@ public final class GeofenceProxy {
     };
 
     private void setGeofenceHardwareInProviderLocked() {
-        mServiceWatcher.runOnBinder(new ServiceWatcher.BinderRunner() {
-            @Override
-            public void run(IBinder binder) {
-                final IGeofenceProvider provider = IGeofenceProvider.Stub.asInterface(binder);
-                try {
-                    provider.setGeofenceHardware(mGeofenceHardware);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "Remote Exception: setGeofenceHardwareInProviderLocked: " + e);
-                }
+        try {
+            IGeofenceProvider provider = IGeofenceProvider.Stub.asInterface(
+                      mServiceWatcher.getBinder());
+            if (provider != null) {
+                provider.setGeofenceHardware(mGeofenceHardware);
             }
-        });
+        } catch (RemoteException e) {
+            Log.e(TAG, "Remote Exception: setGeofenceHardwareInProviderLocked: " + e);
+        }
     }
 
     private void setGpsGeofenceLocked() {

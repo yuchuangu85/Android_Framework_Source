@@ -17,14 +17,10 @@
 package com.android.server.job.controllers;
 
 import android.content.Context;
-import android.util.proto.ProtoOutputStream;
 
-import com.android.internal.util.IndentingPrintWriter;
-import com.android.server.job.JobSchedulerService;
-import com.android.server.job.JobSchedulerService.Constants;
 import com.android.server.job.StateChangedListener;
 
-import java.util.function.Predicate;
+import java.io.PrintWriter;
 
 /**
  * Incorporates shared controller logic between the various controllers of the JobManager.
@@ -32,18 +28,18 @@ import java.util.function.Predicate;
  * are ready to run, or whether they must be stopped.
  */
 public abstract class StateController {
-    protected final JobSchedulerService mService;
-    protected final StateChangedListener mStateChangedListener;
-    protected final Context mContext;
-    protected final Object mLock;
-    protected final Constants mConstants;
+    protected static final boolean DEBUG = false;
+    protected Context mContext;
+    protected StateChangedListener mStateChangedListener;
+    protected boolean mDeviceIdleMode;
 
-    StateController(JobSchedulerService service) {
-        mService = service;
-        mStateChangedListener = service;
-        mContext = service.getTestableContext();
-        mLock = service.getLock();
-        mConstants = service.getConstants();
+    public StateController(StateChangedListener stateChangedListener, Context context) {
+        mStateChangedListener = stateChangedListener;
+        mContext = context;
+    }
+
+    public void deviceIdleModeChanged(boolean enabled) {
+        mDeviceIdleMode = enabled;
     }
 
     /**
@@ -52,25 +48,11 @@ public abstract class StateController {
      * Also called when updating a task, so implementing controllers have to be aware of
      * preexisting tasks.
      */
-    public abstract void maybeStartTrackingJobLocked(JobStatus jobStatus, JobStatus lastJob);
-    /**
-     * Optionally implement logic here to prepare the job to be executed.
-     */
-    public void prepareForExecutionLocked(JobStatus jobStatus) {
-    }
+    public abstract void maybeStartTrackingJob(JobStatus jobStatus);
     /**
      * Remove task - this will happen if the task is cancelled, completed, etc.
      */
-    public abstract void maybeStopTrackingJobLocked(JobStatus jobStatus, JobStatus incomingJob,
-            boolean forUpdate);
-    /**
-     * Called when a new job is being created to reschedule an old failed job.
-     */
-    public void rescheduleForFailureLocked(JobStatus newJob, JobStatus failureToReschedule) {
-    }
+    public abstract void maybeStopTrackingJob(JobStatus jobStatus);
 
-    public abstract void dumpControllerStateLocked(IndentingPrintWriter pw,
-            Predicate<JobStatus> predicate);
-    public abstract void dumpControllerStateLocked(ProtoOutputStream proto, long fieldId,
-            Predicate<JobStatus> predicate);
+    public abstract void dumpControllerState(PrintWriter pw);
 }

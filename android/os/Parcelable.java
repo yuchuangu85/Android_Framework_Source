@@ -16,11 +16,6 @@
 
 package android.os;
 
-import android.annotation.IntDef;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-
 /**
  * Interface for classes whose instances can be written to
  * and restored from a {@link Parcel}.  Classes implementing the Parcelable
@@ -58,14 +53,6 @@ import java.lang.annotation.RetentionPolicy;
  * }</pre>
  */
 public interface Parcelable {
-    /** @hide */
-    @IntDef(flag = true, prefix = { "PARCELABLE_" }, value = {
-            PARCELABLE_WRITE_RETURN_VALUE,
-            PARCELABLE_ELIDE_DUPLICATES,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface WriteFlags {}
-
     /**
      * Flag for use with {@link #writeToParcel}: the object being written
      * is a return value, that is the result of a function such as
@@ -75,49 +62,22 @@ public interface Parcelable {
      * may want to release resources at this point.
      */
     public static final int PARCELABLE_WRITE_RETURN_VALUE = 0x0001;
-
+    
     /**
-     * Flag for use with {@link #writeToParcel}: a parent object will take
-     * care of managing duplicate state/data that is nominally replicated
-     * across its inner data members.  This flag instructs the inner data
-     * types to omit that data during marshaling.  Exact behavior may vary
-     * on a case by case basis.
-     * @hide
-     */
-    public static final int PARCELABLE_ELIDE_DUPLICATES = 0x0002;
-
-    /*
      * Bit masks for use with {@link #describeContents}: each bit represents a
      * kind of object considered to have potential special significance when
      * marshalled.
      */
-
-    /** @hide */
-    @IntDef(flag = true, prefix = { "CONTENTS_" }, value = {
-            CONTENTS_FILE_DESCRIPTOR,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ContentsFlags {}
-
-    /**
-     * Descriptor bit used with {@link #describeContents()}: indicates that
-     * the Parcelable object's flattened representation includes a file descriptor.
-     *
-     * @see #describeContents()
-     */
     public static final int CONTENTS_FILE_DESCRIPTOR = 0x0001;
     
     /**
-     * Describe the kinds of special objects contained in this Parcelable
-     * instance's marshaled representation. For example, if the object will
-     * include a file descriptor in the output of {@link #writeToParcel(Parcel, int)},
-     * the return value of this method must include the
-     * {@link #CONTENTS_FILE_DESCRIPTOR} bit.
+     * Describe the kinds of special objects contained in this Parcelable's
+     * marshalled representation.
      *  
-     * @return a bitmask indicating the set of special object types marshaled
-     * by this Parcelable object instance.
+     * @return a bitmask indicating the set of special object types marshalled
+     * by the Parcelable.
      */
-    public @ContentsFlags int describeContents();
+    public int describeContents();
     
     /**
      * Flatten this object in to a Parcel.
@@ -126,7 +86,7 @@ public interface Parcelable {
      * @param flags Additional flags about how the object should be written.
      * May be 0 or {@link #PARCELABLE_WRITE_RETURN_VALUE}.
      */
-    public void writeToParcel(Parcel dest, @WriteFlags int flags);
+    public void writeToParcel(Parcel dest, int flags);
 
     /**
      * Interface that must be implemented and provided as a public CREATOR

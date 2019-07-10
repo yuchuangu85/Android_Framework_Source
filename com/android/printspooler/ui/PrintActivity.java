@@ -16,24 +16,15 @@
 
 package com.android.printspooler.ui;
 
-import android.annotation.NonNull;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.Dialog;
-import android.app.DialogFragment;
 import android.app.Fragment;
 import android.app.FragmentTransaction;
-import android.app.LoaderManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.Loader;
 import android.content.ServiceConnection;
-import android.content.SharedPreferences;
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
-import android.content.pm.PackageManager;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
@@ -46,7 +37,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-import android.os.UserManager;
 import android.print.IPrintDocumentAdapter;
 import android.print.PageRange;
 import android.print.PrintAttributes;
@@ -55,20 +45,17 @@ import android.print.PrintAttributes.Resolution;
 import android.print.PrintDocumentInfo;
 import android.print.PrintJobInfo;
 import android.print.PrintManager;
-import android.print.PrintServicesLoader;
 import android.print.PrinterCapabilitiesInfo;
 import android.print.PrinterId;
 import android.print.PrinterInfo;
 import android.printservice.PrintService;
-import android.printservice.PrintServiceInfo;
 import android.provider.DocumentsContract;
 import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextUtils.SimpleStringSplitter;
 import android.text.TextWatcher;
 import android.util.ArrayMap;
-import android.util.ArraySet;
 import android.util.Log;
-import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -84,10 +71,8 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.printspooler.R;
 import com.android.printspooler.model.MutexFileProvider;
 import com.android.printspooler.model.PrintSpoolerProvider;
@@ -96,15 +81,13 @@ import com.android.printspooler.model.RemotePrintDocument;
 import com.android.printspooler.model.RemotePrintDocument.RemotePrintDocumentInfo;
 import com.android.printspooler.renderer.IPdfEditor;
 import com.android.printspooler.renderer.PdfManipulationService;
-import com.android.printspooler.util.ApprovedPrintServices;
 import com.android.printspooler.util.MediaSizeUtils;
 import com.android.printspooler.util.MediaSizeUtils.MediaSizeComparator;
 import com.android.printspooler.util.PageRangeUtils;
-import com.android.printspooler.widget.ClickInterceptSpinner;
+import com.android.printspooler.util.PrintOptionUtils;
 import com.android.printspooler.widget.PrintContentView;
 import com.android.printspooler.widget.PrintContentView.OptionsStateChangeListener;
 import com.android.printspooler.widget.PrintContentView.OptionsStateController;
-
 import libcore.io.IoUtils;
 import libcore.io.Streams;
 
@@ -119,32 +102,19 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
-import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class PrintActivity extends Activity implements RemotePrintDocument.UpdateResultCallbacks,
         PrintErrorFragment.OnActionListener, PageAdapter.ContentCallbacks,
-        OptionsStateChangeListener, OptionsStateController,
-        LoaderManager.LoaderCallbacks<List<PrintServiceInfo>> {
+        OptionsStateChangeListener, OptionsStateController {
     private static final String LOG_TAG = "PrintActivity";
 
     private static final boolean DEBUG = false;
 
-    // Constants for MetricsLogger.count and MetricsLogger.histo
-    private static final String PRINT_PAGES_HISTO = "print_pages";
-    private static final String PRINT_DEFAULT_COUNT = "print_default";
-    private static final String PRINT_WORK_COUNT = "print_work";
+    public static final String INTENT_EXTRA_PRINTER_ID = "INTENT_EXTRA_PRINTER_ID";
 
     private static final String FRAGMENT_TAG = "FRAGMENT_TAG";
-
-    private static final String MORE_OPTIONS_ACTIVITY_IN_PROGRESS_KEY =
-            PrintActivity.class.getName() + ".MORE_OPTIONS_ACTIVITY_IN_PROGRESS";
-
-    private static final String HAS_PRINTED_PREF = "has_printed";
-
-    private static final int LOADER_ID_ENABLED_PRINT_SERVICES = 1;
-    private static final int LOADER_ID_PRINT_REGISTRY = 2;
-    private static final int LOADER_ID_PRINT_REGISTRY_INT = 3;
 
     private static final int ORIENTATION_PORTRAIT = 0;
     private static final int ORIENTATION_LANDSCAPE = 1;
@@ -156,7 +126,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private static final int DEST_ADAPTER_MAX_ITEM_COUNT = 9;
 
     private static final int DEST_ADAPTER_ITEM_ID_SAVE_AS_PDF = Integer.MAX_VALUE;
-    private static final int DEST_ADAPTER_ITEM_ID_MORE = Integer.MAX_VALUE - 1;
+    private static final int DEST_ADAPTER_ITEM_ID_ALL_PRINTERS = Integer.MAX_VALUE - 1;
 
     private static final int STATE_INITIALIZING = 0;
     private static final int STATE_CONFIGURING = 1;
@@ -172,21 +142,24 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private static final int UI_STATE_ERROR = 1;
     private static final int UI_STATE_PROGRESS = 2;
 
-    // see frameworks/base/proto/src/metrics_constats.proto -> ACTION_PRINT_JOB_OPTIONS
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_COPIES = 1;
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_COLOR_MODE = 2;
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_DUPLEX_MODE = 3;
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_MEDIA_SIZE = 4;
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_ORIENTATION = 5;
-    private static final int PRINT_JOB_OPTIONS_SUBTYPE_PAGE_RANGE = 6;
-
     private static final int MIN_COPIES = 1;
     private static final String MIN_COPIES_STRING = String.valueOf(MIN_COPIES);
 
-    private boolean mIsOptionsUiBound = false;
+    private static final Pattern PATTERN_DIGITS = Pattern.compile("[\\d]+");
+
+    private static final Pattern PATTERN_ESCAPE_SPECIAL_CHARS = Pattern.compile(
+            "(?=[]\\[+&|!(){}^\"~*?:\\\\])");
+
+    private static final Pattern PATTERN_PAGE_RANGE = Pattern.compile(
+            "[\\s]*[0-9]+[\\-]?[\\s]*[0-9]*[\\s]*?(([,])"
+                    + "[\\s]*[0-9]+[\\s]*[\\-]?[\\s]*[0-9]*[\\s]*|[\\s]*)+");
+
+    public static final PageRange[] ALL_PAGES_ARRAY = new PageRange[]{PageRange.ALL_PAGES};
 
     private final PrinterAvailabilityDetector mPrinterAvailabilityDetector =
             new PrinterAvailabilityDetector();
+
+    private final SimpleStringSplitter mStringCommaSplitter = new SimpleStringSplitter(',');
 
     private final OnFocusChangeListener mSelectAllOnFocusListener = new SelectAllOnFocusListener();
 
@@ -203,9 +176,8 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private TextView mPageRangeTitle;
     private EditText mPageRangeEditText;
 
-    private ClickInterceptSpinner mDestinationSpinner;
+    private Spinner mDestinationSpinner;
     private DestinationAdapter mDestinationSpinnerAdapter;
-    private boolean mShowDestinationPrompt;
 
     private Spinner mMediaSizeSpinner;
     private ArrayAdapter<SpinnerItem<MediaSize>> mMediaSizeSpinnerAdapter;
@@ -229,12 +201,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
     private Button mMoreOptionsButton;
 
-    /**
-     * The {@link #mMoreOptionsButton} was pressed and we started the
-     * @link #mAdvancedPrintOptionsActivity} and it has not yet {@link #onActivityResult returned}.
-     */
-    private boolean mIsMoreOptionsActivityInProgress;
-
     private ImageView mPrintButton;
 
     private ProgressMessageController mProgressMessageController;
@@ -254,42 +220,18 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
     private int mUiState = UI_STATE_PREVIEW;
 
-    /** The ID of the printer initially set */
-    private PrinterId mDefaultPrinter;
-
-    /** Observer for changes to the printers */
-    private PrintersObserver mPrintersObserver;
-
-    /** Advances options activity name for current printer */
-    private ComponentName mAdvancedPrintOptionsActivity;
-
-    /** Whether at least one print services is enabled or not */
-    private boolean mArePrintServicesEnabled;
-
-    /** Is doFinish() already in progress */
-    private boolean mIsFinishing;
-
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        setTitle(R.string.print_dialog);
-
         Bundle extras = getIntent().getExtras();
-
-        if (savedInstanceState != null) {
-            mIsMoreOptionsActivityInProgress =
-                    savedInstanceState.getBoolean(MORE_OPTIONS_ACTIVITY_IN_PROGRESS_KEY);
-        }
 
         mPrintJob = extras.getParcelable(PrintManager.EXTRA_PRINT_JOB);
         if (mPrintJob == null) {
             throw new IllegalArgumentException(PrintManager.EXTRA_PRINT_JOB
                     + " cannot be null");
         }
-        if (mPrintJob.getAttributes() == null) {
-            mPrintJob.setAttributes(new PrintAttributes.Builder().build());
-        }
+        mPrintJob.setAttributes(new PrintAttributes.Builder().build());
 
         final IBinder adapter = extras.getBinder(PrintManager.EXTRA_PRINT_DOCUMENT_ADAPTER);
         if (adapter == null) {
@@ -299,31 +241,15 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         mCallingPackageName = extras.getString(DocumentsContract.EXTRA_PACKAGE_NAME);
 
-        if (savedInstanceState == null) {
-            MetricsLogger.action(this, MetricsEvent.PRINT_PREVIEW, mCallingPackageName);
-        }
-
         // This will take just a few milliseconds, so just wait to
         // bind to the local service before showing the UI.
         mSpoolerProvider = new PrintSpoolerProvider(this,
-                () -> {
-                    if (isFinishing() || isDestroyed()) {
-                        if (savedInstanceState != null) {
-                            // onPause might have not been able to cancel the job, see
-                            // PrintActivity#onPause
-                            // To be sure, cancel the job again. Double canceling does no harm.
-                            mSpoolerProvider.getSpooler().setPrintJobState(mPrintJob.getId(),
-                                    PrintJobInfo.STATE_CANCELED, null);
-                        }
-                    } else {
-                        if (savedInstanceState == null) {
-                            mSpoolerProvider.getSpooler().createPrintJob(mPrintJob);
-                        }
-                        onConnectedToPrintSpooler(adapter);
-                    }
-                });
-
-        getLoaderManager().initLoader(LOADER_ID_ENABLED_PRINT_SERVICES, null, this);
+                new Runnable() {
+            @Override
+            public void run() {
+                onConnectedToPrintSpooler(adapter);
+            }
+        });
     }
 
     private void onConnectedToPrintSpooler(final IBinder documentAdapter) {
@@ -332,15 +258,20 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // the first batch of results which will be delivered
         // after reading historical data. This should be pretty
         // fast, so just wait before showing the UI.
-        mPrinterRegistry = new PrinterRegistry(PrintActivity.this, () -> {
-            (new Handler(getMainLooper())).post(() -> onPrinterRegistryReady(documentAdapter));
-        }, LOADER_ID_PRINT_REGISTRY, LOADER_ID_PRINT_REGISTRY_INT);
+        mPrinterRegistry = new PrinterRegistry(PrintActivity.this,
+                new Runnable() {
+            @Override
+            public void run() {
+                onPrinterRegistryReady(documentAdapter);
+            }
+        });
     }
 
     private void onPrinterRegistryReady(IBinder documentAdapter) {
         // Now that we are bound to the local print spooler service
         // and the printer registry loaded the historical printers
         // we can show the UI without flickering.
+        setTitle(R.string.print_dialog);
         setContentView(R.layout.print_activity);
 
         try {
@@ -359,16 +290,15 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 mFileProvider, new RemotePrintDocument.RemoteAdapterDeathObserver() {
             @Override
             public void onDied() {
-                Log.w(LOG_TAG, "Printing app died unexpectedly");
-
                 // If we are finishing or we are in a state that we do not need any
                 // data from the printing app, then no need to finish.
-                if (isFinishing() || isDestroyed() ||
-                        (isFinalState(mState) && !mPrintedDocument.isUpdating())) {
+                if (isFinishing() || (isFinalState(mState) && !mPrintedDocument.isUpdating())) {
                     return;
                 }
+                if (mPrintedDocument.isUpdating()) {
+                    mPrintedDocument.cancel();
+                }
                 setState(STATE_PRINT_CANCELED);
-                mPrintedDocument.cancel(true);
                 doFinish();
             }
         }, PrintActivity.this);
@@ -391,11 +321,12 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     @Override
-    public void onStart() {
-        super.onStart();
-        if (mPrinterRegistry != null && mCurrentPrinter != null) {
+    public void onResume() {
+        super.onResume();
+        if (mState != STATE_INITIALIZING && mCurrentPrinter != null) {
             mPrinterRegistry.setTrackedPrinter(mCurrentPrinter.getId());
         }
+        MetricsLogger.count(this, "print_preview", 1);
     }
 
     @Override
@@ -404,9 +335,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         if (mState == STATE_INITIALIZING) {
             if (isFinishing()) {
-                if (spooler != null) {
-                    spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_CANCELED, null);
-                }
+                spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_CANCELED, null);
             }
             super.onPause();
             return;
@@ -416,14 +345,12 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             spooler.updatePrintJobUserConfigurableOptionsNoPersistence(mPrintJob);
 
             switch (mState) {
+                case STATE_PRINT_CONFIRMED: {
+                    spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_QUEUED, null);
+                } break;
+
                 case STATE_PRINT_COMPLETED: {
-                    if (mCurrentPrinter == mDestinationSpinnerAdapter.getPdfPrinter()) {
-                        spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_COMPLETED,
-                                null);
-                    } else {
-                        spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_QUEUED,
-                                null);
-                    }
+                    spooler.setPrintJobState(mPrintJob.getId(), PrintJobInfo.STATE_COMPLETED, null);
                 } break;
 
                 case STATE_CREATE_FILE_FAILED: {
@@ -437,26 +364,10 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             }
         }
 
-        super.onPause();
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-
-        outState.putBoolean(MORE_OPTIONS_ACTIVITY_IN_PROGRESS_KEY,
-                mIsMoreOptionsActivityInProgress);
-    }
-
-    @Override
-    protected void onStop() {
         mPrinterAvailabilityDetector.cancel();
+        mPrinterRegistry.setTrackedPrinter(null);
 
-        if (mPrinterRegistry != null) {
-            mPrinterRegistry.setTrackedPrinter(null);
-        }
-
-        super.onStop();
+        super.onPause();
     }
 
     @Override
@@ -511,10 +422,12 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     private void onPrintDocumentError(String message) {
-        setState(mProgressMessageController.cancel());
+        mProgressMessageController.cancel();
         ensureErrorUiShown(null, PrintErrorFragment.ACTION_RETRY);
 
         setState(STATE_UPDATE_FAILED);
+
+        updateOptionsUi();
 
         mPrintedDocument.kill(message);
     }
@@ -525,16 +438,16 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 && canUpdateDocument() && updateDocument(true)) {
             ensurePreviewUiShown();
             setState(STATE_CONFIGURING);
+            updateOptionsUi();
         }
     }
 
-    @Override
     public void onUpdateCanceled() {
         if (DEBUG) {
             Log.i(LOG_TAG, "onUpdateCanceled()");
         }
 
-        setState(mProgressMessageController.cancel());
+        mProgressMessageController.cancel();
         ensurePreviewUiShown();
 
         switch (mState) {
@@ -542,8 +455,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 requestCreatePdfFileOrFinish();
             } break;
 
-            case STATE_CREATE_FILE_FAILED:
-            case STATE_PRINT_COMPLETED:
             case STATE_PRINT_CANCELED: {
                 doFinish();
             } break;
@@ -556,7 +467,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             Log.i(LOG_TAG, "onUpdateCompleted()");
         }
 
-        setState(mProgressMessageController.cancel());
+        mProgressMessageController.cancel();
         ensurePreviewUiShown();
 
         // Update the print job with the info for the written document. The page
@@ -566,22 +477,14 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // pages in the printed document.
         PrintDocumentInfo info = document.info;
         if (info != null) {
-            final int pageCount = PageRangeUtils.getNormalizedPageCount(
-                    document.pagesWrittenToFile, getAdjustedPageCount(info));
+            final int pageCount = PageRangeUtils.getNormalizedPageCount(document.writtenPages,
+                    getAdjustedPageCount(info));
             PrintDocumentInfo adjustedInfo = new PrintDocumentInfo.Builder(info.getName())
                     .setContentType(info.getContentType())
                     .setPageCount(pageCount)
                     .build();
-
-            File file = mFileProvider.acquireFile(null);
-            try {
-                adjustedInfo.setDataSize(file.length());
-            } finally {
-                mFileProvider.releaseFile();
-            }
-
             mPrintJob.setDocumentInfo(adjustedInfo);
-            mPrintJob.setPages(document.pagesInFileToPrint);
+            mPrintJob.setPages(document.printedPages);
         }
 
         switch (mState) {
@@ -589,18 +492,15 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 requestCreatePdfFileOrFinish();
             } break;
 
-            case STATE_CREATE_FILE_FAILED:
-            case STATE_PRINT_COMPLETED:
             case STATE_PRINT_CANCELED: {
                 updateOptionsUi();
-
-                doFinish();
             } break;
 
             default: {
                 updatePrintPreviewController(document.changed);
 
                 setState(STATE_CONFIGURING);
+                updateOptionsUi();
             } break;
         }
     }
@@ -611,29 +511,33 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             Log.i(LOG_TAG, "onUpdateFailed()");
         }
 
-        setState(mProgressMessageController.cancel());
+        mProgressMessageController.cancel();
         ensureErrorUiShown(error, PrintErrorFragment.ACTION_RETRY);
 
-        if (mState == STATE_CREATE_FILE_FAILED
-                || mState == STATE_PRINT_COMPLETED
-                || mState == STATE_PRINT_CANCELED) {
-            doFinish();
-        }
-
         setState(STATE_UPDATE_FAILED);
+
+        updateOptionsUi();
     }
 
     @Override
     public void onOptionsOpened() {
-        MetricsLogger.action(this, MetricsEvent.PRINT_JOB_OPTIONS);
         updateSelectedPagesFromPreview();
     }
 
     @Override
     public void onOptionsClosed() {
+        PageRange[] selectedPages = computeSelectedPages();
+        if (!Arrays.equals(mSelectedPages, selectedPages)) {
+            mSelectedPages = selectedPages;
+
+            // Update preview.
+            updatePrintPreviewController(false);
+        }
+
         // Make sure the IME is not on the way of preview as
         // the user may have used it to type copies or range.
-        InputMethodManager imm = getSystemService(InputMethodManager.class);
+        InputMethodManager imm = (InputMethodManager) getSystemService(
+                Context.INPUT_METHOD_SERVICE);
         imm.hideSoftInputFromWindow(mDestinationSpinner.getWindowToken(), 0);
     }
 
@@ -647,7 +551,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // Update the preview controller.
         mPrintPreviewController.onContentUpdated(contentUpdated,
                 getAdjustedPageCount(documentInfo.info),
-                mPrintedDocument.getDocumentInfo().pagesWrittenToFile,
+                mPrintedDocument.getDocumentInfo().writtenPages,
                 mSelectedPages, mPrintJob.getAttributes().getMediaSize(),
                 mPrintJob.getAttributes().getMinMargins());
     }
@@ -666,25 +570,9 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-
-        if (mMediaSizeComparator != null) {
-            mMediaSizeComparator.onConfigurationChanged(newConfig);
-        }
-
         if (mPrintPreviewController != null) {
             mPrintPreviewController.onOrientationChanged();
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (mPrintedDocument != null) {
-            mPrintedDocument.cancel(true);
-        }
-
-        doFinish();
-
-        super.onDestroy();
     }
 
     @Override
@@ -716,24 +604,14 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         intent.setType("application/pdf");
         intent.putExtra(Intent.EXTRA_TITLE, info.getName());
         intent.putExtra(DocumentsContract.EXTRA_PACKAGE_NAME, mCallingPackageName);
-
-        try {
-            startActivityForResult(intent, ACTIVITY_REQUEST_CREATE_FILE);
-        } catch (Exception e) {
-            Log.e(LOG_TAG, "Could not create file", e);
-            Toast.makeText(this, getString(R.string.could_not_create_file),
-                    Toast.LENGTH_SHORT).show();
-            onStartCreateDocumentActivityResult(RESULT_CANCELED, null);
-        }
+        startActivityForResult(intent, ACTIVITY_REQUEST_CREATE_FILE);
     }
 
     private void onStartCreateDocumentActivityResult(int resultCode, Intent data) {
         if (resultCode == RESULT_OK && data != null) {
+            setState(STATE_PRINT_COMPLETED);
             updateOptionsUi();
             final Uri uri = data.getData();
-
-            countPrintOperation(getPackageName());
-
             // Calling finish here does not invoke lifecycle callbacks but we
             // update the print job in onPause if finishing, hence post a message.
             mDestinationSpinner.post(new Runnable() {
@@ -743,18 +621,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 }
             });
         } else if (resultCode == RESULT_CANCELED) {
-            if (DEBUG) {
-                Log.i(LOG_TAG, "[state]" + STATE_CONFIGURING);
-            }
-
             mState = STATE_CONFIGURING;
-
-            // The previous update might have been canceled
-            updateDocument(false);
-
             updateOptionsUi();
         } else {
             setState(STATE_CREATE_FILE_FAILED);
+            updateOptionsUi();
             // Calling finish here does not invoke lifecycle callbacks but we
             // update the print job in onPause if finishing, hence post a message.
             mDestinationSpinner.post(new Runnable() {
@@ -773,77 +644,56 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
     private void onSelectPrinterActivityResult(int resultCode, Intent data) {
         if (resultCode == RESULT_OK && data != null) {
-            PrinterInfo printerInfo = data.getParcelableExtra(
-                    SelectPrinterActivity.INTENT_EXTRA_PRINTER);
-            if (printerInfo != null) {
-                mCurrentPrinter = printerInfo;
-                mPrintJob.setPrinterId(printerInfo.getId());
-                mPrintJob.setPrinterName(printerInfo.getName());
-
-                if (canPrint(printerInfo)) {
-                    updatePrintAttributesFromCapabilities(printerInfo.getCapabilities());
-                    onPrinterAvailable(printerInfo);
-                } else {
-                    onPrinterUnavailable(printerInfo);
+            PrinterId printerId = data.getParcelableExtra(INTENT_EXTRA_PRINTER_ID);
+            if (printerId != null) {
+                mDestinationSpinnerAdapter.ensurePrinterInVisibleAdapterPosition(printerId);
+                final int index = mDestinationSpinnerAdapter.getPrinterIndex(printerId);
+                if (index != AdapterView.INVALID_POSITION) {
+                    mDestinationSpinner.setSelection(index);
+                    return;
                 }
-
-                mDestinationSpinnerAdapter.ensurePrinterInVisibleAdapterPosition(printerInfo);
-
-                MetricsLogger.action(this, MetricsEvent.ACTION_PRINTER_SELECT_ALL,
-                        printerInfo.getId().getServiceName().getPackageName());
             }
         }
 
-        if (mCurrentPrinter != null) {
-            // Trigger PrintersObserver.onChanged() to adjust selection back to current printer
-            mDestinationSpinnerAdapter.notifyDataSetChanged();
-        }
+        PrinterId printerId = mCurrentPrinter.getId();
+        final int index = mDestinationSpinnerAdapter.getPrinterIndex(printerId);
+        mDestinationSpinner.setSelection(index);
     }
 
     private void startAdvancedPrintOptionsActivity(PrinterInfo printer) {
-        if (mAdvancedPrintOptionsActivity == null) {
+        ComponentName serviceName = printer.getId().getServiceName();
+
+        String activityName = PrintOptionUtils.getAdvancedOptionsActivityName(this, serviceName);
+        if (TextUtils.isEmpty(activityName)) {
             return;
         }
 
         Intent intent = new Intent(Intent.ACTION_MAIN);
-        intent.setComponent(mAdvancedPrintOptionsActivity);
+        intent.setComponent(new ComponentName(serviceName.getPackageName(), activityName));
 
         List<ResolveInfo> resolvedActivities = getPackageManager()
                 .queryIntentActivities(intent, 0);
         if (resolvedActivities.isEmpty()) {
-            Log.w(LOG_TAG, "Advanced options activity " + mAdvancedPrintOptionsActivity + " could "
-                    + "not be found");
             return;
         }
 
         // The activity is a component name, therefore it is one or none.
         if (resolvedActivities.get(0).activityInfo.exported) {
-            PrintJobInfo.Builder printJobBuilder = new PrintJobInfo.Builder(mPrintJob);
-            printJobBuilder.setPages(mSelectedPages);
-
-            intent.putExtra(PrintService.EXTRA_PRINT_JOB_INFO, printJobBuilder.build());
+            intent.putExtra(PrintService.EXTRA_PRINT_JOB_INFO, mPrintJob);
             intent.putExtra(PrintService.EXTRA_PRINTER_INFO, printer);
             intent.putExtra(PrintService.EXTRA_PRINT_DOCUMENT_INFO,
                     mPrintedDocument.getDocumentInfo().info);
-
-            mIsMoreOptionsActivityInProgress = true;
 
             // This is external activity and may not be there.
             try {
                 startActivityForResult(intent, ACTIVITY_REQUEST_POPULATE_ADVANCED_PRINT_OPTIONS);
             } catch (ActivityNotFoundException anfe) {
-                mIsMoreOptionsActivityInProgress = false;
                 Log.e(LOG_TAG, "Error starting activity for intent: " + intent, anfe);
             }
-
-            mMoreOptionsButton.setEnabled(!mIsMoreOptionsActivityInProgress);
         }
     }
 
     private void onAdvancedPrintOptionsActivityResult(int resultCode, Intent data) {
-        mIsMoreOptionsActivityInProgress = false;
-        mMoreOptionsButton.setEnabled(true);
-
         if (resultCode != RESULT_OK || data == null) {
             return;
         }
@@ -857,14 +707,10 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // Take the advanced options without interpretation.
         mPrintJob.setAdvancedOptions(printJobInfo.getAdvancedOptions());
 
-        if (printJobInfo.getCopies() < 1) {
-            Log.w(LOG_TAG, "Cannot apply return value from advanced options activity. Copies " +
-                    "must be 1 or more. Actual value is: " + printJobInfo.getCopies() + ". " +
-                    "Ignoring.");
-        } else {
-            mCopiesEditText.setText(String.valueOf(printJobInfo.getCopies()));
-            mPrintJob.setCopies(printJobInfo.getCopies());
-        }
+        // Take copies without interpretation as the advanced print dialog
+        // cannot create a print job info with invalid copies.
+        mCopiesEditText.setText(String.valueOf(printJobInfo.getCopies()));
+        mPrintJob.setCopies(printJobInfo.getCopies());
 
         PrintAttributes currAttributes = mPrintJob.getAttributes();
         PrintAttributes newAttributes = printJobInfo.getAttributes();
@@ -873,7 +719,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             // Take the media size only if the current printer supports is.
             MediaSize oldMediaSize = currAttributes.getMediaSize();
             MediaSize newMediaSize = newAttributes.getMediaSize();
-            if (newMediaSize != null && !oldMediaSize.equals(newMediaSize)) {
+            if (!oldMediaSize.equals(newMediaSize)) {
                 final int mediaSizeCount = mMediaSizeSpinnerAdapter.getCount();
                 MediaSize newMediaSizePortrait = newAttributes.getMediaSize().asPortrait();
                 for (int i = 0; i < mediaSizeCount; i++) {
@@ -984,25 +830,17 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private void setState(int state) {
         if (isFinalState(mState)) {
             if (isFinalState(state)) {
-                if (DEBUG) {
-                    Log.i(LOG_TAG, "[state]" + state);
-                }
                 mState = state;
-                updateOptionsUi();
             }
         } else {
-            if (DEBUG) {
-                Log.i(LOG_TAG, "[state]" + state);
-            }
             mState = state;
-            updateOptionsUi();
         }
     }
 
     private static boolean isFinalState(int state) {
-        return state == STATE_PRINT_CANCELED
-                || state == STATE_PRINT_COMPLETED
-                || state == STATE_CREATE_FILE_FAILED;
+        return state == STATE_PRINT_CONFIRMED
+                || state == STATE_PRINT_CANCELED
+                || state == STATE_PRINT_COMPLETED;
     }
 
     private void updateSelectedPagesFromPreview() {
@@ -1033,7 +871,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         mSelectedPages = selectedPages;
         mPrintJob.setPages(selectedPages);
 
-        if (Arrays.equals(selectedPages, PageRange.ALL_PAGES_ARRAY)) {
+        if (Arrays.equals(selectedPages, ALL_PAGES_ARRAY)) {
             if (mRangeOptionsSpinner.getSelectedItemPosition() != 0) {
                 mRangeOptionsSpinner.setSelection(0);
                 mPageRangeEditText.setText("");
@@ -1075,7 +913,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     private void ensureProgressUiShown() {
-        if (isFinishing() || isDestroyed()) {
+        if (isFinishing()) {
             return;
         }
         if (mUiState != UI_STATE_PROGRESS) {
@@ -1087,7 +925,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     private void ensurePreviewUiShown() {
-        if (isFinishing() || isDestroyed()) {
+        if (isFinishing()) {
             return;
         }
         if (mUiState != UI_STATE_PREVIEW) {
@@ -1098,7 +936,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     private void ensureErrorUiShown(CharSequence message, int action) {
-        if (isFinishing() || isDestroyed()) {
+        if (isFinishing()) {
             return;
         }
         if (mUiState != UI_STATE_ERROR) {
@@ -1118,59 +956,19 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         if (newFragment != null) {
             transaction.add(R.id.embedded_content_container, newFragment, FRAGMENT_TAG);
         }
-        transaction.commitAllowingStateLoss();
+        transaction.commit();
         getFragmentManager().executePendingTransactions();
     }
 
-    /**
-     * Count that a print operation has been confirmed.
-     *
-     * @param packageName The package name of the print service used
-     */
-    private void countPrintOperation(@NonNull String packageName) {
-        MetricsLogger.action(this, MetricsEvent.ACTION_PRINT, packageName);
-
-        MetricsLogger.histogram(this, PRINT_PAGES_HISTO,
-                getAdjustedPageCount(mPrintJob.getDocumentInfo()));
-
-        if (mPrintJob.getPrinterId().equals(mDefaultPrinter)) {
-            MetricsLogger.histogram(this, PRINT_DEFAULT_COUNT, 1);
-        }
-
-        UserManager um = (UserManager) getSystemService(Context.USER_SERVICE);
-        if (um.isManagedProfile()) {
-            MetricsLogger.histogram(this, PRINT_WORK_COUNT, 1);
-        }
-    }
-
     private void requestCreatePdfFileOrFinish() {
-        mPrintedDocument.cancel(false);
-
         if (mCurrentPrinter == mDestinationSpinnerAdapter.getPdfPrinter()) {
             startCreateDocumentActivity();
         } else {
-            countPrintOperation(mCurrentPrinter.getId().getServiceName().getPackageName());
-
             transformDocumentAndFinish(null);
         }
     }
 
-    /**
-     * Clear the selected page range and update the preview if needed.
-     */
-    private void clearPageRanges() {
-        mRangeOptionsSpinner.setSelection(0);
-        mPageRangeEditText.setError(null);
-        mPageRangeEditText.setText("");
-        mSelectedPages = PageRange.ALL_PAGES_ARRAY;
-
-        if (!Arrays.equals(mSelectedPages, mPrintPreviewController.getSelectedPages())) {
-            updatePrintPreviewController(false);
-        }
-    }
-
     private void updatePrintAttributesFromCapabilities(PrinterCapabilitiesInfo capabilities) {
-        boolean clearRanges = false;
         PrintAttributes defaults = capabilities.getDefaults();
 
         // Sort the media sizes based on the current locale.
@@ -1182,12 +980,9 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // Media size.
         MediaSize currMediaSize = attributes.getMediaSize();
         if (currMediaSize == null) {
-            clearRanges = true;
             attributes.setMediaSize(defaults.getMediaSize());
         } else {
-            MediaSize newMediaSize = null;
-            boolean isPortrait = currMediaSize.isPortrait();
-
+            boolean foundCurrentMediaSize = false;
             // Try to find the current media size in the capabilities as
             // it may be in a different orientation.
             MediaSize currMediaSizePortrait = currMediaSize.asPortrait();
@@ -1195,22 +990,14 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             for (int i = 0; i < mediaSizeCount; i++) {
                 MediaSize mediaSize = sortedMediaSizes.get(i);
                 if (currMediaSizePortrait.equals(mediaSize.asPortrait())) {
-                    newMediaSize = mediaSize;
+                    attributes.setMediaSize(currMediaSize);
+                    foundCurrentMediaSize = true;
                     break;
                 }
             }
             // If we did not find the current media size fall back to default.
-            if (newMediaSize == null) {
-                clearRanges = true;
-                newMediaSize = defaults.getMediaSize();
-            }
-
-            if (newMediaSize != null) {
-                if (isPortrait) {
-                    attributes.setMediaSize(newMediaSize.asPortrait());
-                } else {
-                    attributes.setMediaSize(newMediaSize.asLandscape());
-                }
+            if (!foundCurrentMediaSize) {
+                attributes.setMediaSize(defaults.getMediaSize());
             }
         }
 
@@ -1233,14 +1020,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         }
 
         // Margins.
-        if (!Objects.equals(attributes.getMinMargins(), defaults.getMinMargins())) {
-            clearRanges = true;
-        }
         attributes.setMinMargins(defaults.getMinMargins());
-
-        if (clearRanges) {
-            clearPageRanges();
-        }
     }
 
     private boolean updateDocument(boolean clearLastError) {
@@ -1262,7 +1042,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         final boolean willUpdate = mPrintedDocument.update(mPrintJob.getAttributes(),
                 pages, preview);
-        updateOptionsUi();
 
         if (willUpdate && !mPrintedDocument.hasLaidOutPages()) {
             // When the update is done we update the print preview.
@@ -1287,32 +1066,29 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
     private void cancelPrint() {
         setState(STATE_PRINT_CANCELED);
-        mPrintedDocument.cancel(true);
+        updateOptionsUi();
+        if (mPrintedDocument.isUpdating()) {
+            mPrintedDocument.cancel();
+        }
         doFinish();
     }
 
-    /**
-     * Update the selected pages from the text field.
-     */
-    private void updateSelectedPagesFromTextField() {
+    private void confirmPrint() {
+        setState(STATE_PRINT_CONFIRMED);
+
+        MetricsLogger.count(this, "print_confirmed", 1);
+
+        updateOptionsUi();
+        addCurrentPrinterToHistory();
+
         PageRange[] selectedPages = computeSelectedPages();
         if (!Arrays.equals(mSelectedPages, selectedPages)) {
             mSelectedPages = selectedPages;
             // Update preview.
             updatePrintPreviewController(false);
         }
-    }
 
-    private void confirmPrint() {
-        setState(STATE_PRINT_CONFIRMED);
-
-        addCurrentPrinterToHistory();
-        setUserPrinted();
-
-        // updateSelectedPagesFromTextField migth update the preview, hence apply the preview first
         updateSelectedPagesFromPreview();
-        updateSelectedPagesFromTextField();
-
         mPrintPreviewController.closeOptions();
 
         if (canUpdateDocument()) {
@@ -1327,11 +1103,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private void bindUi() {
         // Summary
         mSummaryContainer = findViewById(R.id.summary_content);
-        mSummaryCopies = findViewById(R.id.copies_count_summary);
-        mSummaryPaperSize = findViewById(R.id.paper_size_summary);
+        mSummaryCopies = (TextView) findViewById(R.id.copies_count_summary);
+        mSummaryPaperSize = (TextView) findViewById(R.id.paper_size_summary);
 
         // Options container
-        mOptionsContent = findViewById(R.id.options_content);
+        mOptionsContent = (PrintContentView) findViewById(R.id.options_content);
         mOptionsContent.setOptionsStateChangeListener(this);
         mOptionsContent.setOpenOptionsController(this);
 
@@ -1339,37 +1115,36 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         OnClickListener clickListener = new MyClickListener();
 
         // Copies
-        mCopiesEditText = findViewById(R.id.copies_edittext);
+        mCopiesEditText = (EditText) findViewById(R.id.copies_edittext);
         mCopiesEditText.setOnFocusChangeListener(mSelectAllOnFocusListener);
         mCopiesEditText.setText(MIN_COPIES_STRING);
         mCopiesEditText.setSelection(mCopiesEditText.getText().length());
         mCopiesEditText.addTextChangedListener(new EditTextWatcher());
 
         // Destination.
-        mPrintersObserver = new PrintersObserver();
-        mDestinationSpinnerAdapter.registerDataSetObserver(mPrintersObserver);
-        mDestinationSpinner = findViewById(R.id.destination_spinner);
+        mDestinationSpinnerAdapter.registerDataSetObserver(new PrintersObserver());
+        mDestinationSpinner = (Spinner) findViewById(R.id.destination_spinner);
         mDestinationSpinner.setAdapter(mDestinationSpinnerAdapter);
         mDestinationSpinner.setOnItemSelectedListener(itemSelectedListener);
 
         // Media size.
         mMediaSizeSpinnerAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_dropdown_item, android.R.id.text1);
-        mMediaSizeSpinner = findViewById(R.id.paper_size_spinner);
+        mMediaSizeSpinner = (Spinner) findViewById(R.id.paper_size_spinner);
         mMediaSizeSpinner.setAdapter(mMediaSizeSpinnerAdapter);
         mMediaSizeSpinner.setOnItemSelectedListener(itemSelectedListener);
 
         // Color mode.
         mColorModeSpinnerAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_dropdown_item, android.R.id.text1);
-        mColorModeSpinner = findViewById(R.id.color_spinner);
+        mColorModeSpinner = (Spinner) findViewById(R.id.color_spinner);
         mColorModeSpinner.setAdapter(mColorModeSpinnerAdapter);
         mColorModeSpinner.setOnItemSelectedListener(itemSelectedListener);
 
         // Duplex mode.
         mDuplexModeSpinnerAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_dropdown_item, android.R.id.text1);
-        mDuplexModeSpinner = findViewById(R.id.duplex_spinner);
+        mDuplexModeSpinner = (Spinner) findViewById(R.id.duplex_spinner);
         mDuplexModeSpinner.setAdapter(mDuplexModeSpinnerAdapter);
         mDuplexModeSpinner.setOnItemSelectedListener(itemSelectedListener);
 
@@ -1382,207 +1157,31 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 ORIENTATION_PORTRAIT, orientationLabels[0]));
         mOrientationSpinnerAdapter.add(new SpinnerItem<>(
                 ORIENTATION_LANDSCAPE, orientationLabels[1]));
-        mOrientationSpinner = findViewById(R.id.orientation_spinner);
+        mOrientationSpinner = (Spinner) findViewById(R.id.orientation_spinner);
         mOrientationSpinner.setAdapter(mOrientationSpinnerAdapter);
         mOrientationSpinner.setOnItemSelectedListener(itemSelectedListener);
 
         // Range options
         ArrayAdapter<SpinnerItem<Integer>> rangeOptionsSpinnerAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_dropdown_item, android.R.id.text1);
-        mRangeOptionsSpinner = findViewById(R.id.range_options_spinner);
+        mRangeOptionsSpinner = (Spinner) findViewById(R.id.range_options_spinner);
         mRangeOptionsSpinner.setAdapter(rangeOptionsSpinnerAdapter);
         mRangeOptionsSpinner.setOnItemSelectedListener(itemSelectedListener);
         updatePageRangeOptions(PrintDocumentInfo.PAGE_COUNT_UNKNOWN);
 
         // Page range
-        mPageRangeTitle = findViewById(R.id.page_range_title);
-        mPageRangeEditText = findViewById(R.id.page_range_edittext);
-        mPageRangeEditText.setVisibility(View.GONE);
-        mPageRangeTitle.setVisibility(View.GONE);
+        mPageRangeTitle = (TextView) findViewById(R.id.page_range_title);
+        mPageRangeEditText = (EditText) findViewById(R.id.page_range_edittext);
         mPageRangeEditText.setOnFocusChangeListener(mSelectAllOnFocusListener);
         mPageRangeEditText.addTextChangedListener(new RangeTextWatcher());
 
         // Advanced options button.
-        mMoreOptionsButton = findViewById(R.id.more_options_button);
+        mMoreOptionsButton = (Button) findViewById(R.id.more_options_button);
         mMoreOptionsButton.setOnClickListener(clickListener);
 
         // Print button
-        mPrintButton = findViewById(R.id.print_button);
+        mPrintButton = (ImageView) findViewById(R.id.print_button);
         mPrintButton.setOnClickListener(clickListener);
-
-        // The UI is now initialized
-        mIsOptionsUiBound = true;
-
-        // Special prompt instead of destination spinner for the first time the user printed
-        if (!hasUserEverPrinted()) {
-            mShowDestinationPrompt = true;
-
-            mSummaryCopies.setEnabled(false);
-            mSummaryPaperSize.setEnabled(false);
-
-            mDestinationSpinner.setPerformClickListener((v) -> {
-                mShowDestinationPrompt = false;
-                mSummaryCopies.setEnabled(true);
-                mSummaryPaperSize.setEnabled(true);
-                updateOptionsUi();
-
-                mDestinationSpinner.setPerformClickListener(null);
-                mDestinationSpinnerAdapter.notifyDataSetChanged();
-            });
-        }
-    }
-
-    @Override
-    public Loader<List<PrintServiceInfo>> onCreateLoader(int id, Bundle args) {
-        return new PrintServicesLoader((PrintManager) getSystemService(Context.PRINT_SERVICE), this,
-                PrintManager.ENABLED_SERVICES);
-    }
-
-    @Override
-    public void onLoadFinished(Loader<List<PrintServiceInfo>> loader,
-            List<PrintServiceInfo> services) {
-        ComponentName newAdvancedPrintOptionsActivity = null;
-        if (mCurrentPrinter != null && services != null) {
-            final int numServices = services.size();
-            for (int i = 0; i < numServices; i++) {
-                PrintServiceInfo service = services.get(i);
-
-                if (service.getComponentName().equals(mCurrentPrinter.getId().getServiceName())) {
-                    String advancedOptionsActivityName = service.getAdvancedOptionsActivityName();
-
-                    if (!TextUtils.isEmpty(advancedOptionsActivityName)) {
-                        newAdvancedPrintOptionsActivity = new ComponentName(
-                                service.getComponentName().getPackageName(),
-                                advancedOptionsActivityName);
-
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!Objects.equals(newAdvancedPrintOptionsActivity, mAdvancedPrintOptionsActivity)) {
-            mAdvancedPrintOptionsActivity = newAdvancedPrintOptionsActivity;
-            updateOptionsUi();
-        }
-
-        boolean newArePrintServicesEnabled = services != null && !services.isEmpty();
-        if (mArePrintServicesEnabled != newArePrintServicesEnabled) {
-            mArePrintServicesEnabled = newArePrintServicesEnabled;
-
-            // Reload mDestinationSpinnerAdapter as mArePrintServicesEnabled changed and the adapter
-            // reads that in DestinationAdapter#getMoreItemTitle
-            if (mDestinationSpinnerAdapter != null) {
-                mDestinationSpinnerAdapter.notifyDataSetChanged();
-            }
-        }
-    }
-
-    @Override
-    public void onLoaderReset(Loader<List<PrintServiceInfo>> loader) {
-        if (!(isFinishing() || isDestroyed())) {
-            onLoadFinished(loader, null);
-        }
-    }
-
-    /**
-     * A dialog that asks the user to approve a {@link PrintService}. This dialog is automatically
-     * dismissed if the same {@link PrintService} gets approved by another
-     * {@link PrintServiceApprovalDialog}.
-     */
-    public static final class PrintServiceApprovalDialog extends DialogFragment
-            implements OnSharedPreferenceChangeListener {
-        private static final String PRINTSERVICE_KEY = "PRINTSERVICE";
-        private ApprovedPrintServices mApprovedServices;
-
-        /**
-         * Create a new {@link PrintServiceApprovalDialog} that ask the user to approve a
-         * {@link PrintService}.
-         *
-         * @param printService The {@link ComponentName} of the service to approve
-         * @return A new {@link PrintServiceApprovalDialog} that might approve the service
-         */
-        static PrintServiceApprovalDialog newInstance(ComponentName printService) {
-            PrintServiceApprovalDialog dialog = new PrintServiceApprovalDialog();
-
-            Bundle args = new Bundle();
-            args.putParcelable(PRINTSERVICE_KEY, printService);
-            dialog.setArguments(args);
-
-            return dialog;
-        }
-
-        @Override
-        public void onStop() {
-            super.onStop();
-
-            mApprovedServices.unregisterChangeListener(this);
-        }
-
-        @Override
-        public void onStart() {
-            super.onStart();
-
-            ComponentName printService = getArguments().getParcelable(PRINTSERVICE_KEY);
-            synchronized (ApprovedPrintServices.sLock) {
-                if (mApprovedServices.isApprovedService(printService)) {
-                    dismiss();
-                } else {
-                    mApprovedServices.registerChangeListenerLocked(this);
-                }
-            }
-        }
-
-        @Override
-        public Dialog onCreateDialog(Bundle savedInstanceState) {
-            super.onCreateDialog(savedInstanceState);
-
-            mApprovedServices = new ApprovedPrintServices(getActivity());
-
-            PackageManager packageManager = getActivity().getPackageManager();
-            CharSequence serviceLabel;
-            try {
-                ComponentName printService = getArguments().getParcelable(PRINTSERVICE_KEY);
-
-                serviceLabel = packageManager.getApplicationInfo(printService.getPackageName(), 0)
-                        .loadLabel(packageManager);
-            } catch (NameNotFoundException e) {
-                serviceLabel = null;
-            }
-
-            AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-            builder.setTitle(getString(R.string.print_service_security_warning_title,
-                    serviceLabel))
-                    .setMessage(getString(R.string.print_service_security_warning_summary,
-                            serviceLabel))
-                    .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int id) {
-                            ComponentName printService =
-                                    getArguments().getParcelable(PRINTSERVICE_KEY);
-                            // Prevent onSharedPreferenceChanged from getting triggered
-                            mApprovedServices
-                                    .unregisterChangeListener(PrintServiceApprovalDialog.this);
-
-                            mApprovedServices.addApprovedService(printService);
-                            ((PrintActivity) getActivity()).confirmPrint();
-                        }
-                    })
-                    .setNegativeButton(android.R.string.cancel, null);
-
-            return builder.create();
-        }
-
-        @Override
-        public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-            ComponentName printService = getArguments().getParcelable(PRINTSERVICE_KEY);
-
-            synchronized (ApprovedPrintServices.sLock) {
-                if (mApprovedServices.isApprovedService(printService)) {
-                    dismiss();
-                }
-            }
-        }
     }
 
     private final class MyClickListener implements OnClickListener {
@@ -1590,30 +1189,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         public void onClick(View view) {
             if (view == mPrintButton) {
                 if (mCurrentPrinter != null) {
-                    if (mDestinationSpinnerAdapter.getPdfPrinter() == mCurrentPrinter) {
-                        confirmPrint();
-                    } else {
-                        ApprovedPrintServices approvedServices =
-                                new ApprovedPrintServices(PrintActivity.this);
-
-                        ComponentName printService = mCurrentPrinter.getId().getServiceName();
-                        if (approvedServices.isApprovedService(printService)) {
-                            confirmPrint();
-                        } else {
-                            PrintServiceApprovalDialog.newInstance(printService)
-                                    .show(getFragmentManager(), "approve");
-                        }
-                    }
+                    confirmPrint();
                 } else {
                     cancelPrint();
                 }
             } else if (view == mMoreOptionsButton) {
-                if (mPageRangeEditText.getError() == null) {
-                    // The selected pages is only applied once the user leaves the text field. A click
-                    // on this button, does not count as leaving.
-                    updateSelectedPagesFromTextField();
-                }
-
                 if (mCurrentPrinter != null) {
                     startAdvancedPrintOptionsActivity(mCurrentPrinter);
                 }
@@ -1626,36 +1206,9 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 && printer.getStatus() != PrinterInfo.STATUS_UNAVAILABLE;
     }
 
-    /**
-     * Disable all options UI elements, beside the {@link #mDestinationSpinner}
-     *
-     * @param disableRange If the range selection options should be disabled
-     */
-    private void disableOptionsUi(boolean disableRange) {
-        mCopiesEditText.setEnabled(false);
-        mCopiesEditText.setFocusable(false);
-        mMediaSizeSpinner.setEnabled(false);
-        mColorModeSpinner.setEnabled(false);
-        mDuplexModeSpinner.setEnabled(false);
-        mOrientationSpinner.setEnabled(false);
-        mPrintButton.setVisibility(View.GONE);
-        mMoreOptionsButton.setEnabled(false);
-
-        if (disableRange) {
-            mRangeOptionsSpinner.setEnabled(false);
-            mPageRangeEditText.setEnabled(false);
-        }
-    }
-
     void updateOptionsUi() {
-        if (!mIsOptionsUiBound) {
-            return;
-        }
-
         // Always update the summary.
         updateSummary();
-
-        mDestinationSpinner.setEnabled(!isFinalState(mState));
 
         if (mState == STATE_PRINT_CONFIRMED
                 || mState == STATE_PRINT_COMPLETED
@@ -1664,14 +1217,35 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 || mState == STATE_CREATE_FILE_FAILED
                 || mState == STATE_PRINTER_UNAVAILABLE
                 || mState == STATE_UPDATE_SLOW) {
-            disableOptionsUi(isFinalState(mState));
+            if (mState != STATE_PRINTER_UNAVAILABLE) {
+                mDestinationSpinner.setEnabled(false);
+            }
+            mCopiesEditText.setEnabled(false);
+            mCopiesEditText.setFocusable(false);
+            mMediaSizeSpinner.setEnabled(false);
+            mColorModeSpinner.setEnabled(false);
+            mDuplexModeSpinner.setEnabled(false);
+            mOrientationSpinner.setEnabled(false);
+            mRangeOptionsSpinner.setEnabled(false);
+            mPageRangeEditText.setEnabled(false);
+            mPrintButton.setVisibility(View.GONE);
+            mMoreOptionsButton.setEnabled(false);
             return;
         }
 
         // If no current printer, or it has no capabilities, or it is not
         // available, we disable all print options except the destination.
         if (mCurrentPrinter == null || !canPrint(mCurrentPrinter)) {
-            disableOptionsUi(false);
+            mCopiesEditText.setEnabled(false);
+            mCopiesEditText.setFocusable(false);
+            mMediaSizeSpinner.setEnabled(false);
+            mColorModeSpinner.setEnabled(false);
+            mDuplexModeSpinner.setEnabled(false);
+            mOrientationSpinner.setEnabled(false);
+            mRangeOptionsSpinner.setEnabled(false);
+            mPageRangeEditText.setEnabled(false);
+            mPrintButton.setVisibility(View.GONE);
+            mMoreOptionsButton.setEnabled(false);
             return;
         }
 
@@ -1895,38 +1469,36 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // Range options
         PrintDocumentInfo info = mPrintedDocument.getDocumentInfo().info;
         final int pageCount = getAdjustedPageCount(info);
-        if (pageCount > 0) {
-            if (info != null) {
-                if (pageCount == 1) {
-                    mRangeOptionsSpinner.setEnabled(false);
-                } else {
-                    mRangeOptionsSpinner.setEnabled(true);
-                    if (mRangeOptionsSpinner.getSelectedItemPosition() > 0) {
-                        if (!mPageRangeEditText.isEnabled()) {
-                            mPageRangeEditText.setEnabled(true);
-                            mPageRangeEditText.setVisibility(View.VISIBLE);
-                            mPageRangeTitle.setVisibility(View.VISIBLE);
-                            mPageRangeEditText.requestFocus();
-                            InputMethodManager imm = (InputMethodManager)
-                                    getSystemService(Context.INPUT_METHOD_SERVICE);
-                            imm.showSoftInput(mPageRangeEditText, 0);
-                        }
-                    } else {
-                        mPageRangeEditText.setEnabled(false);
-                        mPageRangeEditText.setVisibility(View.GONE);
-                        mPageRangeTitle.setVisibility(View.GONE);
-                    }
-                }
-            } else {
-                if (mRangeOptionsSpinner.getSelectedItemPosition() != 0) {
-                    mRangeOptionsSpinner.setSelection(0);
-                    mPageRangeEditText.setText("");
-                }
+        if (info != null && pageCount > 0) {
+            if (pageCount == 1) {
                 mRangeOptionsSpinner.setEnabled(false);
-                mPageRangeEditText.setEnabled(false);
-                mPageRangeEditText.setVisibility(View.GONE);
-                mPageRangeTitle.setVisibility(View.GONE);
+            } else {
+                mRangeOptionsSpinner.setEnabled(true);
+                if (mRangeOptionsSpinner.getSelectedItemPosition() > 0) {
+                    if (!mPageRangeEditText.isEnabled()) {
+                        mPageRangeEditText.setEnabled(true);
+                        mPageRangeEditText.setVisibility(View.VISIBLE);
+                        mPageRangeTitle.setVisibility(View.VISIBLE);
+                        mPageRangeEditText.requestFocus();
+                        InputMethodManager imm = (InputMethodManager)
+                                getSystemService(Context.INPUT_METHOD_SERVICE);
+                        imm.showSoftInput(mPageRangeEditText, 0);
+                    }
+                } else {
+                    mPageRangeEditText.setEnabled(false);
+                    mPageRangeEditText.setVisibility(View.INVISIBLE);
+                    mPageRangeTitle.setVisibility(View.INVISIBLE);
+                }
             }
+        } else {
+            if (mRangeOptionsSpinner.getSelectedItemPosition() != 0) {
+                mRangeOptionsSpinner.setSelection(0);
+                mPageRangeEditText.setText("");
+            }
+            mRangeOptionsSpinner.setEnabled(false);
+            mPageRangeEditText.setEnabled(false);
+            mPageRangeEditText.setVisibility(View.INVISIBLE);
+            mPageRangeTitle.setVisibility(View.INVISIBLE);
         }
 
         final int newPageCount = getAdjustedPageCount(info);
@@ -1936,10 +1508,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         }
 
         // Advanced print options
-        if (mAdvancedPrintOptionsActivity != null) {
+        ComponentName serviceName = mCurrentPrinter.getId().getServiceName();
+        if (!TextUtils.isEmpty(PrintOptionUtils.getAdvancedOptionsActivityName(
+                this, serviceName))) {
             mMoreOptionsButton.setVisibility(View.VISIBLE);
-
-            mMoreOptionsButton.setEnabled(!mIsMoreOptionsActivityInProgress);
+            mMoreOptionsButton.setEnabled(true);
         } else {
             mMoreOptionsButton.setVisibility(View.GONE);
             mMoreOptionsButton.setEnabled(false);
@@ -1953,7 +1526,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             mPrintButton.setImageResource(R.drawable.ic_menu_savetopdf);
             mPrintButton.setContentDescription(getString(R.string.savetopdf_button));
         }
-        if (!mPrintedDocument.getDocumentInfo().updated
+        if (!mPrintedDocument.getDocumentInfo().laidout
                 ||(mRangeOptionsSpinner.getSelectedItemPosition() == 1
                 && (TextUtils.isEmpty(mPageRangeEditText.getText()) || hasErrors()))
                 || (mRangeOptionsSpinner.getSelectedItemPosition() == 0
@@ -1980,17 +1553,9 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             mCopiesEditText.setText(MIN_COPIES_STRING);
             mCopiesEditText.requestFocus();
         }
-
-        if (mShowDestinationPrompt) {
-            disableOptionsUi(false);
-        }
     }
 
     private void updateSummary() {
-        if (!mIsOptionsUiBound) {
-            return;
-        }
-
         CharSequence copiesText = null;
         CharSequence mediaSizeText = null;
 
@@ -2013,9 +1578,8 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     private void updatePageRangeOptions(int pageCount) {
-        @SuppressWarnings("unchecked")
         ArrayAdapter<SpinnerItem<Integer>> rangeOptionsSpinnerAdapter =
-                (ArrayAdapter<SpinnerItem<Integer>>) mRangeOptionsSpinner.getAdapter();
+                (ArrayAdapter) mRangeOptionsSpinner.getAdapter();
         rangeOptionsSpinnerAdapter.clear();
 
         final int[] rangeOptionsValues = getResources().getIntArray(
@@ -2040,13 +1604,45 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         }
 
         if (mRangeOptionsSpinner.getSelectedItemPosition() > 0) {
-            PrintDocumentInfo info = mPrintedDocument.getDocumentInfo().info;
-            final int pageCount = (info != null) ? getAdjustedPageCount(info) : 0;
+            List<PageRange> pageRanges = new ArrayList<>();
+            mStringCommaSplitter.setString(mPageRangeEditText.getText().toString());
 
-            return PageRangeUtils.parsePageRanges(mPageRangeEditText.getText(), pageCount);
+            while (mStringCommaSplitter.hasNext()) {
+                String range = mStringCommaSplitter.next().trim();
+                if (TextUtils.isEmpty(range)) {
+                    continue;
+                }
+                final int dashIndex = range.indexOf('-');
+                final int fromIndex;
+                final int toIndex;
+
+                if (dashIndex > 0) {
+                    fromIndex = Integer.parseInt(range.substring(0, dashIndex).trim()) - 1;
+                    // It is possible that the dash is at the end since the input
+                    // verification can has to allow the user to keep entering if
+                    // this would lead to a valid input. So we handle this.
+                    if (dashIndex < range.length() - 1) {
+                        String fromString = range.substring(dashIndex + 1, range.length()).trim();
+                        toIndex = Integer.parseInt(fromString) - 1;
+                    } else {
+                        toIndex = fromIndex;
+                    }
+                } else {
+                    fromIndex = toIndex = Integer.parseInt(range) - 1;
+                }
+
+                PageRange pageRange = new PageRange(Math.min(fromIndex, toIndex),
+                        Math.max(fromIndex, toIndex));
+                pageRanges.add(pageRange);
+            }
+
+            PageRange[] pageRangesArray = new PageRange[pageRanges.size()];
+            pageRanges.toArray(pageRangesArray);
+
+            return PageRangeUtils.normalize(pageRangesArray);
         }
 
-        return PageRange.ALL_PAGES_ARRAY;
+        return ALL_PAGES_ARRAY;
     }
 
     private int getAdjustedPageCount(PrintDocumentInfo info) {
@@ -2068,21 +1664,25 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     }
 
     public void onPrinterAvailable(PrinterInfo printer) {
-        if (mCurrentPrinter != null && mCurrentPrinter.equals(printer)) {
+        if (mCurrentPrinter.equals(printer)) {
             setState(STATE_CONFIGURING);
             if (canUpdateDocument()) {
                 updateDocument(false);
             }
             ensurePreviewUiShown();
+            updateOptionsUi();
         }
     }
 
     public void onPrinterUnavailable(PrinterInfo printer) {
-        if (mCurrentPrinter == null || mCurrentPrinter.getId().equals(printer.getId())) {
+        if (mCurrentPrinter.getId().equals(printer.getId())) {
             setState(STATE_PRINTER_UNAVAILABLE);
-            mPrintedDocument.cancel(false);
+            if (mPrintedDocument.isUpdating()) {
+                mPrintedDocument.cancel();
+            }
             ensureErrorUiShown(getString(R.string.print_error_printer_unavailable),
                     PrintErrorFragment.ACTION_NONE);
+            updateOptionsUi();
         }
     }
 
@@ -2130,49 +1730,22 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         // If saving to PDF, apply the attibutes as we are acting as a print service.
         PrintAttributes attributes = mDestinationSpinnerAdapter.getPdfPrinter() == mCurrentPrinter
                 ?  mPrintJob.getAttributes() : null;
-        new DocumentTransformer(this, mPrintJob, mFileProvider, attributes, error -> {
-            if (error == null) {
+        new DocumentTransformer(this, mPrintJob, mFileProvider, attributes, new Runnable() {
+            @Override
+            public void run() {
                 if (writeToUri != null) {
                     mPrintedDocument.writeContent(getContentResolver(), writeToUri);
                 }
-                setState(STATE_PRINT_COMPLETED);
                 doFinish();
-            } else {
-                onPrintDocumentError(error);
             }
         }).transform();
     }
 
     private void doFinish() {
-        if (mPrintedDocument != null && mPrintedDocument.isUpdating()) {
-            // The printedDocument will call doFinish() when the current command finishes
-            return;
-        }
-
-        if (mIsFinishing) {
-            return;
-        }
-
-        mIsFinishing = true;
-
-        if (mPrinterRegistry != null) {
-            mPrinterRegistry.setTrackedPrinter(null);
-            mPrinterRegistry.setOnPrintersChangeListener(null);
-        }
-
-        if (mPrintersObserver != null) {
-            mDestinationSpinnerAdapter.unregisterDataSetObserver(mPrintersObserver);
-        }
-
-        if (mSpoolerProvider != null) {
-            mSpoolerProvider.destroy();
-        }
-
-        if (mProgressMessageController != null) {
-            setState(mProgressMessageController.cancel());
-        }
-
         if (mState != STATE_INITIALIZING) {
+            mProgressMessageController.cancel();
+            mPrinterRegistry.setTrackedPrinter(null);
+            mSpoolerProvider.destroy();
             mPrintedDocument.finish();
             mPrintedDocument.destroy();
             mPrintPreviewController.destroy(new Runnable() {
@@ -2195,7 +1768,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             this.label = label;
         }
 
-        @Override
         public String toString() {
             return label.toString();
         }
@@ -2230,7 +1802,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                                 && printer.getStatus() != PrinterInfo.STATUS_UNAVAILABLE)
                                 || (mPrinter.getCapabilities() == null
                                 && printer.getCapabilities() != null);
-                mPrinter = printer;
+                mPrinter.copyFrom(printer);
             }
 
             if (available) {
@@ -2282,32 +1854,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         }
     }
 
-
-    /**
-     * Check if the user has ever printed a document
-     *
-     * @return true iff the user has ever printed a document
-     */
-    private boolean hasUserEverPrinted() {
-        SharedPreferences preferences = getSharedPreferences(HAS_PRINTED_PREF, MODE_PRIVATE);
-
-        return preferences.getBoolean(HAS_PRINTED_PREF, false);
-    }
-
-    /**
-     * Remember that the user printed a document
-     */
-    private void setUserPrinted() {
-        SharedPreferences preferences = getSharedPreferences(HAS_PRINTED_PREF, MODE_PRIVATE);
-
-        if (!preferences.getBoolean(HAS_PRINTED_PREF, false)) {
-            SharedPreferences.Editor edit = preferences.edit();
-
-            edit.putBoolean(HAS_PRINTED_PREF, true);
-            edit.apply();
-        }
-    }
-
     private final class DestinationAdapter extends BaseAdapter
             implements PrinterRegistry.OnPrintersChangeListener {
         private final List<PrinterHolder> mPrinterHolders = new ArrayList<>();
@@ -2315,11 +1861,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         private final PrinterHolder mFakePdfPrinterHolder;
 
         private boolean mHistoricalPrintersLoaded;
-
-        /**
-         * Has the {@link #mDestinationSpinner} ever used a view from printer_dropdown_prompt
-         */
-        private boolean hadPromptView;
 
         public DestinationAdapter() {
             mHistoricalPrintersLoaded = mPrinterRegistry.areHistoricalPrintersLoaded();
@@ -2337,43 +1878,31 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         public int getPrinterIndex(PrinterId printerId) {
             for (int i = 0; i < getCount(); i++) {
                 PrinterHolder printerHolder = (PrinterHolder) getItem(i);
-                if (printerHolder != null && printerHolder.printer.getId().equals(printerId)) {
+                if (printerHolder != null && !printerHolder.removed
+                        && printerHolder.printer.getId().equals(printerId)) {
                     return i;
                 }
             }
             return AdapterView.INVALID_POSITION;
         }
 
-        public void ensurePrinterInVisibleAdapterPosition(PrinterInfo printer) {
+        public void ensurePrinterInVisibleAdapterPosition(PrinterId printerId) {
             final int printerCount = mPrinterHolders.size();
-            boolean isKnownPrinter = false;
             for (int i = 0; i < printerCount; i++) {
                 PrinterHolder printerHolder = mPrinterHolders.get(i);
-
-                if (printerHolder.printer.getId().equals(printer.getId())) {
-                    isKnownPrinter = true;
-
+                if (printerHolder.printer.getId().equals(printerId)) {
                     // If already in the list - do nothing.
                     if (i < getCount() - 2) {
-                        break;
+                        return;
                     }
                     // Else replace the last one (two items are not printers).
                     final int lastPrinterIndex = getCount() - 3;
                     mPrinterHolders.set(i, mPrinterHolders.get(lastPrinterIndex));
                     mPrinterHolders.set(lastPrinterIndex, printerHolder);
-                    break;
+                    notifyDataSetChanged();
+                    return;
                 }
             }
-
-            if (!isKnownPrinter) {
-                PrinterHolder printerHolder = new PrinterHolder(printer);
-                printerHolder.removed = true;
-
-                mPrinterHolders.add(Math.max(0, getCount() - 3), printerHolder);
-            }
-
-            // Force reload to adjust selection in PrintersObserver.onChanged()
-            notifyDataSetChanged();
         }
 
         @Override
@@ -2421,14 +1950,14 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 if (position == 0) {
                     return DEST_ADAPTER_ITEM_ID_SAVE_AS_PDF;
                 } else if (position == 1) {
-                    return DEST_ADAPTER_ITEM_ID_MORE;
+                    return DEST_ADAPTER_ITEM_ID_ALL_PRINTERS;
                 }
             } else {
                 if (position == 1) {
                     return DEST_ADAPTER_ITEM_ID_SAVE_AS_PDF;
                 }
                 if (position == getCount() - 1) {
-                    return DEST_ADAPTER_ITEM_ID_MORE;
+                    return DEST_ADAPTER_ITEM_ID_ALL_PRINTERS;
                 }
             }
             return position;
@@ -2441,30 +1970,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             return view;
         }
 
-        private String getMoreItemTitle() {
-            if (mArePrintServicesEnabled) {
-                return getString(R.string.all_printers);
-            } else {
-                return getString(R.string.print_add_printer);
-            }
-        }
-
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            if (mShowDestinationPrompt) {
-                if (convertView == null) {
-                    convertView = getLayoutInflater().inflate(
-                            R.layout.printer_dropdown_prompt, parent, false);
-                    hadPromptView = true;
-                }
-
-                return convertView;
-            } else {
-                // We don't know if we got an recyled printer_dropdown_prompt, hence do not use it
-                if (hadPromptView || convertView == null) {
-                    convertView = getLayoutInflater().inflate(
-                            R.layout.printer_dropdown_item, parent, false);
-                }
+            if (convertView == null) {
+                convertView = getLayoutInflater().inflate(
+                        R.layout.printer_dropdown_item, parent, false);
             }
 
             CharSequence title = null;
@@ -2475,24 +1985,28 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 if (position == 0 && getPdfPrinter() != null) {
                     PrinterHolder printerHolder = (PrinterHolder) getItem(position);
                     title = printerHolder.printer.getName();
-                    icon = getResources().getDrawable(R.drawable.ic_pdf_printer, null);
+                    icon = getResources().getDrawable(R.drawable.ic_menu_savetopdf);
                 } else if (position == 1) {
-                    title = getMoreItemTitle();
+                    title = getString(R.string.all_printers);
                 }
             } else {
                 if (position == 1 && getPdfPrinter() != null) {
                     PrinterHolder printerHolder = (PrinterHolder) getItem(position);
                     title = printerHolder.printer.getName();
-                    icon = getResources().getDrawable(R.drawable.ic_pdf_printer, null);
+                    icon = getResources().getDrawable(R.drawable.ic_menu_savetopdf);
                 } else if (position == getCount() - 1) {
-                    title = getMoreItemTitle();
+                    title = getString(R.string.all_printers);
                 } else {
                     PrinterHolder printerHolder = (PrinterHolder) getItem(position);
-                    PrinterInfo printInfo = printerHolder.printer;
-
-                    title = printInfo.getName();
-                    icon = printInfo.loadIcon(PrintActivity.this);
-                    subtitle = printInfo.getDescription();
+                    title = printerHolder.printer.getName();
+                    try {
+                        PackageInfo packageInfo = getPackageManager().getPackageInfo(
+                                printerHolder.printer.getId().getServiceName().getPackageName(), 0);
+                        subtitle = packageInfo.applicationInfo.loadLabel(getPackageManager());
+                        icon = packageInfo.applicationInfo.loadIcon(getPackageManager());
+                    } catch (NameNotFoundException nnfe) {
+                        /* ignore */
+                    }
                 }
             }
 
@@ -2510,15 +2024,8 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
             ImageView iconView = (ImageView) convertView.findViewById(R.id.icon);
             if (icon != null) {
-                iconView.setVisibility(View.VISIBLE);
-                if (!isEnabled(position)) {
-                    icon.mutate();
-
-                    TypedValue value = new TypedValue();
-                    getTheme().resolveAttribute(android.R.attr.disabledAlpha, value, true);
-                    icon.setAlpha((int)(value.getFloat() * 255));
-                }
                 iconView.setImageDrawable(icon);
+                iconView.setVisibility(View.VISIBLE);
             } else {
                 iconView.setVisibility(View.INVISIBLE);
             }
@@ -2556,27 +2063,19 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             List<PrinterHolder> newPrinterHolders = new ArrayList<>();
 
             // Update printers we already have which are either updated or removed.
-            // We do not remove the currently selected printer.
+            // We do not remove printers if the currently selected printer is removed
+            // to prevent the user printing to a wrong printer.
             final int oldPrinterCount = mPrinterHolders.size();
             for (int i = 0; i < oldPrinterCount; i++) {
                 PrinterHolder printerHolder = mPrinterHolders.get(i);
                 PrinterId oldPrinterId = printerHolder.printer.getId();
                 PrinterInfo updatedPrinter = newPrintersMap.remove(oldPrinterId);
-
                 if (updatedPrinter != null) {
                     printerHolder.printer = updatedPrinter;
-                    printerHolder.removed = false;
-                    if (canPrint(printerHolder.printer)) {
-                        onPrinterAvailable(printerHolder.printer);
-                    } else {
-                        onPrinterUnavailable(printerHolder.printer);
-                    }
-                    newPrinterHolders.add(printerHolder);
-                } else if (mCurrentPrinter != null && mCurrentPrinter.getId().equals(oldPrinterId)){
+                } else {
                     printerHolder.removed = true;
-                    onPrinterUnavailable(printerHolder.printer);
-                    newPrinterHolders.add(printerHolder);
                 }
+                newPrinterHolders.add(printerHolder);
             }
 
             // Add the rest of the new printers, i.e. what is left.
@@ -2608,25 +2107,14 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             return null;
         }
 
-        /**
-         * Remove a printer from the holders if it is marked as removed.
-         *
-         * @param printerId the id of the printer to remove.
-         *
-         * @return true iff the printer was removed.
-         */
-        public boolean pruneRemovedPrinter(PrinterId printerId) {
+        public void pruneRemovedPrinters() {
             final int holderCounts = mPrinterHolders.size();
             for (int i = holderCounts - 1; i >= 0; i--) {
                 PrinterHolder printerHolder = mPrinterHolders.get(i);
-
-                if (printerHolder.printer.getId().equals(printerId) && printerHolder.removed) {
+                if (printerHolder.removed) {
                     mPrinterHolders.remove(i);
-                    return true;
                 }
             }
-
-            return false;
         }
 
         private void addPrinters(List<PrinterHolder> list, Collection<PrinterInfo> printers) {
@@ -2637,7 +2125,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         }
 
         private PrinterInfo createFakePdfPrinter() {
-            ArraySet<MediaSize> allMediaSizes = MediaSize.getAllPredefinedSizes();
             MediaSize defaultMediaSize = MediaSizeUtils.getDefault(PrintActivity.this);
 
             PrinterId printerId = new PrinterId(getComponentName(), "PDF printer");
@@ -2645,9 +2132,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             PrinterCapabilitiesInfo.Builder builder =
                     new PrinterCapabilitiesInfo.Builder(printerId);
 
-            final int mediaSizeCount = allMediaSizes.size();
-            for (int i = 0; i < mediaSizeCount; i++) {
-                MediaSize mediaSize = allMediaSizes.valueAt(i);
+            String[] mediaSizeIds = getResources().getStringArray(R.array.pdf_printer_media_sizes);
+            final int mediaSizeIdCount = mediaSizeIds.length;
+            for (int i = 0; i < mediaSizeIdCount; i++) {
+                String id = mediaSizeIds[i];
+                MediaSize mediaSize = MediaSize.getStandardMediaSizeById(id);
                 builder.addMediaSize(mediaSize, mediaSize.equals(defaultMediaSize));
             }
 
@@ -2671,15 +2160,15 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
             PrinterHolder printerHolder = mDestinationSpinnerAdapter.getPrinterHolder(
                     oldPrinterState.getId());
+            if (printerHolder == null) {
+                return;
+            }
             PrinterInfo newPrinterState = printerHolder.printer;
 
-            if (printerHolder.removed) {
+            if (!printerHolder.removed) {
+                mDestinationSpinnerAdapter.pruneRemovedPrinters();
+            } else {
                 onPrinterUnavailable(newPrinterState);
-            }
-
-            if (mDestinationSpinner.getSelectedItem() != printerHolder) {
-                mDestinationSpinner.setSelection(
-                        mDestinationSpinnerAdapter.getPrinterIndex(newPrinterState.getId()));
             }
 
             if (oldPrinterState.equals(newPrinterState)) {
@@ -2689,7 +2178,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             PrinterCapabilitiesInfo oldCapab = oldPrinterState.getCapabilities();
             PrinterCapabilitiesInfo newCapab = newPrinterState.getCapabilities();
 
-            final boolean hadCabab = oldCapab != null;
             final boolean hasCapab = newCapab != null;
             final boolean gotCapab = oldCapab == null && newCapab != null;
             final boolean lostCapab = oldCapab != null && newCapab == null;
@@ -2706,35 +2194,26 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
             mPrinterAvailabilityDetector.updatePrinter(newPrinterState);
 
-            mCurrentPrinter = newPrinterState;
+            oldPrinterState.copyFrom(newPrinterState);
+
+            if ((isActive && gotCapab) || (becameActive && hasCapab)) {
+                if (hasCapab && capabChanged) {
+                    updatePrintAttributesFromCapabilities(newCapab);
+                    updatePrintPreviewController(false);
+                }
+                onPrinterAvailable(newPrinterState);
+            } else if ((becameInactive && hasCapab) || (isActive && lostCapab)) {
+                onPrinterUnavailable(newPrinterState);
+            }
 
             final boolean updateNeeded = ((capabChanged && hasCapab && isActive)
                     || (becameActive && hasCapab) || (isActive && gotCapab));
-
-            if (capabChanged && hasCapab) {
-                updatePrintAttributesFromCapabilities(newCapab);
-            }
-
-            if (updateNeeded) {
-                updatePrintPreviewController(false);
-            }
-
-            if ((isActive && gotCapab) || (becameActive && hasCapab)) {
-                onPrinterAvailable(newPrinterState);
-            } else if ((becameInactive && hadCabab) || (isActive && lostCapab)) {
-                onPrinterUnavailable(newPrinterState);
-            }
 
             if (updateNeeded && canUpdateDocument()) {
                 updateDocument(false);
             }
 
-            // Force a reload of the enabled print services to update mAdvancedPrintOptionsActivity
-            // in onLoadFinished();
-            getLoaderManager().getLoader(LOADER_ID_ENABLED_PRINT_SERVICES).forceLoad();
-
             updateOptionsUi();
-            updateSummary();
         }
 
         private boolean capabilitiesChanged(PrinterCapabilitiesInfo oldCapabilities,
@@ -2753,14 +2232,12 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
     private final class MyOnItemSelectedListener implements AdapterView.OnItemSelectedListener {
         @Override
         public void onItemSelected(AdapterView<?> spinner, View view, int position, long id) {
-            boolean clearRanges = false;
-
             if (spinner == mDestinationSpinner) {
                 if (position == AdapterView.INVALID_POSITION) {
                     return;
                 }
 
-                if (id == DEST_ADAPTER_ITEM_ID_MORE) {
+                if (id == DEST_ADAPTER_ITEM_ID_ALL_PRINTERS) {
                     startSelectPrinterActivity();
                     return;
                 }
@@ -2773,42 +2250,13 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                     return;
                 }
 
-                if (mDefaultPrinter == null) {
-                    mDefaultPrinter = currentPrinter.getId();
-                }
-
-                PrinterId oldId = null;
-                if (mCurrentPrinter != null) {
-                    oldId = mCurrentPrinter.getId();
-                }
                 mCurrentPrinter = currentPrinter;
-
-                if (oldId != null) {
-                    boolean printerRemoved = mDestinationSpinnerAdapter.pruneRemovedPrinter(oldId);
-
-                    if (printerRemoved) {
-                        // Trigger PrinterObserver.onChanged to adjust selection. This will call
-                        // this function again.
-                        mDestinationSpinnerAdapter.notifyDataSetChanged();
-                        return;
-                    }
-
-                    if (mState != STATE_INITIALIZING) {
-                        if (currentPrinter != null) {
-                            MetricsLogger.action(PrintActivity.this,
-                                    MetricsEvent.ACTION_PRINTER_SELECT_DROPDOWN,
-                                    currentPrinter.getId().getServiceName().getPackageName());
-                        } else {
-                            MetricsLogger.action(PrintActivity.this,
-                                    MetricsEvent.ACTION_PRINTER_SELECT_DROPDOWN, "");
-                        }
-                    }
-                }
 
                 PrinterHolder printerHolder = mDestinationSpinnerAdapter.getPrinterHolder(
                         currentPrinter.getId());
                 if (!printerHolder.removed) {
                     setState(STATE_CONFIGURING);
+                    mDestinationSpinnerAdapter.pruneRemovedPrinters();
                     ensurePreviewUiShown();
                 }
 
@@ -2823,111 +2271,43 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 }
 
                 mPrinterAvailabilityDetector.updatePrinter(currentPrinter);
-
-                // Force a reload of the enabled print services to update
-                // mAdvancedPrintOptionsActivity in onLoadFinished();
-                getLoaderManager().getLoader(LOADER_ID_ENABLED_PRINT_SERVICES).forceLoad();
             } else if (spinner == mMediaSizeSpinner) {
                 SpinnerItem<MediaSize> mediaItem = mMediaSizeSpinnerAdapter.getItem(position);
                 PrintAttributes attributes = mPrintJob.getAttributes();
-
-                MediaSize newMediaSize;
                 if (mOrientationSpinner.getSelectedItemPosition() == 0) {
-                    newMediaSize = mediaItem.value.asPortrait();
+                    attributes.setMediaSize(mediaItem.value.asPortrait());
                 } else {
-                    newMediaSize = mediaItem.value.asLandscape();
-                }
-
-                if (newMediaSize != attributes.getMediaSize()) {
-                    if (!newMediaSize.equals(attributes.getMediaSize())
-                            && !attributes.getMediaSize().equals(MediaSize.UNKNOWN_LANDSCAPE)
-                            && !attributes.getMediaSize().equals(MediaSize.UNKNOWN_PORTRAIT)
-                            && mState != STATE_INITIALIZING) {
-                        MetricsLogger.action(PrintActivity.this,
-                                MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                                PRINT_JOB_OPTIONS_SUBTYPE_MEDIA_SIZE);
-                    }
-
-                    clearRanges = true;
-                    attributes.setMediaSize(newMediaSize);
+                    attributes.setMediaSize(mediaItem.value.asLandscape());
                 }
             } else if (spinner == mColorModeSpinner) {
                 SpinnerItem<Integer> colorModeItem = mColorModeSpinnerAdapter.getItem(position);
-                int newMode = colorModeItem.value;
-
-                if (mPrintJob.getAttributes().getColorMode() != newMode
-                        && mState != STATE_INITIALIZING) {
-                    MetricsLogger.action(PrintActivity.this, MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                            PRINT_JOB_OPTIONS_SUBTYPE_COLOR_MODE);
-                }
-
-                mPrintJob.getAttributes().setColorMode(newMode);
+                mPrintJob.getAttributes().setColorMode(colorModeItem.value);
             } else if (spinner == mDuplexModeSpinner) {
                 SpinnerItem<Integer> duplexModeItem = mDuplexModeSpinnerAdapter.getItem(position);
-                int newMode = duplexModeItem.value;
-
-                if (mPrintJob.getAttributes().getDuplexMode() != newMode
-                        && mState != STATE_INITIALIZING) {
-                    MetricsLogger.action(PrintActivity.this, MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                            PRINT_JOB_OPTIONS_SUBTYPE_DUPLEX_MODE);
-                }
-
-                mPrintJob.getAttributes().setDuplexMode(newMode);
+                mPrintJob.getAttributes().setDuplexMode(duplexModeItem.value);
             } else if (spinner == mOrientationSpinner) {
                 SpinnerItem<Integer> orientationItem = mOrientationSpinnerAdapter.getItem(position);
                 PrintAttributes attributes = mPrintJob.getAttributes();
-
                 if (mMediaSizeSpinner.getSelectedItem() != null) {
-                    boolean isPortrait = attributes.isPortrait();
-                    boolean newIsPortrait = orientationItem.value == ORIENTATION_PORTRAIT;
-
-                    if (isPortrait != newIsPortrait) {
-                        if (mState != STATE_INITIALIZING) {
-                            MetricsLogger.action(PrintActivity.this,
-                                    MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                                    PRINT_JOB_OPTIONS_SUBTYPE_ORIENTATION);
-                        }
-
-                        clearRanges = true;
-                        if (newIsPortrait) {
-                            attributes.copyFrom(attributes.asPortrait());
-                        } else {
-                            attributes.copyFrom(attributes.asLandscape());
-                        }
+                    if (orientationItem.value == ORIENTATION_PORTRAIT) {
+                        attributes.copyFrom(attributes.asPortrait());
+                    } else {
+                        attributes.copyFrom(attributes.asLandscape());
                     }
                 }
             } else if (spinner == mRangeOptionsSpinner) {
                 if (mRangeOptionsSpinner.getSelectedItemPosition() == 0) {
-                    clearRanges = true;
                     mPageRangeEditText.setText("");
-
-                    if (mPageRangeEditText.getVisibility() == View.VISIBLE &&
-                            mState != STATE_INITIALIZING) {
-                        MetricsLogger.action(PrintActivity.this,
-                                MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                                PRINT_JOB_OPTIONS_SUBTYPE_PAGE_RANGE);
-                    }
                 } else if (TextUtils.isEmpty(mPageRangeEditText.getText())) {
                     mPageRangeEditText.setError("");
-
-                    if (mPageRangeEditText.getVisibility() != View.VISIBLE &&
-                            mState != STATE_INITIALIZING) {
-                        MetricsLogger.action(PrintActivity.this,
-                                MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                                PRINT_JOB_OPTIONS_SUBTYPE_PAGE_RANGE);
-                    }
                 }
             }
-
-            if (clearRanges) {
-                clearPageRanges();
-            }
-
-            updateOptionsUi();
 
             if (canUpdateDocument()) {
                 updateDocument(false);
             }
+
+            updateOptionsUi();
         }
 
         @Override
@@ -2942,10 +2322,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             EditText editText = (EditText) view;
             if (!TextUtils.isEmpty(editText.getText())) {
                 editText.setSelection(editText.getText().length());
-            }
-
-            if (view == mPageRangeEditText && !hasFocus && mPageRangeEditText.getError() == null) {
-                updateSelectedPagesFromTextField();
             }
         }
     }
@@ -2965,25 +2341,49 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         public void afterTextChanged(Editable editable) {
             final boolean hadErrors = hasErrors();
 
-            PrintDocumentInfo info = mPrintedDocument.getDocumentInfo().info;
-            final int pageCount = (info != null) ? getAdjustedPageCount(info) : 0;
-            PageRange[] ranges = PageRangeUtils.parsePageRanges(editable, pageCount);
+            String text = editable.toString();
 
-            if (ranges.length == 0) {
-                if (mPageRangeEditText.getError() == null) {
-                    mPageRangeEditText.setError("");
-                    updateOptionsUi();
-                }
+            if (TextUtils.isEmpty(text)) {
+                mPageRangeEditText.setError("");
+                updateOptionsUi();
                 return;
             }
 
-            if (mPageRangeEditText.getError() != null) {
-                mPageRangeEditText.setError(null);
+            String escapedText = PATTERN_ESCAPE_SPECIAL_CHARS.matcher(text).replaceAll("////");
+            if (!PATTERN_PAGE_RANGE.matcher(escapedText).matches()) {
+                mPageRangeEditText.setError("");
                 updateOptionsUi();
+                return;
             }
 
-            if (hadErrors && canUpdateDocument()) {
-                updateDocument(false);
+            PrintDocumentInfo info = mPrintedDocument.getDocumentInfo().info;
+            final int pageCount = (info != null) ? getAdjustedPageCount(info) : 0;
+
+            // The range
+            Matcher matcher = PATTERN_DIGITS.matcher(text);
+            while (matcher.find()) {
+                String numericString = text.substring(matcher.start(), matcher.end()).trim();
+                if (TextUtils.isEmpty(numericString)) {
+                    continue;
+                }
+                final int pageIndex = Integer.parseInt(numericString);
+                if (pageIndex < 1 || pageIndex > pageCount) {
+                    mPageRangeEditText.setError("");
+                    updateOptionsUi();
+                    return;
+                }
+            }
+
+            // We intentionally do not catch the case of the from page being
+            // greater than the to page. When computing the requested pages
+            // we just swap them if necessary.
+
+            mPageRangeEditText.setError(null);
+            mPrintButton.setEnabled(true);
+            updateOptionsUi();
+
+            if (hadErrors && !hasErrors()) {
+                updateOptionsUi();
             }
         }
     }
@@ -3004,10 +2404,8 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             final boolean hadErrors = hasErrors();
 
             if (editable.length() == 0) {
-                if (mCopiesEditText.getError() == null) {
-                    mCopiesEditText.setError("");
-                    updateOptionsUi();
-                }
+                mCopiesEditText.setError("");
+                updateOptionsUi();
                 return;
             }
 
@@ -3018,25 +2416,17 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 /* ignore */
             }
 
-            if (mState != STATE_INITIALIZING) {
-                MetricsLogger.action(PrintActivity.this, MetricsEvent.ACTION_PRINT_JOB_OPTIONS,
-                        PRINT_JOB_OPTIONS_SUBTYPE_COPIES);
-            }
-
             if (copies < MIN_COPIES) {
-                if (mCopiesEditText.getError() == null) {
-                    mCopiesEditText.setError("");
-                    updateOptionsUi();
-                }
+                mCopiesEditText.setError("");
+                updateOptionsUi();
                 return;
             }
 
             mPrintJob.setCopies(copies);
 
-            if (mCopiesEditText.getError() != null) {
-                mCopiesEditText.setError(null);
-                updateOptionsUi();
-            }
+            mCopiesEditText.setError(null);
+
+            updateOptionsUi();
 
             if (hadErrors && canUpdateDocument()) {
                 updateDocument(false);
@@ -3051,58 +2441,32 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         private boolean mPosted;
 
-        /** State before run was executed */
-        private int mPreviousState = -1;
-
         public ProgressMessageController(Context context) {
             mHandler = new Handler(context.getMainLooper(), null, false);
         }
 
         public void post() {
-            if (mState == STATE_UPDATE_SLOW) {
-                setState(STATE_UPDATE_SLOW);
-                ensureProgressUiShown();
-
-                return;
-            } else if (mPosted) {
+            if (mPosted) {
                 return;
             }
-            mPreviousState = -1;
             mPosted = true;
             mHandler.postDelayed(this, PROGRESS_TIMEOUT_MILLIS);
         }
 
-        private int getStateAfterCancel() {
-            if (mPreviousState == -1) {
-                return mState;
-            } else {
-                return mPreviousState;
-            }
-        }
-
-        public int cancel() {
-            int state;
-
+        public void cancel() {
             if (!mPosted) {
-                state = getStateAfterCancel();
-            } else {
-                mPosted = false;
-                mHandler.removeCallbacks(this);
-
-                state = getStateAfterCancel();
+                return;
             }
-
-            mPreviousState = -1;
-
-            return state;
+            mPosted = false;
+            mHandler.removeCallbacks(this);
         }
 
         @Override
         public void run() {
             mPosted = false;
-            mPreviousState = mState;
             setState(STATE_UPDATE_SLOW);
             ensureProgressUiShown();
+            updateOptionsUi();
         }
     }
 
@@ -3120,13 +2484,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         private final PrintAttributes mAttributesToApply;
 
-        private final Consumer<String> mCallback;
-
-        private boolean mIsTransformationStarted;
+        private final Runnable mCallback;
 
         public DocumentTransformer(Context context, PrintJobInfo printJob,
                 MutexFileProvider fileProvider, PrintAttributes attributes,
-                Consumer<String> callback) {
+                Runnable callback) {
             mContext = context;
             mPrintJob = printJob;
             mFileProvider = fileProvider;
@@ -3138,7 +2500,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         public void transform() {
             // If we have only the pages we want, done.
             if (mPagesToShred.length <= 0 && mAttributesToApply == null) {
-                mCallback.accept(null);
+                mCallback.run();
                 return;
             }
 
@@ -3151,35 +2513,25 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
 
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            // We might get several onServiceConnected if the service crashes and restarts.
-            // mIsTransformationStarted makes sure that we only try once.
-            if (!mIsTransformationStarted) {
-                final IPdfEditor editor = IPdfEditor.Stub.asInterface(service);
-                new AsyncTask<Void, Void, String>() {
-                    @Override
-                    protected String doInBackground(Void... params) {
-                        // It's OK to access the data members as they are
-                        // final and this code is the last one to touch
-                        // them as shredding is the very last step, so the
-                        // UI is not interactive at this point.
-                        try {
-                            doTransform(editor);
-                            updatePrintJob();
-                            return null;
-                        } catch (IOException | RemoteException | IllegalStateException e) {
-                            return e.toString();
-                        }
-                    }
+            final IPdfEditor editor = IPdfEditor.Stub.asInterface(service);
+            new AsyncTask<Void, Void, Void>() {
+                @Override
+                protected Void doInBackground(Void... params) {
+                    // It's OK to access the data members as they are
+                    // final and this code is the last one to touch
+                    // them as shredding is the very last step, so the
+                    // UI is not interactive at this point.
+                    doTransform(editor);
+                    updatePrintJob();
+                    return null;
+                }
 
-                    @Override
-                    protected void onPostExecute(String error) {
-                        mContext.unbindService(DocumentTransformer.this);
-                        mCallback.accept(error);
-                    }
-                }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-
-                mIsTransformationStarted = true;
-            }
+                @Override
+                protected void onPostExecute(Void aVoid) {
+                    mContext.unbindService(DocumentTransformer.this);
+                    mCallback.run();
+                }
+            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
         }
 
         @Override
@@ -3187,7 +2539,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             /* do nothing */
         }
 
-        private void doTransform(IPdfEditor editor) throws IOException, RemoteException {
+        private void doTransform(IPdfEditor editor) {
             File tempFile = null;
             ParcelFileDescriptor src = null;
             ParcelFileDescriptor dst = null;
@@ -3226,6 +2578,8 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 in = new FileInputStream(tempFile);
                 out = new FileOutputStream(jobFile);
                 Streams.copy(in, out);
+            } catch (IOException|RemoteException e) {
+                Log.e(LOG_TAG, "Error dropping pages", e);
             } finally {
                 IoUtils.closeQuietly(src);
                 IoUtils.closeQuietly(dst);
@@ -3251,14 +2605,6 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                     .setContentType(oldDocInfo.getContentType())
                     .setPageCount(newPageCount)
                     .build();
-
-            File file = mFileProvider.acquireFile(null);
-            try {
-                newDocInfo.setDataSize(file.length());
-            } finally {
-                mFileProvider.releaseFile();
-            }
-
             mPrintJob.setDocumentInfo(newDocInfo);
         }
 
@@ -3266,10 +2612,12 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
             List<PageRange> rangesToShred = new ArrayList<>();
             PageRange previousRange = null;
 
+            final int pageCount = printJob.getDocumentInfo().getPageCount();
+
             PageRange[] printedPages = printJob.getPages();
             final int rangeCount = printedPages.length;
             for (int i = 0; i < rangeCount; i++) {
-                PageRange range = printedPages[i];
+                PageRange range = PageRangeUtils.asAbsoluteRange(printedPages[i], pageCount);
 
                 if (previousRange == null) {
                     final int startPageIdx = 0;
@@ -3288,8 +2636,11 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                 }
 
                 if (i == rangeCount - 1) {
-                    if (range.getEnd() != Integer.MAX_VALUE) {
-                        rangesToShred.add(new PageRange(range.getEnd() + 1, Integer.MAX_VALUE));
+                    final int startPageIdx = range.getEnd() + 1;
+                    final int endPageIdx = printJob.getDocumentInfo().getPageCount() - 1;
+                    if (startPageIdx <= endPageIdx) {
+                        PageRange removedRange = new PageRange(startPageIdx, endPageIdx);
+                        rangesToShred.add(removedRange);
                     }
                 }
 

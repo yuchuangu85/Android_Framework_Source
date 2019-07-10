@@ -22,26 +22,28 @@ import android.os.AsyncResult;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.Registrant;
 import android.os.RegistrantList;
-import android.os.ResultReceiver;
 import android.os.SystemProperties;
-import android.os.WorkSource;
+import android.telephony.CellInfo;
 import android.telephony.CellLocation;
-import android.telephony.NetworkScanRequest;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
+import android.telephony.Rlog;
 
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
+import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccPhoneBookInterfaceManager;
+import com.android.internal.telephony.IccSmsInterfaceManager;
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.OperatorInfo;
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.internal.telephony.PhoneSubInfo;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.uicc.IccFileHandler;
@@ -49,7 +51,7 @@ import com.android.internal.telephony.uicc.IccFileHandler;
 import java.util.ArrayList;
 import java.util.List;
 
-abstract class SipPhoneBase extends Phone {
+abstract class SipPhoneBase extends PhoneBase {
     private static final String LOG_TAG = "SipPhoneBase";
 
     private RegistrantList mRingbackRegistrants = new RegistrantList();
@@ -68,6 +70,13 @@ abstract class SipPhoneBase extends Phone {
     @Override
     public abstract Call getRingingCall();
 
+    @Override
+    public Connection dial(String dialString, UUSInfo uusInfo, int videoState, Bundle intentExtras)
+            throws CallStateException {
+        // ignore UUSInfo
+        return dial(dialString, videoState);
+    }
+
     void migrateFrom(SipPhoneBase from) {
         super.migrateFrom(from);
         migrate(mRingbackRegistrants, from.mRingbackRegistrants);
@@ -83,14 +92,12 @@ abstract class SipPhoneBase extends Phone {
         mRingbackRegistrants.remove(h);
     }
 
-    @Override
-    public void startRingbackTone() {
+    protected void startRingbackTone() {
         AsyncResult result = new AsyncResult(null, Boolean.TRUE, null);
         mRingbackRegistrants.notifyRegistrants(result);
     }
 
-    @Override
-    public void stopRingbackTone() {
+    protected void stopRingbackTone() {
         AsyncResult result = new AsyncResult(null, Boolean.FALSE, null);
         mRingbackRegistrants.notifyRegistrants(result);
     }
@@ -100,12 +107,12 @@ abstract class SipPhoneBase extends Phone {
         // FIXME: we may need to provide this when data connectivity is lost
         // or when server is down
         ServiceState s = new ServiceState();
-        s.setVoiceRegState(ServiceState.STATE_IN_SERVICE);
+        s.setState(ServiceState.STATE_IN_SERVICE);
         return s;
     }
 
     @Override
-    public CellLocation getCellLocation(WorkSource workSource) {
+    public CellLocation getCellLocation() {
         return null;
     }
 
@@ -230,11 +237,6 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public boolean handlePinMmi(String dialString) {
-        return false;
-    }
-
-    @Override
-    public boolean handleUssdRequest(String dialString, ResultReceiver wrappedCallback) {
         return false;
     }
 
@@ -387,24 +389,29 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
-    }
-
-    @Override
-    public void stopNetworkScan(Message response) {
-    }
-
-    @Override
     public void setNetworkSelectionModeAutomatic(Message response) {
     }
 
     @Override
-    public void selectNetworkManually(OperatorInfo network, boolean persistSelection,
+    public void selectNetworkManually(
+            OperatorInfo network,
             Message response) {
     }
 
     @Override
+    public void getNeighboringCids(Message response) {
+    }
+
+    @Override
     public void setOnPostDialCharacter(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void getDataCallList(Message response) {
+    }
+
+    public List<DataConnection> getCurrentDataConnectionList () {
+        return null;
     }
 
     @Override
@@ -429,17 +436,12 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isUserDataEnabled() {
+    public boolean getDataEnabled() {
         return false;
     }
 
     @Override
-    public boolean isDataEnabled() {
-        return false;
-    }
-
-    @Override
-    public void setUserDataEnabled(boolean enable) {
+    public void setDataEnabled(boolean enable) {
     }
 
     public boolean enableDataConnectivity() {
@@ -451,11 +453,20 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isDataAllowed() {
+    public boolean isDataConnectivityPossible() {
+        return false;
+    }
+
+    boolean updateCurrentCarrierInProvider() {
         return false;
     }
 
     public void saveClirSetting(int commandInterfaceCLIRMode) {
+    }
+
+    @Override
+    public PhoneSubInfo getPhoneSubInfo(){
+        return null;
     }
 
     @Override
@@ -527,23 +538,5 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     protected void onUpdateIccAvailability() {
-    }
-
-    @Override
-    public void sendEmergencyCallStateChange(boolean callActive) {
-    }
-
-    @Override
-    public void setBroadcastEmergencyCallStateChanges(boolean broadcast) {
-    }
-
-    @Override
-    public void getCallBarring(String facility, String password, Message onComplete,
-            int serviceClass) {
-    }
-
-    @Override
-    public void setCallBarring(String facility, boolean lockState, String password,
-            Message onComplete, int serviceClass) {
     }
 }

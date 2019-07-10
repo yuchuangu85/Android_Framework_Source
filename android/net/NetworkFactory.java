@@ -169,8 +169,7 @@ public class NetworkFactory extends Handler {
         }
     }
 
-    @VisibleForTesting
-    protected void handleAddRequest(NetworkRequest request, int score) {
+    private void handleAddRequest(NetworkRequest request, int score) {
         NetworkRequestInfo n = mNetworkRequests.get(request.requestId);
         if (n == null) {
             if (DBG) log("got request " + request + " with score " + score);
@@ -185,8 +184,7 @@ public class NetworkFactory extends Handler {
         evalRequest(n);
     }
 
-    @VisibleForTesting
-    protected void handleRemoveRequest(NetworkRequest request) {
+    private void handleRemoveRequest(NetworkRequest request) {
         NetworkRequestInfo n = mNetworkRequests.get(request.requestId);
         if (n != null) {
             mNetworkRequests.remove(request.requestId);
@@ -252,16 +250,6 @@ public class NetworkFactory extends Handler {
 
             evalRequest(n);
         }
-    }
-
-    /**
-     * Post a command, on this NetworkFactory Handler, to re-evaluate all
-     * oustanding requests. Can be called from a factory implementation.
-     */
-    protected void reevaluateAllRequests() {
-        post(() -> {
-            evalRequests();
-        });
     }
 
     // override to do simple mode (request independent)

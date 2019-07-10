@@ -1,160 +1,178 @@
-/*
- * Copyright (c) 2000, 2008, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio;
 
-import libcore.io.Memory;
+import libcore.io.SizeOf;
 
-class ByteBufferAsIntBuffer extends IntBuffer {        // package-private
+/**
+ * This class wraps a byte buffer to be a int buffer.
+ * <p>
+ * Implementation notice:
+ * <ul>
+ * <li>After a byte buffer instance is wrapped, it becomes privately owned by
+ * the adapter. It must NOT be accessed outside the adapter any more.</li>
+ * <li>The byte buffer's position and limit are NOT linked with the adapter.
+ * The adapter extends Buffer, thus has its own position and limit.</li>
+ * </ul>
+ * </p>
+ *
+ */
+final class ByteBufferAsIntBuffer extends IntBuffer {
 
-    protected final ByteBuffer bb;
-    protected final int offset;
-    private final ByteOrder order;
+    private final ByteBuffer byteBuffer;
 
-    ByteBufferAsIntBuffer(ByteBuffer bb,
-                          int mark, int pos, int lim, int cap,
-                          int off, ByteOrder order) {
-        super(mark, pos, lim, cap);
-        this.bb = bb.duplicate();
-        this.isReadOnly = bb.isReadOnly;
-        // There are only two possibilities for the type of ByteBuffer "bb", viz, DirectByteBuffer and
-        // HeapByteBuffer. We only have to initialize the field when bb is an instance of
-        // DirectByteBuffer.
-        // The address field is used by NIOAccess#getBasePointer and GetDirectBufferAddress method
-        // in art which return the address of the first usable byte of the underlying memory, i.e,
-        // the position of parent buffer. Therefore, value of "off" will be equal to parent buffer's
-        // position when the method is called from either HeapByteBuffer or DirectByteBuffer.
-        if (bb instanceof DirectByteBuffer) {
-            this.address = bb.address + off;
-        }
-        this.bb.order(order);
-        this.order = order;
-        offset = off;
+    static IntBuffer asIntBuffer(ByteBuffer byteBuffer) {
+        ByteBuffer slice = byteBuffer.slice();
+        slice.order(byteBuffer.order());
+        return new ByteBufferAsIntBuffer(slice);
     }
 
-    public IntBuffer slice() {
-        int pos = this.position();
-        int lim = this.limit();
-        assert (pos <= lim);
-        int rem = (pos <= lim ? lim - pos : 0);
-        int off = (pos << 2) + offset;
-        assert (off >= 0);
-        return new ByteBufferAsIntBuffer(bb, -1, 0, rem, rem, off, order);
+    private ByteBufferAsIntBuffer(ByteBuffer byteBuffer) {
+        super(byteBuffer.capacity() / SizeOf.INT, byteBuffer.effectiveDirectAddress);
+        this.byteBuffer = byteBuffer;
+        this.byteBuffer.clear();
     }
 
-    public IntBuffer duplicate() {
-        return new ByteBufferAsIntBuffer(bb,
-                markValue(),
-                position(),
-                limit(),
-                capacity(),
-                offset,
-                order);
-    }
-
+    @Override
     public IntBuffer asReadOnlyBuffer() {
-        return new ByteBufferAsIntBuffer(bb.asReadOnlyBuffer(),
-                markValue(),
-                position(),
-                limit(),
-                capacity(),
-                offset,
-                order);
+        ByteBufferAsIntBuffer buf = new ByteBufferAsIntBuffer(byteBuffer.asReadOnlyBuffer());
+        buf.limit = limit;
+        buf.position = position;
+        buf.mark = mark;
+        buf.byteBuffer.order = byteBuffer.order;
+        return buf;
     }
 
-    protected int ix(int i) {
-        return (i << 2) + offset;
-    }
-
-    public int get() {
-        return get(nextGetIndex());
-    }
-
-    public int get(int i) {
-        return bb.getIntUnchecked(ix(checkIndex(i)));
-    }
-
-    public IntBuffer get(int[] dst, int offset, int length) {
-        checkBounds(offset, length, dst.length);
-        if (length > remaining())
-            throw new BufferUnderflowException();
-        bb.getUnchecked(ix(position), dst, offset, length);
-        position += length;
-        return this;
-    }
-
-    public IntBuffer put(int x) {
-        put(nextPutIndex(), x);
-        return this;
-    }
-
-    public IntBuffer put(int i, int x) {
-        if (isReadOnly) {
-            throw new ReadOnlyBufferException();
-        }
-        bb.putIntUnchecked(ix(checkIndex(i)), x);
-        return this;
-    }
-
-    public IntBuffer put(int[] src, int offset, int length) {
-        checkBounds(offset, length, src.length);
-        if (length > remaining())
-            throw new BufferOverflowException();
-        bb.putUnchecked(ix(position), src, offset, length);
-        position += length;
-        return this;
-    }
-
+    @Override
     public IntBuffer compact() {
-        if (isReadOnly) {
+        if (byteBuffer.isReadOnly()) {
             throw new ReadOnlyBufferException();
         }
-        int pos = position();
-        int lim = limit();
-        assert (pos <= lim);
-        int rem = (pos <= lim ? lim - pos : 0);
-        if (!(bb instanceof DirectByteBuffer)) {
-            System.arraycopy(bb.array(), ix(pos), bb.array(), ix(0), rem << 2);
-        } else {
-            Memory.memmove(this, ix(0), this, ix(pos), rem << 2);
-        }
-        position(rem);
-        limit(capacity());
-        discardMark();
+        byteBuffer.limit(limit * SizeOf.INT);
+        byteBuffer.position(position * SizeOf.INT);
+        byteBuffer.compact();
+        byteBuffer.clear();
+        position = limit - position;
+        limit = capacity;
+        mark = UNSET_MARK;
         return this;
     }
 
+    @Override
+    public IntBuffer duplicate() {
+        ByteBuffer bb = byteBuffer.duplicate().order(byteBuffer.order());
+        ByteBufferAsIntBuffer buf = new ByteBufferAsIntBuffer(bb);
+        buf.limit = limit;
+        buf.position = position;
+        buf.mark = mark;
+        return buf;
+    }
+
+    @Override
+    public int get() {
+        if (position == limit) {
+            throw new BufferUnderflowException();
+        }
+        return byteBuffer.getInt(position++ * SizeOf.INT);
+    }
+
+    @Override
+    public int get(int index) {
+        checkIndex(index);
+        return byteBuffer.getInt(index * SizeOf.INT);
+    }
+
+    @Override
+    public IntBuffer get(int[] dst, int dstOffset, int intCount) {
+        byteBuffer.limit(limit * SizeOf.INT);
+        byteBuffer.position(position * SizeOf.INT);
+        if (byteBuffer instanceof DirectByteBuffer) {
+            ((DirectByteBuffer) byteBuffer).get(dst, dstOffset, intCount);
+        } else {
+            ((ByteArrayBuffer) byteBuffer).get(dst, dstOffset, intCount);
+        }
+        this.position += intCount;
+        return this;
+    }
+
+    @Override
     public boolean isDirect() {
-        return bb.isDirect();
+        return byteBuffer.isDirect();
     }
 
+    @Override
     public boolean isReadOnly() {
-        return isReadOnly;
+        return byteBuffer.isReadOnly();
     }
 
+    @Override
     public ByteOrder order() {
-        return order;
+        return byteBuffer.order();
     }
+
+    @Override int[] protectedArray() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override int protectedArrayOffset() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override boolean protectedHasArray() {
+        return false;
+    }
+
+    @Override
+    public IntBuffer put(int c) {
+        if (position == limit) {
+            throw new BufferOverflowException();
+        }
+        byteBuffer.putInt(position++ * SizeOf.INT, c);
+        return this;
+    }
+
+    @Override
+    public IntBuffer put(int index, int c) {
+        checkIndex(index);
+        byteBuffer.putInt(index * SizeOf.INT, c);
+        return this;
+    }
+
+    @Override
+    public IntBuffer put(int[] src, int srcOffset, int intCount) {
+        byteBuffer.limit(limit * SizeOf.INT);
+        byteBuffer.position(position * SizeOf.INT);
+        if (byteBuffer instanceof DirectByteBuffer) {
+            ((DirectByteBuffer) byteBuffer).put(src, srcOffset, intCount);
+        } else {
+            ((ByteArrayBuffer) byteBuffer).put(src, srcOffset, intCount);
+        }
+        this.position += intCount;
+        return this;
+    }
+
+    @Override
+    public IntBuffer slice() {
+        byteBuffer.limit(limit * SizeOf.INT);
+        byteBuffer.position(position * SizeOf.INT);
+        ByteBuffer bb = byteBuffer.slice().order(byteBuffer.order());
+        IntBuffer result = new ByteBufferAsIntBuffer(bb);
+        byteBuffer.clear();
+        return result;
+    }
+
 }

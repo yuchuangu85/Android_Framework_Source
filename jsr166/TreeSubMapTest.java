@@ -27,7 +27,7 @@ public class TreeSubMapTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(TreeSubMapTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**

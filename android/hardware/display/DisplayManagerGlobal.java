@@ -17,12 +17,10 @@
 package android.hardware.display;
 
 import android.content.Context;
-import android.content.pm.ParceledListSlice;
-import android.content.res.Resources;
-import android.graphics.Point;
+import android.content.res.Configuration;
 import android.hardware.display.DisplayManager.DisplayListener;
-import android.media.projection.IMediaProjection;
 import android.media.projection.MediaProjection;
+import android.media.projection.IMediaProjection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -31,16 +29,13 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.text.TextUtils;
 import android.util.Log;
-import android.util.Pair;
 import android.util.SparseArray;
-import android.view.Display;
 import android.view.DisplayAdjustments;
+import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.Surface;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * Manager communication with the display manager service on behalf of
@@ -137,7 +132,8 @@ public final class DisplayManagerGlobal {
                 return info;
             }
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Could not get display information from display manager.", ex);
+            return null;
         }
     }
 
@@ -163,7 +159,8 @@ public final class DisplayManagerGlobal {
                 return displayIds;
             }
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Could not get display ids from display manager.", ex);
+            return new int[] { Display.DEFAULT_DISPLAY };
         }
     }
 
@@ -183,24 +180,6 @@ public final class DisplayManagerGlobal {
             return null;
         }
         return new Display(this, displayId, displayInfo, daj);
-    }
-
-    /**
-     * Gets information about a logical display.
-     *
-     * The display metrics may be adjusted to provide compatibility
-     * for legacy applications or limited screen areas.
-     *
-     * @param displayId The logical display id.
-     * @param resources Resources providing compatibility info.
-     * @return The display object, or null if there is no display with the given id.
-     */
-    public Display getCompatibleDisplay(int displayId, Resources resources) {
-        DisplayInfo displayInfo = getDisplayInfo(displayId);
-        if (displayInfo == null) {
-            return null;
-        }
-        return new Display(this, displayId, displayInfo, resources);
     }
 
     /**
@@ -258,7 +237,8 @@ public final class DisplayManagerGlobal {
             try {
                 mDm.registerCallback(mCallback);
             } catch (RemoteException ex) {
-                throw ex.rethrowFromSystemServer();
+                Log.e(TAG, "Failed to register callback with display manager service.", ex);
+                mCallback = null;
             }
         }
     }
@@ -287,7 +267,7 @@ public final class DisplayManagerGlobal {
                 try {
                     mDm.startWifiDisplayScan();
                 } catch (RemoteException ex) {
-                    throw ex.rethrowFromSystemServer();
+                    Log.e(TAG, "Failed to scan for Wifi displays.", ex);
                 }
             }
         }
@@ -299,7 +279,7 @@ public final class DisplayManagerGlobal {
                 try {
                     mDm.stopWifiDisplayScan();
                 } catch (RemoteException ex) {
-                    throw ex.rethrowFromSystemServer();
+                    Log.e(TAG, "Failed to scan for Wifi displays.", ex);
                 }
             } else if (mWifiDisplayScanNestCount < 0) {
                 Log.wtf(TAG, "Wifi display scan nest count became negative: "
@@ -317,7 +297,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.connectWifiDisplay(deviceAddress);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to connect to Wifi display " + deviceAddress + ".", ex);
         }
     }
 
@@ -325,7 +305,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.pauseWifiDisplay();
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to pause Wifi display.", ex);
         }
     }
 
@@ -333,7 +313,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.resumeWifiDisplay();
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to resume Wifi display.", ex);
         }
     }
 
@@ -341,7 +321,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.disconnectWifiDisplay();
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to disconnect from Wifi display.", ex);
         }
     }
 
@@ -353,7 +333,8 @@ public final class DisplayManagerGlobal {
         try {
             mDm.renameWifiDisplay(deviceAddress, alias);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to rename Wifi display " + deviceAddress
+                    + " with alias " + alias + ".", ex);
         }
     }
 
@@ -365,7 +346,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.forgetWifiDisplay(deviceAddress);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to forget Wifi display.", ex);
         }
     }
 
@@ -373,32 +354,14 @@ public final class DisplayManagerGlobal {
         try {
             return mDm.getWifiDisplayStatus();
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    public void requestColorMode(int displayId, int colorMode) {
-        try {
-            mDm.requestColorMode(displayId, colorMode);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Set the level of color saturation to apply to the display.
-     */
-    public void setSaturationLevel(float level) {
-        try {
-            mDm.setSaturationLevel(level);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Failed to get Wifi display status.", ex);
+            return new WifiDisplayStatus();
         }
     }
 
     public VirtualDisplay createVirtualDisplay(Context context, MediaProjection projection,
             String name, int width, int height, int densityDpi, Surface surface, int flags,
-            VirtualDisplay.Callback callback, Handler handler, String uniqueId) {
+            VirtualDisplay.Callback callback, Handler handler) {
         if (TextUtils.isEmpty(name)) {
             throw new IllegalArgumentException("name must be non-null and non-empty");
         }
@@ -412,10 +375,10 @@ public final class DisplayManagerGlobal {
         int displayId;
         try {
             displayId = mDm.createVirtualDisplay(callbackWrapper, projectionToken,
-                    context.getPackageName(), name, width, height, densityDpi, surface, flags,
-                    uniqueId);
+                    context.getPackageName(), name, width, height, densityDpi, surface, flags);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.e(TAG, "Could not create virtual display: " + name, ex);
+            return null;
         }
         if (displayId < 0) {
             Log.e(TAG, "Could not create virtual display: " + name);
@@ -428,7 +391,6 @@ public final class DisplayManagerGlobal {
             try {
                 mDm.releaseVirtualDisplay(callbackWrapper);
             } catch (RemoteException ex) {
-                throw ex.rethrowFromSystemServer();
             }
             return null;
         }
@@ -439,7 +401,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.setVirtualDisplaySurface(token, surface);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.w(TAG, "Failed to set virtual display surface.", ex);
         }
     }
 
@@ -448,7 +410,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.resizeVirtualDisplay(token, width, height, densityDpi);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.w(TAG, "Failed to resize virtual display.", ex);
         }
     }
 
@@ -456,143 +418,7 @@ public final class DisplayManagerGlobal {
         try {
             mDm.releaseVirtualDisplay(token);
         } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Gets the stable device display size, in pixels.
-     */
-    public Point getStableDisplaySize() {
-        try {
-            return mDm.getStableDisplaySize();
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Retrieves brightness change events.
-     */
-    public List<BrightnessChangeEvent> getBrightnessEvents(String callingPackage) {
-        try {
-            ParceledListSlice<BrightnessChangeEvent> events =
-                    mDm.getBrightnessEvents(callingPackage);
-            if (events == null) {
-                return Collections.emptyList();
-            }
-            return events.getList();
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Sets the global brightness configuration for a given user.
-     *
-     * @hide
-     */
-    public void setBrightnessConfigurationForUser(BrightnessConfiguration c, int userId,
-            String packageName) {
-        try {
-            mDm.setBrightnessConfigurationForUser(c, userId, packageName);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Gets the global brightness configuration for a given user or null if one hasn't been set.
-     *
-     * @hide
-     */
-    public BrightnessConfiguration getBrightnessConfigurationForUser(int userId) {
-        try {
-            return mDm.getBrightnessConfigurationForUser(userId);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Gets the default brightness configuration or null if one hasn't been configured.
-     *
-     * @hide
-     */
-    public BrightnessConfiguration getDefaultBrightnessConfiguration() {
-        try {
-            return mDm.getDefaultBrightnessConfiguration();
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Temporarily sets the brightness of the display.
-     * <p>
-     * Requires the {@link android.Manifest.permission#CONTROL_DISPLAY_BRIGHTNESS} permission.
-     * </p>
-     *
-     * @param brightness The brightness value from 0 to 255.
-     *
-     * @hide Requires signature permission.
-     */
-    public void setTemporaryBrightness(int brightness) {
-        try {
-            mDm.setTemporaryBrightness(brightness);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Temporarily sets the auto brightness adjustment factor.
-     * <p>
-     * Requires the {@link android.Manifest.permission#CONTROL_DISPLAY_BRIGHTNESS} permission.
-     * </p>
-     *
-     * @param adjustment The adjustment factor from -1.0 to 1.0.
-     *
-     * @hide Requires signature permission.
-     */
-    public void setTemporaryAutoBrightnessAdjustment(float adjustment) {
-        try {
-            mDm.setTemporaryAutoBrightnessAdjustment(adjustment);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Returns the minimum brightness curve, which guarantess that any brightness curve that dips
-     * below it is rejected by the system.
-     * This prevent auto-brightness from setting the screen so dark as to prevent the user from
-     * resetting or disabling it, and maps lux to the absolute minimum nits that are still readable
-     * in that ambient brightness.
-     *
-     * @return The minimum brightness curve (as lux values and their corresponding nits values).
-     */
-    public Pair<float[], float[]> getMinimumBrightnessCurve() {
-        try {
-            Curve curve = mDm.getMinimumBrightnessCurve();
-            return Pair.create(curve.getX(), curve.getY());
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Retrieves ambient brightness stats.
-     */
-    public List<AmbientBrightnessDayStats> getAmbientBrightnessStats() {
-        try {
-            ParceledListSlice<AmbientBrightnessDayStats> stats = mDm.getAmbientBrightnessStats();
-            if (stats == null) {
-                return Collections.emptyList();
-            }
-            return stats.getList();
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
+            Log.w(TAG, "Failed to release virtual display.", ex);
         }
     }
 

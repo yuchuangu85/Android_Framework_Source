@@ -1,135 +1,135 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
-
 /**
- * Checked exception thrown to indicate that a string could not be parsed as a
- * URI reference.
- *
- * @author Mark Reinhold
- * @see URI
- * @since 1.4
+ * A {@code URISyntaxException} will be thrown if some information could not be parsed
+ * while creating a URI.
  */
+public class URISyntaxException extends Exception {
 
-public class URISyntaxException
-    extends Exception
-{
     private static final long serialVersionUID = 2137979680897488891L;
 
     private String input;
+
     private int index;
 
     /**
-     * Constructs an instance from the given input string, reason, and error
-     * index.
+     * Constructs a new {@code URISyntaxException} instance containing the
+     * string that caused the exception, a description of the problem and the
+     * index at which the error occurred.
      *
-     * @param  input   The input string
-     * @param  reason  A string explaining why the input could not be parsed
-     * @param  index   The index at which the parse error occurred,
-     *                 or {@code -1} if the index is not known
-     *
-     * @throws  NullPointerException
-     *          If either the input or reason strings are {@code null}
-     *
-     * @throws  IllegalArgumentException
-     *          If the error index is less than {@code -1}
+     * @param input
+     *            the string that caused the exception.
+     * @param reason
+     *            the reason why the exception occurred.
+     * @param index
+     *            the position where the exception occurred.
+     * @throws NullPointerException
+     *             if one of the arguments {@code input} or {@code reason} is
+     *             {@code null}.
+     * @throws IllegalArgumentException
+     *             if the value for {@code index} is lesser than {@code -1}.
      */
     public URISyntaxException(String input, String reason, int index) {
         super(reason);
-        if ((input == null) || (reason == null))
-            throw new NullPointerException();
-        if (index < -1)
-            throw new IllegalArgumentException();
+
+        if (input == null) {
+            throw new NullPointerException("input == null");
+        } else if (reason == null) {
+            throw new NullPointerException("reason == null");
+        }
+
+        if (index < -1) {
+            throw new IllegalArgumentException("Bad index: " + index);
+        }
+
         this.input = input;
         this.index = index;
     }
 
     /**
-     * Constructs an instance from the given input string and reason.  The
-     * resulting object will have an error index of {@code -1}.
+     * Constructs a new {@code URISyntaxException} instance containing the
+     * string that caused the exception and a description of the problem.
      *
-     * @param  input   The input string
-     * @param  reason  A string explaining why the input could not be parsed
-     *
-     * @throws  NullPointerException
-     *          If either the input or reason strings are {@code null}
+     *@param input
+     *            the string that caused the exception.
+     * @param reason
+     *            the reason why the exception occurred.
+     * @throws NullPointerException
+     *             if one of the arguments {@code input} or {@code reason} is
+     *             {@code null}.
      */
     public URISyntaxException(String input, String reason) {
-        this(input, reason, -1);
+        super(reason);
+
+        if (input == null) {
+            throw new NullPointerException("input == null");
+        } else if (reason == null) {
+            throw new NullPointerException("reason == null");
+        }
+
+        this.input = input;
+        index = -1;
     }
 
     /**
-     * Returns the input string.
+     * Gets the index at which the syntax error was found or {@code -1} if the
+     * index is unknown/unavailable.
      *
-     * @return  The input string
-     */
-    public String getInput() {
-        return input;
-    }
-
-    /**
-     * Returns a string explaining why the input string could not be parsed.
-     *
-     * @return  The reason string
-     */
-    public String getReason() {
-        return super.getMessage();
-    }
-
-    /**
-     * Returns an index into the input string of the position at which the
-     * parse error occurred, or {@code -1} if this position is not known.
-     *
-     * @return  The error index
+     * @return the index of the syntax error.
      */
     public int getIndex() {
         return index;
     }
 
     /**
-     * Returns a string describing the parse error.  The resulting string
-     * consists of the reason string followed by a colon character
-     * ({@code ':'}), a space, and the input string.  If the error index is
-     * defined then the string {@code " at index "} followed by the index, in
-     * decimal, is inserted after the reason string and before the colon
-     * character.
+     * Gets a description of the syntax error.
      *
-     * @return  A string describing the parse error
+     * @return the string describing the syntax error.
      */
-    public String getMessage() {
-        StringBuffer sb = new StringBuffer();
-        sb.append(getReason());
-        if (index > -1) {
-            sb.append(" at index ");
-            sb.append(index);
-        }
-        sb.append(": ");
-        sb.append(input);
-        return sb.toString();
+    public String getReason() {
+        return super.getMessage();
     }
 
+    /**
+     * Gets the initial string that contains an invalid syntax.
+     *
+     * @return the string that caused the exception.
+     */
+    public String getInput() {
+        return input;
+    }
+
+    /**
+     * Gets a description of the exception, including the reason, the string
+     * that caused the syntax error and the position of the syntax error if
+     * available.
+     *
+     * @return a sting containing information about the exception.
+     * @see java.lang.Throwable#getMessage()
+     */
+    @Override
+    public String getMessage() {
+        String reason = super.getMessage();
+        if (index != -1) {
+            return reason + " at index " + index + ": " + input;
+        }
+        return reason + ": " + input;
+    }
 }

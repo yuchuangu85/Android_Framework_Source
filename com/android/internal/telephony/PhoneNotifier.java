@@ -17,7 +17,7 @@
 package com.android.internal.telephony;
 
 import android.telephony.CellInfo;
-import android.telephony.PhysicalChannelConfig;
+import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.VoLteServiceState;
 
 import java.util.List;
@@ -51,9 +51,6 @@ public interface PhoneNotifier {
 
     public void notifyCellInfo(Phone sender, List<CellInfo> cellInfo);
 
-    /** Notify of change to PhysicalChannelConfiguration. */
-    void notifyPhysicalChannelConfiguration(Phone sender, List<PhysicalChannelConfig> configs);
-
     public void notifyPreciseCallState(Phone sender);
 
     public void notifyDisconnectCause(int cause, int preciseCause);
@@ -61,13 +58,9 @@ public interface PhoneNotifier {
     public void notifyPreciseDataConnectionFailed(Phone sender, String reason, String apnType,
             String apn, String failCause);
 
+    public void notifyDataConnectionRealTimeInfo(Phone sender, DataConnectionRealTimeInfo dcRtInfo);
+
     public void notifyVoLteServiceStateChanged(Phone sender, VoLteServiceState lteState);
-
-    public void notifyVoiceActivationStateChanged(Phone sender, int activationState);
-
-    public void notifyDataActivationStateChanged(Phone sender, int activationState);
-
-    public void notifyUserMobileDataStateChanged(Phone sender, boolean state);
 
     public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData);
 }

@@ -17,7 +17,6 @@
 package com.android.server;
 
 import android.Manifest;
-import android.app.ActivityManagerInternal;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.content.ComponentName;
@@ -93,7 +92,7 @@ public class MmsServiceBroker extends SystemService {
         public void onServiceConnected(ComponentName name, IBinder service) {
             Slog.i(TAG, "MmsService connected");
             synchronized (MmsServiceBroker.this) {
-                mService = IMms.Stub.asInterface(Binder.allowBlocking(service));
+                mService = IMms.Stub.asInterface(service);
                 MmsServiceBroker.this.notifyAll();
             }
         }
@@ -500,21 +499,13 @@ public class MmsServiceBroker extends SystemService {
          */
         private Uri adjustUriForUserAndGrantPermission(Uri contentUri, String action,
                 int permission) {
-            final Intent grantIntent = new Intent();
-            grantIntent.setData(contentUri);
-            grantIntent.setFlags(permission);
-
-            final int callingUid = Binder.getCallingUid();
             final int callingUserId = UserHandle.getCallingUserId();
-            if (callingUserId != UserHandle.USER_SYSTEM) {
+            if (callingUserId != UserHandle.USER_OWNER) {
                 contentUri = ContentProvider.maybeAddUserId(contentUri, callingUserId);
             }
-
             long token = Binder.clearCallingIdentity();
             try {
-                LocalServices.getService(ActivityManagerInternal.class)
-                        .grantUriPermissionFromIntent(callingUid, PHONE_PACKAGE_NAME,
-                                grantIntent, UserHandle.USER_SYSTEM);
+                mContext.grantUriPermission(PHONE_PACKAGE_NAME, contentUri, permission);
 
                 // Grant permission for the carrier app.
                 Intent intent = new Intent(action);
@@ -523,9 +514,7 @@ public class MmsServiceBroker extends SystemService {
                 List<String> carrierPackages = telephonyManager.getCarrierPackageNamesForIntent(
                         intent);
                 if (carrierPackages != null && carrierPackages.size() == 1) {
-                    LocalServices.getService(ActivityManagerInternal.class)
-                            .grantUriPermissionFromIntent(callingUid, carrierPackages.get(0),
-                                    grantIntent, UserHandle.USER_SYSTEM);
+                    mContext.grantUriPermission(carrierPackages.get(0), contentUri, permission);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);

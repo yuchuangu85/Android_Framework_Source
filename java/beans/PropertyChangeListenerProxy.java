@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2000, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.beans;
@@ -28,54 +20,40 @@ package java.beans;
 import java.util.EventListenerProxy;
 
 /**
- * A class which extends the {@code EventListenerProxy}
- * specifically for adding a {@code PropertyChangeListener}
- * with a "bound" property.
- * Instances of this class can be added
- * as {@code PropertyChangeListener}s to a bean
- * which supports firing property change events.
- * <p>
- * If the object has a {@code getPropertyChangeListeners} method
- * then the array returned could be a mixture of {@code PropertyChangeListener}
- * and {@code PropertyChangeListenerProxy} objects.
- *
- * @see java.util.EventListenerProxy
- * @see PropertyChangeSupport#getPropertyChangeListeners
- * @since 1.4
+ * The implementation of this listener proxy just delegates the received events
+ * to its listener.
  */
-public class PropertyChangeListenerProxy
-        extends EventListenerProxy<PropertyChangeListener>
-        implements PropertyChangeListener {
+public class PropertyChangeListenerProxy extends EventListenerProxy implements
+        PropertyChangeListener {
 
-    private final String propertyName;
+    String propertyName;
 
     /**
-     * Constructor which binds the {@code PropertyChangeListener}
-     * to a specific property.
+     * Creates a new listener proxy that associates a listener with a property
+     * name.
      *
-     * @param propertyName  the name of the property to listen on
-     * @param listener      the listener object
+     * @param propertyName
+     *            the name of the associated property.
+     * @param listener
+     *            the listener to delegate incoming events to.
      */
-    public PropertyChangeListenerProxy(String propertyName, PropertyChangeListener listener) {
+    public PropertyChangeListenerProxy(String propertyName,
+            PropertyChangeListener listener) {
         super(listener);
         this.propertyName = propertyName;
     }
 
     /**
-     * Forwards the property change event to the listener delegate.
+     * Returns the name of the property associated with this listener proxy.
      *
-     * @param event  the property change event
-     */
-    public void propertyChange(PropertyChangeEvent event) {
-        getListener().propertyChange(event);
-    }
-
-    /**
-     * Returns the name of the named property associated with the listener.
-     *
-     * @return the name of the named property associated with the listener
+     * @return the name of the associated property.
      */
     public String getPropertyName() {
-        return this.propertyName;
+        return propertyName;
+    }
+
+    public void propertyChange(PropertyChangeEvent event) {
+        PropertyChangeListener listener = (PropertyChangeListener) getListener();
+        listener.propertyChange(event);
     }
 }

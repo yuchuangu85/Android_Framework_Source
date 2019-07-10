@@ -44,8 +44,17 @@ public class ViewGroupBindingAdapter {
         }
     }
 
-    @BindingAdapter(value = {"android:onChildViewAdded", "android:onChildViewRemoved"},
-            requireAll = false)
+    @BindingAdapter("android:onChildViewAdded")
+    public static void setListener(ViewGroup view, OnChildViewAdded listener) {
+        setListener(view, listener, null);
+    }
+
+    @BindingAdapter("android:onChildViewRemoved")
+    public static void setListener(ViewGroup view, OnChildViewRemoved listener) {
+        setListener(view, null, listener);
+    }
+
+    @BindingAdapter({"android:onChildViewAdded", "android:onChildViewRemoved"})
     public static void setListener(ViewGroup view, final OnChildViewAdded added,
             final OnChildViewRemoved removed) {
         if (added == null && removed == null) {
@@ -69,8 +78,8 @@ public class ViewGroupBindingAdapter {
         }
     }
 
-    @BindingAdapter(value = {"android:onAnimationStart", "android:onAnimationEnd",
-            "android:onAnimationRepeat"}, requireAll = false)
+    @BindingAdapter({"android:onAnimationStart", "android:onAnimationEnd",
+            "android:onAnimationRepeat"})
     public static void setListener(ViewGroup view, final OnAnimationStart start,
             final OnAnimationEnd end, final OnAnimationRepeat repeat) {
         if (start == null && end == null && repeat == null) {
@@ -99,6 +108,39 @@ public class ViewGroupBindingAdapter {
                 }
             });
         }
+    }
+
+    @BindingAdapter({"android:onAnimationStart", "android:onAnimationEnd"})
+    public static void setListener(ViewGroup view, final OnAnimationStart start,
+            final OnAnimationEnd end) {
+        setListener(view, start, end, null);
+    }
+
+    @BindingAdapter({"android:onAnimationEnd", "android:onAnimationRepeat"})
+    public static void setListener(ViewGroup view, final OnAnimationEnd end,
+            final OnAnimationRepeat repeat) {
+        setListener(view, null, end, repeat);
+    }
+
+    @BindingAdapter({"android:onAnimationStart", "android:onAnimationRepeat"})
+    public static void setListener(ViewGroup view, final OnAnimationStart start,
+            final OnAnimationRepeat repeat) {
+        setListener(view, start, null, repeat);
+    }
+
+    @BindingAdapter("android:onAnimationStart")
+    public static void setListener(ViewGroup view, final OnAnimationStart start) {
+        setListener(view, start, null, null);
+    }
+
+    @BindingAdapter("android:onAnimationEnd")
+    public static void setListener(ViewGroup view, final OnAnimationEnd end) {
+        setListener(view, null, end, null);
+    }
+
+    @BindingAdapter("android:onAnimationRepeat")
+    public static void setListener(ViewGroup view, final OnAnimationRepeat repeat) {
+        setListener(view, null, null, repeat);
     }
 
     public interface OnChildViewAdded {

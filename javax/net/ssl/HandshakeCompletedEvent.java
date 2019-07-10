@@ -1,235 +1,134 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
 
-import java.util.EventObject;
-import java.security.cert.Certificate;
 import java.security.Principal;
-import java.security.cert.X509Certificate;
+import java.security.cert.Certificate;
+import java.util.EventObject;
+import javax.security.cert.X509Certificate;
 
 /**
- * This event indicates that an SSL handshake completed on a given
- * SSL connection.  All of the core information about that handshake's
- * result is captured through an "SSLSession" object.  As a convenience,
- * this event class provides direct access to some important session
- * attributes.
- *
- * <P> The source of this event is the SSLSocket on which handshaking
- * just completed.
- *
- * @see SSLSocket
- * @see HandshakeCompletedListener
- * @see SSLSession
- *
- * @since 1.4
- * @author David Brownell
+ * The event object encapsulating the information about a completed SSL
+ * handshake on a SSL connection.
  */
-public class HandshakeCompletedEvent extends EventObject
-{
-    private static final long serialVersionUID = 7914963744257769778L;
+public class HandshakeCompletedEvent extends EventObject {
 
     private transient SSLSession session;
 
     /**
-     * Constructs a new HandshakeCompletedEvent.
+     * Creates a new {@code HandshakeCompletedEvent} with the specified SSL
+     * socket and SSL session.
      *
-     * @param sock the SSLSocket acting as the source of the event
-     * @param s the SSLSession this event is associated with
+     * @param sock
+     *            the SSL socket.
+     * @param s
+     *            the SSL session.
      */
-    public HandshakeCompletedEvent(SSLSocket sock, SSLSession s)
-    {
+    public HandshakeCompletedEvent(SSLSocket sock, SSLSession s) {
         super(sock);
         session = s;
     }
 
-
     /**
-     * Returns the session that triggered this event.
+     * Returns the SSL session associated with this event.
      *
-     * @return the <code>SSLSession</code> for this handshake
+     * @return the SSL session associated with this event.
      */
-    public SSLSession getSession()
-    {
+    public SSLSession getSession() {
         return session;
     }
 
-
     /**
-     * Returns the cipher suite in use by the session which was produced
-     * by the handshake.  (This is a convenience method for
-     * getting the ciphersuite from the SSLsession.)
+     * Returns the name of the cipher suite negotiated during this handshake.
      *
-     * @return the name of the cipher suite negotiated during this session.
+     * @return the name of the cipher suite negotiated during this handshake.
      */
-    public String getCipherSuite()
-    {
+    public String getCipherSuite() {
         return session.getCipherSuite();
     }
 
-
     /**
-     * Returns the certificate(s) that were sent to the peer during
-     * handshaking.
-     * Note: This method is useful only when using certificate-based
-     * cipher suites.
+     * Returns the list of local certificates used during the handshake. These
+     * certificates were sent to the peer.
      *
-     * When multiple certificates are available for use in a
-     * handshake, the implementation chooses what it considers the
-     * "best" certificate chain available, and transmits that to
-     * the other side.  This method allows the caller to know
-     * which certificate chain was actually used.
-     *
-     * @return an ordered array of certificates, with the local
-     *          certificate first followed by any
-     *          certificate authorities.  If no certificates were sent,
-     *          then null is returned.
-     * @see #getLocalPrincipal()
+     * @return Returns the list of certificates used during the handshake with
+     *         the local identity certificate followed by CAs, or {@code null}
+     *         if no certificates were used during the handshake.
      */
-    public java.security.cert.Certificate [] getLocalCertificates()
-    {
+    public Certificate[] getLocalCertificates() {
         return session.getLocalCertificates();
     }
 
-
     /**
-     * Returns the identity of the peer which was established as part
-     * of defining the session.
-     * Note: This method can be used only when using certificate-based
-     * cipher suites; using it with non-certificate-based cipher suites,
-     * such as Kerberos, will throw an SSLPeerUnverifiedException.
+     * Return the list of certificates identifying the peer during the
+     * handshake.
      *
-     * @return an ordered array of the peer certificates,
-     *          with the peer's own certificate first followed by
-     *          any certificate authorities.
-     * @exception SSLPeerUnverifiedException if the peer is not verified.
-     * @see #getPeerPrincipal()
+     * @return the list of certificates identifying the peer with the peer's
+     *         identity certificate followed by CAs.
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer has not been verified.
      */
-    public java.security.cert.Certificate [] getPeerCertificates()
-            throws SSLPeerUnverifiedException
-    {
+    public Certificate[] getPeerCertificates() throws SSLPeerUnverifiedException {
         return session.getPeerCertificates();
     }
 
-
     /**
-     * Returns the identity of the peer which was identified as part
-     * of defining the session.
-     * Note: This method can be used only when using certificate-based
-     * cipher suites; using it with non-certificate-based cipher suites,
-     * such as Kerberos, will throw an SSLPeerUnverifiedException.
+     * Returns the list of certificates identifying the peer. The peer's
+     * identity certificate is followed by the validated certificate authority
+     * certificates.
+     * <p>
+     * <b>Replaced by:</b> {@link #getPeerCertificates()}
      *
-     * <p><em>Note: this method exists for compatibility with previous
-     * releases. New applications should use
-     * {@link #getPeerCertificates} instead.</em></p>
-     *
-     * @return an ordered array of peer X.509 certificates,
-     *          with the peer's own certificate first followed by any
-     *          certificate authorities.  (The certificates are in
-     *          the original JSSE
-     *          {@link javax.security.cert.X509Certificate} format).
-     * @exception SSLPeerUnverifiedException if the peer is not verified.
-     * @see #getPeerPrincipal()
+     * @return the list of certificates identifying the peer
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer has not been verified.
      */
-    public javax.security.cert.X509Certificate [] getPeerCertificateChain()
-            throws SSLPeerUnverifiedException
-    {
+    public X509Certificate[] getPeerCertificateChain() throws SSLPeerUnverifiedException {
         return session.getPeerCertificateChain();
     }
 
     /**
-     * Returns the identity of the peer which was established as part of
-     * defining the session.
+     * Returns the {@code Principal} identifying the peer.
      *
-     * @return the peer's principal. Returns an X500Principal of the
-     * end-entity certiticate for X509-based cipher suites, and
-     * KerberosPrincipal for Kerberos cipher suites.
-     *
-     * @throws SSLPeerUnverifiedException if the peer's identity has not
-     *          been verified
-     *
-     * @see #getPeerCertificates()
-     * @see #getLocalPrincipal()
-     *
-     * @since 1.5
+     * @return the {@code Principal} identifying the peer.
+     * @throws SSLPeerUnverifiedException
+     *             if the identity of the peer has not been verified.
      */
-    public Principal getPeerPrincipal()
-            throws SSLPeerUnverifiedException
-    {
-        Principal principal;
-        try {
-            principal = session.getPeerPrincipal();
-        } catch (AbstractMethodError e) {
-            // if the provider does not support it, fallback to peer certs.
-            // return the X500Principal of the end-entity cert.
-            Certificate[] certs = getPeerCertificates();
-            principal = ((X509Certificate)certs[0]).getSubjectX500Principal();
-        }
-        return principal;
+    public Principal getPeerPrincipal() throws SSLPeerUnverifiedException {
+        return session.getPeerPrincipal();
     }
 
     /**
-     * Returns the principal that was sent to the peer during handshaking.
+     * Returns the {@code Principal} used to identify during the handshake.
      *
-     * @return the principal sent to the peer. Returns an X500Principal
-     * of the end-entity certificate for X509-based cipher suites, and
-     * KerberosPrincipal for Kerberos cipher suites. If no principal was
-     * sent, then null is returned.
-     *
-     * @see #getLocalCertificates()
-     * @see #getPeerPrincipal()
-     *
-     * @since 1.5
+     * @return the {@code Principal} used to identify during the handshake.
      */
-    public Principal getLocalPrincipal()
-    {
-        Principal principal;
-        try {
-            principal = session.getLocalPrincipal();
-        } catch (AbstractMethodError e) {
-            principal = null;
-            // if the provider does not support it, fallback to local certs.
-            // return the X500Principal of the end-entity cert.
-            Certificate[] certs = getLocalCertificates();
-            if (certs != null) {
-                principal =
-                        ((X509Certificate)certs[0]).getSubjectX500Principal();
-            }
-        }
-        return principal;
+    public Principal getLocalPrincipal() {
+        return session.getLocalPrincipal();
     }
 
     /**
-     * Returns the socket which is the source of this event.
-     * (This is a convenience function, to let applications
-     * write code without type casts.)
+     * Returns the SSL socket that produced this event.
      *
-     * @return the socket on which the connection was made.
+     * @return the SSL socket that produced this event.
      */
-    public SSLSocket getSocket()
-    {
-        return (SSLSocket) getSource();
+    public SSLSocket getSocket() {
+        return (SSLSocket) this.source;
     }
+
 }

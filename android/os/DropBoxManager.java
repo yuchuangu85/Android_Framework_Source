@@ -16,12 +16,6 @@
 
 package android.os;
 
-import android.annotation.SdkConstant;
-import android.annotation.SystemService;
-import android.annotation.SdkConstant.SdkConstantType;
-import android.content.Context;
-import android.util.Log;
-
 import com.android.internal.os.IDropBoxManagerService;
 
 import java.io.ByteArrayInputStream;
@@ -37,14 +31,15 @@ import java.util.zip.GZIPInputStream;
  * enqueued data exceeds the maximum size.  You can think of this as a
  * persistent, system-wide, blob-oriented "logcat".
  *
+ * <p>You can obtain an instance of this class by calling
+ * {@link android.content.Context#getSystemService}
+ * with {@link android.content.Context#DROPBOX_SERVICE}.
+ *
  * <p>DropBoxManager entries are not sent anywhere directly, but other system
  * services and debugging tools may scan and upload entries for processing.
  */
-@SystemService(Context.DROPBOX_SERVICE)
 public class DropBoxManager {
     private static final String TAG = "DropBoxManager";
-
-    private final Context mContext;
     private final IDropBoxManagerService mService;
 
     /** Flag value: Entry's content was deleted to save space. */
@@ -67,7 +62,6 @@ public class DropBoxManager {
      * <p class="note">This is a protected intent that can only be sent
      * by the system.
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_DROPBOX_ENTRY_ADDED =
         "android.intent.action.DROPBOX_ENTRY_ADDED";
 
@@ -255,20 +249,14 @@ public class DropBoxManager {
     }
 
     /** {@hide} */
-    public DropBoxManager(Context context, IDropBoxManagerService service) {
-        mContext = context;
-        mService = service;
-    }
+    public DropBoxManager(IDropBoxManagerService service) { mService = service; }
 
     /**
      * Create a dummy instance for testing.  All methods will fail unless
      * overridden with an appropriate mock implementation.  To obtain a
      * functional instance, use {@link android.content.Context#getSystemService}.
      */
-    protected DropBoxManager() {
-        mContext = null;
-        mService = null;
-    }
+    protected DropBoxManager() { mService = null; }
 
     /**
      * Stores human-readable text.  The data may be discarded eventually (or even
@@ -279,16 +267,7 @@ public class DropBoxManager {
      * @param data value to store
      */
     public void addText(String tag, String data) {
-        try {
-            mService.add(new Entry(tag, 0, data));
-        } catch (RemoteException e) {
-            if (e instanceof TransactionTooLargeException
-                    && mContext.getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.N) {
-                Log.e(TAG, "App sent too much data, so it was ignored", e);
-                return;
-            }
-            throw e.rethrowFromSystemServer();
-        }
+        try { mService.add(new Entry(tag, 0, data)); } catch (RemoteException e) {}
     }
 
     /**
@@ -300,16 +279,7 @@ public class DropBoxManager {
      */
     public void addData(String tag, byte[] data, int flags) {
         if (data == null) throw new NullPointerException("data == null");
-        try {
-            mService.add(new Entry(tag, 0, data, flags));
-        } catch (RemoteException e) {
-            if (e instanceof TransactionTooLargeException
-                    && mContext.getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.N) {
-                Log.e(TAG, "App sent too much data, so it was ignored", e);
-                return;
-            }
-            throw e.rethrowFromSystemServer();
-        }
+        try { mService.add(new Entry(tag, 0, data, flags)); } catch (RemoteException e) {}
     }
 
     /**
@@ -327,7 +297,7 @@ public class DropBoxManager {
         try {
             mService.add(entry);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            // ignore
         } finally {
             entry.close();
         }
@@ -342,11 +312,7 @@ public class DropBoxManager {
      * @return whether events with that tag would be accepted
      */
     public boolean isTagEnabled(String tag) {
-        try {
-            return mService.isTagEnabled(tag);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        try { return mService.isTagEnabled(tag); } catch (RemoteException e) { return false; }
     }
 
     /**
@@ -359,11 +325,7 @@ public class DropBoxManager {
      * @return the next entry, or null if there are no more entries
      */
     public Entry getNextEntry(String tag, long msec) {
-        try {
-            return mService.getNextEntry(tag, msec);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        try { return mService.getNextEntry(tag, msec); } catch (RemoteException e) { return null; }
     }
 
     // TODO: It may be useful to have some sort of notification mechanism

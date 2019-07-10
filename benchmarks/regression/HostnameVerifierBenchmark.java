@@ -16,8 +16,9 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 import java.io.ByteArrayInputStream;
 import java.net.URL;
 import java.security.Principal;
@@ -36,7 +37,7 @@ import javax.net.ssl.SSLSessionContext;
  * caches previous results which skews the results of the benchmark: In practice
  * each certificate instance is verified once and then released.
  */
-public final class HostnameVerifierBenchmark {
+public final class HostnameVerifierBenchmark extends SimpleBenchmark {
 
     @Param({"android.clients.google.com",
             "m.google.com",
@@ -48,8 +49,7 @@ public final class HostnameVerifierBenchmark {
     private HostnameVerifier hostnameVerifier;
     private byte[][] encodedCertificates;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         URL url = new URL("https", host, "/");
         hostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier();
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -162,5 +162,9 @@ public final class HostnameVerifierBenchmark {
         public void removeValue(String name) {
             throw new UnsupportedOperationException();
         }
+    }
+
+    public static void main(String[] args) {
+        Runner.main(HostnameVerifierBenchmark.class, args);
     }
 }

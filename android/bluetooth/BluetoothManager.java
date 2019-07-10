@@ -17,11 +17,8 @@
 package android.bluetooth;
 
 import android.Manifest;
-import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
-import android.annotation.SystemService;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -35,21 +32,19 @@ import java.util.List;
  * Use {@link android.content.Context#getSystemService(java.lang.String)}
  * with {@link Context#BLUETOOTH_SERVICE} to create an {@link BluetoothManager},
  * then call {@link #getAdapter} to obtain the {@link BluetoothAdapter}.
- * </p>
+ * <p>
+ * Alternately, you can just call the static helper
+ * {@link BluetoothAdapter#getDefaultAdapter()}.
+ *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
- * <p>
- * For more information about using BLUETOOTH, read the <a href=
- * "{@docRoot}guide/topics/connectivity/bluetooth.html">Bluetooth</a> developer
- * guide.
- * </p>
+ * <p>For more information about using BLUETOOTH, read the
+ * <a href="{@docRoot}guide/topics/connectivity/bluetooth.html">Bluetooth</a> developer guide.</p>
  * </div>
  *
  * @see Context#getSystemService
  * @see BluetoothAdapter#getDefaultAdapter()
  */
-@SystemService(Context.BLUETOOTH_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_BLUETOOTH)
 public final class BluetoothManager {
     private static final String TAG = "BluetoothManager";
     private static final boolean DBG = true;
@@ -87,18 +82,21 @@ public final class BluetoothManager {
      * This can be used by applications like status bar which would just like
      * to know the state of Bluetooth.
      *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
+     *
      * @param device Remote bluetooth device.
      * @param profile GATT or GATT_SERVER
-     * @return State of the profile connection. One of {@link BluetoothProfile#STATE_CONNECTED},
-     * {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
-     * {@link BluetoothProfile#STATE_DISCONNECTING}
+     * @return State of the profile connection. One of
+     *         {@link BluetoothProfile#STATE_CONNECTED}, {@link BluetoothProfile#STATE_CONNECTING},
+     *         {@link BluetoothProfile#STATE_DISCONNECTED},
+     *         {@link BluetoothProfile#STATE_DISCONNECTING}
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     public int getConnectionState(BluetoothDevice device, int profile) {
-        if (DBG) Log.d(TAG, "getConnectionState()");
+        if (DBG) Log.d(TAG,"getConnectionState()");
 
         List<BluetoothDevice> connectedDevices = getConnectedDevices(profile);
-        for (BluetoothDevice connectedDevice : connectedDevices) {
+        for(BluetoothDevice connectedDevice : connectedDevices) {
             if (device.equals(connectedDevice)) {
                 return BluetoothProfile.STATE_CONNECTED;
             }
@@ -117,12 +115,14 @@ public final class BluetoothManager {
      * This can be used by applications like status bar which would just like
      * to know the state of Bluetooth.
      *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
+     *
      * @param profile GATT or GATT_SERVER
      * @return List of devices. The list will be empty on error.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     public List<BluetoothDevice> getConnectedDevices(int profile) {
-        if (DBG) Log.d(TAG, "getConnectedDevices");
+        if (DBG) Log.d(TAG,"getConnectedDevices");
         if (profile != BluetoothProfile.GATT && profile != BluetoothProfile.GATT_SERVER) {
             throw new IllegalArgumentException("Profile not supported: " + profile);
         }
@@ -135,15 +135,16 @@ public final class BluetoothManager {
             if (iGatt == null) return connectedDevices;
 
             connectedDevices = iGatt.getDevicesMatchingConnectionStates(
-                    new int[]{BluetoothProfile.STATE_CONNECTED});
+                new int[] { BluetoothProfile.STATE_CONNECTED });
         } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+            Log.e(TAG,"",e);
         }
 
         return connectedDevices;
     }
 
     /**
+     * 
      * Get a list of devices that match any of the given connection
      * states.
      *
@@ -155,15 +156,18 @@ public final class BluetoothManager {
      * This can be used by applications like status bar which would just like
      * to know the state of the local adapter.
      *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
+     *
      * @param profile GATT or GATT_SERVER
-     * @param states Array of states. States can be one of {@link BluetoothProfile#STATE_CONNECTED},
-     * {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
-     * {@link BluetoothProfile#STATE_DISCONNECTING},
+     * @param states Array of states. States can be one of
+     *        {@link BluetoothProfile#STATE_CONNECTED}, {@link BluetoothProfile#STATE_CONNECTING},
+     *        {@link BluetoothProfile#STATE_DISCONNECTED},
+     *        {@link BluetoothProfile#STATE_DISCONNECTING},
      * @return List of devices. The list will be empty on error.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int profile, int[] states) {
-        if (DBG) Log.d(TAG, "getDevicesMatchingConnectionStates");
+        if (DBG) Log.d(TAG,"getDevicesMatchingConnectionStates");
 
         if (profile != BluetoothProfile.GATT && profile != BluetoothProfile.GATT_SERVER) {
             throw new IllegalArgumentException("Profile not supported: " + profile);
@@ -177,7 +181,7 @@ public final class BluetoothManager {
             if (iGatt == null) return devices;
             devices = iGatt.getDevicesMatchingConnectionStates(states);
         } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+            Log.e(TAG,"",e);
         }
 
         return devices;
@@ -189,15 +193,14 @@ public final class BluetoothManager {
      * as the results of any other GATT server operations.
      * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
      * to conduct GATT server operations.
-     *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
      * @return BluetoothGattServer instance
      */
     public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback) {
+                                              BluetoothGattServerCallback callback) {
 
-        return (openGattServer(context, callback, BluetoothDevice.TRANSPORT_AUTO));
+        return (openGattServer (context, callback, BluetoothDevice.TRANSPORT_AUTO));
     }
 
     /**
@@ -206,17 +209,16 @@ public final class BluetoothManager {
      * as the results of any other GATT server operations.
      * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
      * to conduct GATT server operations.
-     *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
-     * @param transport preferred transport for GATT connections to remote dual-mode devices {@link
-     * BluetoothDevice#TRANSPORT_AUTO} or {@link BluetoothDevice#TRANSPORT_BREDR} or {@link
-     * BluetoothDevice#TRANSPORT_LE}
+     * @param transport preferred transport for GATT connections to remote dual-mode devices
+     *             {@link BluetoothDevice#TRANSPORT_AUTO} or
+     *             {@link BluetoothDevice#TRANSPORT_BREDR} or {@link BluetoothDevice#TRANSPORT_LE}
      * @return BluetoothGattServer instance
      * @hide
      */
     public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback, int transport) {
+                                              BluetoothGattServerCallback callback,int transport) {
         if (context == null || callback == null) {
             throw new IllegalArgumentException("null parameter: " + context + " " + callback);
         }
@@ -231,11 +233,11 @@ public final class BluetoothManager {
                 Log.e(TAG, "Fail to get GATT Server connection");
                 return null;
             }
-            BluetoothGattServer mGattServer = new BluetoothGattServer(iGatt, transport);
+            BluetoothGattServer mGattServer = new BluetoothGattServer(context, iGatt,transport);
             Boolean regStatus = mGattServer.registerCallback(callback);
-            return regStatus ? mGattServer : null;
+            return regStatus? mGattServer : null;
         } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+            Log.e(TAG,"",e);
             return null;
         }
     }

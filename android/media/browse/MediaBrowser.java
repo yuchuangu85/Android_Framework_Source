@@ -27,7 +27,6 @@ import android.content.pm.ParceledListSlice;
 import android.media.MediaDescription;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -35,9 +34,9 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
+import android.service.media.MediaBrowserService;
 import android.service.media.IMediaBrowserService;
 import android.service.media.IMediaBrowserServiceCallbacks;
-import android.service.media.MediaBrowserService;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -45,9 +44,8 @@ import android.util.Log;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map.Entry;
 
 /**
  * Browses media content offered by a link MediaBrowserService.
@@ -55,73 +53,42 @@ import java.util.Map.Entry;
  * This object is not thread-safe. All calls should happen on the thread on which the browser
  * was constructed.
  * </p>
- * <h3>Standard Extra Data</h3>
- *
- * <p>These are the current standard fields that can be used as extra data via
- * {@link #subscribe(String, Bundle, SubscriptionCallback)},
- * {@link #unsubscribe(String, SubscriptionCallback)}, and
- * {@link SubscriptionCallback#onChildrenLoaded(String, List, Bundle)}.
- *
- * <ul>
- *     <li> {@link #EXTRA_PAGE}
- *     <li> {@link #EXTRA_PAGE_SIZE}
- * </ul>
  */
 public final class MediaBrowser {
     private static final String TAG = "MediaBrowser";
     private static final boolean DBG = false;
 
-    /**
-     * Used as an int extra field to denote the page number to subscribe.
-     * The value of {@code EXTRA_PAGE} should be greater than or equal to 0.
-     *
-     * @see #EXTRA_PAGE_SIZE
-     */
-    public static final String EXTRA_PAGE = "android.media.browse.extra.PAGE";
-
-    /**
-     * Used as an int extra field to denote the number of media items in a page.
-     * The value of {@code EXTRA_PAGE_SIZE} should be greater than or equal to 1.
-     *
-     * @see #EXTRA_PAGE
-     */
-    public static final String EXTRA_PAGE_SIZE = "android.media.browse.extra.PAGE_SIZE";
-
-    private static final int CONNECT_STATE_DISCONNECTING = 0;
-    private static final int CONNECT_STATE_DISCONNECTED = 1;
-    private static final int CONNECT_STATE_CONNECTING = 2;
-    private static final int CONNECT_STATE_CONNECTED = 3;
-    private static final int CONNECT_STATE_SUSPENDED = 4;
+    private static final int CONNECT_STATE_DISCONNECTED = 0;
+    private static final int CONNECT_STATE_CONNECTING = 1;
+    private static final int CONNECT_STATE_CONNECTED = 2;
+    private static final int CONNECT_STATE_SUSPENDED = 3;
 
     private final Context mContext;
     private final ComponentName mServiceComponent;
     private final ConnectionCallback mCallback;
     private final Bundle mRootHints;
     private final Handler mHandler = new Handler();
-    private final ArrayMap<String, Subscription> mSubscriptions = new ArrayMap<>();
+    private final ArrayMap<String,Subscription> mSubscriptions =
+            new ArrayMap<String, MediaBrowser.Subscription>();
 
-    private volatile int mState = CONNECT_STATE_DISCONNECTED;
-    private volatile String mRootId;
-    private volatile MediaSession.Token mMediaSessionToken;
-    private volatile Bundle mExtras;
-
+    private int mState = CONNECT_STATE_DISCONNECTED;
     private MediaServiceConnection mServiceConnection;
     private IMediaBrowserService mServiceBinder;
     private IMediaBrowserServiceCallbacks mServiceCallbacks;
+    private String mRootId;
+    private MediaSession.Token mMediaSessionToken;
+    private Bundle mExtras;
 
     /**
-     * Creates a media browser for the specified media browser service.
+     * Creates a media browser for the specified media browse service.
      *
      * @param context The context.
-     * @param serviceComponent The component name of the media browser service.
+     * @param serviceComponent The component name of the media browse service.
      * @param callback The connection callback.
      * @param rootHints An optional bundle of service-specific arguments to send
-     * to the media browser service when connecting and retrieving the root id
-     * for browsing, or null if none. The contents of this bundle may affect
+     * to the media browse service when connecting and retrieving the root id
+     * for browsing, or null if none.  The contents of this bundle may affect
      * the information returned when browsing.
-     * @see android.service.media.MediaBrowserService.BrowserRoot#EXTRA_RECENT
-     * @see android.service.media.MediaBrowserService.BrowserRoot#EXTRA_OFFLINE
-     * @see android.service.media.MediaBrowserService.BrowserRoot#EXTRA_SUGGESTED
      */
     public MediaBrowser(Context context, ComponentName serviceComponent,
             ConnectionCallback callback, Bundle rootHints) {
@@ -137,132 +104,113 @@ public final class MediaBrowser {
         mContext = context;
         mServiceComponent = serviceComponent;
         mCallback = callback;
-        mRootHints = rootHints == null ? null : new Bundle(rootHints);
+        mRootHints = rootHints;
     }
 
     /**
-     * Connects to the media browser service.
+     * Connects to the media browse service.
      * <p>
      * The connection callback specified in the constructor will be invoked
      * when the connection completes or fails.
      * </p>
      */
     public void connect() {
-        if (mState != CONNECT_STATE_DISCONNECTING && mState != CONNECT_STATE_DISCONNECTED) {
-            throw new IllegalStateException("connect() called while neither disconnecting nor "
-                    + "disconnected (state=" + getStateLabel(mState) + ")");
+        if (mState != CONNECT_STATE_DISCONNECTED) {
+            throw new IllegalStateException("connect() called while not disconnected (state="
+                    + getStateLabel(mState) + ")");
+        }
+        // TODO: remove this extra check.
+        if (DBG) {
+            if (mServiceConnection != null) {
+                throw new RuntimeException("mServiceConnection should be null. Instead it is "
+                        + mServiceConnection);
+            }
+        }
+        if (mServiceBinder != null) {
+            throw new RuntimeException("mServiceBinder should be null. Instead it is "
+                    + mServiceBinder);
+        }
+        if (mServiceCallbacks != null) {
+            throw new RuntimeException("mServiceCallbacks should be null. Instead it is "
+                    + mServiceCallbacks);
         }
 
         mState = CONNECT_STATE_CONNECTING;
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (mState == CONNECT_STATE_DISCONNECTING) {
-                    return;
-                }
-                mState = CONNECT_STATE_CONNECTING;
-                // TODO: remove this extra check.
-                if (DBG) {
-                    if (mServiceConnection != null) {
-                        throw new RuntimeException("mServiceConnection should be null. Instead it"
-                                + " is " + mServiceConnection);
+
+        final Intent intent = new Intent(MediaBrowserService.SERVICE_INTERFACE);
+        intent.setComponent(mServiceComponent);
+
+        final ServiceConnection thisConnection = mServiceConnection = new MediaServiceConnection();
+
+        boolean bound = false;
+        try {
+            bound = mContext.bindService(intent, mServiceConnection, Context.BIND_AUTO_CREATE);
+        } catch (Exception ex) {
+            Log.e(TAG, "Failed binding to service " + mServiceComponent);
+        }
+
+        if (!bound) {
+            // Tell them that it didn't work.  We are already on the main thread,
+            // but we don't want to do callbacks inside of connect().  So post it,
+            // and then check that we are on the same ServiceConnection.  We know
+            // we won't also get an onServiceConnected or onServiceDisconnected,
+            // so we won't be doing double callbacks.
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    // Ensure that nobody else came in or tried to connect again.
+                    if (thisConnection == mServiceConnection) {
+                        forceCloseConnection();
+                        mCallback.onConnectionFailed();
                     }
                 }
-                if (mServiceBinder != null) {
-                    throw new RuntimeException("mServiceBinder should be null. Instead it is "
-                            + mServiceBinder);
-                }
-                if (mServiceCallbacks != null) {
-                    throw new RuntimeException("mServiceCallbacks should be null. Instead it is "
-                            + mServiceCallbacks);
-                }
+            });
+        }
 
-                final Intent intent = new Intent(MediaBrowserService.SERVICE_INTERFACE);
-                intent.setComponent(mServiceComponent);
-
-                mServiceConnection = new MediaServiceConnection();
-
-                boolean bound = false;
-                try {
-                    bound = mContext.bindService(intent, mServiceConnection,
-                            Context.BIND_AUTO_CREATE);
-                } catch (Exception ex) {
-                    Log.e(TAG, "Failed binding to service " + mServiceComponent);
-                }
-
-                if (!bound) {
-                    // Tell them that it didn't work.
-                    forceCloseConnection();
-                    mCallback.onConnectionFailed();
-                }
-
-                if (DBG) {
-                    Log.d(TAG, "connect...");
-                    dump();
-                }
-            }
-        });
+        if (DBG) {
+            Log.d(TAG, "connect...");
+            dump();
+        }
     }
 
     /**
-     * Disconnects from the media browser service.
+     * Disconnects from the media browse service.
      * After this, no more callbacks will be received.
      */
     public void disconnect() {
         // It's ok to call this any state, because allowing this lets apps not have
-        // to check isConnected() unnecessarily. They won't appreciate the extra
-        // assertions for this. We do everything we can here to go back to a sane state.
-        mState = CONNECT_STATE_DISCONNECTING;
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                // connect() could be called before this. Then we will disconnect and reconnect.
-                if (mServiceCallbacks != null) {
-                    try {
-                        mServiceBinder.disconnect(mServiceCallbacks);
-                    } catch (RemoteException ex) {
-                        // We are disconnecting anyway. Log, just for posterity but it's not
-                        // a big problem.
-                        Log.w(TAG, "RemoteException during connect for " + mServiceComponent);
-                    }
-                }
-                int state = mState;
-                forceCloseConnection();
-                // If the state was not CONNECT_STATE_DISCONNECTING, keep the state so that
-                // the operation came after disconnect() can be handled properly.
-                if (state != CONNECT_STATE_DISCONNECTING) {
-                    mState = state;
-                }
-                if (DBG) {
-                    Log.d(TAG, "disconnect...");
-                    dump();
-                }
+        // to check isConnected() unnecessarily.  They won't appreciate the extra
+        // assertions for this.  We do everything we can here to go back to a sane state.
+        if (mServiceCallbacks != null) {
+            try {
+                mServiceBinder.disconnect(mServiceCallbacks);
+            } catch (RemoteException ex) {
+                // We are disconnecting anyway.  Log, just for posterity but it's not
+                // a big problem.
+                Log.w(TAG, "RemoteException during connect for " + mServiceComponent);
             }
-        });
+        }
+        forceCloseConnection();
+
+        if (DBG) {
+            Log.d(TAG, "disconnect...");
+            dump();
+        }
     }
 
     /**
-     * Null out the variables and unbind from the service. This doesn't include
+     * Null out the variables and unbind from the service.  This doesn't include
      * calling disconnect on the service, because we only try to do that in the
      * clean shutdown cases.
      * <p>
      * Everywhere that calls this EXCEPT for disconnect() should follow it with
-     * a call to mCallback.onConnectionFailed(). Disconnect doesn't do that callback
+     * a call to mCallback.onConnectionFailed().  Disconnect doesn't do that callback
      * for a clean shutdown, but everywhere else is a dirty shutdown and should
      * notify the app.
-     * <p>
-     * Also, mState should be updated properly. Mostly it should be CONNECT_STATE_DIACONNECTED
-     * except for disconnect().
      */
     private void forceCloseConnection() {
         if (mServiceConnection != null) {
-            try {
-                mContext.unbindService(mServiceConnection);
-            } catch (IllegalArgumentException e) {
-                if (DBG) {
-                    Log.d(TAG, "unbindService failed", e);
-                }
-            }
+            mContext.unbindService(mServiceConnection);
         }
         mState = CONNECT_STATE_DISCONNECTED;
         mServiceConnection = null;
@@ -293,7 +241,7 @@ public final class MediaBrowser {
     /**
      * Gets the root id.
      * <p>
-     * Note that the root id may become invalid or change when the
+     * Note that the root id may become invalid or change when when the
      * browser is disconnected.
      * </p>
      *
@@ -301,7 +249,7 @@ public final class MediaBrowser {
      */
     public @NonNull String getRoot() {
         if (!isConnected()) {
-            throw new IllegalStateException("getRoot() called while not connected (state="
+            throw new IllegalStateException("getSessionToken() called while not connected (state="
                     + getStateLabel(mState) + ")");
         }
         return mRootId;
@@ -323,7 +271,7 @@ public final class MediaBrowser {
     /**
      * Gets the media session token associated with the media browser.
      * <p>
-     * Note that the session token may become invalid or change when the
+     * Note that the session token may become invalid or change when when the
      * browser is disconnected.
      * </p>
      *
@@ -344,7 +292,7 @@ public final class MediaBrowser {
      * the specified id and subscribes to receive updates when they change.
      * <p>
      * The list of subscriptions is maintained even when not connected and is
-     * restored after the reconnection. It is ok to subscribe while not connected
+     * restored after reconnection. It is ok to subscribe while not connected
      * but the results will not be returned until the connection completes.
      * </p>
      * <p>
@@ -358,37 +306,34 @@ public final class MediaBrowser {
      * @param callback The callback to receive the list of children.
      */
     public void subscribe(@NonNull String parentId, @NonNull SubscriptionCallback callback) {
-        subscribeInternal(parentId, null, callback);
-    }
-
-    /**
-     * Queries with service-specific arguments for information about the media items
-     * that are contained within the specified id and subscribes to receive updates
-     * when they change.
-     * <p>
-     * The list of subscriptions is maintained even when not connected and is
-     * restored after the reconnection. It is ok to subscribe while not connected
-     * but the results will not be returned until the connection completes.
-     * </p>
-     * <p>
-     * If the id is already subscribed with a different callback then the new
-     * callback will replace the previous one and the child data will be
-     * reloaded.
-     * </p>
-     *
-     * @param parentId The id of the parent media item whose list of children
-     *            will be subscribed.
-     * @param options The bundle of service-specific arguments to send to the media
-     *            browser service. The contents of this bundle may affect the
-     *            information returned when browsing.
-     * @param callback The callback to receive the list of children.
-     */
-    public void subscribe(@NonNull String parentId, @NonNull Bundle options,
-            @NonNull SubscriptionCallback callback) {
-        if (options == null) {
-            throw new IllegalArgumentException("options cannot be null");
+        // Check arguments.
+        if (parentId == null) {
+            throw new IllegalArgumentException("parentId is null");
         }
-        subscribeInternal(parentId, new Bundle(options), callback);
+        if (callback == null) {
+            throw new IllegalArgumentException("callback is null");
+        }
+
+        // Update or create the subscription.
+        Subscription sub = mSubscriptions.get(parentId);
+        boolean newSubscription = sub == null;
+        if (newSubscription) {
+            sub = new Subscription(parentId);
+            mSubscriptions.put(parentId, sub);
+        }
+        sub.callback = callback;
+
+        // If we are connected, tell the service that we are watching.  If we aren't
+        // connected, the service will be told when we connect.
+        if (mState == CONNECT_STATE_CONNECTED) {
+            try {
+                mServiceBinder.addSubscription(parentId, mServiceCallbacks);
+            } catch (RemoteException ex) {
+                // Process is crashing.  We will disconnect, and upon reconnect we will
+                // automatically reregister. So nothing to do here.
+                Log.d(TAG, "addSubscription failed with RemoteException parentId=" + parentId);
+            }
+        }
     }
 
     /**
@@ -399,28 +344,27 @@ public final class MediaBrowser {
      * </p>
      *
      * @param parentId The id of the parent media item whose list of children
-     *            will be unsubscribed.
+     * will be unsubscribed.
      */
     public void unsubscribe(@NonNull String parentId) {
-        unsubscribeInternal(parentId, null);
-    }
-
-    /**
-     * Unsubscribes for changes to the children of the specified media id through a callback.
-     * <p>
-     * The query callback will no longer be invoked for results associated with
-     * this id once this method returns.
-     * </p>
-     *
-     * @param parentId The id of the parent media item whose list of children
-     *            will be unsubscribed.
-     * @param callback A callback sent to the media browser service to subscribe.
-     */
-    public void unsubscribe(@NonNull String parentId, @NonNull SubscriptionCallback callback) {
-        if (callback == null) {
-            throw new IllegalArgumentException("callback cannot be null");
+        // Check arguments.
+        if (TextUtils.isEmpty(parentId)) {
+            throw new IllegalArgumentException("parentId is empty.");
         }
-        unsubscribeInternal(parentId, callback);
+
+        // Remove from our list.
+        final Subscription sub = mSubscriptions.remove(parentId);
+
+        // Tell the service if necessary.
+        if (mState == CONNECT_STATE_CONNECTED && sub != null) {
+            try {
+                mServiceBinder.removeSubscription(parentId, mServiceCallbacks);
+            } catch (RemoteException ex) {
+                // Process is crashing.  We will disconnect, and upon reconnect we will
+                // automatically reregister. So nothing to do here.
+                Log.d(TAG, "removeSubscription failed with RemoteException parentId=" + parentId);
+            }
+        }
     }
 
     /**
@@ -433,10 +377,10 @@ public final class MediaBrowser {
      */
     public void getItem(final @NonNull String mediaId, @NonNull final ItemCallback cb) {
         if (TextUtils.isEmpty(mediaId)) {
-            throw new IllegalArgumentException("mediaId cannot be empty.");
+            throw new IllegalArgumentException("mediaId is empty.");
         }
         if (cb == null) {
-            throw new IllegalArgumentException("cb cannot be null.");
+            throw new IllegalArgumentException("cb is null.");
         }
         if (mState != CONNECT_STATE_CONNECTED) {
             Log.i(TAG, "Not connected, unable to retrieve the MediaItem.");
@@ -451,16 +395,13 @@ public final class MediaBrowser {
         ResultReceiver receiver = new ResultReceiver(mHandler) {
             @Override
             protected void onReceiveResult(int resultCode, Bundle resultData) {
-                if (!isConnected()) {
-                    return;
-                }
                 if (resultCode != 0 || resultData == null
                         || !resultData.containsKey(MediaBrowserService.KEY_MEDIA_ITEM)) {
                     cb.onError(mediaId);
                     return;
                 }
                 Parcelable item = resultData.getParcelable(MediaBrowserService.KEY_MEDIA_ITEM);
-                if (item != null && !(item instanceof MediaItem)) {
+                if (!(item instanceof MediaItem)) {
                     cb.onError(mediaId);
                     return;
                 }
@@ -468,7 +409,7 @@ public final class MediaBrowser {
             }
         };
         try {
-            mServiceBinder.getMediaItem(mediaId, receiver, mServiceCallbacks);
+            mServiceBinder.getMediaItem(mediaId, receiver);
         } catch (RemoteException e) {
             Log.i(TAG, "Remote error getting media item.");
             mHandler.post(new Runnable() {
@@ -480,88 +421,11 @@ public final class MediaBrowser {
         }
     }
 
-    private void subscribeInternal(String parentId, Bundle options, SubscriptionCallback callback) {
-        // Check arguments.
-        if (TextUtils.isEmpty(parentId)) {
-            throw new IllegalArgumentException("parentId cannot be empty.");
-        }
-        if (callback == null) {
-            throw new IllegalArgumentException("callback cannot be null");
-        }
-        // Update or create the subscription.
-        Subscription sub = mSubscriptions.get(parentId);
-        if (sub == null) {
-            sub = new Subscription();
-            mSubscriptions.put(parentId, sub);
-        }
-        sub.putCallback(mContext, options, callback);
-
-        // If we are connected, tell the service that we are watching. If we aren't connected,
-        // the service will be told when we connect.
-        if (isConnected()) {
-            try {
-                if (options == null) {
-                    mServiceBinder.addSubscriptionDeprecated(parentId, mServiceCallbacks);
-                }
-                mServiceBinder.addSubscription(parentId, callback.mToken, options,
-                        mServiceCallbacks);
-            } catch (RemoteException ex) {
-                // Process is crashing. We will disconnect, and upon reconnect we will
-                // automatically reregister. So nothing to do here.
-                Log.d(TAG, "addSubscription failed with RemoteException parentId=" + parentId);
-            }
-        }
-    }
-
-    private void unsubscribeInternal(String parentId, SubscriptionCallback callback) {
-        // Check arguments.
-        if (TextUtils.isEmpty(parentId)) {
-            throw new IllegalArgumentException("parentId cannot be empty.");
-        }
-
-        Subscription sub = mSubscriptions.get(parentId);
-        if (sub == null) {
-            return;
-        }
-        // Tell the service if necessary.
-        try {
-            if (callback == null) {
-                if (isConnected()) {
-                    mServiceBinder.removeSubscriptionDeprecated(parentId, mServiceCallbacks);
-                    mServiceBinder.removeSubscription(parentId, null, mServiceCallbacks);
-                }
-            } else {
-                final List<SubscriptionCallback> callbacks = sub.getCallbacks();
-                final List<Bundle> optionsList = sub.getOptionsList();
-                for (int i = callbacks.size() - 1; i >= 0; --i) {
-                    if (callbacks.get(i) == callback) {
-                        if (isConnected()) {
-                            mServiceBinder.removeSubscription(
-                                    parentId, callback.mToken, mServiceCallbacks);
-                        }
-                        callbacks.remove(i);
-                        optionsList.remove(i);
-                    }
-                }
-            }
-        } catch (RemoteException ex) {
-            // Process is crashing. We will disconnect, and upon reconnect we will
-            // automatically reregister. So nothing to do here.
-            Log.d(TAG, "removeSubscription failed with RemoteException parentId=" + parentId);
-        }
-
-        if (sub.isEmpty() || callback == null) {
-            mSubscriptions.remove(parentId);
-        }
-    }
-
     /**
      * For debugging.
      */
     private static String getStateLabel(int state) {
         switch (state) {
-            case CONNECT_STATE_DISCONNECTING:
-                return "CONNECT_STATE_DISCONNECTING";
             case CONNECT_STATE_DISCONNECTED:
                 return "CONNECT_STATE_DISCONNECTED";
             case CONNECT_STATE_CONNECTING:
@@ -604,21 +468,13 @@ public final class MediaBrowser {
 
                 // we may receive some subscriptions before we are connected, so re-subscribe
                 // everything now
-                for (Entry<String, Subscription> subscriptionEntry : mSubscriptions.entrySet()) {
-                    String id = subscriptionEntry.getKey();
-                    Subscription sub = subscriptionEntry.getValue();
-                    List<SubscriptionCallback> callbackList = sub.getCallbacks();
-                    List<Bundle> optionsList = sub.getOptionsList();
-                    for (int i = 0; i < callbackList.size(); ++i) {
-                        try {
-                            mServiceBinder.addSubscription(id, callbackList.get(i).mToken,
-                                    optionsList.get(i), mServiceCallbacks);
-                        } catch (RemoteException ex) {
-                            // Process is crashing. We will disconnect, and upon reconnect we will
-                            // automatically reregister. So nothing to do here.
-                            Log.d(TAG, "addSubscription failed with RemoteException parentId="
-                                    + id);
-                        }
+                for (String id : mSubscriptions.keySet()) {
+                    try {
+                        mServiceBinder.addSubscription(id, mServiceCallbacks);
+                    } catch (RemoteException ex) {
+                        // Process is crashing.  We will disconnect, and upon reconnect we will
+                        // automatically reregister. So nothing to do here.
+                        Log.d(TAG, "addSubscription failed with RemoteException parentId=" + id);
                     }
                 }
             }
@@ -653,7 +509,7 @@ public final class MediaBrowser {
     }
 
     private final void onLoadChildren(final IMediaBrowserServiceCallbacks callback,
-            final String parentId, final ParceledListSlice list, final Bundle options) {
+            final String parentId, final ParceledListSlice list) {
         mHandler.post(new Runnable() {
             @Override
             public void run() {
@@ -663,48 +519,36 @@ public final class MediaBrowser {
                     return;
                 }
 
+                List<MediaItem> data = list.getList();
                 if (DBG) {
                     Log.d(TAG, "onLoadChildren for " + mServiceComponent + " id=" + parentId);
+                }
+                if (data == null) {
+                    data = Collections.emptyList();
                 }
 
                 // Check that the subscription is still subscribed.
                 final Subscription subscription = mSubscriptions.get(parentId);
-                if (subscription != null) {
-                    // Tell the app.
-                    SubscriptionCallback subscriptionCallback =
-                            subscription.getCallback(mContext, options);
-                    if (subscriptionCallback != null) {
-                        List<MediaItem> data = list == null ? null : list.getList();
-                        if (options == null) {
-                            if (data == null) {
-                                subscriptionCallback.onError(parentId);
-                            } else {
-                                subscriptionCallback.onChildrenLoaded(parentId, data);
-                            }
-                        } else {
-                            if (data == null) {
-                                subscriptionCallback.onError(parentId, options);
-                            } else {
-                                subscriptionCallback.onChildrenLoaded(parentId, data, options);
-                            }
-                        }
-                        return;
+                if (subscription == null) {
+                    if (DBG) {
+                        Log.d(TAG, "onLoadChildren for id that isn't subscribed id="
+                                + parentId);
                     }
+                    return;
                 }
-                if (DBG) {
-                    Log.d(TAG, "onLoadChildren for id that isn't subscribed id=" + parentId);
-                }
+
+                // Tell the app.
+                subscription.callback.onChildrenLoaded(parentId, data);
             }
         });
     }
 
     /**
-     * Return true if {@code callback} is the current ServiceCallbacks. Also logs if it's not.
+     * Return true if {@code callback} is the current ServiceCallbacks.  Also logs if it's not.
      */
     private boolean isCurrent(IMediaBrowserServiceCallbacks callback, String funcName) {
-        if (mServiceCallbacks != callback || mState == CONNECT_STATE_DISCONNECTING
-                || mState == CONNECT_STATE_DISCONNECTED) {
-            if (mState != CONNECT_STATE_DISCONNECTING && mState != CONNECT_STATE_DISCONNECTED) {
+        if (mServiceCallbacks != callback) {
+            if (mState != CONNECT_STATE_DISCONNECTED) {
                 Log.i(TAG, funcName + " for " + mServiceComponent + " with mServiceConnection="
                         + mServiceCallbacks + " this=" + this);
             }
@@ -734,11 +578,6 @@ public final class MediaBrowser {
         Log.d(TAG, "  mMediaSessionToken=" + mMediaSessionToken);
     }
 
-    /**
-     * A class with information on a single media item for use in browsing/searching media.
-     * MediaItems are application dependent so we cannot guarantee that they contain the
-     * right values.
-     */
     public static class MediaItem implements Parcelable {
         private final int mFlags;
         private final MediaDescription mDescription;
@@ -852,13 +691,13 @@ public final class MediaBrowser {
         }
 
         /**
-         * Returns the media id in the {@link MediaDescription} for this item.
-         * @see android.media.MediaMetadata#METADATA_KEY_MEDIA_ID
+         * Returns the media id for this item.
          */
-        public @Nullable String getMediaId() {
+        public @NonNull String getMediaId() {
             return mDescription.getMediaId();
         }
     }
+
 
     /**
      * Callbacks for connection related events.
@@ -887,32 +726,14 @@ public final class MediaBrowser {
      * Callbacks for subscription related events.
      */
     public static abstract class SubscriptionCallback {
-        Binder mToken;
-
-        public SubscriptionCallback() {
-            mToken = new Binder();
-        }
-
         /**
          * Called when the list of children is loaded or updated.
          *
          * @param parentId The media id of the parent media item.
          * @param children The children which were loaded.
          */
-        public void onChildrenLoaded(@NonNull String parentId, @NonNull List<MediaItem> children) {
-        }
-
-        /**
-         * Called when the list of children is loaded or updated.
-         *
-         * @param parentId The media id of the parent media item.
-         * @param children The children which were loaded.
-         * @param options The bundle of service-specific arguments sent to the media
-         *            browser service. The contents of this bundle may affect the
-         *            information returned when browsing.
-         */
-        public void onChildrenLoaded(@NonNull String parentId, @NonNull List<MediaItem> children,
-                @NonNull Bundle options) {
+        public void onChildrenLoaded(@NonNull String parentId,
+                                     @NonNull List<MediaItem> children) {
         }
 
         /**
@@ -923,24 +744,9 @@ public final class MediaBrowser {
          * </p>
          *
          * @param parentId The media id of the parent media item whose children could
-         *            not be loaded.
+         * not be loaded.
          */
         public void onError(@NonNull String parentId) {
-        }
-
-        /**
-         * Called when the id doesn't exist or other errors in subscribing.
-         * <p>
-         * If this is called, the subscription remains until {@link MediaBrowser#unsubscribe}
-         * called, because some errors may heal themselves.
-         * </p>
-         *
-         * @param parentId The media id of the parent media item whose children could
-         *            not be loaded.
-         * @param options The bundle of service-specific arguments sent to the media
-         *            browser service.
-         */
-        public void onError(@NonNull String parentId, @NonNull Bundle options) {
         }
     }
 
@@ -949,7 +755,7 @@ public final class MediaBrowser {
      */
     public static abstract class ItemCallback {
         /**
-         * Called when the item has been returned by the connected service.
+         * Called when the item has been returned by the browser service.
          *
          * @param item The item that was returned or null if it doesn't exist.
          */
@@ -957,12 +763,11 @@ public final class MediaBrowser {
         }
 
         /**
-         * Called there was an error retrieving it or the connected service doesn't support
-         * {@link #getItem}.
+         * Called when the item doesn't exist or there was an error retrieving it.
          *
-         * @param mediaId The media id of the media item which could not be loaded.
+         * @param itemId The media id of the media item which could not be loaded.
          */
-        public void onError(@NonNull String mediaId) {
+        public void onError(@NonNull String itemId) {
         }
     }
 
@@ -971,97 +776,76 @@ public final class MediaBrowser {
      */
     private class MediaServiceConnection implements ServiceConnection {
         @Override
-        public void onServiceConnected(final ComponentName name, final IBinder binder) {
-            postOrRun(new Runnable() {
-                @Override
-                public void run() {
-                    if (DBG) {
-                        Log.d(TAG, "MediaServiceConnection.onServiceConnected name=" + name
-                                + " binder=" + binder);
-                        dump();
-                    }
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            if (DBG) {
+                Log.d(TAG, "MediaServiceConnection.onServiceConnected name=" + name
+                        + " binder=" + binder);
+                dump();
+            }
 
-                    // Make sure we are still the current connection, and that they haven't called
-                    // disconnect().
-                    if (!isCurrent("onServiceConnected")) {
-                        return;
-                    }
+            // Make sure we are still the current connection, and that they haven't called
+            // disconnect().
+            if (!isCurrent("onServiceConnected")) {
+                return;
+            }
 
-                    // Save their binder
-                    mServiceBinder = IMediaBrowserService.Stub.asInterface(binder);
+            // Save their binder
+            mServiceBinder = IMediaBrowserService.Stub.asInterface(binder);
 
-                    // We make a new mServiceCallbacks each time we connect so that we can drop
-                    // responses from previous connections.
-                    mServiceCallbacks = getNewServiceCallbacks();
-                    mState = CONNECT_STATE_CONNECTING;
+            // We make a new mServiceCallbacks each time we connect so that we can drop
+            // responses from previous connections.
+            mServiceCallbacks = getNewServiceCallbacks();
+            mState = CONNECT_STATE_CONNECTING;
 
-                    // Call connect, which is async. When we get a response from that we will
-                    // say that we're connected.
-                    try {
-                        if (DBG) {
-                            Log.d(TAG, "ServiceCallbacks.onConnect...");
-                            dump();
-                        }
-                        mServiceBinder.connect(mContext.getPackageName(), mRootHints,
-                                mServiceCallbacks);
-                    } catch (RemoteException ex) {
-                        // Connect failed, which isn't good. But the auto-reconnect on the service
-                        // will take over and we will come back. We will also get the
-                        // onServiceDisconnected, which has all the cleanup code. So let that do
-                        // it.
-                        Log.w(TAG, "RemoteException during connect for " + mServiceComponent);
-                        if (DBG) {
-                            Log.d(TAG, "ServiceCallbacks.onConnect...");
-                            dump();
-                        }
-                    }
+            // Call connect, which is async. When we get a response from that we will
+            // say that we're connected.
+            try {
+                if (DBG) {
+                    Log.d(TAG, "ServiceCallbacks.onConnect...");
+                    dump();
                 }
-            });
-        }
-
-        @Override
-        public void onServiceDisconnected(final ComponentName name) {
-            postOrRun(new Runnable() {
-                @Override
-                public void run() {
-                    if (DBG) {
-                        Log.d(TAG, "MediaServiceConnection.onServiceDisconnected name=" + name
-                                + " this=" + this + " mServiceConnection=" + mServiceConnection);
-                        dump();
-                    }
-
-                    // Make sure we are still the current connection, and that they haven't called
-                    // disconnect().
-                    if (!isCurrent("onServiceDisconnected")) {
-                        return;
-                    }
-
-                    // Clear out what we set in onServiceConnected
-                    mServiceBinder = null;
-                    mServiceCallbacks = null;
-
-                    // And tell the app that it's suspended.
-                    mState = CONNECT_STATE_SUSPENDED;
-                    mCallback.onConnectionSuspended();
+                mServiceBinder.connect(mContext.getPackageName(), mRootHints, mServiceCallbacks);
+            } catch (RemoteException ex) {
+                // Connect failed, which isn't good. But the auto-reconnect on the service
+                // will take over and we will come back.  We will also get the
+                // onServiceDisconnected, which has all the cleanup code.  So let that do it.
+                Log.w(TAG, "RemoteException during connect for " + mServiceComponent);
+                if (DBG) {
+                    Log.d(TAG, "ServiceCallbacks.onConnect...");
+                    dump();
                 }
-            });
-        }
-
-        private void postOrRun(Runnable r) {
-            if (Thread.currentThread() == mHandler.getLooper().getThread()) {
-                r.run();
-            } else {
-                mHandler.post(r);
             }
         }
 
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            if (DBG) {
+                Log.d(TAG, "MediaServiceConnection.onServiceDisconnected name=" + name
+                        + " this=" + this + " mServiceConnection=" + mServiceConnection);
+                dump();
+            }
+
+            // Make sure we are still the current connection, and that they haven't called
+            // disconnect().
+            if (!isCurrent("onServiceDisconnected")) {
+                return;
+            }
+
+            // Clear out what we set in onServiceConnected
+            mServiceBinder = null;
+            mServiceCallbacks = null;
+
+            // And tell the app that it's suspended.
+            mState = CONNECT_STATE_SUSPENDED;
+            mCallback.onConnectionSuspended();
+        }
+
         /**
-         * Return true if this is the current ServiceConnection. Also logs if it's not.
+         * Return true if this is the current ServiceConnection.  Also logs if it's not.
          */
         private boolean isCurrent(String funcName) {
-            if (mServiceConnection != this || mState == CONNECT_STATE_DISCONNECTING
-                    || mState == CONNECT_STATE_DISCONNECTED) {
-                if (mState != CONNECT_STATE_DISCONNECTING && mState != CONNECT_STATE_DISCONNECTED) {
+            if (mServiceConnection != this) {
+                if (mState != CONNECT_STATE_DISCONNECTED) {
                     // Check mState, because otherwise this log is noisy.
                     Log.i(TAG, funcName + " for " + mServiceComponent + " with mServiceConnection="
                             + mServiceConnection + " this=" + this);
@@ -1083,11 +867,11 @@ public final class MediaBrowser {
         }
 
         /**
-         * The other side has acknowledged our connection. The parameters to this function
+         * The other side has acknowledged our connection.  The parameters to this function
          * are the initial data as requested.
          */
         @Override
-        public void onConnect(String root, MediaSession.Token session,
+        public void onConnect(final String root, final MediaSession.Token session,
                 final Bundle extras) {
             MediaBrowser mediaBrowser = mMediaBrowser.get();
             if (mediaBrowser != null) {
@@ -1096,7 +880,7 @@ public final class MediaBrowser {
         }
 
         /**
-         * The other side does not like us. Tell the app via onConnectionFailed.
+         * The other side does not like us.  Tell the app via onConnectionFailed.
          */
         @Override
         public void onConnectFailed() {
@@ -1107,65 +891,20 @@ public final class MediaBrowser {
         }
 
         @Override
-        public void onLoadChildren(String parentId, ParceledListSlice list) {
-            onLoadChildrenWithOptions(parentId, list, null);
-        }
-
-        @Override
-        public void onLoadChildrenWithOptions(String parentId, ParceledListSlice list,
-                final Bundle options) {
+        public void onLoadChildren(final String parentId, final ParceledListSlice list) {
             MediaBrowser mediaBrowser = mMediaBrowser.get();
             if (mediaBrowser != null) {
-                mediaBrowser.onLoadChildren(this, parentId, list, options);
+                mediaBrowser.onLoadChildren(this, parentId, list);
             }
         }
     }
 
     private static class Subscription {
-        private final List<SubscriptionCallback> mCallbacks;
-        private final List<Bundle> mOptionsList;
+        final String id;
+        SubscriptionCallback callback;
 
-        public Subscription() {
-            mCallbacks = new ArrayList<>();
-            mOptionsList = new ArrayList<>();
-        }
-
-        public boolean isEmpty() {
-            return mCallbacks.isEmpty();
-        }
-
-        public List<Bundle> getOptionsList() {
-            return mOptionsList;
-        }
-
-        public List<SubscriptionCallback> getCallbacks() {
-            return mCallbacks;
-        }
-
-        public SubscriptionCallback getCallback(Context context, Bundle options) {
-            if (options != null) {
-                options.setClassLoader(context.getClassLoader());
-            }
-            for (int i = 0; i < mOptionsList.size(); ++i) {
-                if (MediaBrowserUtils.areSameOptions(mOptionsList.get(i), options)) {
-                    return mCallbacks.get(i);
-                }
-            }
-            return null;
-        }
-
-        public void putCallback(Context context, Bundle options, SubscriptionCallback callback) {
-            if (options != null) {
-                options.setClassLoader(context.getClassLoader());
-            }
-            for (int i = 0; i < mOptionsList.size(); ++i) {
-                if (MediaBrowserUtils.areSameOptions(mOptionsList.get(i), options)) {
-                    mCallbacks.set(i, callback);
-                    return;
-                }
-            }
-            mCallbacks.add(callback);
-            mOptionsList.add(options);
+        Subscription(String id) {
+            this.id = id;
         }
     }
 }

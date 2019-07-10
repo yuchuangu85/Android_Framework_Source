@@ -17,11 +17,12 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class SchemePrefixBenchmark {
+public final class SchemePrefixBenchmark extends SimpleBenchmark {
 
     enum Strategy {
         JAVA() {

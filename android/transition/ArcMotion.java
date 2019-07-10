@@ -15,12 +15,12 @@
  */
 package android.transition;
 
+import com.android.internal.R;
+
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Path;
 import android.util.AttributeSet;
-
-import com.android.internal.R;
 
 /**
  * A PathMotion that generates a curved path along an arc on an imaginary circle containing
@@ -36,12 +36,13 @@ import com.android.internal.R;
  * arc between two points.
  * </p>
  * <p>This may be used in XML as an element inside a transition.</p>
- * <pre>{@code
- * <changeBounds>
- *   <arcMotion android:minimumHorizontalAngle="15"
+ * <pre>
+ * {@code
+ * &lt;changeBounds>
+ *   &lt;arcMotion android:minimumHorizontalAngle="15"
  *              android:minimumVerticalAngle="0"
  *              android:maximumAngle="90"/>
- * </changeBounds>}
+ * &lt;/changeBounds>}
  * </pre>
  */
 public class ArcMotion extends PathMotion {
@@ -199,83 +200,72 @@ public class ArcMotion extends PathMotion {
 
         float ex;
         float ey;
-        float deltaX = endX - startX;
-        float deltaY = endY - startY;
+        if (startY == endY) {
+            ex = (startX + endX) / 2;
+            ey = startY + mMinimumHorizontalTangent * Math.abs(endX - startX) / 2;
+        } else if (startX == endX) {
+            ex = startX + mMinimumVerticalTangent * Math.abs(endY - startY) / 2;
+            ey = (startY + endY) / 2;
+        } else {
+            float deltaX = endX - startX;
+            float deltaY = startY - endY; // Y is inverted compared to diagram above.
+            // hypotenuse squared.
+            float h2 = deltaX * deltaX + deltaY * deltaY;
 
-        // hypotenuse squared.
-        float h2 = deltaX * deltaX + deltaY * deltaY;
+            // Midpoint between start and end
+            float dx = (startX + endX) / 2;
+            float dy = (startY + endY) / 2;
 
-        // Midpoint between start and end
-        float dx = (startX + endX) / 2;
-        float dy = (startY + endY) / 2;
+            // Distance squared between end point and mid point is (1/2 hypotenuse)^2
+            float midDist2 = h2 * 0.25f;
 
-        // Distance squared between end point and mid point is (1/2 hypotenuse)^2
-        float midDist2 = h2 * 0.25f;
+            float minimumArcDist2 = 0;
 
-        float minimumArcDist2 = 0;
-
-        boolean isMovingUpwards = startY > endY;
-
-        if (deltaY == 0) {
-            ex = dx;
-            ey = dy + (Math.abs(deltaX) * 0.5f * mMinimumHorizontalTangent);
-        } else if (deltaX == 0) {
-            ex = dx + (Math.abs(deltaY) * 0.5f * mMinimumVerticalTangent);
-            ey = dy;
-        } else if ((Math.abs(deltaX) < Math.abs(deltaY))) {
-            // Similar triangles bfa and bde mean that (ab/fb = eb/bd)
-            // Therefore, eb = ab * bd / fb
-            // ab = hypotenuse
-            // bd = hypotenuse/2
-            // fb = deltaY
-            float eDistY = Math.abs(h2 / (2 * deltaY));
-            if (isMovingUpwards) {
+            if (Math.abs(deltaX) < Math.abs(deltaY)) {
+                // Similar triangles bfa and bde mean that (ab/fb = eb/bd)
+                // Therefore, eb = ab * bd / fb
+                // ab = hypotenuse
+                // bd = hypotenuse/2
+                // fb = deltaY
+                float eDistY = h2 / (2 * deltaY);
                 ey = endY + eDistY;
                 ex = endX;
-            } else {
-                ey = startY + eDistY;
-                ex = startX;
-            }
 
-            minimumArcDist2 = midDist2 * mMinimumVerticalTangent
-                    * mMinimumVerticalTangent;
-        } else {
-            // Same as above, but flip X & Y and account for negative eDist
-            float eDistX = h2 / (2 * deltaX);
-            if (isMovingUpwards) {
-                ex = startX + eDistX;
-                ey = startY;
+                minimumArcDist2 = midDist2 * mMinimumVerticalTangent
+                        * mMinimumVerticalTangent;
             } else {
-                ex = endX - eDistX;
+                // Same as above, but flip X & Y
+                float eDistX = h2 / (2 * deltaX);
+                ex = endX + eDistX;
                 ey = endY;
+
+                minimumArcDist2 = midDist2 * mMinimumHorizontalTangent
+                        * mMinimumHorizontalTangent;
             }
+            float arcDistX = dx - ex;
+            float arcDistY = dy - ey;
+            float arcDist2 = arcDistX * arcDistX + arcDistY * arcDistY;
 
-            minimumArcDist2 = midDist2 * mMinimumHorizontalTangent
-                    * mMinimumHorizontalTangent;
-        }
-        float arcDistX = dx - ex;
-        float arcDistY = dy - ey;
-        float arcDist2 = arcDistX * arcDistX + arcDistY * arcDistY;
+            float maximumArcDist2 = midDist2 * mMaximumTangent * mMaximumTangent;
 
-        float maximumArcDist2 = midDist2 * mMaximumTangent * mMaximumTangent;
-
-        float newArcDistance2 = 0;
-        if (arcDist2 != 0 && arcDist2 < minimumArcDist2) {
-            newArcDistance2 = minimumArcDist2;
-        } else if (arcDist2 > maximumArcDist2) {
-            newArcDistance2 = maximumArcDist2;
+            float newArcDistance2 = 0;
+            if (arcDist2 < minimumArcDist2) {
+                newArcDistance2 = minimumArcDist2;
+            } else if (arcDist2 > maximumArcDist2) {
+                newArcDistance2 = maximumArcDist2;
+            }
+            if (newArcDistance2 != 0) {
+                float ratio2 = newArcDistance2 / arcDist2;
+                float ratio = (float) Math.sqrt(ratio2);
+                ex = dx + (ratio * (ex - dx));
+                ey = dy + (ratio * (ey - dy));
+            }
         }
-        if (newArcDistance2 != 0) {
-            float ratio2 = newArcDistance2 / arcDist2;
-            float ratio = (float) Math.sqrt(ratio2);
-            ex = dx + (ratio * (ex - dx));
-            ey = dy + (ratio * (ey - dy));
-        }
-        float control1X = (startX + ex) / 2;
-        float control1Y = (startY + ey) / 2;
-        float control2X = (ex + endX) / 2;
-        float control2Y = (ey + endY) / 2;
-        path.cubicTo(control1X, control1Y, control2X, control2Y, endX, endY);
+        float controlX1 = (startX + ex) / 2;
+        float controlY1 = (startY + ey) / 2;
+        float controlX2 = (ex + endX) / 2;
+        float controlY2 = (ey + endY) / 2;
+        path.cubicTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
         return path;
     }
 }

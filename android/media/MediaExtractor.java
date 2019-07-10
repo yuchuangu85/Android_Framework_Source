@@ -22,16 +22,11 @@ import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
-import android.media.AudioPresentation;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.MediaHTTPService;
 import android.net.Uri;
 import android.os.IBinder;
-import android.os.IHwBinder;
-import android.os.PersistableBundle;
-
-import com.android.internal.util.Preconditions;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -39,9 +34,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -71,9 +64,6 @@ import java.util.UUID;
  * extractor.release();
  * extractor = null;
  * </pre>
- *
- * <p>This class requires the {@link android.Manifest.permission#INTERNET} permission
- * when used with network-based content.
  */
 final public class MediaExtractor {
     public MediaExtractor() {
@@ -95,10 +85,6 @@ final public class MediaExtractor {
      *
      * @param context the Context to use when resolving the Uri
      * @param uri the Content URI of the data you want to extract from.
-     *
-     * <p>When <code>uri</code> refers to a network file the
-     * {@link android.Manifest.permission#INTERNET} permission is required.
-     *
      * @param headers the headers to be sent together with the request for the data.
      *        This can be {@code null} if no specific headers are to be sent with the
      *        request.
@@ -146,10 +132,6 @@ final public class MediaExtractor {
      * Sets the data source (file-path or http URL) to use.
      *
      * @param path the path of the file, or the http URL
-     *
-     * <p>When <code>path</code> refers to a network file the
-     * {@link android.Manifest.permission#INTERNET} permission is required.
-     *
      * @param headers the headers associated with the http request for the stream you want to play.
      *        This can be {@code null} if no specific headers are to be sent with the
      *        request.
@@ -195,9 +177,6 @@ final public class MediaExtractor {
      * directory), and that the pathname should reference a world-readable file.
      * As an alternative, the application could first open the file for reading,
      * and then use the file descriptor form {@link #setDataSource(FileDescriptor)}.
-     *
-     * <p>When <code>path</code> refers to a network file the
-     * {@link android.Manifest.permission#INTERNET} permission is required.
      */
     public final void setDataSource(@NonNull String path) throws IOException {
         nativeSetDataSource(
@@ -205,26 +184,6 @@ final public class MediaExtractor {
                 path,
                 null,
                 null);
-    }
-
-    /**
-     * Sets the data source (AssetFileDescriptor) to use. It is the caller's
-     * responsibility to close the file descriptor. It is safe to do so as soon
-     * as this call returns.
-     *
-     * @param afd the AssetFileDescriptor for the file you want to extract from.
-     */
-    public final void setDataSource(@NonNull AssetFileDescriptor afd)
-            throws IOException, IllegalArgumentException, IllegalStateException {
-        Preconditions.checkNotNull(afd);
-        // Note: using getDeclaredLength so that our behavior is the same
-        // as previous versions when the content provider is returning
-        // a full file.
-        if (afd.getDeclaredLength() < 0) {
-            setDataSource(afd.getFileDescriptor());
-        } else {
-            setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getDeclaredLength());
-        }
     }
 
     /**
@@ -249,90 +208,6 @@ final public class MediaExtractor {
     public native final void setDataSource(
             @NonNull FileDescriptor fd, long offset, long length) throws IOException;
 
-    /**
-     * Sets the MediaCas instance to use. This should be called after a
-     * successful setDataSource() if at least one track reports mime type
-     * of {@link android.media.MediaFormat#MIMETYPE_AUDIO_SCRAMBLED}
-     * or {@link android.media.MediaFormat#MIMETYPE_VIDEO_SCRAMBLED}.
-     * Stream parsing will not proceed until a valid MediaCas object
-     * is provided.
-     *
-     * @param mediaCas the MediaCas object to use.
-     */
-    public final void setMediaCas(@NonNull MediaCas mediaCas) {
-        mMediaCas = mediaCas;
-        nativeSetMediaCas(mediaCas.getBinder());
-    }
-
-    private native final void nativeSetMediaCas(@NonNull IHwBinder casBinder);
-
-    /**
-     * Describes the conditional access system used to scramble a track.
-     */
-    public static final class CasInfo {
-        private final int mSystemId;
-        private final MediaCas.Session mSession;
-
-        CasInfo(int systemId, @Nullable MediaCas.Session session) {
-            mSystemId = systemId;
-            mSession = session;
-        }
-
-        /**
-         * Retrieves the system id of the conditional access system.
-         *
-         * @return CA system id of the CAS used to scramble the track.
-         */
-        public int getSystemId() {
-            return mSystemId;
-        }
-
-        /**
-         * Retrieves the {@link MediaCas.Session} associated with a track. The
-         * session is needed to initialize a descrambler in order to decode the
-         * scrambled track.
-         * <p>
-         * @see MediaDescrambler#setMediaCasSession
-         * <p>
-         * @return a {@link MediaCas.Session} object associated with a track.
-         */
-        public MediaCas.Session getSession() {
-            return mSession;
-        }
-    }
-
-    private ArrayList<Byte> toByteArray(@NonNull byte[] data) {
-        ArrayList<Byte> byteArray = new ArrayList<Byte>(data.length);
-        for (int i = 0; i < data.length; i++) {
-            byteArray.add(i, Byte.valueOf(data[i]));
-        }
-        return byteArray;
-    }
-
-    /**
-     * Retrieves the information about the conditional access system used to scramble
-     * a track.
-     *
-     * @param index of the track.
-     * @return an {@link CasInfo} object describing the conditional access system.
-     */
-    public CasInfo getCasInfo(int index) {
-        Map<String, Object> formatMap = getTrackFormatNative(index);
-        if (formatMap.containsKey(MediaFormat.KEY_CA_SYSTEM_ID)) {
-            int systemId = ((Integer)formatMap.get(MediaFormat.KEY_CA_SYSTEM_ID)).intValue();
-            MediaCas.Session session = null;
-            if (mMediaCas != null && formatMap.containsKey(MediaFormat.KEY_CA_SESSION_ID)) {
-                ByteBuffer buf = (ByteBuffer) formatMap.get(MediaFormat.KEY_CA_SESSION_ID);
-                buf.rewind();
-                final byte[] sessionId = new byte[buf.remaining()];
-                buf.get(sessionId);
-                session = mMediaCas.createFromSessionId(toByteArray(sessionId));
-            }
-            return new CasInfo(systemId, session);
-        }
-        return null;
-    }
-
     @Override
     protected void finalize() {
         native_finalize();
@@ -349,64 +224,6 @@ final public class MediaExtractor {
      * Count the number of tracks found in the data source.
      */
     public native final int getTrackCount();
-
-    /**
-     * Extract DRM initialization data if it exists
-     *
-     * @return DRM initialization data in the content, or {@code null}
-     * if no recognizable DRM format is found;
-     * @see DrmInitData
-     */
-    public DrmInitData getDrmInitData() {
-        Map<String, Object> formatMap = getFileFormatNative();
-        if (formatMap == null) {
-            return null;
-        }
-        if (formatMap.containsKey("pssh")) {
-            Map<UUID, byte[]> psshMap = getPsshInfo();
-            final Map<UUID, DrmInitData.SchemeInitData> initDataMap =
-                new HashMap<UUID, DrmInitData.SchemeInitData>();
-            for (Map.Entry<UUID, byte[]> e: psshMap.entrySet()) {
-                UUID uuid = e.getKey();
-                byte[] data = e.getValue();
-                initDataMap.put(uuid, new DrmInitData.SchemeInitData("cenc", data));
-            }
-            return new DrmInitData() {
-                public SchemeInitData get(UUID schemeUuid) {
-                    return initDataMap.get(schemeUuid);
-                }
-            };
-        } else {
-            int numTracks = getTrackCount();
-            for (int i = 0; i < numTracks; ++i) {
-                Map<String, Object> trackFormatMap = getTrackFormatNative(i);
-                if (!trackFormatMap.containsKey("crypto-key")) {
-                    continue;
-                }
-                ByteBuffer buf = (ByteBuffer) trackFormatMap.get("crypto-key");
-                buf.rewind();
-                final byte[] data = new byte[buf.remaining()];
-                buf.get(data);
-                return new DrmInitData() {
-                    public SchemeInitData get(UUID schemeUuid) {
-                        return new DrmInitData.SchemeInitData("webm", data);
-                    }
-                };
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Get the list of available audio presentations for the track.
-     * @param trackIndex index of the track.
-     * @return a list of available audio presentations for a given valid audio track index.
-     * The list will be empty if the source does not contain any audio presentations.
-     */
-    @NonNull
-    public List<AudioPresentation> getAudioPresentations(int trackIndex) {
-        return new ArrayList<AudioPresentation>();
-    }
 
     /**
      * Get the PSSH info if present.
@@ -445,113 +262,7 @@ final public class MediaExtractor {
 
     /**
      * Get the track format at the specified index.
-     *
      * More detail on the representation can be found at {@link android.media.MediaCodec}
-     * <p>
-     * The following table summarizes support for format keys across android releases:
-     *
-     * <table style="width: 0%">
-     *  <thead>
-     *   <tr>
-     *    <th rowspan=2>OS Version(s)</th>
-     *    <td colspan=3>{@code MediaFormat} keys used for</th>
-     *   </tr><tr>
-     *    <th>All Tracks</th>
-     *    <th>Audio Tracks</th>
-     *    <th>Video Tracks</th>
-     *   </tr>
-     *  </thead>
-     *  <tbody>
-     *   <tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#JELLY_BEAN}</td>
-     *    <td rowspan=8>{@link MediaFormat#KEY_MIME},<br>
-     *        {@link MediaFormat#KEY_DURATION},<br>
-     *        {@link MediaFormat#KEY_MAX_INPUT_SIZE}</td>
-     *    <td rowspan=5>{@link MediaFormat#KEY_SAMPLE_RATE},<br>
-     *        {@link MediaFormat#KEY_CHANNEL_COUNT},<br>
-     *        {@link MediaFormat#KEY_CHANNEL_MASK},<br>
-     *        gapless playback information<sup>.mp3, .mp4</sup>,<br>
-     *        {@link MediaFormat#KEY_IS_ADTS}<sup>AAC if streaming</sup>,<br>
-     *        codec-specific data<sup>AAC, Vorbis</sup></td>
-     *    <td rowspan=2>{@link MediaFormat#KEY_WIDTH},<br>
-     *        {@link MediaFormat#KEY_HEIGHT},<br>
-     *        codec-specific data<sup>AVC, MPEG4</sup></td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}</td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2}</td>
-     *    <td rowspan=3>as above, plus<br>
-     *        Pixel aspect ratio information<sup>AVC, *</sup></td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#KITKAT}</td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#KITKAT_WATCH}</td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP}</td>
-     *    <td rowspan=2>as above, plus<br>
-     *        {@link MediaFormat#KEY_BIT_RATE}<sup>AAC</sup>,<br>
-     *        codec-specific data<sup>Opus</sup></td>
-     *    <td rowspan=2>as above, plus<br>
-     *        {@link MediaFormat#KEY_ROTATION}<sup>.mp4</sup>,<br>
-     *        {@link MediaFormat#KEY_BIT_RATE}<sup>MPEG4</sup>,<br>
-     *        codec-specific data<sup>HEVC</sup></td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP_MR1}</td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#M}</td>
-     *    <td>as above, plus<br>
-     *        gapless playback information<sup>Opus</sup></td>
-     *    <td>as above, plus<br>
-     *        {@link MediaFormat#KEY_FRAME_RATE} (integer)</td>
-     *   </tr><tr>
-     *    <td>{@link android.os.Build.VERSION_CODES#N}</td>
-     *    <td>as above, plus<br>
-     *        {@link MediaFormat#KEY_TRACK_ID},<br>
-     *        <!-- {link MediaFormat#KEY_MAX_BIT_RATE}<sup>#, .mp4</sup>,<br> -->
-     *        {@link MediaFormat#KEY_BIT_RATE}<sup>#, .mp4</sup></td>
-     *    <td>as above, plus<br>
-     *        {@link MediaFormat#KEY_PCM_ENCODING},<br>
-     *        {@link MediaFormat#KEY_PROFILE}<sup>AAC</sup></td>
-     *    <td>as above, plus<br>
-     *        {@link MediaFormat#KEY_HDR_STATIC_INFO}<sup>#, .webm</sup>,<br>
-     *        {@link MediaFormat#KEY_COLOR_STANDARD}<sup>#</sup>,<br>
-     *        {@link MediaFormat#KEY_COLOR_TRANSFER}<sup>#</sup>,<br>
-     *        {@link MediaFormat#KEY_COLOR_RANGE}<sup>#</sup>,<br>
-     *        {@link MediaFormat#KEY_PROFILE}<sup>MPEG2, H.263, MPEG4, AVC, HEVC, VP9</sup>,<br>
-     *        {@link MediaFormat#KEY_LEVEL}<sup>H.263, MPEG4, AVC, HEVC, VP9</sup>,<br>
-     *        codec-specific data<sup>VP9</sup></td>
-     *   </tr>
-     *   <tr>
-     *    <td colspan=4>
-     *     <p class=note><strong>Notes:</strong><br>
-     *      #: container-specified value only.<br>
-     *      .mp4, .webm&hellip;: for listed containers<br>
-     *      MPEG4, AAC&hellip;: for listed codecs
-     *    </td>
-     *   </tr><tr>
-     *    <td colspan=4>
-     *     <p class=note>Note that that level information contained in the container many times
-     *     does not match the level of the actual bitstream. You may want to clear the level using
-     *     {@code MediaFormat.setString(KEY_LEVEL, null)} before using the track format to find a
-     *     decoder that can play back a particular track.
-     *    </td>
-     *   </tr><tr>
-     *    <td colspan=4>
-     *     <p class=note><strong>*Pixel (sample) aspect ratio</strong> is returned in the following
-     *     keys. The display width can be calculated for example as:
-     *     <p align=center>
-     *     display-width = display-height * crop-width / crop-height * sar-width / sar-height
-     *    </td>
-     *   </tr><tr>
-     *    <th>Format Key</th><th>Value Type</th><th colspan=2>Description</th>
-     *   </tr><tr>
-     *    <td>{@code "sar-width"}</td><td>Integer</td><td colspan=2>Pixel aspect ratio width</td>
-     *   </tr><tr>
-     *    <td>{@code "sar-height"}</td><td>Integer</td><td colspan=2>Pixel aspect ratio height</td>
-     *   </tr>
-     *  </tbody>
-     * </table>
-     *
      */
     @NonNull
     public MediaFormat getTrackFormat(int index) {
@@ -608,11 +319,6 @@ final public class MediaExtractor {
     /**
      * Advance to the next sample. Returns false if no more sample data
      * is available (end of stream).
-     *
-     * When extracting a local file, the behaviors of {@link #advance} and
-     * {@link #readSampleData} are undefined in presence of concurrent
-     * writes to the same local file; more specifically, end of stream
-     * could be signalled earlier than expected.
      */
     public native boolean advance();
 
@@ -639,12 +345,6 @@ final public class MediaExtractor {
      */
     public native long getSampleTime();
 
-    /**
-     * @return size of the current sample in bytes or -1 if no more
-     * samples are available.
-     */
-    public native long getSampleSize();
-
     // Keep these in sync with their equivalents in NuMediaExtractor.h
     /**
      * The sample is a sync sample (or in {@link MediaCodec}'s terminology
@@ -660,22 +360,12 @@ final public class MediaExtractor {
      */
     public static final int SAMPLE_FLAG_ENCRYPTED = 2;
 
-    /**
-     * This indicates that the buffer only contains part of a frame,
-     * and the decoder should batch the data until a buffer without
-     * this flag appears before decoding the frame.
-     *
-     * @see MediaCodec#BUFFER_FLAG_PARTIAL_FRAME
-     */
-    public static final int SAMPLE_FLAG_PARTIAL_FRAME = 4;
-
     /** @hide */
     @IntDef(
         flag = true,
         value = {
             SAMPLE_FLAG_SYNC,
             SAMPLE_FLAG_ENCRYPTED,
-            SAMPLE_FLAG_PARTIAL_FRAME,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SampleFlag {}
@@ -712,25 +402,6 @@ final public class MediaExtractor {
      */
     public native boolean hasCacheReachedEndOfStream();
 
-    /**
-     *  Return Metrics data about the current media container.
-     *
-     * @return a {@link PersistableBundle} containing the set of attributes and values
-     * available for the media container being handled by this instance
-     * of MediaExtractor.
-     * The attributes are descibed in {@link MetricsConstants}.
-     *
-     *  Additional vendor-specific fields may also be present in
-     *  the return value.
-     */
-
-    public PersistableBundle getMetrics() {
-        PersistableBundle bundle = native_getMetrics();
-        return bundle;
-    }
-
-    private native PersistableBundle native_getMetrics();
-
     private static native final void native_init();
     private native final void native_setup();
     private native final void native_finalize();
@@ -740,35 +411,5 @@ final public class MediaExtractor {
         native_init();
     }
 
-    private MediaCas mMediaCas;
-
     private long mNativeContext;
-
-    public final static class MetricsConstants
-    {
-        private MetricsConstants() {}
-
-        /**
-         * Key to extract the container format
-         * from the {@link MediaExtractor#getMetrics} return value.
-         * The value is a String.
-         */
-        public static final String FORMAT = "android.media.mediaextractor.fmt";
-
-        /**
-         * Key to extract the container MIME type
-         * from the {@link MediaExtractor#getMetrics} return value.
-         * The value is a String.
-         */
-        public static final String MIME_TYPE = "android.media.mediaextractor.mime";
-
-        /**
-         * Key to extract the number of tracks in the container
-         * from the {@link MediaExtractor#getMetrics} return value.
-         * The value is an integer.
-         */
-        public static final String TRACKS = "android.media.mediaextractor.ntrk";
-
-    }
-
 }

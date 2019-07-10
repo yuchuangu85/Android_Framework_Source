@@ -20,8 +20,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.Rlog;
 
-import java.util.Objects;
-
 /**
  * Signal strength related information.
  */
@@ -36,49 +34,58 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
     private int mEvdoEcio;  // This value is the EVDO Ec/Io
     private int mEvdoSnr;   // Valid values are 0-8.  8 is the highest signal to noise ratio
 
-    /** @hide */
+    /**
+     * Empty constructor
+     *
+     * @hide
+     */
     public CellSignalStrengthCdma() {
         setDefaultValues();
     }
 
     /**
-     * SignalStrength constructor for input from the HAL.
+     * Constructor
      *
-     * Note that values received from the HAL require coersion to be compatible here. All values
-     * reported through IRadio are the negative of the actual values (which results in a positive
-     * input to this method.
-     *
-     * <p>Note that this HAL is inconsistent with UMTS-based radio techs as the value indicating
-     * that a field is unreported is negative, rather than a large(r) positive number.
-     * <p>Also note that to keep the public-facing methods of this class consistent with others,
-     * unreported values are coerced to Integer.MAX_VALUE rather than left as -1, which is
-     * a departure from SignalStrength, which is stuck with the values it currently reports.
-     *
-     * @param cdmaDbm negative of the CDMA signal strength value or -1 if invalid.
-     * @param cdmaEcio negative of the CDMA pilot/noise ratio or -1 if invalid.
-     * @param evdoDbm negative of the EvDO signal strength value or -1 if invalid.
-     * @param evdoEcio negative of the EvDO pilot/noise ratio or -1 if invalid.
-     * @param evdoSnr an SNR value 0..8 or -1 if invalid.
      * @hide
      */
     public CellSignalStrengthCdma(int cdmaDbm, int cdmaEcio, int evdoDbm, int evdoEcio,
             int evdoSnr) {
-        // The values here were lifted from SignalStrength.validateInput()
-        // FIXME: Combine all checking and setting logic between this and SignalStrength.
-        mCdmaDbm = ((cdmaDbm > 0) && (cdmaDbm < 120))  ? -cdmaDbm : Integer.MAX_VALUE;
-        mCdmaEcio = ((cdmaEcio > 0) && (cdmaEcio < 160)) ? -cdmaEcio : Integer.MAX_VALUE;
-
-        mEvdoDbm = ((evdoDbm > 0) && (evdoDbm < 120)) ? -evdoDbm : Integer.MAX_VALUE;
-        mEvdoEcio = ((evdoEcio > 0) && (evdoEcio < 160)) ? -evdoEcio : Integer.MAX_VALUE;
-        mEvdoSnr = ((evdoSnr > 0) && (evdoSnr <= 8)) ? evdoSnr : Integer.MAX_VALUE;
+        initialize(cdmaDbm, cdmaEcio, evdoDbm, evdoEcio, evdoSnr);
     }
 
-    /** @hide */
+    /**
+     * Copy constructors
+     *
+     * @param s Source SignalStrength
+     *
+     * @hide
+     */
     public CellSignalStrengthCdma(CellSignalStrengthCdma s) {
         copyFrom(s);
     }
 
-    /** @hide */
+    /**
+     * Initialize all the values
+     *
+     * @param cdmaDbm
+     * @param cdmaEcio
+     * @param evdoDbm
+     * @param evdoEcio
+     * @param evdoSnr
+     *
+     * @hide
+     */
+    public void initialize(int cdmaDbm, int cdmaEcio, int evdoDbm, int evdoEcio, int evdoSnr) {
+        mCdmaDbm = cdmaDbm;
+        mCdmaEcio = cdmaEcio;
+        mEvdoDbm = evdoDbm;
+        mEvdoEcio = evdoEcio;
+        mEvdoSnr = evdoSnr;
+    }
+
+    /**
+     * @hide
+     */
     protected void copyFrom(CellSignalStrengthCdma s) {
         mCdmaDbm = s.mCdmaDbm;
         mCdmaEcio = s.mCdmaEcio;
@@ -87,7 +94,9 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
         mEvdoSnr = s.mEvdoSnr;
     }
 
-    /** @hide */
+    /**
+     * @hide
+     */
     @Override
     public CellSignalStrengthCdma copy() {
         return new CellSignalStrengthCdma(this);
@@ -136,8 +145,7 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
         int cdmaAsuLevel;
         int ecioAsuLevel;
 
-        if (cdmaDbm == Integer.MAX_VALUE) cdmaAsuLevel = 99;
-        else if (cdmaDbm >= -75) cdmaAsuLevel = 16;
+        if (cdmaDbm >= -75) cdmaAsuLevel = 16;
         else if (cdmaDbm >= -82) cdmaAsuLevel = 8;
         else if (cdmaDbm >= -90) cdmaAsuLevel = 4;
         else if (cdmaDbm >= -95) cdmaAsuLevel = 2;
@@ -145,8 +153,7 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
         else cdmaAsuLevel = 99;
 
         // Ec/Io are in dB*10
-        if (cdmaEcio == Integer.MAX_VALUE) ecioAsuLevel = 99;
-        else if (cdmaEcio >= -90) ecioAsuLevel = 16;
+        if (cdmaEcio >= -90) ecioAsuLevel = 16;
         else if (cdmaEcio >= -100) ecioAsuLevel = 8;
         else if (cdmaEcio >= -115) ecioAsuLevel = 4;
         else if (cdmaEcio >= -130) ecioAsuLevel = 2;
@@ -167,16 +174,14 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
         int levelDbm;
         int levelEcio;
 
-        if (cdmaDbm == Integer.MAX_VALUE) levelDbm = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-        else if (cdmaDbm >= -75) levelDbm = SIGNAL_STRENGTH_GREAT;
+        if (cdmaDbm >= -75) levelDbm = SIGNAL_STRENGTH_GREAT;
         else if (cdmaDbm >= -85) levelDbm = SIGNAL_STRENGTH_GOOD;
         else if (cdmaDbm >= -95) levelDbm = SIGNAL_STRENGTH_MODERATE;
         else if (cdmaDbm >= -100) levelDbm = SIGNAL_STRENGTH_POOR;
         else levelDbm = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
 
         // Ec/Io are in dB*10
-        if (cdmaEcio == Integer.MAX_VALUE) levelEcio = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-        else if (cdmaEcio >= -90) levelEcio = SIGNAL_STRENGTH_GREAT;
+        if (cdmaEcio >= -90) levelEcio = SIGNAL_STRENGTH_GREAT;
         else if (cdmaEcio >= -110) levelEcio = SIGNAL_STRENGTH_GOOD;
         else if (cdmaEcio >= -130) levelEcio = SIGNAL_STRENGTH_MODERATE;
         else if (cdmaEcio >= -150) levelEcio = SIGNAL_STRENGTH_POOR;
@@ -196,15 +201,13 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
         int levelEvdoDbm;
         int levelEvdoSnr;
 
-        if (evdoDbm == Integer.MAX_VALUE) levelEvdoDbm = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-        else if (evdoDbm >= -65) levelEvdoDbm = SIGNAL_STRENGTH_GREAT;
+        if (evdoDbm >= -65) levelEvdoDbm = SIGNAL_STRENGTH_GREAT;
         else if (evdoDbm >= -75) levelEvdoDbm = SIGNAL_STRENGTH_GOOD;
         else if (evdoDbm >= -90) levelEvdoDbm = SIGNAL_STRENGTH_MODERATE;
         else if (evdoDbm >= -105) levelEvdoDbm = SIGNAL_STRENGTH_POOR;
         else levelEvdoDbm = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
 
-        if (evdoSnr == Integer.MAX_VALUE) levelEvdoSnr = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-        else if (evdoSnr >= 7) levelEvdoSnr = SIGNAL_STRENGTH_GREAT;
+        if (evdoSnr >= 7) levelEvdoSnr = SIGNAL_STRENGTH_GREAT;
         else if (evdoSnr >= 5) levelEvdoSnr = SIGNAL_STRENGTH_GOOD;
         else if (evdoSnr >= 3) levelEvdoSnr = SIGNAL_STRENGTH_MODERATE;
         else if (evdoSnr >= 1) levelEvdoSnr = SIGNAL_STRENGTH_POOR;
@@ -284,7 +287,9 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
 
     @Override
     public int hashCode() {
-        return Objects.hash(mCdmaDbm, mCdmaEcio, mEvdoDbm, mEvdoEcio, mEvdoSnr);
+        int primeNum = 31;
+        return ((mCdmaDbm * primeNum) + (mCdmaEcio * primeNum)
+                + (mEvdoDbm * primeNum) + (mEvdoEcio * primeNum) + (mEvdoSnr * primeNum));
     }
 
     @Override
@@ -325,10 +330,12 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        dest.writeInt(mCdmaDbm);
-        dest.writeInt(mCdmaEcio);
-        dest.writeInt(mEvdoDbm);
-        dest.writeInt(mEvdoEcio);
+        // Need to multiply CdmaDbm, CdmaEcio, EvdoDbm and EvdoEcio by -1
+        // to ensure consistency when reading values written here
+        dest.writeInt(mCdmaDbm * -1);
+        dest.writeInt(mCdmaEcio * -1);
+        dest.writeInt(mEvdoDbm * -1);
+        dest.writeInt(mEvdoEcio * -1);
         dest.writeInt(mEvdoSnr);
     }
 
@@ -339,11 +346,11 @@ public final class CellSignalStrengthCdma extends CellSignalStrength implements 
     private CellSignalStrengthCdma(Parcel in) {
         // CdmaDbm, CdmaEcio, EvdoDbm and EvdoEcio are written into
         // the parcel as positive values.
-        // Need to convert into negative values unless the value is invalid
-        mCdmaDbm = in.readInt();
-        mCdmaEcio = in.readInt();
-        mEvdoDbm = in.readInt();
-        mEvdoEcio = in.readInt();
+        // Need to convert into negative values
+        mCdmaDbm = in.readInt() * -1;
+        mCdmaEcio = in.readInt() * -1;
+        mEvdoDbm = in.readInt() * -1;
+        mEvdoEcio = in.readInt() * -1;
         mEvdoSnr = in.readInt();
         if (DBG) log("CellSignalStrengthCdma(Parcel): " + toString());
     }

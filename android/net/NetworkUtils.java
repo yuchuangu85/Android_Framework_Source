@@ -16,20 +16,19 @@
 
 package android.net;
 
-import android.os.Parcel;
-import android.util.Log;
-import android.util.Pair;
-
 import java.io.FileDescriptor;
-import java.math.BigInteger;
+import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Locale;
-import java.util.TreeSet;
+
+import android.os.Parcel;
+import android.util.Log;
+import android.util.Pair;
+
 
 /**
  * Native methods for managing network interfaces.
@@ -40,35 +39,111 @@ public class NetworkUtils {
 
     private static final String TAG = "NetworkUtils";
 
+    /** Setting bit 0 indicates reseting of IPv4 addresses required */
+    public static final int RESET_IPV4_ADDRESSES = 0x01;
+
+    /** Setting bit 1 indicates reseting of IPv4 addresses required */
+    public static final int RESET_IPV6_ADDRESSES = 0x02;
+
+    /** Reset all addresses */
+    public static final int RESET_ALL_ADDRESSES = RESET_IPV4_ADDRESSES | RESET_IPV6_ADDRESSES;
+
+    /**
+     * Reset IPv6 or IPv4 sockets that are connected via the named interface.
+     *
+     * @param interfaceName is the interface to reset
+     * @param mask {@see #RESET_IPV4_ADDRESSES} and {@see #RESET_IPV6_ADDRESSES}
+     */
+    public native static int resetConnections(String interfaceName, int mask);
+
+    /**
+     * Start the DHCP client daemon, in order to have it request addresses
+     * for the named interface.  This returns {@code true} if the DHCPv4 daemon
+     * starts, {@code false} otherwise.  This call blocks until such time as a
+     * result is available or the default discovery timeout has been reached.
+     * Callers should check {@link #getDhcpResults} to determine whether DHCP
+     * succeeded or failed, and if it succeeded, to fetch the {@link DhcpResults}.
+     * @param interfaceName the name of the interface to configure
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public native static boolean startDhcp(String interfaceName);
+
+    /**
+     * Initiate renewal on the DHCP client daemon for the named interface.  This
+     * returns {@code true} if the DHCPv4 daemon has been notified, {@code false}
+     * otherwise.  This call blocks until such time as a result is available or
+     * the default renew timeout has been reached.  Callers should check
+     * {@link #getDhcpResults} to determine whether DHCP succeeded or failed,
+     * and if it succeeded, to fetch the {@link DhcpResults}.
+     * @param interfaceName the name of the interface to configure
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public native static boolean startDhcpRenew(String interfaceName);
+
+    /**
+     * Start the DHCP client daemon, in order to have it request addresses
+     * for the named interface, and then configure the interface with those
+     * addresses. This call blocks until it obtains a result (either success
+     * or failure) from the daemon.
+     * @param interfaceName the name of the interface to configure
+     * @param dhcpResults if the request succeeds, this object is filled in with
+     * the IP address information.
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public static boolean runDhcp(String interfaceName, DhcpResults dhcpResults) {
+        return startDhcp(interfaceName) && getDhcpResults(interfaceName, dhcpResults);
+    }
+
+    /**
+     * Initiate renewal on the DHCP client daemon. This call blocks until it obtains
+     * a result (either success or failure) from the daemon.
+     * @param interfaceName the name of the interface to configure
+     * @param dhcpResults if the request succeeds, this object is filled in with
+     * the IP address information.
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public static boolean runDhcpRenew(String interfaceName, DhcpResults dhcpResults) {
+        return startDhcpRenew(interfaceName) && getDhcpResults(interfaceName, dhcpResults);
+    }
+
+    /**
+     * Fetch results from the DHCP client daemon. This call returns {@code true} if
+     * if there are results available to be read, {@code false} otherwise.
+     * @param interfaceName the name of the interface to configure
+     * @param dhcpResults if the request succeeds, this object is filled in with
+     * the IP address information.
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public native static boolean getDhcpResults(String interfaceName, DhcpResults dhcpResults);
+
+    /**
+     * Shut down the DHCP client daemon.
+     * @param interfaceName the name of the interface for which the daemon
+     * should be stopped
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public native static boolean stopDhcp(String interfaceName);
+
+    /**
+     * Release the current DHCP lease.
+     * @param interfaceName the name of the interface for which the lease should
+     * be released
+     * @return {@code true} for success, {@code false} for failure
+     */
+    public native static boolean releaseDhcpLease(String interfaceName);
+
+    /**
+     * Return the last DHCP-related error message that was recorded.
+     * <p/>NOTE: This string is not localized, but currently it is only
+     * used in logging.
+     * @return the most recent error message, if any
+     */
+    public native static String getDhcpError();
+
     /**
      * Attaches a socket filter that accepts DHCP packets to the given socket.
      */
     public native static void attachDhcpFilter(FileDescriptor fd) throws SocketException;
-
-    /**
-     * Attaches a socket filter that accepts ICMPv6 router advertisements to the given socket.
-     * @param fd the socket's {@link FileDescriptor}.
-     * @param packetType the hardware address type, one of ARPHRD_*.
-     */
-    public native static void attachRaFilter(FileDescriptor fd, int packetType) throws SocketException;
-
-    /**
-     * Attaches a socket filter that accepts L2-L4 signaling traffic required for IP connectivity.
-     *
-     * This includes: all ARP, ICMPv6 RS/RA/NS/NA messages, and DHCPv4 exchanges.
-     *
-     * @param fd the socket's {@link FileDescriptor}.
-     * @param packetType the hardware address type, one of ARPHRD_*.
-     */
-    public native static void attachControlPacketFilter(FileDescriptor fd, int packetType)
-            throws SocketException;
-
-    /**
-     * Configures a socket for receiving ICMPv6 router solicitations and sending advertisements.
-     * @param fd the socket's {@link FileDescriptor}.
-     * @param ifIndex the interface index.
-     */
-    public native static void setupRaSocket(FileDescriptor fd, int ifIndex) throws SocketException;
 
     /**
      * Binds the current process to the network designated by {@code netId}.  All sockets created
@@ -93,7 +168,6 @@ public class NetworkUtils {
      *
      * @deprecated This is strictly for legacy usage to support startUsingNetworkFeature().
      */
-    @Deprecated
     public native static boolean bindProcessToNetworkForHostResolution(int netId);
 
     /**
@@ -385,73 +459,5 @@ public class NetworkUtils {
         }
         result = builder.toString();
         return result;
-    }
-
-    /**
-     * Returns a prefix set without overlaps.
-     *
-     * This expects the src set to be sorted from shorter to longer. Results are undefined
-     * failing this condition. The returned prefix set is sorted in the same order as the
-     * passed set, with the same comparator.
-     */
-    private static TreeSet<IpPrefix> deduplicatePrefixSet(final TreeSet<IpPrefix> src) {
-        final TreeSet<IpPrefix> dst = new TreeSet<>(src.comparator());
-        // Prefixes match addresses that share their upper part up to their length, therefore
-        // the only kind of possible overlap in two prefixes is strict inclusion of the longer
-        // (more restrictive) in the shorter (including equivalence if they have the same
-        // length).
-        // Because prefixes in the src set are sorted from shorter to longer, deduplicating
-        // is done by simply iterating in order, and not adding any longer prefix that is
-        // already covered by a shorter one.
-        newPrefixes:
-        for (IpPrefix newPrefix : src) {
-            for (IpPrefix existingPrefix : dst) {
-                if (existingPrefix.containsPrefix(newPrefix)) {
-                    continue newPrefixes;
-                }
-            }
-            dst.add(newPrefix);
-        }
-        return dst;
-    }
-
-    /**
-     * Returns how many IPv4 addresses match any of the prefixes in the passed ordered set.
-     *
-     * Obviously this returns an integral value between 0 and 2**32.
-     * The behavior is undefined if any of the prefixes is not an IPv4 prefix or if the
-     * set is not ordered smallest prefix to longer prefix.
-     *
-     * @param prefixes the set of prefixes, ordered by length
-     */
-    public static long routedIPv4AddressCount(final TreeSet<IpPrefix> prefixes) {
-        long routedIPCount = 0;
-        for (final IpPrefix prefix : deduplicatePrefixSet(prefixes)) {
-            if (!prefix.isIPv4()) {
-                Log.wtf(TAG, "Non-IPv4 prefix in routedIPv4AddressCount");
-            }
-            int rank = 32 - prefix.getPrefixLength();
-            routedIPCount += 1L << rank;
-        }
-        return routedIPCount;
-    }
-
-    /**
-     * Returns how many IPv6 addresses match any of the prefixes in the passed ordered set.
-     *
-     * This returns a BigInteger between 0 and 2**128.
-     * The behavior is undefined if any of the prefixes is not an IPv6 prefix or if the
-     * set is not ordered smallest prefix to longer prefix.
-     */
-    public static BigInteger routedIPv6AddressCount(final TreeSet<IpPrefix> prefixes) {
-        BigInteger routedIPCount = BigInteger.ZERO;
-        for (final IpPrefix prefix : deduplicatePrefixSet(prefixes)) {
-            if (!prefix.isIPv6()) {
-                Log.wtf(TAG, "Non-IPv6 prefix in routedIPv6AddressCount");
-            }
-            int rank = 128 - prefix.getPrefixLength();
-            routedIPCount = routedIPCount.add(BigInteger.ONE.shiftLeft(rank));
-        }
-        return routedIPCount;
     }
 }

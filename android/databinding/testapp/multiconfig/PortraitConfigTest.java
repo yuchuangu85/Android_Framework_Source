@@ -15,7 +15,6 @@ package android.databinding.testapp.multiconfig;
 
 import android.databinding.ViewDataBinding;
 import android.databinding.testapp.BaseDataBinderTest;
-import android.databinding.testapp.BR;
 import android.databinding.testapp.databinding.BasicBindingBinding;
 import android.databinding.testapp.databinding.ConditionalBindingBinding;
 import android.databinding.testapp.databinding.IncludedLayoutBinding;
@@ -23,7 +22,6 @@ import android.databinding.testapp.databinding.MultiResLayoutBinding;
 import android.databinding.testapp.vo.NotBindableVo;
 
 import android.content.pm.ActivityInfo;
-import android.test.UiThreadTest;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -33,15 +31,9 @@ public class PortraitConfigTest extends BaseDataBinderTest<MultiResLayoutBinding
         super(MultiResLayoutBinding.class, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-        initBinder();
-        getInstrumentation().waitForIdleSync();
-    }
-
     public void testSharedViewIdAndVariableInheritance()
             throws InterruptedException, NoSuchMethodException, NoSuchFieldException {
+        initBinder();
         assertEquals("MultiResLayoutBindingImpl", mBinder.getClass().getSimpleName());
         assertPublicField(TextView.class, "objectInLandTextView");
         assertPublicField(TextView.class, "objectInDefaultTextView");
@@ -54,13 +46,5 @@ public class PortraitConfigTest extends BaseDataBinderTest<MultiResLayoutBinding
         assertPublicField(BasicBindingBinding.class, "includedLayoutShared");
         assertPublicField(ConditionalBindingBinding.class, "includedLayoutPort");
         assertPublicField(ConditionalBindingBinding.class, "includedLayoutLand");
-    }
-
-    @UiThreadTest
-    public void testSetVariable() throws Throwable {
-        assertTrue(mBinder.setVariable(BR.objectInBoth, null));
-        assertTrue(mBinder.setVariable(BR.objectInDefault, null));
-        assertFalse(mBinder.setVariable(BR.obj, null));
-        assertFalse(mBinder.setVariable(BR.objectInLand, null));
     }
 }

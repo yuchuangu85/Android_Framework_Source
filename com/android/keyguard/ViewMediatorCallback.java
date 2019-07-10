@@ -28,12 +28,12 @@ public interface ViewMediatorCallback {
 
     /**
      * Report that the keyguard is done.
-     *
-     * @param strongAuth whether the user has authenticated with strong authentication like
-     *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the completion.
+     * @param authenticated Whether the user securely got past the keyguard.
+     *   the only reason for this to be false is if the keyguard was instructed
+     *   to appear temporarily to verify the user is supposed to get past the
+     *   keyguard, and the user fails to do so.
      */
-    void keyguardDone(boolean strongAuth, int targetUserId);
+    void keyguardDone(boolean authenticated);
 
     /**
      * Report that the keyguard is done drawing.
@@ -48,12 +48,8 @@ public interface ViewMediatorCallback {
 
     /**
      * Report that the keyguard is dismissable, pending the next keyguardDone call.
-     *
-     * @param strongAuth whether the user has authenticated with strong authentication like
-     *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the completion.
      */
-    void keyguardDonePending(boolean strongAuth, int targetUserId);
+    void keyguardDonePending();
 
     /**
      * Report when keyguard is actually gone
@@ -76,10 +72,10 @@ public interface ViewMediatorCallback {
     void playTrustedSound();
 
     /**
-     * When the bouncer is shown or hides
-     * @param shown
+     * @return true if and only if Keyguard is showing or if Keyguard is disabled by an external app
+     *         (legacy API)
      */
-    void onBouncerVisiblityChanged(boolean shown);
+    boolean isInputRestricted();
 
     /**
      * @return true if the screen is on
@@ -89,20 +85,8 @@ public interface ViewMediatorCallback {
     /**
      * @return one of the reasons why the bouncer needs to be shown right now and the user can't use
      *         his normal unlock method like fingerprint or trust agents. See
-     *         {@link KeyguardSecurityView#PROMPT_REASON_NONE},
-     *         {@link KeyguardSecurityView#PROMPT_REASON_RESTART} and
-     *         {@link KeyguardSecurityView#PROMPT_REASON_TIMEOUT}.
+     *         {@link KeyguardSecurityView#PROMPT_REASON_NONE}
+     *         and {@link KeyguardSecurityView#PROMPT_REASON_RESTART}.
      */
     int getBouncerPromptReason();
-
-    /**
-     * Invoked when the secondary display showing a keyguard window changes.
-     */
-    void onSecondaryDisplayShowingChanged(int displayId);
-
-    /**
-     * Consumes a message that was enqueued to be displayed on the next time the bouncer shows up.
-     * @return Message that should be displayed above the challenge.
-     */
-    CharSequence consumeCustomMessage();
 }

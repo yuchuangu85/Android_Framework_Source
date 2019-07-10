@@ -17,7 +17,6 @@
 package com.android.systemui.statusbar.phone;
 
 import android.content.Context;
-import android.os.Trace;
 
 import com.android.internal.widget.LockPatternUtils;
 import com.android.keyguard.KeyguardUpdateMonitor;
@@ -86,7 +85,6 @@ public class UnlockMethodCache {
     }
 
     private void update(boolean updateAlways) {
-        Trace.beginSection("UnlockMethodCache#update");
         int user = KeyguardUpdateMonitor.getCurrentUser();
         boolean secure = mLockPatternUtils.isSecure(user);
         boolean canSkipBouncer = !secure ||  mKeyguardUpdateMonitor.getUserCanSkipBouncer(user);
@@ -104,7 +102,6 @@ public class UnlockMethodCache {
             mFaceUnlockRunning = faceUnlockRunning;
             notifyListeners();
         }
-        Trace.endSection();
     }
 
     private void notifyListeners() {
@@ -135,33 +132,15 @@ public class UnlockMethodCache {
         }
 
         @Override
-        public void onFingerprintAuthenticated(int userId) {
-            Trace.beginSection("KeyguardUpdateMonitorCallback#onFingerprintAuthenticated");
+        public void onFingerprintAuthenticated(int userId, boolean wakeAndUnlocking) {
             if (!mKeyguardUpdateMonitor.isUnlockingWithFingerprintAllowed()) {
-                Trace.endSection();
                 return;
             }
             update(false /* updateAlways */);
-            Trace.endSection();
         }
 
         @Override
         public void onFaceUnlockStateChanged(boolean running, int userId) {
-            update(false /* updateAlways */);
-        }
-
-        @Override
-        public void onStrongAuthStateChanged(int userId) {
-            update(false /* updateAlways */);
-        }
-
-        @Override
-        public void onScreenTurnedOff() {
-            update(false /* updateAlways */);
-        }
-
-        @Override
-        public void onKeyguardVisibilityChanged(boolean showing) {
             update(false /* updateAlways */);
         }
     };

@@ -16,8 +16,9 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
+import com.android.org.conscrypt.OpenSSLSignature;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
@@ -29,7 +30,7 @@ import java.util.Map;
 /**
  * Tests RSA and DSA signature creation and verification.
  */
-public class SignatureBenchmark {
+public class SignatureBenchmark extends SimpleBenchmark {
 
     private static final int DATA_SIZE = 8192;
     private static final byte[] DATA = new byte[DATA_SIZE];
@@ -63,8 +64,7 @@ public class SignatureBenchmark {
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         this.signatureAlgorithm = algorithm.toString();
 
         String keyAlgorithm = signatureAlgorithm.substring(signatureAlgorithm.length() - 3 ,

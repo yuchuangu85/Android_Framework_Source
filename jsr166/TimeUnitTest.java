@@ -30,7 +30,7 @@ public class TimeUnitTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(TimeUnitTest.class);
+    //     return new TestSuite(...);
     // }
 
     // (loops to 88888 check increments at all time divisions.)
@@ -433,8 +433,8 @@ public class TimeUnitTest extends JSR166TestCase {
      * a deserialized serialized unit is the same instance
      */
     public void testSerialization() throws Exception {
-        for (TimeUnit x : TimeUnit.values())
-            assertSame(x, serialClone(x));
+        TimeUnit x = MILLISECONDS;
+        assertSame(x, serialClone(x));
     }
 
 }

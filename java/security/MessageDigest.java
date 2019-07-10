@@ -1,447 +1,277 @@
 /*
- * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
-import java.util.*;
-import java.lang.*;
-import java.io.IOException;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.io.InputStream;
-import java.io.ByteArrayInputStream;
-
 import java.nio.ByteBuffer;
-
-import sun.security.jca.Providers;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * This MessageDigest class provides applications the functionality of a
- * message digest algorithm, such as SHA-1 or SHA-256.
- * Message digests are secure one-way hash functions that take arbitrary-sized
- * data and output a fixed-length hash value.
+ * Uses a one-way hash function to turn an arbitrary number of bytes into a
+ * fixed-length byte sequence. The original arbitrary-length sequence is the
+ * <i>message</i>, and the fixed-length byte sequence is the <i>digest</i> or
+ * <i>message digest</i>.
  *
- * <p>A MessageDigest object starts out initialized. The data is
- * processed through it using the {@link #update(byte) update}
- * methods. At any point {@link #reset() reset} can be called
- * to reset the digest. Once all the data to be updated has been
- * updated, one of the {@link #digest() digest} methods should
- * be called to complete the hash computation.
+ * <h4>Sample Code</h4>
+ * <p>The basic pattern to digest an {@link java.io.InputStream} looks like this:
+ * <pre>
+ *  MessageDigest digester = MessageDigest.getInstance("MD5");
+ *  byte[] bytes = new byte[8192];
+ *  int byteCount;
+ *  while ((byteCount = in.read(bytes)) > 0) {
+ *    digester.update(bytes, 0, byteCount);
+ *  }
+ *  byte[] digest = digester.digest();
+ * </pre>
  *
- * <p>The {@code digest} method can be called once for a given number
- * of updates. After {@code digest} has been called, the MessageDigest
- * object is reset to its initialized state.
+ * <p>That is, after creating or resetting a {@code MessageDigest} you should
+ * call {@link #update(byte[],int,int)} for each block of input data, and then call {@link #digest}
+ * to get the final digest. Note that calling {@code digest} resets the {@code MessageDigest}.
+ * Advanced users who want partial digests should clone their {@code MessageDigest} before
+ * calling {@code digest}.
  *
- * <p>Implementations are free to implement the Cloneable interface.
- * Client applications can test cloneability by attempting cloning
- * and catching the CloneNotSupportedException:
+ * <p>This class is not thread-safe.
  *
- * <pre>{@code
- * MessageDigest md = MessageDigest.getInstance("SHA");
- *
- * try {
- *     md.update(toChapter1);
- *     MessageDigest tc1 = md.clone();
- *     byte[] toChapter1Digest = tc1.digest();
- *     md.update(toChapter2);
- *     ...etc.
- * } catch (CloneNotSupportedException cnse) {
- *     throw new DigestException("couldn't make digest of partial content");
- * }
- * }</pre>
- *
- * <p>Note that if a given implementation is not cloneable, it is
- * still possible to compute intermediate digests by instantiating
- * several instances, if the number of digests is known in advance.
- *
- * <p>Note that this class is abstract and extends from
- * {@code MessageDigestSpi} for historical reasons.
- * Application developers should only take notice of the methods defined in
- * this {@code MessageDigest} class; all the methods in
- * the superclass are intended for cryptographic service providers who wish to
- * supply their own implementations of message digest algorithms.
- *
- * <p> Android provides the following <code>MessageDigest</code> algorithms:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>MD5</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>SHA-1</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>SHA-224</td>
- *       <td>1-8,22+</td>
- *     </tr>
- *     <tr>
- *       <td>SHA-256</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>SHA-384</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>SHA-512</td>
- *       <td>1+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
- * MessageDigest section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * @author Benjamin Renaud
- *
- * @see DigestInputStream
- * @see DigestOutputStream
+ * @see MessageDigestSpi
  */
-
 public abstract class MessageDigest extends MessageDigestSpi {
 
-    // Android-removed: this debugging mechanism is not used in Android.
-    /*
-    private static final Debug pdebug =
-                        Debug.getInstance("provider", "Provider");
-    private static final boolean skipDebug =
-        Debug.isOn("engine=") && !Debug.isOn("messagedigest");
-    */
-
-    private String algorithm;
-
-    // The state of this digest
-    private static final int INITIAL = 0;
-    private static final int IN_PROGRESS = 1;
-    private int state = INITIAL;
+    // Used to access common engine functionality
+    private static final Engine ENGINE = new Engine("MessageDigest");
 
     // The provider
     private Provider provider;
 
+    // The algorithm.
+    private String algorithm;
+
     /**
-     * Creates a message digest with the specified algorithm name.
+     * Constructs a new instance of {@code MessageDigest} with the name of
+     * the algorithm to use.
      *
-     * @param algorithm the standard name of the digest algorithm.
-     * See the MessageDigest section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
+     * @param algorithm
+     *            the name of algorithm to use
      */
     protected MessageDigest(String algorithm) {
         this.algorithm = algorithm;
     }
 
     /**
-     * Returns a MessageDigest object that implements the specified digest
-     * algorithm.
+     * Returns a new instance of {@code MessageDigest} that utilizes the
+     * specified algorithm.
      *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new MessageDigest object encapsulating the
-     * MessageDigestSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the MessageDigest section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @return a Message Digest object that implements the specified algorithm.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports a
-     *          MessageDigestSpi implementation for the
-     *          specified algorithm.
-     *
-     * @see Provider
+     * @param algorithm
+     *            the name of the algorithm to use
+     * @return a new instance of {@code MessageDigest} that utilizes the
+     *         specified algorithm
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}
      */
     public static MessageDigest getInstance(String algorithm)
-    throws NoSuchAlgorithmException {
-        try {
-            MessageDigest md;
-            Object[] objs = Security.getImpl(algorithm, "MessageDigest",
-                                             (String)null);
-            if (objs[0] instanceof MessageDigest) {
-                md = (MessageDigest)objs[0];
-            } else {
-                md = new Delegate((MessageDigestSpi)objs[0], algorithm);
-            }
-            md.provider = (Provider)objs[1];
-
-            // Android-removed: this debugging mechanism is not used in Android.
-            /*
-            if (!skipDebug && pdebug != null) {
-                pdebug.println("MessageDigest." + algorithm +
-                    " algorithm from: " + md.provider.getName());
-            }
-            */
-
-            return md;
-
-        } catch(NoSuchProviderException e) {
-            throw new NoSuchAlgorithmException(algorithm + " not found");
+            throws NoSuchAlgorithmException {
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
         }
+        Engine.SpiAndProvider sap = ENGINE.getInstance(algorithm, null);
+        Object spi = sap.spi;
+        Provider provider = sap.provider;
+        if (spi instanceof MessageDigest) {
+            MessageDigest result = (MessageDigest) spi;
+            result.algorithm = algorithm;
+            result.provider = provider;
+            return result;
+        }
+        return new MessageDigestImpl((MessageDigestSpi) sap.spi, sap.provider, algorithm);
     }
 
     /**
-     * Returns a MessageDigest object that implements the specified digest
-     * algorithm.
+     * Returns a new instance of {@code MessageDigest} that utilizes the
+     * specified algorithm from the specified provider.
      *
-     * <p> A new MessageDigest object encapsulating the
-     * MessageDigestSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the MessageDigest section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return a MessageDigest object that implements the specified algorithm.
-     *
-     * @exception NoSuchAlgorithmException if a MessageDigestSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the provider name is null
-     *          or empty.
-     *
-     * @see Provider
+     * @param algorithm
+     *            the name of the algorithm to use
+     * @param provider
+     *            the name of the provider
+     * @return a new instance of {@code MessageDigest} that utilizes the
+     *         specified algorithm from the specified provider
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available
+     * @throws NoSuchProviderException
+     *             if the specified provider is not available
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}
+     * @throws IllegalArgumentException if {@code provider == null || provider.isEmpty()}
      */
     public static MessageDigest getInstance(String algorithm, String provider)
-        throws NoSuchAlgorithmException, NoSuchProviderException
-    {
-        if (provider == null || provider.length() == 0)
-            throw new IllegalArgumentException("missing provider");
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "MessageDigest", algorithm);
-        Object[] objs = Security.getImpl(algorithm, "MessageDigest", provider);
-        if (objs[0] instanceof MessageDigest) {
-            MessageDigest md = (MessageDigest)objs[0];
-            md.provider = (Provider)objs[1];
-            return md;
-        } else {
-            MessageDigest delegate =
-                new Delegate((MessageDigestSpi)objs[0], algorithm);
-            delegate.provider = (Provider)objs[1];
-            return delegate;
+            throws NoSuchAlgorithmException, NoSuchProviderException {
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException();
         }
-    }
-
-    /**
-     * Returns a MessageDigest object that implements the specified digest
-     * algorithm.
-     *
-     * <p> A new MessageDigest object encapsulating the
-     * MessageDigestSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the MessageDigest section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the provider.
-     *
-     * @return a MessageDigest object that implements the specified algorithm.
-     *
-     * @exception NoSuchAlgorithmException if a MessageDigestSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @exception IllegalArgumentException if the specified provider is null.
-     *
-     * @see Provider
-     *
-     * @since 1.4
-     */
-    public static MessageDigest getInstance(String algorithm,
-                                            Provider provider)
-        throws NoSuchAlgorithmException
-    {
-        if (provider == null)
-            throw new IllegalArgumentException("missing provider");
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "MessageDigest", algorithm);
-        Object[] objs = Security.getImpl(algorithm, "MessageDigest", provider);
-        if (objs[0] instanceof MessageDigest) {
-            MessageDigest md = (MessageDigest)objs[0];
-            md.provider = (Provider)objs[1];
-            return md;
-        } else {
-            MessageDigest delegate =
-                new Delegate((MessageDigestSpi)objs[0], algorithm);
-            delegate.provider = (Provider)objs[1];
-            return delegate;
+        Provider p = Security.getProvider(provider);
+        if (p == null) {
+            throw new NoSuchProviderException(provider);
         }
+        return getInstance(algorithm, p);
     }
 
     /**
-     * Returns the provider of this message digest object.
+     * Returns a new instance of {@code MessageDigest} that utilizes the
+     * specified algorithm from the specified provider. The
+     * {@code provider} supplied does not have to be registered.
      *
-     * @return the provider of this message digest object
+     * @param algorithm
+     *            the name of the algorithm to use
+     * @param provider
+     *            the provider
+     * @return a new instance of {@code MessageDigest} that utilizes the
+     *         specified algorithm from the specified provider
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}
+     * @throws IllegalArgumentException if {@code provider == null}
      */
-    public final Provider getProvider() {
-        return this.provider;
+    public static MessageDigest getInstance(String algorithm, Provider provider)
+            throws NoSuchAlgorithmException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        Object spi = ENGINE.getInstance(algorithm, provider, null);
+        if (spi instanceof MessageDigest) {
+            MessageDigest result = (MessageDigest) spi;
+            result.algorithm = algorithm;
+            result.provider = provider;
+            return result;
+        }
+        return new MessageDigestImpl((MessageDigestSpi) spi, provider, algorithm);
     }
 
     /**
-     * Updates the digest using the specified byte.
-     *
-     * @param input the byte with which to update the digest.
+     * Puts this {@code MessageDigest} back in an initial state, such that it is
+     * ready to compute a one way hash value.
      */
-    public void update(byte input) {
-        engineUpdate(input);
-        state = IN_PROGRESS;
+    public void reset() {
+        engineReset();
     }
 
     /**
-     * Updates the digest using the specified array of bytes, starting
-     * at the specified offset.
+     * Updates this {@code MessageDigest} using the given {@code byte}.
      *
-     * @param input the array of bytes.
+     * @param arg0
+     *            the {@code byte} to update this {@code MessageDigest} with
+     * @see #reset()
+     */
+    public void update(byte arg0) {
+        engineUpdate(arg0);
+    }
+
+    /**
+     * Updates this {@code MessageDigest} using the given {@code byte[]}.
      *
-     * @param offset the offset to start from in the array of bytes.
-     *
-     * @param len the number of bytes to use, starting at
-     * {@code offset}.
+     * @param input
+     *            the {@code byte} array
+     * @param offset
+     *            the index of the first byte in {@code input} to update from
+     * @param len
+     *            the number of bytes in {@code input} to update from
+     * @throws IllegalArgumentException
+     *             if {@code offset} or {@code len} are not valid in respect to
+     *             {@code input}
      */
     public void update(byte[] input, int offset, int len) {
-        if (input == null) {
-            throw new IllegalArgumentException("No input buffer given");
-        }
-        if (input.length - offset < len) {
-            throw new IllegalArgumentException("Input buffer too short");
+        if (input == null ||
+        // offset < 0 || len < 0 ||
+                // checks for negative values are commented out intentionally
+                // see HARMONY-1120 for details
+                (long) offset + (long) len > input.length) {
+            throw new IllegalArgumentException();
         }
         engineUpdate(input, offset, len);
-        state = IN_PROGRESS;
     }
 
     /**
-     * Updates the digest using the specified array of bytes.
+     * Updates this {@code MessageDigest} using the given {@code byte[]}.
      *
-     * @param input the array of bytes.
+     * @param input
+     *            the {@code byte} array
+     * @throws NullPointerException
+     *             if {@code input} is {@code null}
      */
     public void update(byte[] input) {
-        engineUpdate(input, 0, input.length);
-        state = IN_PROGRESS;
-    }
-
-    /**
-     * Update the digest using the specified ByteBuffer. The digest is
-     * updated using the {@code input.remaining()} bytes starting
-     * at {@code input.position()}.
-     * Upon return, the buffer's position will be equal to its limit;
-     * its limit will not have changed.
-     *
-     * @param input the ByteBuffer
-     * @since 1.5
-     */
-    public final void update(ByteBuffer input) {
         if (input == null) {
-            throw new NullPointerException();
+            throw new NullPointerException("input == null");
         }
-        engineUpdate(input);
-        state = IN_PROGRESS;
+        engineUpdate(input, 0, input.length);
     }
 
     /**
-     * Completes the hash computation by performing final operations
-     * such as padding. The digest is reset after this call is made.
+     * Computes and returns the final hash value for this {@link MessageDigest}.
+     * After the digest is computed the receiver is reset.
      *
-     * @return the array of bytes for the resulting hash value.
+     * @return the computed one way hash value
+     * @see #reset
      */
     public byte[] digest() {
-        /* Resetting is the responsibility of implementors. */
-        byte[] result = engineDigest();
-        state = INITIAL;
-        return result;
+        return engineDigest();
     }
 
     /**
-     * Completes the hash computation by performing final operations
-     * such as padding. The digest is reset after this call is made.
+     * Computes and stores the final hash value for this {@link MessageDigest}.
+     * After the digest is computed the receiver is reset.
      *
-     * @param buf output buffer for the computed digest
-     *
-     * @param offset offset into the output buffer to begin storing the digest
-     *
-     * @param len number of bytes within buf allotted for the digest
-     *
-     * @return the number of bytes placed into {@code buf}
-     *
-     * @exception DigestException if an error occurs.
+     * @param buf
+     *            the buffer to store the result
+     * @param offset
+     *            the index of the first byte in {@code buf} to store
+     * @param len
+     *            the number of bytes allocated for the digest
+     * @return the number of bytes written to {@code buf}
+     * @throws DigestException
+     *             if an error occurs
+     * @throws IllegalArgumentException
+     *             if {@code offset} or {@code len} are not valid in respect to
+     *             {@code buf}
+     * @see #reset()
      */
     public int digest(byte[] buf, int offset, int len) throws DigestException {
-        if (buf == null) {
-            throw new IllegalArgumentException("No output buffer given");
+        if (buf == null ||
+        // offset < 0 || len < 0 ||
+                // checks for negative values are commented out intentionally
+                // see HARMONY-1148 for details
+                (long) offset + (long) len > buf.length) {
+            throw new IllegalArgumentException();
         }
-        if (buf.length - offset < len) {
-            throw new IllegalArgumentException
-                ("Output buffer too small for specified offset and length");
-        }
-        int numBytes = engineDigest(buf, offset, len);
-        state = INITIAL;
-        return numBytes;
+        return engineDigest(buf, offset, len);
     }
 
     /**
-     * Performs a final update on the digest using the specified array
-     * of bytes, then completes the digest computation. That is, this
-     * method first calls {@link #update(byte[]) update(input)},
-     * passing the <i>input</i> array to the {@code update} method,
-     * then calls {@link #digest() digest()}.
+     * Performs the final update and then computes and returns the final hash
+     * value for this {@link MessageDigest}. After the digest is computed the
+     * receiver is reset.
      *
-     * @param input the input to be updated before the digest is
-     * completed.
-     *
-     * @return the array of bytes for the resulting hash value.
+     * @param input
+     *            the {@code byte} array
+     * @return the computed one way hash value
+     * @see #reset()
      */
     public byte[] digest(byte[] input) {
         update(input);
@@ -449,198 +279,142 @@ public abstract class MessageDigest extends MessageDigestSpi {
     }
 
     /**
-     * Returns a string representation of this message digest object.
+     * Returns a string containing a concise, human-readable description of this
+     * {@code MessageDigest} including the name of its algorithm.
+     *
+     * @return a printable representation for this {@code MessageDigest}
      */
+    @Override
     public String toString() {
-        // BEGIN Android-changed: Use StringBuilder instead of a ByteArrayOutputStream.
-        StringBuilder builder = new StringBuilder();
-        builder.append(algorithm);
-        builder.append(" Message Digest from ");
-        builder.append(provider.getName());
-        builder.append(", ");
-
-        switch (state) {
-        case INITIAL:
-            builder.append("<initialized>");
-            break;
-        case IN_PROGRESS:
-            builder.append("<in progress>");
-            break;
-        }
-
-        return builder.toString();
-        // END Android-changed: Use StringBuilder instead of a ByteArrayOutputStream.
+        return "MESSAGE DIGEST " + algorithm;
     }
 
     /**
-     * Compares two digests for equality. Does a simple byte compare.
+     * Indicates whether to digest are equal by performing a simply
+     * byte-per-byte compare of the two digests.
      *
-     * @param digesta one of the digests to compare.
-     *
-     * @param digestb the other digest to compare.
-     *
-     * @return true if the digests are equal, false otherwise.
+     * @param digesta
+     *            the first digest to be compared
+     * @param digestb
+     *            the second digest to be compared
+     * @return {@code true} if the two hashes are equal, {@code false} otherwise
      */
     public static boolean isEqual(byte[] digesta, byte[] digestb) {
-        if (digesta == digestb) return true;
-        if (digesta == null || digestb == null) {
-            return false;
-        }
         if (digesta.length != digestb.length) {
             return false;
         }
-
-        int result = 0;
-        // time-constant comparison
+        // Perform a constant time comparison to avoid timing attacks.
+        int v = 0;
         for (int i = 0; i < digesta.length; i++) {
-            result |= digesta[i] ^ digestb[i];
+            v |= (digesta[i] ^ digestb[i]);
         }
-        return result == 0;
+        return v == 0;
     }
 
     /**
-     * Resets the digest for further use.
-     */
-    public void reset() {
-        engineReset();
-        state = INITIAL;
-    }
-
-    /**
-     * Returns a string that identifies the algorithm, independent of
-     * implementation details. The name should be a standard
-     * Java Security name (such as "SHA", "MD5", and so on).
-     * See the MessageDigest section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#MessageDigest">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
+     * Returns the name of the algorithm of this {@code MessageDigest}.
      *
-     * @return the name of the algorithm
+     * @return the name of the algorithm of this {@code MessageDigest}
      */
     public final String getAlgorithm() {
-        return this.algorithm;
+        return algorithm;
     }
 
     /**
-     * Returns the length of the digest in bytes, or 0 if this operation is
-     * not supported by the provider and the implementation is not cloneable.
+     * Returns the provider associated with this {@code MessageDigest}.
      *
-     * @return the digest length in bytes, or 0 if this operation is not
-     * supported by the provider and the implementation is not cloneable.
+     * @return the provider associated with this {@code MessageDigest}
+     */
+    public final Provider getProvider() {
+        return provider;
+    }
+
+    /**
+     * Returns the engine digest length in bytes. If the implementation does not
+     * implement this function or is not an instance of {@code Cloneable},
+     * {@code 0} is returned.
      *
-     * @since 1.2
+     * @return the digest length in bytes, or {@code 0}
      */
     public final int getDigestLength() {
-        int digestLen = engineGetDigestLength();
-        if (digestLen == 0) {
-            try {
-                MessageDigest md = (MessageDigest)clone();
-                byte[] digest = md.digest();
-                return digest.length;
-            } catch (CloneNotSupportedException e) {
-                return digestLen;
-            }
+        int l = engineGetDigestLength();
+        if (l != 0) {
+            return l;
         }
-        return digestLen;
+        if (!(this instanceof Cloneable)) {
+            return 0;
+        }
+        try {
+            MessageDigest md = (MessageDigest) clone();
+            return md.digest().length;
+        } catch (CloneNotSupportedException e) {
+            return 0;
+        }
     }
 
     /**
-     * Returns a clone if the implementation is cloneable.
+     * Updates this {@code MessageDigest} using the given {@code input}.
      *
-     * @return a clone if the implementation is cloneable.
-     *
-     * @exception CloneNotSupportedException if this is called on an
-     * implementation that does not support {@code Cloneable}.
+     * @param input
+     *            the {@code ByteBuffer}
      */
-    public Object clone() throws CloneNotSupportedException {
-        if (this instanceof Cloneable) {
-            return super.clone();
-        } else {
-            throw new CloneNotSupportedException();
-        }
+    public final void update(ByteBuffer input) {
+        engineUpdate(input);
     }
 
-
-
-
-    /*
-     * The following class allows providers to extend from MessageDigestSpi
-     * rather than from MessageDigest. It represents a MessageDigest with an
-     * encapsulated, provider-supplied SPI object (of type MessageDigestSpi).
-     * If the provider implementation is an instance of MessageDigestSpi,
-     * the getInstance() methods above return an instance of this class, with
-     * the SPI object encapsulated.
+    /**
      *
-     * Note: All SPI methods from the original MessageDigest class have been
-     * moved up the hierarchy into a new class (MessageDigestSpi), which has
-     * been interposed in the hierarchy between the API (MessageDigest)
-     * and its original parent (Object).
+     * The internal MessageDigest implementation
+     *
      */
+    private static class MessageDigestImpl extends MessageDigest {
 
-    static class Delegate extends MessageDigest {
+        // MessageDigestSpi implementation
+        private MessageDigestSpi spiImpl;
 
-        // The provider implementation (delegate)
-        private MessageDigestSpi digestSpi;
-
-        // constructor
-        public Delegate(MessageDigestSpi digestSpi, String algorithm) {
+        // MessageDigestImpl ctor
+        private MessageDigestImpl(MessageDigestSpi messageDigestSpi,
+                Provider provider, String algorithm) {
             super(algorithm);
-            this.digestSpi = digestSpi;
+            super.provider = provider;
+            spiImpl = messageDigestSpi;
         }
 
-        /**
-         * Returns a clone if the delegate is cloneable.
-         *
-         * @return a clone if the delegate is cloneable.
-         *
-         * @exception CloneNotSupportedException if this is called on a
-         * delegate that does not support {@code Cloneable}.
-         */
-        public Object clone() throws CloneNotSupportedException {
-            if (digestSpi instanceof Cloneable) {
-                MessageDigestSpi digestSpiClone =
-                    (MessageDigestSpi)digestSpi.clone();
-                // Because 'algorithm', 'provider', and 'state' are private
-                // members of our supertype, we must perform a cast to
-                // access them.
-                MessageDigest that =
-                    new Delegate(digestSpiClone,
-                                 ((MessageDigest)this).algorithm);
-                that.provider = ((MessageDigest)this).provider;
-                that.state = ((MessageDigest)this).state;
-                return that;
-            } else {
-                throw new CloneNotSupportedException();
-            }
-        }
-
-        protected int engineGetDigestLength() {
-            return digestSpi.engineGetDigestLength();
-        }
-
-        protected void engineUpdate(byte input) {
-            digestSpi.engineUpdate(input);
-        }
-
-        protected void engineUpdate(byte[] input, int offset, int len) {
-            digestSpi.engineUpdate(input, offset, len);
-        }
-
-        protected void engineUpdate(ByteBuffer input) {
-            digestSpi.engineUpdate(input);
-        }
-
-        protected byte[] engineDigest() {
-            return digestSpi.engineDigest();
-        }
-
-        protected int engineDigest(byte[] buf, int offset, int len)
-            throws DigestException {
-                return digestSpi.engineDigest(buf, offset, len);
-        }
-
+        // engineReset() implementation
+        @Override
         protected void engineReset() {
-            digestSpi.engineReset();
+            spiImpl.engineReset();
+        }
+
+        // engineDigest() implementation
+        @Override
+        protected byte[] engineDigest() {
+            return spiImpl.engineDigest();
+        }
+
+        // engineGetDigestLength() implementation
+        @Override
+        protected int engineGetDigestLength() {
+            return spiImpl.engineGetDigestLength();
+        }
+
+        // engineUpdate() implementation
+        @Override
+        protected void engineUpdate(byte arg0) {
+            spiImpl.engineUpdate(arg0);
+        }
+
+        // engineUpdate() implementation
+        @Override
+        protected void engineUpdate(byte[] arg0, int arg1, int arg2) {
+            spiImpl.engineUpdate(arg0, arg1, arg2);
+        }
+
+        // Returns a clone if the spiImpl is cloneable
+        @Override
+        public Object clone() throws CloneNotSupportedException {
+            MessageDigestSpi spi = (MessageDigestSpi) spiImpl.clone();
+            return new MessageDigestImpl(spi, getProvider(), getAlgorithm());
         }
     }
 }

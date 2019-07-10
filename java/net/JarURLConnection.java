@@ -1,309 +1,208 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
 import java.io.IOException;
-import java.util.jar.JarFile;
-import java.util.jar.JarEntry;
+import java.nio.charset.StandardCharsets;
+import java.security.cert.Certificate;
 import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.Manifest;
-import java.security.Permission;
-import sun.net.www.ParseUtil;
+import libcore.net.UriCodec;
 
 /**
- * A URL Connection to a Java ARchive (JAR) file or an entry in a JAR
- * file.
- *
- * <p>The syntax of a JAR URL is:
- *
- * <pre>
- * jar:&lt;url&gt;!/{entry}
- * </pre>
- *
- * <p>for example:
- *
- * <p>{@code jar:http://www.foo.com/bar/baz.jar!/COM/foo/Quux.class}
- *
- * <p>Jar URLs should be used to refer to a JAR file or entries in
- * a JAR file. The example above is a JAR URL which refers to a JAR
- * entry. If the entry name is omitted, the URL refers to the whole
- * JAR file:
- *
- * {@code jar:http://www.foo.com/bar/baz.jar!/}
- *
- * <p>Users should cast the generic URLConnection to a
- * JarURLConnection when they know that the URL they created is a JAR
- * URL, and they need JAR-specific functionality. For example:
- *
- * <pre>
- * URL url = new URL("jar:file:/home/duke/duke.jar!/");
- * JarURLConnection jarConnection = (JarURLConnection)url.openConnection();
- * Manifest manifest = jarConnection.getManifest();
- * </pre>
- *
- * <p>JarURLConnection instances can only be used to read from JAR files.
- * It is not possible to get a {@link java.io.OutputStream} to modify or write
- * to the underlying JAR file using this class.
- * <p>Examples:
- *
- * <dl>
- *
- * <dt>A Jar entry
- * <dd>{@code jar:http://www.foo.com/bar/baz.jar!/COM/foo/Quux.class}
- *
- * <dt>A Jar file
- * <dd>{@code jar:http://www.foo.com/bar/baz.jar!/}
- *
- * <dt>A Jar directory
- * <dd>{@code jar:http://www.foo.com/bar/baz.jar!/COM/foo/}
- *
- * </dl>
- *
- * <p>{@code !/} is referred to as the <em>separator</em>.
- *
- * <p>When constructing a JAR url via {@code new URL(context, spec)},
- * the following rules apply:
- *
- * <ul>
- *
- * <li>if there is no context URL and the specification passed to the
- * URL constructor doesn't contain a separator, the URL is considered
- * to refer to a JarFile.
- *
- * <li>if there is a context URL, the context URL is assumed to refer
- * to a JAR file or a Jar directory.
- *
- * <li>if the specification begins with a '/', the Jar directory is
- * ignored, and the spec is considered to be at the root of the Jar
- * file.
- *
- * <p>Examples:
- *
- * <dl>
- *
- * <dt>context: <b>jar:http://www.foo.com/bar/jar.jar!/</b>,
- * spec:<b>baz/entry.txt</b>
- *
- * <dd>url:<b>jar:http://www.foo.com/bar/jar.jar!/baz/entry.txt</b>
- *
- * <dt>context: <b>jar:http://www.foo.com/bar/jar.jar!/baz</b>,
- * spec:<b>entry.txt</b>
- *
- * <dd>url:<b>jar:http://www.foo.com/bar/jar.jar!/baz/entry.txt</b>
- *
- * <dt>context: <b>jar:http://www.foo.com/bar/jar.jar!/baz</b>,
- * spec:<b>/entry.txt</b>
- *
- * <dd>url:<b>jar:http://www.foo.com/bar/jar.jar!/entry.txt</b>
- *
- * </dl>
- *
- * </ul>
- *
- * @see java.net.URL
- * @see java.net.URLConnection
- *
- * @see java.util.jar.JarFile
- * @see java.util.jar.JarInputStream
- * @see java.util.jar.Manifest
- * @see java.util.zip.ZipEntry
- *
- * @author Benjamin Renaud
- * @since 1.2
+ * This class establishes a connection to a {@code jar:} URL using the {@code
+ * JAR} protocol. A {@code JarURLConnection} instance can refer to either a JAR
+ * archive file or to an entry of such a file. {@code jar:} URLs are specified
+ * as follows: <i>jar:{archive-url}!/{entry}</i> where "!/" is called a
+ * separator. This separator is important to determine if an archive or an entry
+ * of an archive is referred.
+ * <p>
+ * Examples:
+ * <li>Archive: {@code jar:http://www.example.com/applets/archive.jar!/}</li>
+ * <li>File Entry: {@code
+ * jar:http://www.example.com/applets/archive.jar!/test.class}</li>
+ * <li>Directory Entry: {@code
+ * jar:http://www.example.com/applets/archive.jar!/applets/}</li>
  */
 public abstract class JarURLConnection extends URLConnection {
 
-    private URL jarFileURL;
-    private String entryName;
-
     /**
-     * The connection to the JAR file URL, if the connection has been
-     * initiated. This should be set by connect.
+     * The location part of the represented URL.
      */
     protected URLConnection jarFileURLConnection;
 
-    /**
-     * Creates the new JarURLConnection to the specified URL.
-     * @param url the URL
-     * @throws MalformedURLException if no legal protocol
-     * could be found in a specification string or the
-     * string could not be parsed.
-     */
+    private String entryName;
 
+    private URL fileURL;
+
+    // the file component of the URL
+    private String file;
+
+    /**
+     * Constructs an instance of {@code JarURLConnection} that refers to the
+     * specified URL.
+     *
+     * @param url
+     *            the URL that contains the location to connect to.
+     * @throws MalformedURLException
+     *             if an invalid URL has been entered.
+     */
     protected JarURLConnection(URL url) throws MalformedURLException {
         super(url);
-        parseSpecs(url);
-    }
+        file = decode(url.getFile());
 
-    /* get the specs for a given url out of the cache, and compute and
-     * cache them if they're not there.
-     */
-    private void parseSpecs(URL url) throws MalformedURLException {
-        String spec = url.getFile();
-
-        int separator = spec.indexOf("!/");
-        /*
-         * REMIND: we don't handle nested JAR URLs
-         */
-        if (separator == -1) {
-            throw new MalformedURLException("no !/ found in url spec:" + spec);
+        int sepIdx;
+        if ((sepIdx = file.indexOf("!/")) < 0) {
+            throw new MalformedURLException();
         }
-
-        jarFileURL = new URL(spec.substring(0, separator++));
-        entryName = null;
-
-        /* if ! is the last letter of the innerURL, entryName is null */
-        if (++separator != spec.length()) {
-            entryName = spec.substring(separator, spec.length());
-            entryName = ParseUtil.decode (entryName);
+        fileURL = new URL(file.substring(0, sepIdx));
+        sepIdx += 2;
+        if (file.length() == sepIdx) {
+            return;
+        }
+        entryName = file.substring(sepIdx, file.length());
+        if (url.getRef() != null) {
+            entryName += "#" + url.getRef();
         }
     }
 
     /**
-     * Returns the URL for the Jar file for this connection.
+     * Returns all attributes of the {@code JarEntry} referenced by this {@code
+     * JarURLConnection}.
      *
-     * @return the URL for the Jar file for this connection.
+     * @return the attributes of the referenced {@code JarEntry}.
+     * @throws IOException
+     *                if an I/O exception occurs while retrieving the
+     *                JAR-entries.
      */
-    public URL getJarFileURL() {
-        return jarFileURL;
+    public Attributes getAttributes() throws java.io.IOException {
+        JarEntry jEntry = getJarEntry();
+        return (jEntry == null) ? null : jEntry.getAttributes();
     }
 
     /**
-     * Return the entry name for this connection. This method
-     * returns null if the JAR file URL corresponding to this
-     * connection points to a JAR file and not a JAR file entry.
+     * Returns all certificates of the {@code JarEntry} referenced by this
+     * {@code JarURLConnection} instance. This method will return {@code null}
+     * until the {@code InputStream} has been completely verified.
      *
-     * @return the entry name for this connection, if any.
+     * @return the certificates of the {@code JarEntry} as an array.
+     * @throws IOException
+     *                if there is an I/O exception occurs while getting the
+     *                {@code JarEntry}.
+     */
+    public Certificate[] getCertificates() throws java.io.IOException {
+        JarEntry jEntry = getJarEntry();
+        if (jEntry == null) {
+            return null;
+        }
+
+        return jEntry.getCertificates();
+    }
+
+    /**
+     * Gets the name of the entry referenced by this {@code JarURLConnection}.
+     * The return value will be {@code null} if this instance refers to a JAR
+     * file rather than an JAR file entry.
+     *
+     * @return the {@code JarEntry} name this instance refers to.
      */
     public String getEntryName() {
         return entryName;
     }
 
     /**
-     * Return the JAR file for this connection.
+     * Gets the {@code JarEntry} object of the entry referenced by this {@code
+     * JarURLConnection}.
      *
-     * @return the JAR file for this connection. If the connection is
-     * a connection to an entry of a JAR file, the JAR file object is
-     * returned
-     *
-     * @exception IOException if an IOException occurs while trying to
-     * connect to the JAR file for this connection.
-     *
-     * @see #connect
-     */
-    public abstract JarFile getJarFile() throws IOException;
-
-    /**
-     * Returns the Manifest for this connection, or null if none.
-     *
-     * @return the manifest object corresponding to the JAR file object
-     * for this connection.
-     *
-     * @exception IOException if getting the JAR file for this
-     * connection causes an IOException to be thrown.
-     *
-     * @see #getJarFile
-     */
-    public Manifest getManifest() throws IOException {
-        return getJarFile().getManifest();
-    }
-
-    /**
-     * Return the JAR entry object for this connection, if any. This
-     * method returns null if the JAR file URL corresponding to this
-     * connection points to a JAR file and not a JAR file entry.
-     *
-     * @return the JAR entry object for this connection, or null if
-     * the JAR URL for this connection points to a JAR file.
-     *
-     * @exception IOException if getting the JAR file for this
-     * connection causes an IOException to be thrown.
-     *
-     * @see #getJarFile
-     * @see #getJarEntry
+     * @return the referenced {@code JarEntry} object or {@code null} if no
+     *         entry name is specified.
+     * @throws IOException
+     *             if an error occurs while getting the file or file-entry.
      */
     public JarEntry getJarEntry() throws IOException {
+        if (!connected) {
+            connect();
+        }
+        if (entryName == null) {
+            return null;
+        }
+        // The entry must exist since the connect succeeded
         return getJarFile().getJarEntry(entryName);
     }
 
     /**
-     * Return the Attributes object for this connection if the URL
-     * for it points to a JAR file entry, null otherwise.
+     * Gets the manifest file associated with this JAR-URL.
      *
-     * @return the Attributes object for this connection if the URL
-     * for it points to a JAR file entry, null otherwise.
-     *
-     * @exception IOException if getting the JAR entry causes an
-     * IOException to be thrown.
-     *
-     * @see #getJarEntry
+     * @return the manifest of the referenced JAR-file.
+     * @throws IOException
+     *             if an error occurs while getting the manifest file.
      */
-    public Attributes getAttributes() throws IOException {
-        JarEntry e = getJarEntry();
-        return e != null ? e.getAttributes() : null;
+    public Manifest getManifest() throws java.io.IOException {
+        return (Manifest)getJarFile().getManifest().clone();
     }
 
     /**
-     * Returns the main Attributes for the JAR file for this
-     * connection.
+     * Gets the {@code JarFile} object referenced by this {@code
+     * JarURLConnection}.
      *
-     * @return the main Attributes for the JAR file for this
-     * connection.
-     *
-     * @exception IOException if getting the manifest causes an
-     * IOException to be thrown.
-     *
-     * @see #getJarFile
-     * @see #getManifest
+     * @return the referenced JarFile object.
+     * @throws IOException
+     *                if an I/O exception occurs while retrieving the JAR-file.
      */
-    public Attributes getMainAttributes() throws IOException {
-        Manifest man = getManifest();
-        return man != null ? man.getMainAttributes() : null;
+    public abstract JarFile getJarFile() throws java.io.IOException;
+
+    /**
+     * Gets the URL to the JAR-file referenced by this {@code JarURLConnection}.
+     *
+     * @return the URL to the JAR-file or {@code null} if there was an error
+     *         retrieving the URL.
+     */
+    public URL getJarFileURL() {
+        return fileURL;
     }
 
     /**
-     * Return the Certificate object for this connection if the URL
-     * for it points to a JAR file entry, null otherwise. This method
-     * can only be called once
-     * the connection has been completely verified by reading
-     * from the input stream until the end of the stream has been
-     * reached. Otherwise, this method will return {@code null}
+     * Gets all attributes of the manifest file referenced by this {@code
+     * JarURLConnection}. If this instance refers to a JAR-file rather than a
+     * JAR-file entry, {@code null} will be returned.
      *
-     * @return the Certificate object for this connection if the URL
-     * for it points to a JAR file entry, null otherwise.
-     *
-     * @exception IOException if getting the JAR entry causes an
-     * IOException to be thrown.
-     *
-     * @see #getJarEntry
+     * @return the attributes of the manifest file or {@code null}.
+     * @throws IOException
+     *                if an I/O exception occurs while retrieving the {@code
+     *                JarFile}.
      */
-    public java.security.cert.Certificate[] getCertificates()
-         throws IOException
-    {
-        JarEntry e = getJarEntry();
-        return e != null ? e.getCertificates() : null;
+    public Attributes getMainAttributes() throws java.io.IOException {
+        Manifest m = getJarFile().getManifest();
+        return (m == null) ? null : m.getMainAttributes();
     }
+
+    private static String decode(String encoded) throws MalformedURLException {
+        try {
+            // "+" means "+" in URLs. i.e. like RFC 3986, not like
+            // MIME application/x-www-form-urlencoded
+            final boolean convertPlus = false;
+            return UriCodec.decode(
+                    encoded, convertPlus, StandardCharsets.UTF_8, true /* throwOnFailure */);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedURLException("Unable to decode URL", e);
+        }
+    }
+
 }

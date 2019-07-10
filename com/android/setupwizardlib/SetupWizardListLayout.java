@@ -18,56 +18,39 @@ package com.android.setupwizardlib;
 
 import android.annotation.TargetApi;
 import android.content.Context;
-import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION_CODES;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ListAdapter;
 import android.widget.ListView;
-
-import com.android.setupwizardlib.template.ListMixin;
-import com.android.setupwizardlib.template.ListViewScrollHandlingDelegate;
-import com.android.setupwizardlib.template.RequireScrollMixin;
 
 public class SetupWizardListLayout extends SetupWizardLayout {
 
     private static final String TAG = "SetupWizardListLayout";
-
-    private ListMixin mListMixin;
+    private ListView mListView;
 
     public SetupWizardListLayout(Context context) {
-        this(context, 0, 0);
+        super(context);
     }
 
     public SetupWizardListLayout(Context context, int template) {
-        this(context, template, 0);
-    }
-
-    public SetupWizardListLayout(Context context, int template, int containerId) {
-        super(context, template, containerId);
-        init(context, null, 0);
+        super(context, template);
     }
 
     public SetupWizardListLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init(context, attrs, 0);
     }
 
     @TargetApi(VERSION_CODES.HONEYCOMB)
     public SetupWizardListLayout(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        init(context, attrs, defStyleAttr);
     }
 
-    private void init(Context context, AttributeSet attrs, int defStyleAttr) {
-        mListMixin = new ListMixin(this, attrs, defStyleAttr);
-        registerMixin(ListMixin.class, mListMixin);
-
-        final RequireScrollMixin requireScrollMixin = getMixin(RequireScrollMixin.class);
-        requireScrollMixin.setScrollHandlingDelegate(
-                new ListViewScrollHandlingDelegate(requireScrollMixin, getListView()));
+    @TargetApi(VERSION_CODES.HONEYCOMB)
+    public SetupWizardListLayout(Context context, int template, AttributeSet attrs,
+            int defStyleAttr) {
+        super(context, template, attrs, defStyleAttr);
     }
 
     @Override
@@ -75,92 +58,24 @@ public class SetupWizardListLayout extends SetupWizardLayout {
         if (template == 0) {
             template = R.layout.suw_list_template;
         }
-        return super.onInflateTemplate(inflater, template);
+        return inflater.inflate(template, this, false);
     }
 
     @Override
-    protected ViewGroup findContainer(int containerId) {
-        if (containerId == 0) {
-            containerId = android.R.id.list;
-        }
-        return super.findContainer(containerId);
+    protected void onTemplateInflated() {
+        mListView = (ListView) findViewById(android.R.id.list);
     }
 
     @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        mListMixin.onLayout();
+    protected int getContainerId() {
+        return android.R.id.list;
     }
 
     public ListView getListView() {
-        return mListMixin.getListView();
+        return mListView;
     }
 
     public void setAdapter(ListAdapter adapter) {
-        mListMixin.setAdapter(adapter);
-    }
-
-    public ListAdapter getAdapter() {
-        return mListMixin.getAdapter();
-    }
-
-    /**
-     * Sets the start inset of the divider. This will use the default divider drawable set in the
-     * theme and inset it {@code inset} pixels to the right (or left in RTL layouts).
-     *
-     * @param inset The number of pixels to inset on the "start" side of the list divider. Typically
-     *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
-     *              {@code @dimen/suw_items_text_divider_inset}.
-     *
-     * @see ListMixin#setDividerInset(int)
-     * @deprecated Use {@link #setDividerInsets(int, int)} instead.
-     */
-    @Deprecated
-    public void setDividerInset(int inset) {
-        mListMixin.setDividerInset(inset);
-    }
-
-    /**
-     * Sets the start inset of the divider. This will use the default divider drawable set in the
-     * theme and apply insets to it.
-     *
-     * @param start The number of pixels to inset on the "start" side of the list divider. Typically
-     *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
-     *              {@code @dimen/suw_items_text_divider_inset}.
-     * @param end The number of pixels to inset on the "end" side of the list divider.
-     *
-     * @see ListMixin#setDividerInsets(int, int)
-     */
-    public void setDividerInsets(int start, int end) {
-        mListMixin.setDividerInsets(start, end);
-    }
-
-    /**
-     * @deprecated Use {@link #getDividerInsetStart()} instead.
-     */
-    @Deprecated
-    public int getDividerInset() {
-        return mListMixin.getDividerInset();
-    }
-
-    /**
-     * @see ListMixin#getDividerInsetStart()
-     */
-    public int getDividerInsetStart() {
-        return mListMixin.getDividerInsetStart();
-    }
-
-    /**
-     * @see ListMixin#getDividerInsetEnd()
-     */
-    public int getDividerInsetEnd() {
-        return mListMixin.getDividerInsetEnd();
-    }
-
-    /**
-     * @see ListMixin#getDivider()
-     */
-    public Drawable getDivider() {
-        return mListMixin.getDivider();
+        getListView().setAdapter(adapter);
     }
 }

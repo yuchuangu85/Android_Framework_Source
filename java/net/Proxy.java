@@ -1,171 +1,177 @@
-/*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package java.net;
 
 /**
- * This class represents a proxy setting, typically a type (http, socks) and
- * a socket address.
- * A {@code Proxy} is an immutable object.
- *
- * @see     java.net.ProxySelector
- * @author Yingxian Wang
- * @author Jean-Christophe Collet
- * @since   1.5
+ * This class represents proxy server settings. A created instance of {@code
+ * Proxy} stores a type and an address and is immutable. There are three types
+ * of proxies:
+ * <ul>
+ * <li>DIRECT</li>
+ * <li>HTTP</li>
+ * <li>SOCKS</li></ul
  */
 public class Proxy {
 
     /**
-     * Represents the proxy type.
-     *
-     * @since 1.5
+     * Represents the proxy type setting {@code Proxy.Type.DIRECT}. It tells
+     * protocol handlers that there is no proxy to be used. The address is set
+     * to {@code null}.
      */
-    public enum Type {
-        /**
-         * Represents a direct connection, or the absence of a proxy.
-         */
-        DIRECT,
-        /**
-         * Represents proxy for high level protocols such as HTTP or FTP.
-         */
-        HTTP,
-        /**
-         * Represents a SOCKS (V4 or V5) proxy.
-         */
-        SOCKS
-    };
+    public static final Proxy NO_PROXY = new Proxy();
 
-    private Type type;
-    private SocketAddress sa;
+    private Proxy.Type type;
+
+    private SocketAddress address;
 
     /**
-     * A proxy setting that represents a {@code DIRECT} connection,
-     * basically telling the protocol handler not to use any proxying.
-     * Used, for instance, to create sockets bypassing any other global
-     * proxy settings (like SOCKS):
-     * <P>
-     * {@code Socket s = new Socket(Proxy.NO_PROXY);}
+     * Creates a new {@code Proxy} instance. {@code SocketAddress} must NOT be
+     * {@code null} when {@code type} is either {@code Proxy.Type.HTTP} or
+     * {@code Proxy.Type.SOCKS}. To create a {@code Proxy} instance representing
+     * the proxy type {@code Proxy.Type.DIRECT}, use {@code Proxy.NO_PROXY}
+     * instead of this constructor.
      *
+     * @param type
+     *            the proxy type of this instance.
+     * @param sa
+     *            the proxy address of this instance.
+     * @throws IllegalArgumentException
+     *             if the parameter {@code type} is set to {@code
+     *             Proxy.Type.DIRECT} or the value for {@code SocketAddress} is
+     *             {@code null}.
      */
-    public final static Proxy NO_PROXY = new Proxy();
+    public Proxy(Proxy.Type type, SocketAddress sa) {
+        /*
+         * Don't use DIRECT type to construct a proxy instance directly.
+         * SocketAddress must NOT be null.
+         */
+        if (type == Type.DIRECT || sa == null) {
+            throw new IllegalArgumentException("Illegal Proxy.Type or SocketAddress argument");
+        }
+        this.type = type;
+        address = sa;
+    }
 
-    // Creates the proxy that represents a {@code DIRECT} connection.
+    /*
+     * Constructs a Proxy instance, which is Proxy.DIRECT type with null
+     * SocketAddress. This constructor is used for NO_PROXY.
+     */
     private Proxy() {
         type = Type.DIRECT;
-        sa = null;
+        address = null;
     }
 
     /**
-     * Creates an entry representing a PROXY connection.
-     * Certain combinations are illegal. For instance, for types Http, and
-     * Socks, a SocketAddress <b>must</b> be provided.
-     * <P>
-     * Use the {@code Proxy.NO_PROXY} constant
-     * for representing a direct connection.
+     * Gets the type of this {@code Proxy} instance.
      *
-     * @param type the {@code Type} of the proxy
-     * @param sa the {@code SocketAddress} for that proxy
-     * @throws IllegalArgumentException when the type and the address are
-     * incompatible
+     * @return the stored proxy type.
      */
-    public Proxy(Type type, SocketAddress sa) {
-        if ((type == Type.DIRECT) || !(sa instanceof InetSocketAddress))
-            throw new IllegalArgumentException("type " + type + " is not compatible with address " + sa);
-        this.type = type;
-        this.sa = sa;
-    }
-
-    /**
-     * Returns the proxy type.
-     *
-     * @return a Type representing the proxy type
-     */
-    public Type type() {
+    public Proxy.Type type() {
         return type;
     }
 
     /**
-     * Returns the socket address of the proxy, or
-     * {@code null} if its a direct connection.
+     * Gets the address of this {@code Proxy} instance.
      *
-     * @return a {@code SocketAddress} representing the socket end
-     *         point of the proxy
+     * @return the stored proxy address or {@code null} if the proxy type is
+     *         {@code DIRECT}.
      */
     public SocketAddress address() {
-        return sa;
+        return address;
     }
 
     /**
-     * Constructs a string representation of this Proxy.
-     * This String is constructed by calling toString() on its type
-     * and concatenating " @ " and the toString() result from its address
-     * if its type is not {@code DIRECT}.
+     * Gets a textual representation of this {@code Proxy} instance. The string
+     * includes the two parts {@code type.toString()} and {@code
+     * address.toString()} if {@code address} is not {@code null}.
      *
-     * @return  a string representation of this object.
+     * @return the representing string of this proxy.
      */
+    @Override
     public String toString() {
-        if (type() == Type.DIRECT)
-            return "DIRECT";
-        return type() + " @ " + address();
+        StringBuilder builder = new StringBuilder();
+        if (type != null) {
+            builder.append(type.toString());
+        }
+        builder.append("@");
+        if (type != Proxy.Type.DIRECT && address != null) {
+            builder.append(address.toString());
+        }
+        return builder.toString();
     }
+
+    /**
+     * Compares the specified {@code obj} to this {@code Proxy} instance and
+     * returns whether they are equal or not. The given object must be an
+     * instance of {@code Proxy} with the same address and the same type value
+     * to be equal.
+     *
+     * @param obj
+     *            the object to compare with this instance.
+     * @return {@code true} if the given object represents the same {@code
+     *         Proxy} as this instance, {@code false} otherwise.
+     * @see #hashCode
+     */
+    @Override
+    public final boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof Proxy)) {
+            return false;
+        }
+        Proxy another = (Proxy) obj;
+        // address is null when and only when it's NO_PROXY.
+        return (type == another.type) && address.equals(another.address);
+    }
+
+    /**
+     * Gets the hashcode for this {@code Proxy} instance.
+     *
+     * @return the hashcode value for this Proxy instance.
+     */
+    @Override
+    public final int hashCode() {
+        int ret = 0;
+        ret += type.hashCode();
+        if (address != null) {
+            ret += address.hashCode();
+        }
+        return ret;
+    }
+
+    /**
+     * {@code Enum} class for the proxy type. Possible options are {@code
+     * DIRECT}, {@code HTTP} and {@code SOCKS}.
+     */
+    public enum Type {
+        /**
+         * Direct connection. Connect without any proxy.
+         */
+        DIRECT,
 
         /**
-     * Compares this object against the specified object.
-     * The result is {@code true} if and only if the argument is
-     * not {@code null} and it represents the same proxy as
-     * this object.
-     * <p>
-     * Two instances of {@code Proxy} represent the same
-     * address if both the SocketAddresses and type are equal.
-     *
-     * @param   obj   the object to compare against.
-     * @return  {@code true} if the objects are the same;
-     *          {@code false} otherwise.
-     * @see java.net.InetSocketAddress#equals(java.lang.Object)
-     */
-    public final boolean equals(Object obj) {
-        if (obj == null || !(obj instanceof Proxy))
-            return false;
-        Proxy p = (Proxy) obj;
-        if (p.type() == type()) {
-            if (address() == null) {
-                return (p.address() == null);
-            } else
-                return address().equals(p.address());
-        }
-        return false;
-    }
+         * HTTP type proxy. It's often used by protocol handlers such as HTTP,
+         * HTTPS and FTP.
+         */
+        HTTP,
 
-    /**
-     * Returns a hashcode for this Proxy.
-     *
-     * @return  a hash code value for this Proxy.
-     */
-    public final int hashCode() {
-        if (address() == null)
-            return type().hashCode();
-        return type().hashCode() + address().hashCode();
+        /**
+         * SOCKS type proxy.
+         */
+        SOCKS
     }
 }

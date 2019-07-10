@@ -17,8 +17,6 @@
 package com.android.server.wm;
 
 
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -28,14 +26,15 @@ import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
-import android.util.Slog;
 import android.view.Display;
 import android.view.Surface;
 import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
+import android.view.SurfaceSession;
+import android.util.Slog;
 
 class CircularDisplayMask {
-    private static final String TAG = TAG_WITH_CLASS_NAME ? "CircularDisplayMask" : TAG_WM;
+    private static final String TAG = "CircularDisplayMask";
 
     // size of the chin
     private int mScreenOffset = 0;
@@ -53,13 +52,11 @@ class CircularDisplayMask {
     private boolean mDimensionsUnequal = false;
     private int mMaskThickness;
 
-    public CircularDisplayMask(DisplayContent dc, int zOrder,
+    public CircularDisplayMask(Display display, SurfaceSession session, int zOrder,
             int screenOffset, int maskThickness) {
-        final Display display = dc.getDisplay();
-
         mScreenSize = new Point();
         display.getSize(mScreenSize);
-        if (mScreenSize.x != mScreenSize.y + screenOffset) {
+        if (mScreenSize.x != mScreenSize.y) {
             Slog.w(TAG, "Screen dimensions of displayId = " + display.getDisplayId() +
                     "are not equal, circularMask will not be drawn.");
             mDimensionsUnequal = true;
@@ -67,12 +64,14 @@ class CircularDisplayMask {
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = dc.makeOverlay()
-                    .setName("CircularDisplayMask")
-                    .setSize(mScreenSize.x, mScreenSize.y) // not a typo
-                    .setFormat(PixelFormat.TRANSLUCENT)
-                    .build();
-
+            if (WindowManagerService.DEBUG_SURFACE_TRACE) {
+                ctrl = new WindowStateAnimator.SurfaceTrace(session, "CircularDisplayMask",
+                        mScreenSize.x, mScreenSize.y, PixelFormat.TRANSLUCENT,
+                        SurfaceControl.HIDDEN);
+            } else {
+                ctrl = new SurfaceControl(session, "CircularDisplayMask", mScreenSize.x,
+                        mScreenSize.y, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            }
             ctrl.setLayerStack(display.getLayerStack());
             ctrl.setLayer(zOrder);
             ctrl.setPosition(0, 0);

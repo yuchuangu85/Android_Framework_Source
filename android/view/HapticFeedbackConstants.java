@@ -29,12 +29,12 @@ public class HapticFeedbackConstants {
      * in an action being performed.
      */
     public static final int LONG_PRESS = 0;
-
+    
     /**
      * The user has pressed on a virtual on-screen key.
      */
     public static final int VIRTUAL_KEY = 1;
-
+    
     /**
      * The user has pressed a soft keyboard key.
      */
@@ -57,88 +57,24 @@ public class HapticFeedbackConstants {
     public static final int CONTEXT_CLICK = 6;
 
     /**
-     * The user has pressed a virtual or software keyboard key.
-     */
-    public static final int KEYBOARD_PRESS = KEYBOARD_TAP;
-
-    /**
-     * The user has released a virtual keyboard key.
-     */
-    public static final int KEYBOARD_RELEASE = 7;
-
-    /**
-     * The user has released a virtual key.
-     */
-    public static final int VIRTUAL_KEY_RELEASE = 8;
-
-    /**
-     * The user has performed a selection/insertion handle move on text field.
-     */
-    public static final int TEXT_HANDLE_MOVE = 9;
-
-    /**
-     * The user unlocked the device
+     * This is a private constant.  Feel free to renumber as desired.
      * @hide
      */
-    public static final int ENTRY_BUMP = 10;
-
+    public static final int SAFE_MODE_DISABLED = 10000;
+    
     /**
-     * The user has moved the dragged object within a droppable area.
-     * @hide
-     */
-    public static final int DRAG_CROSSING = 11;
-
-    /**
-     * The user has started a gesture (e.g. on the soft keyboard).
-     * @hide
-     */
-    public static final int GESTURE_START = 12;
-
-    /**
-     * The user has finished a gesture (e.g. on the soft keyboard).
-     * @hide
-     */
-    public static final int GESTURE_END = 13;
-
-    /**
-     * The user's squeeze crossed the gesture's initiation threshold.
-     * @hide
-     */
-    public static final int EDGE_SQUEEZE = 14;
-
-    /**
-     * The user's squeeze crossed the gesture's release threshold.
-     * @hide
-     */
-    public static final int EDGE_RELEASE = 15;
-
-    /**
-     * A haptic effect to signal the confirmation or successful completion of a user
-     * interaction.
-     * @hide
-     */
-    public static final int CONFIRM = 16;
-
-    /**
-     * A haptic effect to signal the rejection or failure of a user interaction.
-     * @hide
-     */
-    public static final int REJECT = 17;
-
-    /**
-     * The phone has booted with safe mode enabled.
      * This is a private constant.  Feel free to renumber as desired.
      * @hide
      */
     public static final int SAFE_MODE_ENABLED = 10001;
-
+    
     /**
      * Flag for {@link View#performHapticFeedback(int, int)
      * View.performHapticFeedback(int, int)}: Ignore the setting in the
      * view for whether to perform haptic feedback, do it always.
      */
     public static final int FLAG_IGNORE_VIEW_SETTING = 0x0001;
-
+    
     /**
      * Flag for {@link View#performHapticFeedback(int, int)
      * View.performHapticFeedback(int, int)}: Ignore the global setting

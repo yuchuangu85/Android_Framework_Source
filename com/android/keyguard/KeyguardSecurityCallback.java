@@ -20,9 +20,8 @@ public interface KeyguardSecurityCallback {
     /**
      * Dismiss the given security screen.
      * @param securityVerified true if the user correctly entered credentials for the given screen.
-     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
      */
-    void dismiss(boolean securityVerified, int targetUserId);
+    void dismiss(boolean securityVerified);
 
     /**
      * Manually report user activity to keep the device awake.
@@ -37,12 +36,11 @@ public interface KeyguardSecurityCallback {
 
     /**
      * Call to report an unlock attempt.
-     * @param userId id of the user whose unlock attempt is recorded.
      * @param success set to 'true' if user correctly entered security credentials.
      * @param timeoutMs timeout in milliseconds to wait before reattempting an unlock.
      *                  Only nonzero if 'success' is false
      */
-    void reportUnlockAttempt(int userId, boolean success, int timeoutMs);
+    void reportUnlockAttempt(boolean success, int timeoutMs);
 
     /**
      * Resets the keyguard view.

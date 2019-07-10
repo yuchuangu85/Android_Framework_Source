@@ -1,1158 +1,658 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
-import java.util.Formatter;
-import java.util.Locale;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
-import java.nio.charset.UnsupportedCharsetException;
+import java.util.Arrays;
+import java.util.Formatter;
+import java.util.IllegalFormatException;
+import java.util.Locale;
 
 /**
- * A <code>PrintStream</code> adds functionality to another output stream,
- * namely the ability to print representations of various data values
- * conveniently.  Two other features are provided as well.  Unlike other output
- * streams, a <code>PrintStream</code> never throws an
- * <code>IOException</code>; instead, exceptional situations merely set an
- * internal flag that can be tested via the <code>checkError</code> method.
- * Optionally, a <code>PrintStream</code> can be created so as to flush
- * automatically; this means that the <code>flush</code> method is
- * automatically invoked after a byte array is written, one of the
- * <code>println</code> methods is invoked, or a newline character or byte
- * (<code>'\n'</code>) is written.
- *
- * <p> All characters printed by a <code>PrintStream</code> are converted into
- * bytes using the platform's default character encoding.  The <code>{@link
- * PrintWriter}</code> class should be used in situations that require writing
- * characters rather than bytes.
- *
- * @author     Frank Yellin
- * @author     Mark Reinhold
- * @since      JDK1.0
+ * Wraps an existing {@link OutputStream} and provides convenience methods for
+ * writing common data types in a human readable format. This is not to be
+ * confused with DataOutputStream which is used for encoding common data types
+ * so that they can be read back in. No {@code IOException} is thrown by this
+ * class. Instead, callers should use {@link #checkError()} to see if a problem
+ * has occurred in this stream.
  */
-
-public class PrintStream extends FilterOutputStream
-    implements Appendable, Closeable
-{
-
-    private final boolean autoFlush;
-    private boolean trouble = false;
-    private Formatter formatter;
+public class PrintStream extends FilterOutputStream implements Appendable, Closeable {
+    /**
+     * indicates whether or not this PrintStream has incurred an error.
+     */
+    private boolean ioError;
 
     /**
-     * Track both the text- and character-output streams, so that their buffers
-     * can be flushed without flushing the entire stream.
+     * indicates whether or not this PrintStream should flush its contents after
+     * printing a new line.
      */
-    private BufferedWriter textOut;
-    private OutputStreamWriter charOut;
+    private boolean autoFlush;
 
-    // Android-added: Lazy initialization of charOut and textOut.
-    private Charset charset;
+    private String encoding;
 
     /**
-     * requireNonNull is explicitly declared here so as not to create an extra
-     * dependency on java.util.Objects.requireNonNull. PrintStream is loaded
-     * early during system initialization.
-     */
-    private static <T> T requireNonNull(T obj, String message) {
-        if (obj == null)
-            throw new NullPointerException(message);
-        return obj;
-    }
-
-    /**
-     * Returns a charset object for the given charset name.
-     * @throws NullPointerException          is csn is null
-     * @throws UnsupportedEncodingException  if the charset is not supported
-     */
-    private static Charset toCharset(String csn)
-        throws UnsupportedEncodingException
-    {
-        requireNonNull(csn, "charsetName");
-        try {
-            return Charset.forName(csn);
-        } catch (IllegalCharsetNameException|UnsupportedCharsetException unused) {
-            // UnsupportedEncodingException should be thrown
-            throw new UnsupportedEncodingException(csn);
-        }
-    }
-
-    /* Private constructors */
-    private PrintStream(boolean autoFlush, OutputStream out) {
-        super(out);
-        this.autoFlush = autoFlush;
-        // Android-changed: Lazy initialization of charOut and textOut.
-        // this.charOut = new OutputStreamWriter(this);
-        // this.textOut = new BufferedWriter(charOut);
-    }
-
-    private PrintStream(boolean autoFlush, OutputStream out, Charset charset) {
-        super(out);
-        this.autoFlush = autoFlush;
-        // Android-changed: Lazy initialization of charOut and textOut.
-        // this.charOut = new OutputStreamWriter(this, charset);
-        // this.textOut = new BufferedWriter(charOut);
-        this.charset = charset;
-    }
-
-    /* Variant of the private constructor so that the given charset name
-     * can be verified before evaluating the OutputStream argument. Used
-     * by constructors creating a FileOutputStream that also take a
-     * charset name.
-     */
-    private PrintStream(boolean autoFlush, Charset charset, OutputStream out)
-        throws UnsupportedEncodingException
-    {
-        this(autoFlush, out, charset);
-    }
-
-    /**
-     * Creates a new print stream.  This stream will not flush automatically.
+     * Constructs a new {@code PrintStream} with {@code out} as its target
+     * stream. By default, the new print stream does not automatically flush its
+     * contents to the target stream when a newline is encountered.
      *
-     * @param  out        The output stream to which values and objects will be
-     *                    printed
-     *
-     * @see java.io.PrintWriter#PrintWriter(java.io.OutputStream)
+     * @param out
+     *            the target output stream.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
      */
     public PrintStream(OutputStream out) {
-        this(out, false);
+        super(out);
+        if (out == null) {
+            throw new NullPointerException("out == null");
+        }
     }
 
     /**
-     * Creates a new print stream.
+     * Constructs a new {@code PrintStream} with {@code out} as its target
+     * stream. The parameter {@code autoFlush} determines if the print stream
+     * automatically flushes its contents to the target stream when a newline is
+     * encountered.
      *
-     * @param  out        The output stream to which values and objects will be
-     *                    printed
-     * @param  autoFlush  A boolean; if true, the output buffer will be flushed
-     *                    whenever a byte array is written, one of the
-     *                    <code>println</code> methods is invoked, or a newline
-     *                    character or byte (<code>'\n'</code>) is written
-     *
-     * @see java.io.PrintWriter#PrintWriter(java.io.OutputStream, boolean)
+     * @param out
+     *            the target output stream.
+     * @param autoFlush
+     *            indicates whether to flush contents upon encountering a
+     *            newline sequence.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
      */
     public PrintStream(OutputStream out, boolean autoFlush) {
-        this(autoFlush, requireNonNull(out, "Null output stream"));
+        super(out);
+        if (out == null) {
+            throw new NullPointerException("out == null");
+        }
+        this.autoFlush = autoFlush;
     }
 
     /**
-     * Creates a new print stream.
+     * Constructs a new {@code PrintStream} with {@code out} as its target
+     * stream and using the character encoding {@code charsetName} while writing. The
+     * parameter {@code autoFlush} determines if the print stream automatically
+     * flushes its contents to the target stream when a newline is encountered.
      *
-     * @param  out        The output stream to which values and objects will be
-     *                    printed
-     * @param  autoFlush  A boolean; if true, the output buffer will be flushed
-     *                    whenever a byte array is written, one of the
-     *                    <code>println</code> methods is invoked, or a newline
-     *                    character or byte (<code>'\n'</code>) is written
-     * @param  encoding   The name of a supported
-     *                    <a href="../lang/package-summary.html#charenc">
-     *                    character encoding</a>
-     *
-     * @throws  UnsupportedEncodingException
-     *          If the named encoding is not supported
-     *
-     * @since  1.4
+     * @param out
+     *            the target output stream.
+     * @param autoFlush
+     *            indicates whether or not to flush contents upon encountering a
+     *            newline sequence.
+     * @param charsetName
+     *            the non-null string describing the desired character encoding.
+     * @throws NullPointerException
+     *             if {@code out} or {@code charsetName} are {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code charsetName} is not supported.
      */
-    public PrintStream(OutputStream out, boolean autoFlush, String encoding)
-        throws UnsupportedEncodingException
-    {
-        this(autoFlush,
-             requireNonNull(out, "Null output stream"),
-             toCharset(encoding));
+    public PrintStream(OutputStream out, boolean autoFlush, String charsetName)
+            throws UnsupportedEncodingException {
+        super(out);
+        if (out == null) {
+            throw new NullPointerException("out == null");
+        } else if (charsetName == null) {
+            throw new NullPointerException("charsetName == null");
+        }
+        this.autoFlush = autoFlush;
+        try {
+            if (!Charset.isSupported(charsetName)) {
+                throw new UnsupportedEncodingException(charsetName);
+            }
+        } catch (IllegalCharsetNameException e) {
+            throw new UnsupportedEncodingException(charsetName);
+        }
+        encoding = charsetName;
     }
 
     /**
-     * Creates a new print stream, without automatic line flushing, with the
-     * specified file name.  This convenience constructor creates
-     * the necessary intermediate {@link java.io.OutputStreamWriter
-     * OutputStreamWriter}, which will encode characters using the
-     * {@linkplain java.nio.charset.Charset#defaultCharset() default charset}
-     * for this instance of the Java virtual machine.
+     * Constructs a new {@code PrintStream} with {@code file} as its target. The
+     * VM's default character set is used for character encoding.
      *
-     * @param  fileName
-     *         The name of the file to use as the destination of this print
-     *         stream.  If the file exists, then it will be truncated to
-     *         zero size; otherwise, a new file will be created.  The output
-     *         will be written to the file and is buffered.
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(fileName)} denies write
-     *          access to the file
-     *
-     * @since  1.5
-     */
-    public PrintStream(String fileName) throws FileNotFoundException {
-        this(false, new FileOutputStream(fileName));
-    }
-
-    /**
-     * Creates a new print stream, without automatic line flushing, with the
-     * specified file name and charset.  This convenience constructor creates
-     * the necessary intermediate {@link java.io.OutputStreamWriter
-     * OutputStreamWriter}, which will encode characters using the provided
-     * charset.
-     *
-     * @param  fileName
-     *         The name of the file to use as the destination of this print
-     *         stream.  If the file exists, then it will be truncated to
-     *         zero size; otherwise, a new file will be created.  The output
-     *         will be written to the file and is buffered.
-     *
-     * @param  csn
-     *         The name of a supported {@linkplain java.nio.charset.Charset
-     *         charset}
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(fileName)} denies write
-     *          access to the file
-     *
-     * @throws  UnsupportedEncodingException
-     *          If the named charset is not supported
-     *
-     * @since  1.5
-     */
-    public PrintStream(String fileName, String csn)
-        throws FileNotFoundException, UnsupportedEncodingException
-    {
-        // ensure charset is checked before the file is opened
-        this(false, toCharset(csn), new FileOutputStream(fileName));
-    }
-
-    /**
-     * Creates a new print stream, without automatic line flushing, with the
-     * specified file.  This convenience constructor creates the necessary
-     * intermediate {@link java.io.OutputStreamWriter OutputStreamWriter},
-     * which will encode characters using the {@linkplain
-     * java.nio.charset.Charset#defaultCharset() default charset} for this
-     * instance of the Java virtual machine.
-     *
-     * @param  file
-     *         The file to use as the destination of this print stream.  If the
-     *         file exists, then it will be truncated to zero size; otherwise,
-     *         a new file will be created.  The output will be written to the
-     *         file and is buffered.
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(file.getPath())}
-     *          denies write access to the file
-     *
-     * @since  1.5
+     * @param file
+     *            the target file. If the file already exists, its contents are
+     *            removed, otherwise a new file is created.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
      */
     public PrintStream(File file) throws FileNotFoundException {
-        this(false, new FileOutputStream(file));
+        super(new FileOutputStream(file));
     }
 
     /**
-     * Creates a new print stream, without automatic line flushing, with the
-     * specified file and charset.  This convenience constructor creates
-     * the necessary intermediate {@link java.io.OutputStreamWriter
-     * OutputStreamWriter}, which will encode characters using the provided
-     * charset.
+     * Constructs a new {@code PrintStream} with {@code file} as its target. The
+     * character set named {@code charsetName} is used for character encoding.
      *
-     * @param  file
-     *         The file to use as the destination of this print stream.  If the
-     *         file exists, then it will be truncated to zero size; otherwise,
-     *         a new file will be created.  The output will be written to the
-     *         file and is buffered.
-     *
-     * @param  csn
-     *         The name of a supported {@linkplain java.nio.charset.Charset
-     *         charset}
-     *
-     * @throws  FileNotFoundException
-     *          If the given file object does not denote an existing, writable
-     *          regular file and a new regular file of that name cannot be
-     *          created, or if some other error occurs while opening or
-     *          creating the file
-     *
-     * @throws  SecurityException
-     *          If a security manager is present and {@link
-     *          SecurityManager#checkWrite checkWrite(file.getPath())}
-     *          denies write access to the file
-     *
-     * @throws  UnsupportedEncodingException
-     *          If the named charset is not supported
-     *
-     * @since  1.5
+     * @param file
+     *            the target file. If the file already exists, its contents are
+     *            removed, otherwise a new file is created.
+     * @param charsetName
+     *            the name of the character set used for character encoding.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
+     * @throws NullPointerException
+     *             if {@code charsetName} is {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code charsetName} is not supported.
      */
-    public PrintStream(File file, String csn)
-        throws FileNotFoundException, UnsupportedEncodingException
-    {
-        // ensure charset is checked before the file is opened
-        this(false, toCharset(csn), new FileOutputStream(file));
-    }
-
-    /** Check to make sure that the stream has not been closed */
-    private void ensureOpen() throws IOException {
-        if (out == null)
-            throw new IOException("Stream closed");
+    public PrintStream(File file, String charsetName) throws FileNotFoundException,
+            UnsupportedEncodingException {
+        super(new FileOutputStream(file));
+        if (charsetName == null) {
+            throw new NullPointerException("charsetName == null");
+        }
+        if (!Charset.isSupported(charsetName)) {
+            throw new UnsupportedEncodingException(charsetName);
+        }
+        encoding = charsetName;
     }
 
     /**
-     * Flushes the stream.  This is done by writing any buffered output bytes to
-     * the underlying output stream and then flushing that stream.
+     * Constructs a new {@code PrintStream} with the file identified by
+     * {@code fileName} as its target. The VM's default character
+     * set is used for character encoding.
      *
-     * @see        java.io.OutputStream#flush()
+     * @param fileName
+     *            the target file's name. If the file already exists, its
+     *            contents are removed, otherwise a new file is created.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
      */
-    public void flush() {
-        synchronized (this) {
-            try {
-                ensureOpen();
-                out.flush();
-            }
-            catch (IOException x) {
-                trouble = true;
-            }
-        }
+    public PrintStream(String fileName) throws FileNotFoundException {
+        this(new File(fileName));
     }
-
-    private boolean closing = false; /* To avoid recursive closing */
-
-    // BEGIN Android-added: Lazy initialization of charOut and textOut.
-    private BufferedWriter getTextOut() {
-        if (textOut == null) {
-            charOut = charset != null ? new OutputStreamWriter(this, charset) :
-                    new OutputStreamWriter(this);
-            textOut = new BufferedWriter(charOut);
-        }
-        return textOut;
-    }
-    // END Android-added: Lazy initialization of charOut and textOut.
 
     /**
-     * Closes the stream.  This is done by flushing the stream and then closing
-     * the underlying output stream.
+     * Constructs a new {@code PrintStream} with the file identified by
+     * {@code fileName} as its target. The character set named {@code charsetName} is
+     * used for character encoding.
      *
-     * @see        java.io.OutputStream#close()
+     * @param fileName
+     *            the target file's name. If the file already exists, its
+     *            contents are removed, otherwise a new file is created.
+     * @param charsetName
+     *            the name of the character set used for character encoding.
+     * @throws FileNotFoundException
+     *             if an error occurs while opening or creating the target file.
+     * @throws NullPointerException
+     *             if {@code charsetName} is {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code charsetName} is not supported.
      */
-    public void close() {
-        synchronized (this) {
-            if (! closing) {
-                closing = true;
-                try {
-                    // BEGIN Android-changed: Lazy initialization of charOut and textOut.
-                    // textOut.close();
-                    if (textOut != null) {
-                        textOut.close();
-                    }
-                    // END Android-changed: Lazy initialization of charOut and textOut.
-                    out.close();
-                }
-                catch (IOException x) {
-                    trouble = true;
-                }
-                textOut = null;
-                charOut = null;
-                out = null;
-            }
-        }
+    public PrintStream(String fileName, String charsetName)
+            throws FileNotFoundException, UnsupportedEncodingException {
+        this(new File(fileName), charsetName);
     }
 
     /**
-     * Flushes the stream and checks its error state. The internal error state
-     * is set to <code>true</code> when the underlying output stream throws an
-     * <code>IOException</code> other than <code>InterruptedIOException</code>,
-     * and when the <code>setError</code> method is invoked.  If an operation
-     * on the underlying output stream throws an
-     * <code>InterruptedIOException</code>, then the <code>PrintStream</code>
-     * converts the exception back into an interrupt by doing:
-     * <pre>
-     *     Thread.currentThread().interrupt();
-     * </pre>
-     * or the equivalent.
+     * Flushes this stream and returns the value of the error flag.
      *
-     * @return <code>true</code> if and only if this stream has encountered an
-     *         <code>IOException</code> other than
-     *         <code>InterruptedIOException</code>, or the
-     *         <code>setError</code> method has been invoked
+     * @return {@code true} if either an {@code IOException} has been thrown
+     *         previously or if {@code setError()} has been called;
+     *         {@code false} otherwise.
+     * @see #setError()
      */
     public boolean checkError() {
-        if (out != null)
-            flush();
-        if (out instanceof java.io.PrintStream) {
-            PrintStream ps = (PrintStream) out;
-            return ps.checkError();
+        OutputStream delegate = out;
+        if (delegate == null) {
+            return ioError;
         }
-        return trouble;
+
+        flush();
+        return ioError || delegate.checkError();
     }
 
     /**
-     * Sets the error state of the stream to <code>true</code>.
-     *
-     * <p> This method will cause subsequent invocations of {@link
-     * #checkError()} to return <tt>true</tt> until {@link
-     * #clearError()} is invoked.
-     *
-     * @since JDK1.1
-     */
-    protected void setError() {
-        trouble = true;
-    }
-
-    /**
-     * Clears the internal error state of this stream.
-     *
-     * <p> This method will cause subsequent invocations of {@link
-     * #checkError()} to return <tt>false</tt> until another write
-     * operation fails and invokes {@link #setError()}.
-     *
+     * Sets the error state of the stream to false.
      * @since 1.6
      */
     protected void clearError() {
-        trouble = false;
+        ioError = false;
     }
 
-    /*
-     * Exception-catching, synchronized output operations,
-     * which also implement the write() methods of OutputStream
-     */
-
     /**
-     * Writes the specified byte to this stream.  If the byte is a newline and
-     * automatic flushing is enabled then the <code>flush</code> method will be
-     * invoked.
-     *
-     * <p> Note that the byte is written as given; to write a character that
-     * will be translated according to the platform's default character
-     * encoding, use the <code>print(char)</code> or <code>println(char)</code>
-     * methods.
-     *
-     * @param  b  The byte to be written
-     * @see #print(char)
-     * @see #println(char)
+     * Closes this print stream. Flushes this stream and then closes the target
+     * stream. If an I/O error occurs, this stream's error state is set to
+     * {@code true}.
      */
-    public void write(int b) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                out.write(b);
-                if ((b == '\n') && autoFlush)
-                    out.flush();
+    @Override
+    public synchronized void close() {
+        flush();
+        if (out != null) {
+            try {
+                out.close();
+                out = null;
+            } catch (IOException e) {
+                setError();
             }
         }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
     }
 
     /**
-     * Writes <code>len</code> bytes from the specified byte array starting at
-     * offset <code>off</code> to this stream.  If automatic flushing is
-     * enabled then the <code>flush</code> method will be invoked.
-     *
-     * <p> Note that the bytes will be written as given; to write characters
-     * that will be translated according to the platform's default character
-     * encoding, use the <code>print(char)</code> or <code>println(char)</code>
-     * methods.
-     *
-     * @param  buf   A byte array
-     * @param  off   Offset from which to start taking bytes
-     * @param  len   Number of bytes to write
+     * Ensures that all pending data is sent out to the target stream. It also
+     * flushes the target stream. If an I/O error occurs, this stream's error
+     * state is set to {@code true}.
      */
-    public void write(byte buf[], int off, int len) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                out.write(buf, off, len);
-                if (autoFlush)
-                    out.flush();
+    @Override
+    public synchronized void flush() {
+        if (out != null) {
+            try {
+                out.flush();
+                return;
+            } catch (IOException e) {
+                // Ignored, fall through to setError
             }
         }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    /*
-     * The following private methods on the text- and character-output streams
-     * always flush the stream buffers, so that writes to the underlying byte
-     * stream occur as promptly as with the original PrintStream.
-     */
-
-    private void write(char buf[]) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                // Android-added: Lazy initialization of charOut and textOut.
-                BufferedWriter textOut = getTextOut();
-                textOut.write(buf);
-                textOut.flushBuffer();
-                charOut.flushBuffer();
-                if (autoFlush) {
-                    for (int i = 0; i < buf.length; i++)
-                        if (buf[i] == '\n')
-                            out.flush();
-                }
-            }
-        }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    private void write(String s) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                // Android-added: Lazy initialization of charOut and textOut.
-                BufferedWriter textOut = getTextOut();
-                textOut.write(s);
-                textOut.flushBuffer();
-                charOut.flushBuffer();
-                if (autoFlush && (s.indexOf('\n') >= 0))
-                    out.flush();
-            }
-        }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    private void newLine() {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                // Android-added: Lazy initialization of charOut and textOut.
-                BufferedWriter textOut = getTextOut();
-                textOut.newLine();
-                textOut.flushBuffer();
-                charOut.flushBuffer();
-                if (autoFlush)
-                    out.flush();
-            }
-        }
-        catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        }
-        catch (IOException x) {
-            trouble = true;
-        }
-    }
-
-    /* Methods that do not terminate lines */
-
-    /**
-     * Prints a boolean value.  The string produced by <code>{@link
-     * java.lang.String#valueOf(boolean)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      b   The <code>boolean</code> to be printed
-     */
-    public void print(boolean b) {
-        write(b ? "true" : "false");
+        setError();
     }
 
     /**
-     * Prints a character.  The character is translated into one or more bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
+     * Formats {@code args} according to the format string {@code format}, and writes the result
+     * to this stream. This method uses the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
      *
-     * @param      c   The <code>char</code> to be printed
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this stream.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
      */
-    public void print(char c) {
-        write(String.valueOf(c));
+    public PrintStream format(String format, Object... args) {
+        return format(Locale.getDefault(), format, args);
     }
 
     /**
-     * Prints an integer.  The string produced by <code>{@link
-     * java.lang.String#valueOf(int)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
+     * Writes a string formatted by an intermediate {@link Formatter} to this
+     * stream using the specified locale, format string and arguments.
      *
-     * @param      i   The <code>int</code> to be printed
-     * @see        java.lang.Integer#toString(int)
+     * @param l
+     *            the locale used in the method. No localization will be applied
+     *            if {@code l} is {@code null}.
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this stream.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
      */
-    public void print(int i) {
-        write(String.valueOf(i));
-    }
-
-    /**
-     * Prints a long integer.  The string produced by <code>{@link
-     * java.lang.String#valueOf(long)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      l   The <code>long</code> to be printed
-     * @see        java.lang.Long#toString(long)
-     */
-    public void print(long l) {
-        write(String.valueOf(l));
-    }
-
-    /**
-     * Prints a floating-point number.  The string produced by <code>{@link
-     * java.lang.String#valueOf(float)}</code> is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      f   The <code>float</code> to be printed
-     * @see        java.lang.Float#toString(float)
-     */
-    public void print(float f) {
-        write(String.valueOf(f));
-    }
-
-    /**
-     * Prints a double-precision floating-point number.  The string produced by
-     * <code>{@link java.lang.String#valueOf(double)}</code> is translated into
-     * bytes according to the platform's default character encoding, and these
-     * bytes are written in exactly the manner of the <code>{@link
-     * #write(int)}</code> method.
-     *
-     * @param      d   The <code>double</code> to be printed
-     * @see        java.lang.Double#toString(double)
-     */
-    public void print(double d) {
-        write(String.valueOf(d));
-    }
-
-    /**
-     * Prints an array of characters.  The characters are converted into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      s   The array of chars to be printed
-     *
-     * @throws  NullPointerException  If <code>s</code> is <code>null</code>
-     */
-    public void print(char s[]) {
-        write(s);
-    }
-
-    /**
-     * Prints a string.  If the argument is <code>null</code> then the string
-     * <code>"null"</code> is printed.  Otherwise, the string's characters are
-     * converted into bytes according to the platform's default character
-     * encoding, and these bytes are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
-     *
-     * @param      s   The <code>String</code> to be printed
-     */
-    public void print(String s) {
-        if (s == null) {
-            s = "null";
+    public PrintStream format(Locale l, String format, Object... args) {
+        if (format == null) {
+            throw new NullPointerException("format == null");
         }
-        write(s);
+        new Formatter(this, l).format(format, args);
+        return this;
     }
 
     /**
-     * Prints an object.  The string produced by the <code>{@link
-     * java.lang.String#valueOf(Object)}</code> method is translated into bytes
-     * according to the platform's default character encoding, and these bytes
-     * are written in exactly the manner of the
-     * <code>{@link #write(int)}</code> method.
+     * Prints a formatted string. The behavior of this method is the same as
+     * this stream's {@code #format(String, Object...)} method.
      *
-     * @param      obj   The <code>Object</code> to be printed
-     * @see        java.lang.Object#toString()
+     * <p>The {@code Locale} used is the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     *
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this stream.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}
      */
-    public void print(Object obj) {
-        write(String.valueOf(obj));
-    }
-
-
-    /* Methods that do terminate lines */
-
-    /**
-     * Terminates the current line by writing the line separator string.  The
-     * line separator string is defined by the system property
-     * <code>line.separator</code>, and is not necessarily a single newline
-     * character (<code>'\n'</code>).
-     */
-    public void println() {
-        newLine();
-    }
-
-    /**
-     * Prints a boolean and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(boolean)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>boolean</code> to be printed
-     */
-    public void println(boolean x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints a character and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(char)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>char</code> to be printed.
-     */
-    public void println(char x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints an integer and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(int)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>int</code> to be printed.
-     */
-    public void println(int x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints a long and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(long)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  a The <code>long</code> to be printed.
-     */
-    public void println(long x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints a float and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(float)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>float</code> to be printed.
-     */
-    public void println(float x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints a double and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(double)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>double</code> to be printed.
-     */
-    public void println(double x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints an array of characters and then terminate the line.  This method
-     * behaves as though it invokes <code>{@link #print(char[])}</code> and
-     * then <code>{@link #println()}</code>.
-     *
-     * @param x  an array of chars to print.
-     */
-    public void println(char x[]) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints a String and then terminate the line.  This method behaves as
-     * though it invokes <code>{@link #print(String)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>String</code> to be printed.
-     */
-    public void println(String x) {
-        synchronized (this) {
-            print(x);
-            newLine();
-        }
-    }
-
-    /**
-     * Prints an Object and then terminate the line.  This method calls
-     * at first String.valueOf(x) to get the printed object's string value,
-     * then behaves as
-     * though it invokes <code>{@link #print(String)}</code> and then
-     * <code>{@link #println()}</code>.
-     *
-     * @param x  The <code>Object</code> to be printed.
-     */
-    public void println(Object x) {
-        String s = String.valueOf(x);
-        synchronized (this) {
-            print(s);
-            newLine();
-        }
-    }
-
-
-    /**
-     * A convenience method to write a formatted string to this output stream
-     * using the specified format string and arguments.
-     *
-     * <p> An invocation of this method of the form <tt>out.printf(format,
-     * args)</tt> behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.format(format, args) </pre>
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This output stream
-     *
-     * @since  1.5
-     */
-    public PrintStream printf(String format, Object ... args) {
+    public PrintStream printf(String format, Object... args) {
         return format(format, args);
     }
 
     /**
-     * A convenience method to write a formatted string to this output stream
-     * using the specified format string and arguments.
+     * Prints a formatted string. The behavior of this method is the same as
+     * this stream's {@code #format(Locale, String, Object...)} method.
      *
-     * <p> An invocation of this method of the form <tt>out.printf(l, format,
-     * args)</tt> behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.format(l, format, args) </pre>
-     *
-     * @param  l
-     *         The {@linkplain java.util.Locale locale} to apply during
-     *         formatting.  If <tt>l</tt> is <tt>null</tt> then no localization
-     *         is applied.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This output stream
-     *
-     * @since  1.5
+     * @param l
+     *            the locale used in the method. No localization will be applied
+     *            if {@code l} is {@code null}.
+     * @param format the format string (see {@link java.util.Formatter#format})
+     * @param args
+     *            the list of arguments passed to the formatter. If there are
+     *            more arguments than required by {@code format},
+     *            additional arguments are ignored.
+     * @return this stream.
+     * @throws IllegalFormatException
+     *             if the format string is illegal or incompatible with the
+     *             arguments, if there are not enough arguments or if any other
+     *             error regarding the format string or arguments is detected.
+     * @throws NullPointerException if {@code format == null}.
      */
-    public PrintStream printf(Locale l, String format, Object ... args) {
+    public PrintStream printf(Locale l, String format, Object... args) {
         return format(l, format, args);
     }
 
     /**
-     * Writes a formatted string to this output stream using the specified
-     * format string and arguments.
-     *
-     * <p> The locale always used is the one returned by {@link
-     * java.util.Locale#getDefault() Locale.getDefault()}, regardless of any
-     * previous invocations of other formatting methods on this object.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This output stream
-     *
-     * @since  1.5
+     * Put the line separator String onto the print stream.
      */
-    public PrintStream format(String format, Object ... args) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                if ((formatter == null)
-                    || (formatter.locale() != Locale.getDefault()))
-                    formatter = new Formatter((Appendable) this);
-                formatter.format(Locale.getDefault(), format, args);
-            }
-        } catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        } catch (IOException x) {
-            trouble = true;
-        }
-        return this;
+    private void newline() {
+        print(System.lineSeparator());
     }
 
     /**
-     * Writes a formatted string to this output stream using the specified
-     * format string and arguments.
-     *
-     * @param  l
-     *         The {@linkplain java.util.Locale locale} to apply during
-     *         formatting.  If <tt>l</tt> is <tt>null</tt> then no localization
-     *         is applied.
-     *
-     * @param  format
-     *         A format string as described in <a
-     *         href="../util/Formatter.html#syntax">Format string syntax</a>
-     *
-     * @param  args
-     *         Arguments referenced by the format specifiers in the format
-     *         string.  If there are more arguments than format specifiers, the
-     *         extra arguments are ignored.  The number of arguments is
-     *         variable and may be zero.  The maximum number of arguments is
-     *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
-     *         The behaviour on a
-     *         <tt>null</tt> argument depends on the <a
-     *         href="../util/Formatter.html#syntax">conversion</a>.
-     *
-     * @throws  java.util.IllegalFormatException
-     *          If a format string contains an illegal syntax, a format
-     *          specifier that is incompatible with the given arguments,
-     *          insufficient arguments given the format string, or other
-     *          illegal conditions.  For specification of all possible
-     *          formatting errors, see the <a
-     *          href="../util/Formatter.html#detail">Details</a> section of the
-     *          formatter class specification.
-     *
-     * @throws  NullPointerException
-     *          If the <tt>format</tt> is <tt>null</tt>
-     *
-     * @return  This output stream
-     *
-     * @since  1.5
+     * Prints the string representation of the character array {@code chars}.
      */
-    public PrintStream format(Locale l, String format, Object ... args) {
-        try {
-            synchronized (this) {
-                ensureOpen();
-                if ((formatter == null)
-                    || (formatter.locale() != l))
-                    formatter = new Formatter(this, l);
-                formatter.format(l, format, args);
-            }
-        } catch (InterruptedIOException x) {
-            Thread.currentThread().interrupt();
-        } catch (IOException x) {
-            trouble = true;
-        }
-        return this;
+    public void print(char[] chars) {
+        print(new String(chars, 0, chars.length));
     }
 
     /**
-     * Appends the specified character sequence to this output stream.
-     *
-     * <p> An invocation of this method of the form <tt>out.append(csq)</tt>
-     * behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.print(csq.toString()) </pre>
-     *
-     * <p> Depending on the specification of <tt>toString</tt> for the
-     * character sequence <tt>csq</tt>, the entire sequence may not be
-     * appended.  For instance, invoking then <tt>toString</tt> method of a
-     * character buffer will return a subsequence whose content depends upon
-     * the buffer's position and limit.
-     *
-     * @param  csq
-     *         The character sequence to append.  If <tt>csq</tt> is
-     *         <tt>null</tt>, then the four characters <tt>"null"</tt> are
-     *         appended to this output stream.
-     *
-     * @return  This output stream
-     *
-     * @since  1.5
+     * Prints the string representation of the char {@code c}.
      */
-    public PrintStream append(CharSequence csq) {
-        if (csq == null)
+    public void print(char c) {
+        print(String.valueOf(c));
+    }
+
+    /**
+     * Prints the string representation of the double {@code d}.
+     */
+    public void print(double d) {
+        print(String.valueOf(d));
+    }
+
+    /**
+     * Prints the string representation of the float {@code f}.
+     */
+    public void print(float f) {
+        print(String.valueOf(f));
+    }
+
+    /**
+     * Prints the string representation of the int {@code i}.
+     */
+    public void print(int i) {
+        print(String.valueOf(i));
+    }
+
+    /**
+     * Prints the string representation of the long {@code l}.
+     */
+    public void print(long l) {
+        print(String.valueOf(l));
+    }
+
+    /**
+     * Prints the string representation of the Object {@code o}, or {@code "null"}.
+     */
+    public void print(Object o) {
+        print(String.valueOf(o));
+    }
+
+    /**
+     * Prints a string to the target stream. The string is converted to an array
+     * of bytes using the encoding chosen during the construction of this
+     * stream. The bytes are then written to the target stream with
+     * {@code write(int)}.
+     *
+     * <p>If an I/O error occurs, this stream's error state is set to {@code true}.
+     *
+     * @param str
+     *            the string to print to the target stream.
+     * @see #write(int)
+     */
+    public synchronized void print(String str) {
+        if (out == null) {
+            setError();
+            return;
+        }
+        if (str == null) {
             print("null");
-        else
-            print(csq.toString());
-        return this;
+            return;
+        }
+
+        try {
+            if (encoding == null) {
+                write(str.getBytes());
+            } else {
+                write(str.getBytes(encoding));
+            }
+        } catch (IOException e) {
+            setError();
+        }
     }
 
     /**
-     * Appends a subsequence of the specified character sequence to this output
-     * stream.
-     *
-     * <p> An invocation of this method of the form <tt>out.append(csq, start,
-     * end)</tt> when <tt>csq</tt> is not <tt>null</tt>, behaves in
-     * exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.print(csq.subSequence(start, end).toString()) </pre>
-     *
-     * @param  csq
-     *         The character sequence from which a subsequence will be
-     *         appended.  If <tt>csq</tt> is <tt>null</tt>, then characters
-     *         will be appended as if <tt>csq</tt> contained the four
-     *         characters <tt>"null"</tt>.
-     *
-     * @param  start
-     *         The index of the first character in the subsequence
-     *
-     * @param  end
-     *         The index of the character following the last character in the
-     *         subsequence
-     *
-     * @return  This output stream
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If <tt>start</tt> or <tt>end</tt> are negative, <tt>start</tt>
-     *          is greater than <tt>end</tt>, or <tt>end</tt> is greater than
-     *          <tt>csq.length()</tt>
-     *
-     * @since  1.5
+     * Prints the string representation of the boolean {@code b}.
      */
-    public PrintStream append(CharSequence csq, int start, int end) {
-        CharSequence cs = (csq == null ? "null" : csq);
-        write(cs.subSequence(start, end).toString());
-        return this;
+    public void print(boolean b) {
+        print(String.valueOf(b));
     }
 
     /**
-     * Appends the specified character to this output stream.
+     * Prints a newline.
+     */
+    public void println() {
+        newline();
+    }
+
+    /**
+     * Prints the string representation of the character array {@code chars} followed by a newline.
+     */
+    public void println(char[] chars) {
+        println(new String(chars, 0, chars.length));
+    }
+
+    /**
+     * Prints the string representation of the char {@code c} followed by a newline.
+     */
+    public void println(char c) {
+        println(String.valueOf(c));
+    }
+
+    /**
+     * Prints the string representation of the double {@code d} followed by a newline.
+     */
+    public void println(double d) {
+        println(String.valueOf(d));
+    }
+
+    /**
+     * Prints the string representation of the float {@code f} followed by a newline.
+     */
+   public void println(float f) {
+        println(String.valueOf(f));
+    }
+
+   /**
+     * Prints the string representation of the int {@code i} followed by a newline.
+     */
+    public void println(int i) {
+        println(String.valueOf(i));
+    }
+
+    /**
+     * Prints the string representation of the long {@code l} followed by a newline.
+     */
+    public void println(long l) {
+        println(String.valueOf(l));
+    }
+
+    /**
+     * Prints the string representation of the Object {@code o}, or {@code "null"},
+     * followed by a newline.
+     */
+    public void println(Object o) {
+        println(String.valueOf(o));
+    }
+
+    /**
+     * Prints a string followed by a newline. The string is converted to an array of bytes using
+     * the encoding chosen during the construction of this stream. The bytes are
+     * then written to the target stream with {@code write(int)}.
      *
-     * <p> An invocation of this method of the form <tt>out.append(c)</tt>
-     * behaves in exactly the same way as the invocation
+     * <p>If an I/O error occurs, this stream's error state is set to {@code true}.
      *
-     * <pre>
-     *     out.print(c) </pre>
+     * @param str
+     *            the string to print to the target stream.
+     * @see #write(int)
+     */
+    public synchronized void println(String str) {
+        print(str);
+        newline();
+    }
+
+    /**
+     * Prints the string representation of the boolean {@code b} followed by a newline.
+     */
+    public void println(boolean b) {
+        println(String.valueOf(b));
+    }
+
+    /**
+     * Sets the error flag of this print stream to true.
+     */
+    protected void setError() {
+        ioError = true;
+    }
+
+    /**
+     * Writes {@code count} bytes from {@code buffer} starting at {@code offset}
+     * to the target stream. If autoFlush is set, this stream gets flushed after
+     * writing the buffer.
      *
-     * @param  c
-     *         The 16-bit character to append
+     * <p>This stream's error flag is set to {@code true} if this stream is closed
+     * or an I/O error occurs.
      *
-     * @return  This output stream
+     * @param buffer
+     *            the buffer to be written.
+     * @param offset
+     *            the index of the first byte in {@code buffer} to write.
+     * @param length
+     *            the number of bytes in {@code buffer} to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if {@code
+     *             offset + count} is bigger than the length of {@code buffer}.
+     * @see #flush()
+     */
+    @Override
+    public void write(byte[] buffer, int offset, int length) {
+        Arrays.checkOffsetAndCount(buffer.length, offset, length);
+        synchronized (this) {
+            if (out == null) {
+                setError();
+                return;
+            }
+            try {
+                out.write(buffer, offset, length);
+                if (autoFlush) {
+                    flush();
+                }
+            } catch (IOException e) {
+                setError();
+            }
+        }
+    }
+
+    /**
+     * Writes one byte to the target stream. Only the least significant byte of
+     * the integer {@code oneByte} is written. This stream is flushed if
+     * {@code oneByte} is equal to the character {@code '\n'} and this stream is
+     * set to autoFlush.
+     * <p>
+     * This stream's error flag is set to {@code true} if it is closed or an I/O
+     * error occurs.
      *
-     * @since  1.5
+     * @param oneByte
+     *            the byte to be written
+     */
+    @Override
+    public synchronized void write(int oneByte) {
+        if (out == null) {
+            setError();
+            return;
+        }
+        try {
+            out.write(oneByte);
+            int b = oneByte & 0xFF;
+            // 0x0A is ASCII newline, 0x15 is EBCDIC newline.
+            boolean isNewline = b == 0x0A || b == 0x15;
+            if (autoFlush && isNewline) {
+                flush();
+            }
+        } catch (IOException e) {
+            setError();
+        }
+    }
+
+    /**
+     * Appends the char {@code c}.
+     * @return this stream.
      */
     public PrintStream append(char c) {
         print(c);
         return this;
     }
 
+    /**
+     * Appends the CharSequence {@code charSequence}, or {@code "null"}.
+     * @return this stream.
+     */
+    public PrintStream append(CharSequence charSequence) {
+        if (charSequence == null) {
+            print("null");
+        } else {
+            print(charSequence.toString());
+        }
+        return this;
+    }
+
+    /**
+     * Appends a subsequence of CharSequence {@code charSequence}, or {@code "null"}.
+     *
+     * @param charSequence
+     *            the character sequence appended to the target stream.
+     * @param start
+     *            the index of the first char in the character sequence appended
+     *            to the target stream.
+     * @param end
+     *            the index of the character following the last character of the
+     *            subsequence appended to the target stream.
+     * @return this stream.
+     * @throws IndexOutOfBoundsException
+     *             if {@code start > end}, {@code start < 0}, {@code end < 0} or
+     *             either {@code start} or {@code end} are greater or equal than
+     *             the length of {@code charSequence}.
+     */
+    public PrintStream append(CharSequence charSequence, int start, int end) {
+        if (charSequence == null) {
+            charSequence = "null";
+        }
+        print(charSequence.subSequence(start, end).toString());
+        return this;
+    }
 }

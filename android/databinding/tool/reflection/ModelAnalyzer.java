@@ -18,9 +18,7 @@ package android.databinding.tool.reflection;
 import android.databinding.tool.reflection.annotation.AnnotationAnalyzer;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.util.StringUtils;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import javax.annotation.processing.ProcessingEnvironment;
@@ -84,42 +82,28 @@ public abstract class ModelAnalyzer {
     private ModelClass mViewStubType;
 
     private static ModelAnalyzer sAnalyzer;
-    private final Map<String, InjectedClass> mInjectedClasses =
-            new HashMap<String, InjectedClass>();
 
     protected void setInstance(ModelAnalyzer analyzer) {
         sAnalyzer = analyzer;
     }
 
-    public ModelClass findCommonParentOf(ModelClass modelClass1, ModelClass modelClass2) {
-        return findCommonParentOf(modelClass1, modelClass2, true);
-    }
-
-    public ModelClass findCommonParentOf(ModelClass modelClass1, ModelClass modelClass2,
-            boolean failOnError) {
+    public ModelClass findCommonParentOf(ModelClass modelClass1,
+            ModelClass modelClass2) {
         ModelClass curr = modelClass1;
         while (curr != null && !curr.isAssignableFrom(modelClass2)) {
             curr = curr.getSuperclass();
         }
         if (curr == null) {
-            if (modelClass1.isObject() && modelClass2.isInterface()) {
-                return modelClass1;
-            } else if (modelClass2.isObject() && modelClass1.isInterface()) {
-                return modelClass2;
-            }
-
             ModelClass primitive1 = modelClass1.unbox();
             ModelClass primitive2 = modelClass2.unbox();
             if (!modelClass1.equals(primitive1) || !modelClass2.equals(primitive2)) {
-                return findCommonParentOf(primitive1, primitive2, failOnError);
+                return findCommonParentOf(primitive1, primitive2);
             }
         }
-        if (failOnError) {
-            Preconditions.checkNotNull(curr,
-                    "must be able to find a common parent for " + modelClass1 + " and "
-                            + modelClass2);
-        }
+        Preconditions.checkNotNull(curr,
+                "must be able to find a common parent for " + modelClass1 + " and " + modelClass2);
         return curr;
+
     }
 
     public abstract ModelClass loadPrimitive(String className);
@@ -134,7 +118,8 @@ public abstract class ModelAnalyzer {
                     + "change class loader after that");
         }
         L.d("setting processing env to %s", processingEnvironment);
-        sAnalyzer = new AnnotationAnalyzer(processingEnvironment);
+        AnnotationAnalyzer annotationAnalyzer = new AnnotationAnalyzer(processingEnvironment);
+        sAnalyzer = annotationAnalyzer;
     }
 
     /**
@@ -222,49 +207,11 @@ public abstract class ModelAnalyzer {
         return "null";
     }
 
-    public final ModelClass findClass(String className, Map<String, String> imports) {
-        if (mInjectedClasses.containsKey(className)) {
-            return mInjectedClasses.get(className);
-        }
-        return findClassInternal(className, imports);
-    }
-
-    public abstract ModelClass findClassInternal(String className, Map<String, String> imports);
+    public abstract ModelClass findClass(String className, Map<String, String> imports);
 
     public abstract ModelClass findClass(Class classType);
 
     public abstract TypeUtil createTypeUtil();
-
-    public ModelClass injectClass(InjectedClass injectedClass) {
-        mInjectedClasses.put(injectedClass.getCanonicalName(), injectedClass);
-        return injectedClass;
-    }
-
-    public ModelClass injectViewDataBinding(String className, Map<String, String> variables,
-            Map<String, String> fields) {
-        InjectedClass injectedClass = new InjectedClass(className,
-                ModelAnalyzer.VIEW_DATA_BINDING);
-
-        if (fields != null) {
-            for (String name : fields.keySet()) {
-                String type = fields.get(name);
-                injectedClass.addField(new InjectedField(name, type));
-            }
-        }
-        if (variables != null) {
-            for (String name : variables.keySet()) {
-                String type = variables.get(name);
-                String capName = StringUtils.capitalize(name);
-                String setName = "set" + capName;
-                String getName = "get" + capName;
-                injectedClass.addMethod(new InjectedMethod(injectedClass, false, getName, type));
-                injectedClass.addMethod(new InjectedMethod(injectedClass, false, setName, "void",
-                        type));
-            }
-        }
-        mInjectedClasses.put(className, injectedClass);
-        return injectedClass;
-    }
 
     ModelClass[] getListTypes() {
         if (mListTypes == null) {

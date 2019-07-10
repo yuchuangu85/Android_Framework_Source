@@ -16,14 +16,18 @@
 
 package benchmarks;
 
-import java.util.HashMap;
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 import java.util.Map;
+import java.util.HashMap;
 
 /**
  * Is there a performance reason to "Prefer virtual over interface", as the
  * Android documentation once claimed?
  */
-public class VirtualVersusInterfaceBenchmark {
+public class VirtualVersusInterfaceBenchmark extends SimpleBenchmark {
     public void timeMapPut(int reps) {
         Map<String, String> map = new HashMap<String, String>();
         for (int i = 0; i < reps; ++i) {

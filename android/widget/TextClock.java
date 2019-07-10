@@ -16,11 +16,7 @@
 
 package android.widget;
 
-import static android.view.ViewDebug.ExportedProperty;
-import static android.widget.RemoteViews.RemoteView;
-
 import android.annotation.NonNull;
-import android.annotation.TestApi;
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
@@ -41,10 +37,13 @@ import android.view.ViewHierarchyEncoder;
 
 import com.android.internal.R;
 
-import libcore.icu.LocaleData;
-
 import java.util.Calendar;
 import java.util.TimeZone;
+
+import libcore.icu.LocaleData;
+
+import static android.view.ViewDebug.ExportedProperty;
+import static android.widget.RemoteViews.*;
 
 /**
  * <p><code>TextClock</code> can display the current date and/or time as
@@ -103,7 +102,6 @@ public class TextClock extends TextView {
      *
      * @deprecated Let the system use locale-appropriate defaults instead.
      */
-    @Deprecated
     public static final CharSequence DEFAULT_FORMAT_12_HOUR = "h:mm a";
 
     /**
@@ -118,7 +116,6 @@ public class TextClock extends TextView {
      *
      * @deprecated Let the system use locale-appropriate defaults instead.
      */
-    @Deprecated
     public static final CharSequence DEFAULT_FORMAT_24_HOUR = "H:mm";
 
     private CharSequence mFormat12;
@@ -133,24 +130,14 @@ public class TextClock extends TextView {
 
     private CharSequence mDescFormat;
 
-    private boolean mRegistered;
-    private boolean mShouldRunTicker;
+    private boolean mAttached;
 
     private Calendar mTime;
     private String mTimeZone;
 
     private boolean mShowCurrentUserTime;
 
-    private ContentObserver mFormatChangeObserver;
-    // Used by tests to stop time change events from triggering the text update
-    private boolean mStopTicking;
-
-    private class FormatChangeObserver extends ContentObserver {
-
-        public FormatChangeObserver(Handler handler) {
-            super(handler);
-        }
-
+    private final ContentObserver mFormatChangeObserver = new ContentObserver(new Handler()) {
         @Override
         public void onChange(boolean selfChange) {
             chooseFormat();
@@ -167,9 +154,6 @@ public class TextClock extends TextView {
     private final BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (mStopTicking) {
-                return; // Test disabled the clock ticks
-            }
             if (mTimeZone == null && Intent.ACTION_TIMEZONE_CHANGED.equals(intent.getAction())) {
                 final String timeZone = intent.getStringExtra("time-zone");
                 createTime(timeZone);
@@ -180,9 +164,6 @@ public class TextClock extends TextView {
 
     private final Runnable mTicker = new Runnable() {
         public void run() {
-            if (mStopTicking) {
-                return; // Test disabled the clock ticks
-            }
             onTimeChanged();
 
             long now = SystemClock.uptimeMillis();
@@ -263,7 +244,8 @@ public class TextClock extends TextView {
         }
 
         createTime(mTimeZone);
-        chooseFormat();
+        // Wait until onAttachedToWindow() to handle the ticker
+        chooseFormat(false);
     }
 
     private void createTime(String timeZone) {
@@ -408,15 +390,6 @@ public class TextClock extends TextView {
     }
 
     /**
-     * Update the displayed time if necessary and invalidate the view.
-     * @hide
-     */
-    public void refresh() {
-        onTimeChanged();
-        invalidate();
-    }
-
-    /**
      * Indicates whether the system is currently using the 24-hour mode.
      *
      * When the system is in 24-hour mode, this view will use the pattern
@@ -480,6 +453,16 @@ public class TextClock extends TextView {
     }
 
     /**
+     * Selects either one of {@link #getFormat12Hour()} or {@link #getFormat24Hour()}
+     * depending on whether the user has selected 24-hour format.
+     *
+     * Calling this method does not schedule or unschedule the time ticker.
+     */
+    private void chooseFormat() {
+        chooseFormat(true);
+    }
+
+    /**
      * Returns the current format string. Always valid after constructor has
      * finished, and will never be {@code null}.
      *
@@ -492,8 +475,11 @@ public class TextClock extends TextView {
     /**
      * Selects either one of {@link #getFormat12Hour()} or {@link #getFormat24Hour()}
      * depending on whether the user has selected 24-hour format.
+     *
+     * @param handleTicker true if calling this method should schedule/unschedule the
+     *                     time ticker, false otherwise
      */
-    private void chooseFormat() {
+    private void chooseFormat(boolean handleTicker) {
         final boolean format24Requested = is24HourModeEnabled();
 
         LocaleData ld = LocaleData.get(getContext().getResources().getConfiguration().locale);
@@ -509,7 +495,7 @@ public class TextClock extends TextView {
         boolean hadSeconds = mHasSeconds;
         mHasSeconds = DateFormat.hasSeconds(mFormat);
 
-        if (mShouldRunTicker && hadSeconds != mHasSeconds) {
+        if (handleTicker && mAttached && hadSeconds != mHasSeconds) {
             if (hadSeconds) getHandler().removeCallbacks(mTicker);
             else mTicker.run();
         }
@@ -526,30 +512,19 @@ public class TextClock extends TextView {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
 
-        if (!mRegistered) {
-            mRegistered = true;
+        if (!mAttached) {
+            mAttached = true;
 
             registerReceiver();
             registerObserver();
 
             createTime(mTimeZone);
-        }
-    }
 
-    @Override
-    public void onVisibilityAggregated(boolean isVisible) {
-        super.onVisibilityAggregated(isVisible);
-
-        if (!mShouldRunTicker && isVisible) {
-            mShouldRunTicker = true;
             if (mHasSeconds) {
                 mTicker.run();
             } else {
                 onTimeChanged();
             }
-        } else if (mShouldRunTicker && !isVisible) {
-            mShouldRunTicker = false;
-            getHandler().removeCallbacks(mTicker);
         }
     }
 
@@ -557,21 +532,14 @@ public class TextClock extends TextView {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
 
-        if (mRegistered) {
+        if (mAttached) {
             unregisterReceiver();
             unregisterObserver();
 
-            mRegistered = false;
-        }
-    }
+            getHandler().removeCallbacks(mTicker);
 
-    /**
-     * Used by tests to stop the clock tick from updating the text.
-     * @hide
-     */
-    @TestApi
-    public void disableClockTick() {
-        mStopTicking = true;
+            mAttached = false;
+        }
     }
 
     private void registerReceiver() {
@@ -581,31 +549,17 @@ public class TextClock extends TextView {
         filter.addAction(Intent.ACTION_TIME_CHANGED);
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
 
-        // OK, this is gross but needed. This class is supported by the
-        // remote views mechanism and as a part of that the remote views
-        // can be inflated by a context for another user without the app
-        // having interact users permission - just for loading resources.
-        // For example, when adding widgets from a managed profile to the
-        // home screen. Therefore, we register the receiver as the user
-        // the app is running as not the one the context is for.
-        getContext().registerReceiverAsUser(mIntentReceiver, android.os.Process.myUserHandle(),
-                filter, null, getHandler());
+        getContext().registerReceiver(mIntentReceiver, filter, null, getHandler());
     }
 
     private void registerObserver() {
-        if (mRegistered) {
-            if (mFormatChangeObserver == null) {
-                mFormatChangeObserver = new FormatChangeObserver(getHandler());
-            }
-            final ContentResolver resolver = getContext().getContentResolver();
-            Uri uri = Settings.System.getUriFor(Settings.System.TIME_12_24);
-            if (mShowCurrentUserTime) {
-                resolver.registerContentObserver(uri, true,
-                        mFormatChangeObserver, UserHandle.USER_ALL);
-            } else {
-                resolver.registerContentObserver(uri, true,
-                        mFormatChangeObserver);
-            }
+        final ContentResolver resolver = getContext().getContentResolver();
+        if (mShowCurrentUserTime) {
+            resolver.registerContentObserver(Settings.System.CONTENT_URI, true,
+                    mFormatChangeObserver, UserHandle.USER_ALL);
+        } else {
+            resolver.registerContentObserver(Settings.System.CONTENT_URI, true,
+                    mFormatChangeObserver);
         }
     }
 
@@ -614,22 +568,14 @@ public class TextClock extends TextView {
     }
 
     private void unregisterObserver() {
-        if (mFormatChangeObserver != null) {
-            final ContentResolver resolver = getContext().getContentResolver();
-            resolver.unregisterContentObserver(mFormatChangeObserver);
-        }
+        final ContentResolver resolver = getContext().getContentResolver();
+        resolver.unregisterContentObserver(mFormatChangeObserver);
     }
 
-    /**
-     * Update the displayed time if this view and its ancestors and window is visible
-     */
     private void onTimeChanged() {
-        // mShouldRunTicker always equals the last value passed into onVisibilityAggregated
-        if (mShouldRunTicker) {
-            mTime.setTimeInMillis(System.currentTimeMillis());
-            setText(DateFormat.format(mFormat, mTime));
-            setContentDescription(DateFormat.format(mDescFormat, mTime));
-        }
+        mTime.setTimeInMillis(System.currentTimeMillis());
+        setText(DateFormat.format(mFormat, mTime));
+        setContentDescription(DateFormat.format(mDescFormat, mTime));
     }
 
     /** @hide */

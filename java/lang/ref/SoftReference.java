@@ -1,51 +1,40 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Copyright (C) 2008 The Android Open Source Project
  *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang.ref;
 
-
 /**
- * Soft reference objects, which are cleared at the discretion of the garbage
- * collector in response to memory demand.
- *
- * <p> Suppose that the garbage collector determines at a certain point in time
- * that an object is <a href="package-summary.html#reachability">softly
- * reachable</a>.  At that time it may choose to clear atomically all soft
- * references to that object and all soft references to any other
- * softly-reachable objects from which that object is reachable through a chain
- * of strong references.  At the same time or at some later time it will
- * enqueue those newly-cleared soft references that are registered with
- * reference queues.
- *
- * <p> All soft references to softly-reachable objects are guaranteed to have
- * been cleared before the virtual machine throws an
- * <code>OutOfMemoryError</code>.  Otherwise no constraints are placed upon the
- * time at which a soft reference will be cleared or the order in which a set
- * of such references to different objects will be cleared.  Virtual machine
- * implementations are, however, encouraged to bias against clearing
- * recently-created or recently-used soft references.
+ * A reference that is cleared when its referent is not strongly reachable and
+ * there is memory pressure.
  *
  * <h3>Avoid Soft References for Caching</h3>
  * In practice, soft references are inefficient for caching. The runtime doesn't
@@ -61,62 +50,53 @@ package java.lang.ref;
  * soft references. LruCache has an effective eviction policy and lets the user
  * tune how much memory is allotted.
  *
- * @author   Mark Reinhold
- * @since    1.2
+ * <h3>Garbage Collection of Soft References</h3>
+ * When the garbage collector encounters an object {@code obj} that is
+ * softly-reachable, the following happens:
+ * <ul>
+ *   <li>A set {@code refs} of references is determined. {@code refs} contains
+ *       the following elements:
+ *       <ul>
+ *         <li>All soft references pointing to {@code obj}.</li>
+ *         <li>All soft references pointing to objects from which {@code obj} is
+ *           strongly reachable.</li>
+ *       </ul>
+ *   </li>
+ *   <li>All references in {@code refs} are atomically cleared.</li>
+ *   <li>At the same time or some time in the future, all references in {@code
+ *       refs} will be enqueued with their corresponding reference queues, if
+ *       any.</li>
+ * </ul>
+ * The system may delay clearing and enqueueing soft references, yet all {@code
+ * SoftReference}s pointing to softly reachable objects will be cleared before
+ * the runtime throws an {@link OutOfMemoryError}.
+ *
+ * <p>Unlike a {@code WeakReference}, a {@code SoftReference} will not be
+ * cleared and enqueued until the runtime must reclaim memory to satisfy an
+ * allocation.
  */
-
 public class SoftReference<T> extends Reference<T> {
 
     /**
-     * Timestamp clock, updated by the garbage collector
-     */
-    static private long clock;
-
-    /**
-     * Timestamp updated by each invocation of the get method.  The VM may use
-     * this field when selecting soft references to be cleared, but it is not
-     * required to do so.
-     */
-    private long timestamp;
-
-    /**
-     * Creates a new soft reference that refers to the given object.  The new
-     * reference is not registered with any queue.
+     * Constructs a new soft reference to the given referent. The newly created
+     * reference is not registered with any reference queue.
      *
-     * @param referent object the new soft reference will refer to
+     * @param r the referent to track
      */
-    public SoftReference(T referent) {
-        super(referent);
-        this.timestamp = clock;
+    public SoftReference(T r) {
+        super(r, null);
     }
 
     /**
-     * Creates a new soft reference that refers to the given object and is
-     * registered with the given queue.
+     * Constructs a new soft reference to the given referent. The newly created
+     * reference is registered with the given reference queue.
      *
-     * @param referent object the new soft reference will refer to
-     * @param q the queue with which the reference is to be registered,
-     *          or <tt>null</tt> if registration is not required
-     *
+     * @param r the referent to track
+     * @param q the queue to register to the reference object with. A null value
+     *          results in a weak reference that is not associated with any
+     *          queue.
      */
-    public SoftReference(T referent, ReferenceQueue<? super T> q) {
-        super(referent, q);
-        this.timestamp = clock;
+    public SoftReference(T r, ReferenceQueue<? super T> q) {
+        super(r, q);
     }
-
-    /**
-     * Returns this reference object's referent.  If this reference object has
-     * been cleared, either by the program or by the garbage collector, then
-     * this method returns <code>null</code>.
-     *
-     * @return   The object to which this reference refers, or
-     *           <code>null</code> if this reference object has been cleared
-     */
-    public T get() {
-        T o = super.get();
-        if (o != null && this.timestamp != clock)
-            this.timestamp = clock;
-        return o;
-    }
-
 }

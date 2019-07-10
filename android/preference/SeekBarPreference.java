@@ -79,6 +79,11 @@ public class SeekBarPreference extends Preference
     }
 
     @Override
+    public CharSequence getSummary() {
+        return null;
+    }
+
+    @Override
     protected void onSetInitialValue(boolean restoreValue, Object defaultValue) {
         setProgress(restoreValue ? getPersistedInt(mProgress)
                 : (Integer) defaultValue);
@@ -91,15 +96,18 @@ public class SeekBarPreference extends Preference
 
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
-        if (event.getAction() != KeyEvent.ACTION_DOWN) {
-            return false;
+        if (event.getAction() != KeyEvent.ACTION_UP) {
+            if (keyCode == KeyEvent.KEYCODE_PLUS
+                    || keyCode == KeyEvent.KEYCODE_EQUALS) {
+                setProgress(getProgress() + 1);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_MINUS) {
+                setProgress(getProgress() - 1);
+                return true;
+            }
         }
-
-        SeekBar seekBar = (SeekBar) v.findViewById(com.android.internal.R.id.seekbar);
-        if (seekBar == null) {
-            return false;
-        }
-        return seekBar.onKeyDown(keyCode, event);
+        return false;
     }
 
     public void setMax(int max) {

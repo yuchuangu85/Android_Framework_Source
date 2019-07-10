@@ -55,8 +55,6 @@ public class PhotoView extends View implements OnGestureListener,
 
     /** Zoom animation duration; in milliseconds */
     private final static long ZOOM_ANIMATION_DURATION = 200L;
-    /** Amount of time to wait after over-zooming before the zoom out animation; in milliseconds */
-    private static final long ZOOM_CORRECTION_DELAY = 600L;
     /** Rotate animation duration; in milliseconds */
     private final static long ROTATE_ANIMATION_DURATION = 500L;
     /** Snap animation duration; in milliseconds */
@@ -368,7 +366,7 @@ public class PhotoView extends View implements OnGestureListener,
 
     @Override
     public boolean onScale(ScaleGestureDetector detector) {
-        if (mTransformsEnabled && !mScaleRunnable.mRunning) {
+        if (mTransformsEnabled) {
             mIsDoubleTouch = false;
             float currentScale = getScale();
             float newScale = currentScale * detector.getScaleFactor();
@@ -379,7 +377,7 @@ public class PhotoView extends View implements OnGestureListener,
 
     @Override
     public boolean onScaleBegin(ScaleGestureDetector detector) {
-        if (mTransformsEnabled && !mScaleRunnable.mRunning) {
+        if (mTransformsEnabled) {
             mScaleRunnable.stop();
             mIsDoubleTouch = true;
         }
@@ -388,6 +386,37 @@ public class PhotoView extends View implements OnGestureListener,
 
     @Override
     public void onScaleEnd(ScaleGestureDetector detector) {
+        // Scale back to the maximum if over-zoomed
+        float currentScale = getScale();
+        if (currentScale > mMaxScale) {
+            // The number of times the crop amount pulled in can fit on the screen
+            float marginFit = 1 / (1 - mMaxScale / currentScale);
+            // The (negative) relative maximum distance from an image edge such that when scaled
+            // this far from the edge, all of the image off-screen in that direction is pulled in
+            float relativeDistance = 1 - marginFit;
+            float centerX = getWidth() / 2;
+            float centerY = getHeight() / 2;
+            // This center will pull all of the margin from the lesser side, over will expose trim
+            float maxX = mTranslateRect.left * relativeDistance;
+            float maxY = mTranslateRect.top * relativeDistance;
+            // This center will pull all of the margin from the greater side, over will expose trim
+            float minX = getWidth() * marginFit + mTranslateRect.right * relativeDistance;
+            float minY = getHeight() * marginFit + mTranslateRect.bottom * relativeDistance;
+            // Adjust center according to bounds to avoid bad crop
+            if (minX > maxX) {
+                // Border is inevitable due to small image size, so we split the crop difference
+                centerX = (minX + maxX) / 2;
+            } else {
+                centerX = Math.min(Math.max(minX, centerX), maxX);
+            }
+            if (minY > maxY) {
+                // Border is inevitable due to small image size, so we split the crop difference
+                centerY = (minY + maxY) / 2;
+            } else {
+                centerY = Math.min(Math.max(minY, centerY), maxY);
+            }
+            mScaleRunnable.start(currentScale, mMaxScale, centerX, centerY);
+        }
         if (mTransformsEnabled && mIsDoubleTouch) {
             mDoubleTapDebounce = true;
             resetTransformations();
@@ -911,67 +940,20 @@ public class PhotoView extends View implements OnGestureListener,
      * @param centerY the center vertical point around which to scale
      */
     private void scale(float newScale, float centerX, float centerY) {
-        // Rotate back to the original orientation
+        // rotate back to the original orientation
         mMatrix.postRotate(-mRotation, getWidth() / 2, getHeight() / 2);
 
-        // Ensure that mMinScale <= newScale <= mMaxScale
+        // ensure that mMinScale <= newScale <= mMaxScale
         newScale = Math.max(newScale, mMinScale);
         newScale = Math.min(newScale, mMaxScale * SCALE_OVERZOOM_FACTOR);
 
         float currentScale = getScale();
-
-        // Prepare to animate zoom out if over-zooming
-        if (newScale > mMaxScale && currentScale <= mMaxScale) {
-            Runnable zoomBackRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    // Scale back to the maximum if over-zoomed
-                    float currentScale = getScale();
-                    if (currentScale > mMaxScale) {
-                        // The number of times the crop amount pulled in can fit on the screen
-                        float marginFit = 1 / (1 - mMaxScale / currentScale);
-                        // The (negative) relative maximum distance from an image edge such that
-                        // when scaled this far from the edge, all of the image off-screen in that
-                        // direction is pulled in
-                        float relativeDistance = 1 - marginFit;
-                        float finalCenterX = getWidth() / 2;
-                        float finalCenterY = getHeight() / 2;
-                        // This center will pull all of the margin from the lesser side, over will
-                        // expose trim
-                        float maxX = mTranslateRect.left * relativeDistance;
-                        float maxY = mTranslateRect.top * relativeDistance;
-                        // This center will pull all of the margin from the greater side, over will
-                        // expose trim
-                        float minX = getWidth() * marginFit + mTranslateRect.right *
-                                relativeDistance;
-                        float minY = getHeight() * marginFit + mTranslateRect.bottom *
-                                relativeDistance;
-                        // Adjust center according to bounds to avoid bad crop
-                        if (minX > maxX) {
-                            // Border is inevitable due to small image size, so we split the crop
-                            finalCenterX = (minX + maxX) / 2;
-                        } else {
-                            finalCenterX = Math.min(Math.max(minX, finalCenterX), maxX);
-                        }
-                        if (minY > maxY) {
-                            // Border is inevitable due to small image size, so we split the crop
-                            finalCenterY = (minY + maxY) / 2;
-                        } else {
-                            finalCenterY = Math.min(Math.max(minY, finalCenterY), maxY);
-                        }
-                        mScaleRunnable.start(currentScale, mMaxScale, finalCenterX, finalCenterY);
-                    }
-                }
-            };
-            postDelayed(zoomBackRunnable, ZOOM_CORRECTION_DELAY);
-        }
-
         float factor = newScale / currentScale;
 
-        // Apply the scale factor
+        // apply the scale factor
         mMatrix.postScale(factor, factor, centerX, centerY);
 
-        // Re-apply any rotation
+        // re-apply any rotation
         mMatrix.postRotate(mRotation, getWidth() / 2, getHeight() / 2);
 
         invalidate();
@@ -1016,6 +998,7 @@ public class PhotoView extends View implements OnGestureListener,
         float b = mTranslateRect.bottom;
 
         final float translateY;
+
         if (mAllowCrop) {
             // If we're cropping, allow the image to scroll off the edge of the screen
             translateY = Math.max(maxTop - mTranslateRect.bottom,
@@ -1238,7 +1221,7 @@ public class PhotoView extends View implements OnGestureListener,
      */
     private static class TranslateRunnable implements Runnable {
 
-        private static final float DECELERATION_RATE = 20000f;
+        private static final float DECELERATION_RATE = 1000f;
         private static final long NEVER = -1L;
 
         private final PhotoView mHeader;

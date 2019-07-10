@@ -31,15 +31,13 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
-import android.view.ViewStructure;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.autofill.AutofillManager;
 
 /**
  * An AdapterView is a view whose children are determined by an {@link Adapter}.
- * 适配器视图
+ *
  * <p>
  * See {@link ListView}, {@link GridView}, {@link Spinner} and
  *      {@link Gallery} for commonly used subclasses of AdapterView.
@@ -55,16 +53,12 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * The item view type returned by {@link Adapter#getItemViewType(int)} when
      * the adapter does not want the item's view recycled.
-     * <p>
-     * 当适配器中View不想被重复利用时返回的View类型
      */
     public static final int ITEM_VIEW_TYPE_IGNORE = -1;
 
     /**
      * The item view type returned by {@link Adapter#getItemViewType(int)} when
      * the item is a header or footer.
-     * <p>
-     * 当ItemView时header或者footer是返回的View类型
      */
     public static final int ITEM_VIEW_TYPE_HEADER_OR_FOOTER = -2;
 
@@ -206,7 +200,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * The last selected position we used when notifying
      */
     int mOldSelectedPosition = INVALID_POSITION;
-
+    
     /**
      * The id of the last selected position we used when notifying
      */
@@ -221,7 +215,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * @see #setFocusable(boolean)
      * @see #checkFocus()
      */
-    private int mDesiredFocusableState = FOCUSABLE_AUTO;
+    private boolean mDesiredFocusableState;
     private boolean mDesiredFocusableInTouchModeState;
 
     /** Lazily-constructed runnable for dispatching selection events. */
@@ -254,12 +248,6 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         // If not explicitly specified this view is important for accessibility.
         if (getImportantForAccessibility() == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
-        }
-
-        mDesiredFocusableState = getFocusable();
-        if (mDesiredFocusableState == FOCUSABLE_AUTO) {
-            // Starts off without an adapter, so NOT_FOCUSABLE by default.
-            super.setFocusable(NOT_FOCUSABLE);
         }
     }
 
@@ -386,7 +374,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
          * position is different from the previously selected position or if
          * there was no selected item.</p>
          *
-         * Implementers can call getItemAtPosition(position) if they need to access the
+         * Impelmenters can call getItemAtPosition(position) if they need to access the
          * data associated with the selected item.
          *
          * @param parent The AdapterView where the selection happened
@@ -612,26 +600,19 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     }
 
     /**
-     * Returns the position within the adapter's data set for the view, where
-     * view is a an adapter item or a descendant of an adapter item.
-     * <p>
-     * <strong>Note:</strong> The result of this method only reflects the
-     * position of the data bound to <var>view</var> during the most recent
-     * layout pass. If the adapter's data set has changed without a subsequent
-     * layout pass, the position returned by this method may not match the
-     * current position of the data within the adapter.
+     * Get the position within the adapter's data set for the view, where view is a an adapter item
+     * or a descendant of an adapter item.
      *
-     * @param view an adapter item, or a descendant of an adapter item. This
-     *             must be visible in this AdapterView at the time of the call.
-     * @return the position within the adapter's data set of the view, or
-     *         {@link #INVALID_POSITION} if the view does not correspond to a
-     *         list item (or it is not currently visible)
+     * @param view an adapter item, or a descendant of an adapter item. This must be visible in this
+     *        AdapterView at the time of the call.
+     * @return the position within the adapter's data set of the view, or {@link #INVALID_POSITION}
+     *         if the view does not correspond to a list item (or it is not currently visible).
      */
     public int getPositionForView(View view) {
         View listItem = view;
         try {
             View v;
-            while ((v = (View) listItem.getParent()) != null && !v.equals(this)) {
+            while (!(v = (View) listItem.getParent()).equals(this)) {
                 listItem = v;
             }
         } catch (ClassCastException e) {
@@ -639,13 +620,11 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
             return INVALID_POSITION;
         }
 
-        if (listItem != null) {
-            // Search the children for the list item
-            final int childCount = getChildCount();
-            for (int i = 0; i < childCount; i++) {
-                if (getChildAt(i).equals(listItem)) {
-                    return mFirstPosition + i;
-                }
+        // Search the children for the list item
+        final int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            if (getChildAt(i).equals(listItem)) {
+                return mFirstPosition + i;
             }
         }
 
@@ -721,16 +700,16 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     }
 
     @Override
-    public void setFocusable(@Focusable int focusable) {
+    public void setFocusable(boolean focusable) {
         final T adapter = getAdapter();
         final boolean empty = adapter == null || adapter.getCount() == 0;
 
         mDesiredFocusableState = focusable;
-        if ((focusable & (FOCUSABLE_AUTO | FOCUSABLE)) == 0) {
+        if (!focusable) {
             mDesiredFocusableInTouchModeState = false;
         }
 
-        super.setFocusable((!empty || isInFilterMode()) ? focusable : NOT_FOCUSABLE);
+        super.setFocusable(focusable && (!empty || isInFilterMode()));
     }
 
     @Override
@@ -740,7 +719,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
         mDesiredFocusableInTouchModeState = focusable;
         if (focusable) {
-            mDesiredFocusableState = FOCUSABLE;
+            mDesiredFocusableState = true;
         }
 
         super.setFocusableInTouchMode(focusable && (!empty || isInFilterMode()));
@@ -754,7 +733,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         // for the client, see View.setFocusableInTouchMode() comments for more
         // details
         super.setFocusableInTouchMode(focusable && mDesiredFocusableInTouchModeState);
-        super.setFocusable(focusable ? mDesiredFocusableState : NOT_FOCUSABLE);
+        super.setFocusable(focusable && mDesiredFocusableState);
         if (mEmptyView != null) {
             updateEmptyStatus((adapter == null) || adapter.isEmpty());
         }
@@ -782,8 +761,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
             // We are now GONE, so pending layouts will not be dispatched.
             // Force one here to make sure that the state of the list matches
             // the state of the adapter.
-            if (mDataChanged) {
-                this.onLayout(false, mLeft, mTop, mRight, mBottom);
+            if (mDataChanged) {           
+                this.onLayout(false, mLeft, mTop, mRight, mBottom); 
             }
         } else {
             if (mEmptyView != null) mEmptyView.setVisibility(View.GONE);
@@ -925,11 +904,6 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
             } else {
                 dispatchOnItemSelected();
             }
-        }
-        // Always notify AutoFillManager - it will return right away if autofill is disabled.
-        final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
-        if (afm != null) {
-            afm.notifyValueChanged(this);
         }
     }
 
@@ -1218,13 +1192,11 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     }
 
     /**
-     * Utility to keep mSelectedPosition and mSelectedRowId in sync(同步)
-     *
+     * Utility to keep mSelectedPosition and mSelectedRowId in sync
      * @param position Our current position
      */
     void setSelectedPositionInt(int position) {
         mSelectedPosition = position;
-        // 根据position获取对应的ItemId
         mSelectedRowId = getItemIdAtPosition(position);
     }
 
@@ -1289,25 +1261,5 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         encoder.addProperty("list:nextSelectedRowId", mNextSelectedRowId);
         encoder.addProperty("list:selectedPosition", mSelectedPosition);
         encoder.addProperty("list:itemCount", mItemCount);
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * <p>It also sets the autofill options in the structure; when overridden, it should set it as
-     * well, either explicitly by calling {@link ViewStructure#setAutofillOptions(CharSequence[])}
-     * or implicitly by calling {@code super.onProvideAutofillStructure(structure, flags)}.
-     */
-    @Override
-    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
-        super.onProvideAutofillStructure(structure, flags);
-
-        final Adapter adapter = getAdapter();
-        if (adapter == null) return;
-
-        final CharSequence[] options = adapter.getAutofillOptions();
-        if (options != null) {
-            structure.setAutofillOptions(options);
-        }
     }
 }

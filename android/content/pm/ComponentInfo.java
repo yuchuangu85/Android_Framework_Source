@@ -16,10 +16,8 @@
 
 package android.content.pm;
 
-import android.content.ComponentName;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
-import android.os.Parcelable;
 import android.util.Printer;
 
 /**
@@ -45,12 +43,6 @@ public class ComponentInfo extends PackageItemInfo {
     public String processName;
 
     /**
-     * The name of the split in which this component is declared.
-     * Null if the component was declared in the base APK.
-     */
-    public String splitName;
-
-    /**
      * A string resource identifier (in the package's resources) containing
      * a user-readable description of the component.  From the "description"
      * attribute or, if not set, 0.
@@ -59,7 +51,7 @@ public class ComponentInfo extends PackageItemInfo {
     
     /**
      * Indicates whether or not this component may be instantiated.  Note that this value can be
-     * overridden by the one in its parent {@link ApplicationInfo}.
+     * overriden by the one in its parent {@link ApplicationInfo}.
      */
     public boolean enabled = true;
 
@@ -70,18 +62,7 @@ public class ComponentInfo extends PackageItemInfo {
      * &lt;provider&gt; tag.
      */
     public boolean exported = false;
-
-    /**
-     * Indicates if this component is aware of direct boot lifecycle, and can be
-     * safely run before the user has entered their credentials (such as a lock
-     * pattern or PIN).
-     */
-    public boolean directBootAware = false;
-
-    /** @removed */
-    @Deprecated
-    public boolean encryptionAware = false;
-
+    
     public ComponentInfo() {
     }
 
@@ -89,15 +70,12 @@ public class ComponentInfo extends PackageItemInfo {
         super(orig);
         applicationInfo = orig.applicationInfo;
         processName = orig.processName;
-        splitName = orig.splitName;
         descriptionRes = orig.descriptionRes;
         enabled = orig.enabled;
         exported = orig.exported;
-        encryptionAware = directBootAware = orig.directBootAware;
     }
 
-    /** @hide */
-    @Override public CharSequence loadUnsafeLabel(PackageManager pm) {
+    @Override public CharSequence loadLabel(PackageManager pm) {
         if (nonLocalizedLabel != null) {
             return nonLocalizedLabel;
         }
@@ -161,72 +139,43 @@ public class ComponentInfo extends PackageItemInfo {
         return banner != 0 ? banner : applicationInfo.banner;
     }
 
-    /** {@hide} */
-    public ComponentName getComponentName() {
-        return new ComponentName(packageName, name);
-    }
-
     protected void dumpFront(Printer pw, String prefix) {
         super.dumpFront(pw, prefix);
-        if (processName != null && !packageName.equals(processName)) {
-            pw.println(prefix + "processName=" + processName);
-        }
-        if (splitName != null) {
-            pw.println(prefix + "splitName=" + splitName);
-        }
         pw.println(prefix + "enabled=" + enabled + " exported=" + exported
-                + " directBootAware=" + directBootAware);
+                + " processName=" + processName);
         if (descriptionRes != 0) {
             pw.println(prefix + "description=" + descriptionRes);
         }
     }
-
+    
     protected void dumpBack(Printer pw, String prefix) {
-        dumpBack(pw, prefix, DUMP_FLAG_ALL);
-    }
-
-    void dumpBack(Printer pw, String prefix, int dumpFlags) {
-        if ((dumpFlags & DUMP_FLAG_APPLICATION) != 0) {
-            if (applicationInfo != null) {
-                pw.println(prefix + "ApplicationInfo:");
-                applicationInfo.dump(pw, prefix + "  ", dumpFlags);
-            } else {
-                pw.println(prefix + "ApplicationInfo: null");
-            }
+        if (applicationInfo != null) {
+            pw.println(prefix + "ApplicationInfo:");
+            applicationInfo.dump(pw, prefix + "  ");
+        } else {
+            pw.println(prefix + "ApplicationInfo: null");
         }
         super.dumpBack(pw, prefix);
     }
-
+    
     public void writeToParcel(Parcel dest, int parcelableFlags) {
         super.writeToParcel(dest, parcelableFlags);
-        if ((parcelableFlags & Parcelable.PARCELABLE_ELIDE_DUPLICATES) != 0) {
-            dest.writeInt(0);
-        } else {
-            dest.writeInt(1);
-            applicationInfo.writeToParcel(dest, parcelableFlags);
-        }
+        applicationInfo.writeToParcel(dest, parcelableFlags);
         dest.writeString(processName);
-        dest.writeString(splitName);
         dest.writeInt(descriptionRes);
         dest.writeInt(enabled ? 1 : 0);
         dest.writeInt(exported ? 1 : 0);
-        dest.writeInt(directBootAware ? 1 : 0);
     }
     
     protected ComponentInfo(Parcel source) {
         super(source);
-        final boolean hasApplicationInfo = (source.readInt() != 0);
-        if (hasApplicationInfo) {
-            applicationInfo = ApplicationInfo.CREATOR.createFromParcel(source);
-        }
+        applicationInfo = ApplicationInfo.CREATOR.createFromParcel(source);
         processName = source.readString();
-        splitName = source.readString();
         descriptionRes = source.readInt();
         enabled = (source.readInt() != 0);
         exported = (source.readInt() != 0);
-        encryptionAware = directBootAware = (source.readInt() != 0);
     }
-
+    
     /**
      * @hide
      */

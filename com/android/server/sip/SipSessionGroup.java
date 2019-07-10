@@ -237,7 +237,7 @@ class SipSessionGroup implements SipListener {
     }
 
     public synchronized void close() {
-        if (DBG) log("close: " + SipService.obfuscateSipUri(mLocalProfile.getUriString()));
+        if (DBG) log("close: " + mLocalProfile.getUriString());
         onConnectivityChanged();
         mSessionMap.clear();
         closeToNotReceiveCalls();

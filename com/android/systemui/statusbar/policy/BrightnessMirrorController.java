@@ -16,68 +16,77 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.annotation.NonNull;
-import android.content.res.Resources;
-import android.util.ArraySet;
-import android.view.ContextThemeWrapper;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.widget.FrameLayout;
-
-import com.android.internal.util.Preconditions;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.phone.NotificationPanelView;
+import com.android.systemui.statusbar.ScrimView;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
 import com.android.systemui.statusbar.phone.StatusBarWindowView;
 
-import java.util.function.Consumer;
+import android.view.View;
+import android.view.ViewPropertyAnimator;
+import android.widget.FrameLayout;
 
 /**
  * Controls showing and hiding of the brightness mirror.
  */
-public class BrightnessMirrorController
-        implements CallbackController<BrightnessMirrorController.BrightnessMirrorListener> {
+public class BrightnessMirrorController {
 
-    private final StatusBarWindowView mStatusBarWindow;
-    private final Consumer<Boolean> mVisibilityCallback;
-    private final NotificationPanelView mNotificationPanel;
-    private final ArraySet<BrightnessMirrorListener> mBrightnessMirrorListeners = new ArraySet<>();
+    public long TRANSITION_DURATION_OUT = 150;
+    public long TRANSITION_DURATION_IN = 200;
+
+    private final ScrimView mScrimBehind;
+    private final View mBrightnessMirror;
+    private final View mPanelHolder;
     private final int[] mInt2Cache = new int[2];
-    private View mBrightnessMirror;
 
-    public BrightnessMirrorController(StatusBarWindowView statusBarWindow,
-            @NonNull Consumer<Boolean> visibilityCallback) {
-        mStatusBarWindow = statusBarWindow;
+    public BrightnessMirrorController(StatusBarWindowView statusBarWindow) {
+        mScrimBehind = (ScrimView) statusBarWindow.findViewById(R.id.scrim_behind);
         mBrightnessMirror = statusBarWindow.findViewById(R.id.brightness_mirror);
-        mNotificationPanel = statusBarWindow.findViewById(R.id.notification_panel);
-        mNotificationPanel.setPanelAlphaEndAction(() -> {
-            mBrightnessMirror.setVisibility(View.INVISIBLE);
-        });
-        mVisibilityCallback = visibilityCallback;
+        mPanelHolder = statusBarWindow.findViewById(R.id.panel_holder);
     }
 
     public void showMirror() {
         mBrightnessMirror.setVisibility(View.VISIBLE);
-        mVisibilityCallback.accept(true);
-        mNotificationPanel.setPanelAlpha(0, true /* animate */);
+        mScrimBehind.animateViewAlpha(0.0f, TRANSITION_DURATION_OUT, PhoneStatusBar.ALPHA_OUT);
+        outAnimation(mPanelHolder.animate())
+                .withLayer();
     }
 
     public void hideMirror() {
-        mVisibilityCallback.accept(false);
-        mNotificationPanel.setPanelAlpha(255, true /* animate */);
+        mScrimBehind.animateViewAlpha(1.0f, TRANSITION_DURATION_IN, PhoneStatusBar.ALPHA_IN);
+        inAnimation(mPanelHolder.animate())
+                .withLayer()
+                .withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                mBrightnessMirror.setVisibility(View.INVISIBLE);
+            }
+        });
     }
+
+    private ViewPropertyAnimator outAnimation(ViewPropertyAnimator a) {
+        return a.alpha(0.0f)
+                .setDuration(TRANSITION_DURATION_OUT)
+                .setInterpolator(PhoneStatusBar.ALPHA_OUT);
+    }
+    private ViewPropertyAnimator inAnimation(ViewPropertyAnimator a) {
+        return a.alpha(1.0f)
+                .setDuration(TRANSITION_DURATION_IN)
+                .setInterpolator(PhoneStatusBar.ALPHA_IN);
+    }
+
 
     public void setLocation(View original) {
         original.getLocationInWindow(mInt2Cache);
 
         // Original is slightly larger than the mirror, so make sure to use the center for the
         // positioning.
-        int originalX = mInt2Cache[0] + original.getWidth() / 2;
-        int originalY = mInt2Cache[1] + original.getHeight() / 2;
+        int originalX = mInt2Cache[0] + original.getWidth()/2;
+        int originalY = mInt2Cache[1];
         mBrightnessMirror.setTranslationX(0);
         mBrightnessMirror.setTranslationY(0);
         mBrightnessMirror.getLocationInWindow(mInt2Cache);
-        int mirrorX = mInt2Cache[0] + mBrightnessMirror.getWidth() / 2;
-        int mirrorY = mInt2Cache[1] + mBrightnessMirror.getHeight() / 2;
+        int mirrorX = mInt2Cache[0] + mBrightnessMirror.getWidth()/2;
+        int mirrorY = mInt2Cache[1];
         mBrightnessMirror.setTranslationX(originalX - mirrorX);
         mBrightnessMirror.setTranslationY(originalY - mirrorY);
     }
@@ -89,47 +98,15 @@ public class BrightnessMirrorController
     public void updateResources() {
         FrameLayout.LayoutParams lp =
                 (FrameLayout.LayoutParams) mBrightnessMirror.getLayoutParams();
-        Resources r = mBrightnessMirror.getResources();
-        lp.width = r.getDimensionPixelSize(R.dimen.qs_panel_width);
-        lp.height = r.getDimensionPixelSize(R.dimen.brightness_mirror_height);
-        lp.gravity = r.getInteger(R.integer.notification_panel_layout_gravity);
+        lp.width = mBrightnessMirror.getResources().getDimensionPixelSize(
+                R.dimen.notification_panel_width);
+        lp.gravity = mBrightnessMirror.getResources().getInteger(
+                R.integer.notification_panel_layout_gravity);
         mBrightnessMirror.setLayoutParams(lp);
-    }
 
-    public void onOverlayChanged() {
-        reinflate();
-    }
-
-    public void onDensityOrFontScaleChanged() {
-        reinflate();
-    }
-
-    private void reinflate() {
-        ContextThemeWrapper qsThemeContext =
-                new ContextThemeWrapper(mBrightnessMirror.getContext(), R.style.qs_theme);
-        int index = mStatusBarWindow.indexOfChild(mBrightnessMirror);
-        mStatusBarWindow.removeView(mBrightnessMirror);
-        mBrightnessMirror = LayoutInflater.from(qsThemeContext).inflate(
-                R.layout.brightness_mirror, mStatusBarWindow, false);
-        mStatusBarWindow.addView(mBrightnessMirror, index);
-
-        for (int i = 0; i < mBrightnessMirrorListeners.size(); i++) {
-            mBrightnessMirrorListeners.valueAt(i).onBrightnessMirrorReinflated(mBrightnessMirror);
-        }
-    }
-
-    @Override
-    public void addCallback(BrightnessMirrorListener listener) {
-        Preconditions.checkNotNull(listener);
-        mBrightnessMirrorListeners.add(listener);
-    }
-
-    @Override
-    public void removeCallback(BrightnessMirrorListener listener) {
-        mBrightnessMirrorListeners.remove(listener);
-    }
-
-    public interface BrightnessMirrorListener {
-        void onBrightnessMirrorReinflated(View brightnessMirror);
+        int padding = mBrightnessMirror.getResources().getDimensionPixelSize(
+                R.dimen.notification_side_padding);
+        mBrightnessMirror.setPadding(padding, mBrightnessMirror.getPaddingTop(),
+                padding, mBrightnessMirror.getPaddingBottom());
     }
 }

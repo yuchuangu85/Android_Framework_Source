@@ -1,103 +1,87 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /**
- * The interface that a <code>RowSet</code> object implements in order to
- * present itself to a <code>RowSetReader</code> or <code>RowSetWriter</code>
- * object. The <code>RowSetInternal</code> interface contains
- * methods that let the reader or writer access and modify the internal
- * state of the rowset.
- *
- * @since 1.4
+ * An interface provided by a {@code RowSet} object to let either a {@code
+ * RowSetReader} or a {@code RowSetWriter} access its internal state, thereby
+ * providing facilities to read and update the state of the {@code RowSet}.
  */
-
 public interface RowSetInternal {
 
-  /**
-   * Retrieves the parameters that have been set for this
-   * <code>RowSet</code> object's command.
-   *
-   * @return an array of the current parameter values for this <code>RowSet</code>
-   *         object's command
-   * @exception SQLException if a database access error occurs
-   */
-  Object[] getParams() throws SQLException;
+    /**
+     * Gets the connection associated with this {@code RowSet} object.
+     *
+     * @return the connection or {@code null}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Connection getConnection() throws SQLException;
 
-  /**
-   * Retrieves the <code>Connection</code> object that was passed to this
-   * <code>RowSet</code> object.
-   *
-   * @return the <code>Connection</code> object passed to the rowset
-   *      or <code>null</code> if none was passed
-   * @exception SQLException if a database access error occurs
-   */
-  Connection getConnection() throws SQLException;
+    /**
+     * Gets the {@code ResultSet} that was the original (unmodified) content of
+     * the {@code RowSet}.
+     * <p>
+     * The {@code ResultSet}'s cursor is positioned before the first row of
+     * data.
+     *
+     * @return the {@code ResultSet} that contained the original data value of
+     *         the {@code RowSet}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public ResultSet getOriginal() throws SQLException;
 
-  /**
-   * Sets the given <code>RowSetMetaData</code> object as the
-   * <code>RowSetMetaData</code> object for this <code>RowSet</code>
-   * object. The <code>RowSetReader</code> object associated with the rowset
-   * will use <code>RowSetMetaData</code> methods to set the values giving
-   * information about the rowset's columns.
-   *
-   * @param md the <code>RowSetMetaData</code> object that will be set with
-   *        information about the rowset's columns
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setMetaData(RowSetMetaData md) throws SQLException;
+    /**
+     * Gets the original value of the current row only. If the current row did
+     * not have an original value, then an empty value is returned.
+     *
+     * @return a {@code ResultSet} containing the value of the current row only.
+     * @throws SQLException
+     *             if there is a problem accessing the database, or if the
+     *             cursor is not on a valid row (before the first row, after the
+     *             last one or pointing to the insert row).
+     */
+    public ResultSet getOriginalRow() throws SQLException;
 
-  /**
-   * Retrieves a <code>ResultSet</code> object containing the original
-   * value of this <code>RowSet</code> object.
-   * <P>
-   * The cursor is positioned before the first row in the result set.
-   * Only rows contained in the result set returned by the method
-   * <code>getOriginal</code> are said to have an original value.
-   *
-   * @return the original value of the rowset
-   * @exception SQLException if a database access error occurs
-   */
-  public ResultSet getOriginal() throws SQLException;
+    /**
+     * Gets the parameter values that have been set for this {@code RowSet}'s
+     * command.
+     *
+     * @return the values of parameters that have been set.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Object[] getParams() throws SQLException;
 
-  /**
-   * Retrieves a <code>ResultSet</code> object containing the original value
-   * of the current row only.  If the current row has no original value,
-   * an empty result set is returned. If there is no current row,
-   * an exception is thrown.
-   *
-   * @return the original value of the current row as a <code>ResultSet</code>
-   *          object
-   * @exception SQLException if a database access error occurs or this method
-   *           is called while the cursor is on the insert row, before the
-   *           first row, or after the last row
-   */
-  public ResultSet getOriginalRow() throws SQLException;
-
+    /**
+     * Sets {@code RowSetMetaData} for this {@code RowSet}. The {@code
+     * RowSetMetaData} is used by a {@code RowSetReader} to set values giving
+     * information about the {@code RowSet}'s columns.
+     *
+     * @param theMetaData
+     *            holds the metadata about the {@code RowSet}'s columns.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public void setMetaData(RowSetMetaData theMetaData) throws SQLException;
 }

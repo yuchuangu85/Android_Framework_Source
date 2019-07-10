@@ -16,7 +16,6 @@
 
 package android.app;
 
-import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
@@ -31,8 +30,6 @@ import android.util.Log;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 
 /**
  * A Service is an application component representing either an application's desire
@@ -299,38 +296,9 @@ import java.lang.annotation.RetentionPolicy;
  * 
  * {@sample development/samples/ApiDemos/src/com/example/android/apis/app/MessengerServiceActivities.java
  *      bind}
- *
- * Service组件的启动方式分为显式和隐式两种：
- * 显示：我们需要知道类名，
- * 隐式：我们需要知道组件名称
  */
 public abstract class Service extends ContextWrapper implements ComponentCallbacks2 {
     private static final String TAG = "Service";
-
-    /**
-     * Flag for {@link #stopForeground(int)}: if set, the notification previously provided
-     * to {@link #startForeground} will be removed.  Otherwise it will remain
-     * until a later call (to {@link #startForeground(int, Notification)} or
-     * {@link #stopForeground(int)} removes it, or the service is destroyed.
-     */
-    public static final int STOP_FOREGROUND_REMOVE = 1<<0;
-
-    /**
-     * Flag for {@link #stopForeground(int)}: if set, the notification previously provided
-     * to {@link #startForeground} will be detached from the service.  Only makes sense
-     * when {@link #STOP_FOREGROUND_REMOVE} is <b>not</b> set -- in this case, the notification
-     * will remain shown, but be completely detached from the service and so no longer changed
-     * except through direct calls to the notification manager.
-     */
-    public static final int STOP_FOREGROUND_DETACH = 1<<1;
-
-    /** @hide */
-    @IntDef(flag = true, prefix = { "STOP_FOREGROUND_" }, value = {
-            STOP_FOREGROUND_REMOVE,
-            STOP_FOREGROUND_DETACH
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface StopForegroundFlags {}
 
     public Service() {
         super(null);
@@ -409,7 +377,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * alarm goes off.
      */
     public static final int START_NOT_STICKY = 2;
-
+    
     /**
      * Constant to return from {@link #onStartCommand}: if this service's
      * process is killed while it is started (after returning from
@@ -424,17 +392,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * pending events will be delivered at the point of restart).
      */
     public static final int START_REDELIVER_INTENT = 3;
-
-    /** @hide */
-    @IntDef(flag = false, prefix = { "START_" }, value = {
-            START_STICKY_COMPATIBILITY,
-            START_STICKY,
-            START_NOT_STICKY,
-            START_REDELIVER_INTENT,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface StartResult {}
-
+    
     /**
      * Special constant for reporting that we are done processing
      * {@link #onTaskRemoved(Intent)}.
@@ -456,16 +414,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * {@link #onStartCommand(Intent, int, int)}.
      */
     public static final int START_FLAG_RETRY = 0x0002;
-
-    /** @hide */
-    @IntDef(flag = true, prefix = { "START_FLAG_" }, value = {
-            START_FLAG_REDELIVERY,
-            START_FLAG_RETRY,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface StartArgFlags {}
-
-
+    
     /**
      * Called by the system every time a client explicitly starts the service by calling 
      * {@link android.content.Context#startService}, providing the arguments it supplied and a 
@@ -475,6 +424,14 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * {@link #onStart} and returns either {@link #START_STICKY}
      * or {@link #START_STICKY_COMPATIBILITY}.
      * 
+     * <p>If you need your application to run on platform versions prior to API
+     * level 5, you can use the following model to handle the older {@link #onStart}
+     * callback in that case.  The <code>handleCommand</code> method is implemented by
+     * you as appropriate:
+     * 
+     * {@sample development/samples/ApiDemos/src/com/example/android/apis/app/ForegroundService.java
+     *   start_compatibility}
+     *
      * <p class="caution">Note that the system calls this on your
      * service's main thread.  A service's main thread is the same
      * thread where UI operations take place for Activities running in the
@@ -487,7 +444,8 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * as given.  This may be null if the service is being restarted after
      * its process has gone away, and it had previously returned anything
      * except {@link #START_STICKY_COMPATIBILITY}.
-     * @param flags Additional data about this start request.
+     * @param flags Additional data about this start request.  Currently either
+     * 0, {@link #START_FLAG_REDELIVERY}, or {@link #START_FLAG_RETRY}.
      * @param startId A unique integer representing this specific request to 
      * start.  Use with {@link #stopSelfResult(int)}.
      * 
@@ -497,7 +455,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * 
      * @see #stopSelfResult(int)
      */
-    public @StartResult int onStartCommand(Intent intent, @StartArgFlags int flags, int startId) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
         onStart(intent, startId);
         return mStartCompatibility ? START_STICKY_COMPATIBILITY : START_STICKY;
     }
@@ -667,26 +625,22 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
     }
     
     /**
-     * If your service is started (running through {@link Context#startService(Intent)}), then
-     * also make this service run in the foreground, supplying the ongoing
+     * Make this service run in the foreground, supplying the ongoing
      * notification to be shown to the user while in this state.
-     * By default started services are background, meaning that their process won't be given
-     * foreground CPU scheduling (unless something else in that process is foreground) and,
-     * if the system needs to kill them to reclaim more memory (such as to display a large page in a
-     * web browser), they can be killed without too much harm.  You use
-     * {@link #startForeground} if killing your service would be disruptive to the user, such as
+     * By default services are background, meaning that if the system needs to
+     * kill them to reclaim more memory (such as to display a large page in a
+     * web browser), they can be killed without too much harm.  You can set this
+     * flag if killing your service would be disruptive to the user, such as
      * if your service is performing background music playback, so the user
      * would notice if their music stopped playing.
-     *
-     * <p>Note that calling this method does <em>not</em> put the service in the started state
-     * itself, even though the name sounds like it.  You must always call
-     * {@link #startService(Intent)} first to tell the system it should keep the service running,
-     * and then use this method to tell it to keep it running harder.</p>
-     *
-     * <p>Apps targeting API {@link android.os.Build.VERSION_CODES#P} or later must request
-     * the permission {@link android.Manifest.permission#FOREGROUND_SERVICE} in order to use
-     * this API.</p>
-     *
+     * 
+     * <p>If you need your application to run on platform versions prior to API
+     * level 5, you can use the following model to call the the older setForeground()
+     * or this modern method as appropriate:
+     * 
+     * {@sample development/samples/ApiDemos/src/com/example/android/apis/app/ForegroundService.java
+     *   foreground_compatibility}
+     * 
      * @param id The identifier for this notification as per
      * {@link NotificationManager#notify(int, Notification)
      * NotificationManager.notify(int, Notification)}; must not be 0.
@@ -698,39 +652,28 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
         try {
             mActivityManager.setServiceForeground(
                     new ComponentName(this, mClassName), mToken, id,
-                    notification, 0);
+                    notification, true);
         } catch (RemoteException ex) {
         }
     }
     
     /**
-     * Synonym for {@link #stopForeground(int)}.
-     * @param removeNotification If true, the {@link #STOP_FOREGROUND_REMOVE} flag
-     * will be supplied.
-     * @see #stopForeground(int)
+     * Remove this service from foreground state, allowing it to be killed if
+     * more memory is needed.
+     * @param removeNotification If true, the notification previously provided
+     * to {@link #startForeground} will be removed.  Otherwise it will remain
+     * until a later call removes it (or the service is destroyed).
      * @see #startForeground(int, Notification)
      */
     public final void stopForeground(boolean removeNotification) {
-        stopForeground(removeNotification ? STOP_FOREGROUND_REMOVE : 0);
-    }
-
-    /**
-     * Remove this service from foreground state, allowing it to be killed if
-     * more memory is needed.  This does not stop the service from running (for that
-     * you use {@link #stopSelf()} or related methods), just takes it out of the
-     * foreground state.
-     *
-     * @param flags additional behavior options.
-     * @see #startForeground(int, Notification)
-     */
-    public final void stopForeground(@StopForegroundFlags int flags) {
         try {
             mActivityManager.setServiceForeground(
-                    new ComponentName(this, mClassName), mToken, 0, null, flags);
+                    new ComponentName(this, mClassName), mToken, 0, null,
+                    removeNotification);
         } catch (RemoteException ex) {
         }
     }
-
+    
     /**
      * Print the Service's state into the given stream.  This gets invoked if
      * you run "adb shell dumpsys activity service &lt;yourservicename&gt;"
@@ -767,15 +710,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
         mStartCompatibility = getApplicationInfo().targetSdkVersion
                 < Build.VERSION_CODES.ECLAIR;
     }
-
-    /**
-     * @hide
-     * Clean up any references to avoid leaks.
-     */
-    public final void detachAndCleanUp() {
-        mToken = null;
-    }
-
+    
     final String getClassName() {
         return mClassName;
     }

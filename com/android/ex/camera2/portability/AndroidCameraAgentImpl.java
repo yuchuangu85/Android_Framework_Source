@@ -620,6 +620,9 @@ class AndroidCameraAgentImpl extends CameraAgent {
                         "] at CameraState[" + cameraState + "]";
                 Log.e(TAG, "RuntimeException during " + errorContext, ex);
 
+                // Be conservative by invalidating both CameraAgent and CameraProxy objects.
+                mCameraState.invalidate();
+
                 if (mCamera != null) {
                     Log.i(TAG, "Release camera since mCamera is not null.");
                     try {
@@ -674,9 +677,6 @@ class AndroidCameraAgentImpl extends CameraAgent {
             parameters.setFocusMode(stringifier.stringify(settings.getCurrentFocusMode()));
             if (mCapabilities.supports(CameraCapabilities.Feature.AUTO_WHITE_BALANCE_LOCK)) {
                 parameters.setAutoWhiteBalanceLock(settings.isAutoWhiteBalanceLocked());
-            }
-            if (settings.getWhiteBalance() != null) {
-                parameters.setWhiteBalance(stringifier.stringify(settings.getWhiteBalance()));
             }
             if (mCapabilities.supports(CameraCapabilities.Feature.FOCUS_AREA)) {
                 if (settings.getFocusAreas().size() != 0) {

@@ -20,8 +20,10 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
-import android.support.annotation.StyleableRes;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.ContextThemeWrapper;
 import android.view.View;
@@ -30,19 +32,8 @@ import android.widget.LinearLayout;
 
 import com.android.setupwizardlib.R;
 
-/**
- * Custom navigation bar for use with setup wizard. This bar contains a back button, more button and
- * next button. By default, the more button is hidden, and typically the next button will be hidden
- * if the more button is shown.
- *
- * @see com.android.setupwizardlib.template.RequireScrollMixin
- */
 public class NavigationBar extends LinearLayout implements View.OnClickListener {
 
-    /**
-     * An interface to listen to events of the navigation bar, namely when the user clicks on the
-     * back or next button.
-     */
     public interface NavigationBarListener {
         void onNavigateBack();
         void onNavigateNext();
@@ -56,17 +47,14 @@ public class NavigationBar extends LinearLayout implements View.OnClickListener 
                         R.attr.suwNavBarTheme,
                         android.R.attr.colorForeground,
                         android.R.attr.colorBackground });
-        @StyleableRes int suwNavBarTheme = 0;
-        @StyleableRes int colorForeground = 1;
-        @StyleableRes int colorBackground = 2;
-        int theme = attributes.getResourceId(suwNavBarTheme, 0);
+        int theme = attributes.getResourceId(0, 0);
         if (theme == 0) {
             // Compare the value of the foreground against the background color to see if current
             // theme is light-on-dark or dark-on-light.
             float[] foregroundHsv = new float[3];
             float[] backgroundHsv = new float[3];
-            Color.colorToHSV(attributes.getColor(colorForeground, 0), foregroundHsv);
-            Color.colorToHSV(attributes.getColor(colorBackground, 0), backgroundHsv);
+            Color.colorToHSV(attributes.getColor(1, 0), foregroundHsv);
+            Color.colorToHSV(attributes.getColor(2, 0), backgroundHsv);
             boolean isDarkBg = foregroundHsv[2] > backgroundHsv[2];
             theme = isDarkBg ? R.style.SuwNavBarThemeDark : R.style.SuwNavBarThemeLight;
         }
@@ -139,4 +127,47 @@ public class NavigationBar extends LinearLayout implements View.OnClickListener 
             }
         }
     }
+
+    public static class NavButton extends Button {
+
+        public NavButton(Context context) {
+            super(context);
+        }
+
+        public NavButton(Context context, AttributeSet attrs) {
+            super(context, attrs);
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            super.setEnabled(enabled);
+            // The color of the button is #de000000 / #deffffff when enabled. When disabled, the
+            // alpha value = 0x3b/0xff * 0xde/0xff = 20%.
+            final int alpha = enabled ? 0xff : 0x3b;
+            setTextColor(getTextColors().withAlpha(alpha));
+            if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+                final Drawable[] relativeDrawables = getCompoundDrawablesRelative();
+                for (Drawable d : relativeDrawables) {
+                    if (d != null) {
+                        d.mutate().setAlpha(alpha);
+                    }
+                }
+            }
+            final Drawable[] compoundDrawables = getCompoundDrawables();
+            for (Drawable d : compoundDrawables) {
+                if (d != null) {
+                    d.mutate().setAlpha(alpha);
+                }
+            }
+        }
+
+        @Override
+        protected void onTextChanged(CharSequence text, int start, int lengthBefore,
+                int lengthAfter) {
+            super.onTextChanged(text, start, lengthBefore, lengthAfter);
+            setCompoundDrawablePadding(TextUtils.isEmpty(text) ? 0 : getResources()
+                    .getDimensionPixelSize(R.dimen.suw_navbar_button_drawable_padding));
+        }
+    }
+
 }

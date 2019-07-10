@@ -16,20 +16,14 @@
 
 package android.databinding.tool.expr;
 
-import android.databinding.tool.BindingTarget;
-import android.databinding.tool.CallbackWrapper;
-import android.databinding.tool.InverseBinding;
+import org.antlr.v4.runtime.ParserRuleContext;
+
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.reflection.ModelMethod;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.writer.ExprModelExt;
 import android.databinding.tool.writer.FlagSet;
-
-import org.antlr.v4.runtime.ParserRuleContext;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,7 +31,6 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExprModel {
 
@@ -59,7 +52,6 @@ public class ExprModel {
      * Any expression can be invalidated by invalidating this flag.
      */
     private BitSet mInvalidateAnyFlags;
-    private int mInvalidateAnyFlagIndex;
 
     /**
      * Used by code generation. Keeps the list of expressions that are waiting to be evaluated.
@@ -71,6 +63,9 @@ public class ExprModel {
      */
     private String[] mFlagMapping;
 
+    private BitSet mInvalidateableFlags;
+    private BitSet mConditionalFlags;
+
     private int mFlagBucketCount;// how many buckets we use to identify flags
 
     private List<Expr> mObservables;
@@ -81,13 +76,6 @@ public class ExprModel {
 
     private ParserRuleContext mCurrentParserContext;
     private Location mCurrentLocationInFile;
-
-    private Map<String, CallbackWrapper> mCallbackWrappers = new HashMap<String, CallbackWrapper>();
-
-    private AtomicInteger mCallbackIdCounter = new AtomicInteger();
-
-    private ExprModelExt mExt = new ExprModelExt();
-
     /**
      * Adds the expression to the list of expressions and returns it.
      * If it already exists, returns existing one.
@@ -102,7 +90,6 @@ public class ExprModel {
             location = new Location(mCurrentParserContext);
             location.setParentLocation(mCurrentLocationInFile);
         }
-        //noinspection unchecked
         T existing = (T) mExprMap.get(expr.getUniqueKey());
         if (existing != null) {
             Preconditions.check(expr.getParents().isEmpty(),
@@ -125,28 +112,12 @@ public class ExprModel {
         return expr;
     }
 
-    protected void markSealed() {
-        mSealed = true;
-    }
-
-    public ExprModelExt getExt() {
-        return mExt;
-    }
-
-    public int obtainCallbackId() {
-        return mCallbackIdCounter.incrementAndGet();
-    }
-
     public void setCurrentParserContext(ParserRuleContext currentParserContext) {
         mCurrentParserContext = currentParserContext;
     }
 
-    public ParserRuleContext getCurrentParserContext() {
-        return mCurrentParserContext;
-    }
-
-    public Location getCurrentLocationInFile() {
-        return mCurrentLocationInFile;
+    public void unregister(Expr expr) {
+        mExprMap.remove(expr.getUniqueKey());
     }
 
     public Map<String, Expr> getExprMap() {
@@ -170,11 +141,7 @@ public class ExprModel {
     }
 
     public FieldAccessExpr observableField(Expr parent, String name) {
-        return register(new ObservableFieldExpr(parent, name));
-    }
-
-    public MethodReferenceExpr methodReference(Expr parent, String name) {
-        return register(new MethodReferenceExpr(parent, name));
+        return register(new FieldAccessExpr(parent, name, true));
     }
 
     public SymbolExpr symbol(String text, Class type) {
@@ -193,23 +160,19 @@ public class ExprModel {
         return register(new StaticIdentifierExpr(name));
     }
 
-    public BuiltInVariableExpr builtInVariable(String name, String type, String accessCode) {
-        return register(new BuiltInVariableExpr(name, type, accessCode));
-    }
-
-    public ViewFieldExpr viewFieldExpr(BindingTarget bindingTarget) {
-        return register(new ViewFieldExpr(bindingTarget));
-    }
-
     /**
      * Creates a static identifier for the given class or returns the existing one.
      */
     public StaticIdentifierExpr staticIdentifierFor(final ModelClass modelClass) {
         final String type = modelClass.getCanonicalName();
         // check for existing
-        StaticIdentifierExpr id = findStaticIdentifierExpr(type);
-        if (id != null) {
-            return id;
+        for (Expr expr : mExprMap.values()) {
+            if (expr instanceof StaticIdentifierExpr) {
+                StaticIdentifierExpr id = (StaticIdentifierExpr) expr;
+                if (id.getUserDefinedType().equals(type)) {
+                    return id;
+                }
+            }
         }
 
         // does not exist. Find a name for it.
@@ -230,19 +193,6 @@ public class ExprModel {
             cnt ++;
             Preconditions.check(cnt < 100, "Failed to create an import for " + type);
         }
-    }
-
-    @Nullable
-    private StaticIdentifierExpr findStaticIdentifierExpr(String type) {
-        for (Expr expr : mExprMap.values()) {
-            if (expr instanceof StaticIdentifierExpr) {
-                StaticIdentifierExpr id = (StaticIdentifierExpr) expr;
-                if (id.getUserDefinedType().equals(type)) {
-                    return id;
-                }
-            }
-        }
-        return null;
     }
 
     public MethodCallExpr methodCall(Expr target, String name, List<Expr> args) {
@@ -273,9 +223,13 @@ public class ExprModel {
         return register(new UnaryExpr(op, expr));
     }
 
-    public Expr resourceExpr(BindingTarget target, String packageName, String resourceType,
-            String resourceName, List<Expr> args) {
-        return register(new ResourceExpr(target, packageName, resourceType, resourceName, args));
+    public Expr group(Expr grouped) {
+        return register(new GroupExpr(grouped));
+    }
+
+    public Expr resourceExpr(String packageName, String resourceType, String resourceName,
+            List<Expr> args) {
+        return register(new ResourceExpr(packageName, resourceType, resourceName, args));
     }
 
     public Expr bracketExpr(Expr variableExpr, Expr argExpr) {
@@ -286,27 +240,13 @@ public class ExprModel {
         return register(new CastExpr(type, expr));
     }
 
-    public TwoWayListenerExpr twoWayListenerExpr(InverseBinding inverseBinding) {
-        return register(new TwoWayListenerExpr(inverseBinding));
-    }
     public List<Expr> getBindingExpressions() {
         return mBindingExpressions;
     }
 
     public StaticIdentifierExpr addImport(String alias, String type, Location location) {
-        String existing = mImports.get(alias);
-        if (existing != null) {
-            if (existing.equals(type)) {
-                final StaticIdentifierExpr id = findStaticIdentifierExpr(type);
-                Preconditions.checkNotNull(id, "Missing import expression although it is"
-                        + " registered");
-                return id;
-            } else {
-                L.e("%s has already been defined as %s but trying to re-define as %s", alias,
-                        existing, type);
-            }
-        }
-
+        Preconditions.check(!mImports.containsKey(alias),
+                "%s has already been defined as %s", alias, type);
         final StaticIdentifierExpr id = staticIdentifier(alias);
         L.d("adding import %s as %s klass: %s", type, alias, id.getClass().getSimpleName());
         id.setUserDefinedType(type);
@@ -335,30 +275,31 @@ public class ExprModel {
         return bindingExpr;
     }
 
-    public void removeExpr(Expr expr) {
-        Preconditions.check(!mSealed, "Can't modify the expression list after sealing the model.");
-        mBindingExpressions.remove(expr);
-        mExprMap.remove(expr.getUniqueKey());
-    }
-
     public List<Expr> getObservables() {
         return mObservables;
     }
 
+    public void seal() {
+        seal(null);
+    }
     /**
      * Give id to each expression. Will be useful if we serialize.
      */
-    public void seal() {
+    public void seal(ResolveListenersCallback resolveListeners) {
         L.d("sealing model");
         List<Expr> notifiableExpressions = new ArrayList<Expr>();
         //ensure class analyzer. We need to know observables at this point
         final ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
         updateExpressions(modelAnalyzer);
 
+        if (resolveListeners != null) {
+            resolveListeners.resolveListeners();
+        }
+
         int counter = 0;
         final Iterable<Expr> observables = filterObservables(modelAnalyzer);
-        List<String> flagMapping = new ArrayList<String>();
-        mObservables = new ArrayList<Expr>();
+        List<String> flagMapping = new ArrayList<>();
+        mObservables = new ArrayList<>();
         for (Expr expr : observables) {
             // observables gets initial ids
             flagMapping.add(expr.getUniqueKey());
@@ -387,9 +328,7 @@ public class ExprModel {
                 if (parent instanceof FieldAccessExpr) {
                     FieldAccessExpr fae = (FieldAccessExpr) parent;
                     L.d("checking field access expr %s. getter: %s", fae,fae.getGetter());
-                    // FAE#getter might be null if it is used only in a callback.
-                    if (fae.getGetter() != null && fae.isDynamic()
-                            && fae.getGetter().canBeInvalidated()) {
+                    if (fae.isDynamic() && fae.getGetter().canBeInvalidated()) {
                         flagMapping.add(parent.getUniqueKey());
                         parent.setId(counter++);
                         notifiableExpressions.add(parent);
@@ -398,17 +337,6 @@ public class ExprModel {
                                 expr.getUniqueKey(),
                                 Integer.toHexString(System.identityHashCode(expr)));
                     }
-                }
-            }
-        }
-
-        // now all 2-way bound view fields
-        for (Expr expr : mExprMap.values()) {
-            if (expr instanceof FieldAccessExpr) {
-                FieldAccessExpr fieldAccessExpr = (FieldAccessExpr) expr;
-                if (fieldAccessExpr.getTarget() instanceof ViewFieldExpr) {
-                    flagMapping.add(fieldAccessExpr.getUniqueKey());
-                    fieldAccessExpr.setId(counter++);
                 }
             }
         }
@@ -429,12 +357,12 @@ public class ExprModel {
         for (Expr expr : mExprMap.values()) {
             expr.getDependencies();
         }
-        mInvalidateAnyFlagIndex = counter ++;
+        final int invalidateAnyFlagIndex = counter ++;
         flagMapping.add("INVALIDATE ANY");
         mInvalidateableFieldLimit = counter;
-        BitSet invalidateableFlags = new BitSet();
+        mInvalidateableFlags = new BitSet();
         for (int i = 0; i < mInvalidateableFieldLimit; i++) {
-            invalidateableFlags.set(i, true);
+            mInvalidateableFlags.set(i, true);
         }
 
         // make sure all dependencies are resolved to avoid future race conditions
@@ -447,9 +375,9 @@ public class ExprModel {
                 counter += 2;
             }
         }
-        BitSet conditionalFlags = new BitSet();
+        mConditionalFlags = new BitSet();
         for (int i = mInvalidateableFieldLimit; i < counter; i++) {
-            conditionalFlags.set(i, true);
+            mConditionalFlags.set(i, true);
         }
         mRequirementIdCount = (counter - mInvalidateableFieldLimit) / 2;
 
@@ -466,7 +394,7 @@ public class ExprModel {
 
         mFlagBucketCount = 1 + (getTotalFlagCount() / FlagSet.sBucketSize);
         mInvalidateAnyFlags = new BitSet();
-        mInvalidateAnyFlags.set(mInvalidateAnyFlagIndex, true);
+        mInvalidateAnyFlags.set(invalidateAnyFlagIndex, true);
 
         for (Expr expr : mExprMap.values()) {
             expr.getShouldReadFlagsWithConditionals();
@@ -518,7 +446,7 @@ public class ExprModel {
     }
 
     private List<Expr> filterNonObservableIds(final ModelAnalyzer modelAnalyzer) {
-        List<Expr> result = new ArrayList<Expr>();
+        List<Expr> result = new ArrayList<>();
         for (Expr input : mExprMap.values()) {
             if (input instanceof IdentifierExpr
                     && !input.hasId()
@@ -531,7 +459,7 @@ public class ExprModel {
     }
 
     private Iterable<Expr> filterObservables(final ModelAnalyzer modelAnalyzer) {
-        List<Expr> result = new ArrayList<Expr>();
+        List<Expr> result = new ArrayList<>();
         for (Expr input : mExprMap.values()) {
             if (input.isObservable()) {
                 result.add(input);
@@ -542,11 +470,9 @@ public class ExprModel {
 
     public List<Expr> getPendingExpressions() {
         if (mPendingExpressions == null) {
-            mPendingExpressions = new ArrayList<Expr>();
+            mPendingExpressions = new ArrayList<>();
             for (Expr expr : mExprMap.values()) {
-                // if an expression is NOT dynanic but has conditional dependants, still return it
-                // so that conditional flags can be set
-                if (!expr.isRead() && (expr.isDynamic() || expr.hasConditionalDependant())) {
+                if (!expr.isRead() && expr.isDynamic()) {
                     mPendingExpressions.add(expr);
                 }
             }
@@ -556,7 +482,7 @@ public class ExprModel {
 
     public boolean markBitsRead() {
         // each has should read flags, we set them back on them
-        List<Expr> markedSomeFlagsRead = new ArrayList<Expr>();
+        List<Expr> markedSomeFlagsRead = new ArrayList<>();
         for (Expr expr : filterShouldRead(getPendingExpressions())) {
             expr.markFlagsAsRead(expr.getShouldReadFlags());
             markedSomeFlagsRead.add(expr);
@@ -566,7 +492,7 @@ public class ExprModel {
 
     private boolean pruneDone(List<Expr> markedSomeFlagsAsRead) {
         boolean marked = true;
-        List<Expr> markedAsReadList = new ArrayList<Expr>();
+        List<Expr> markedAsReadList = new ArrayList<>();
         while (marked) {
             marked = false;
             for (Expr expr : mExprMap.values()) {
@@ -589,18 +515,15 @@ public class ExprModel {
                 }
             }
         }
-        if (!elevated) {
-            for (Expr partialRead : markedSomeFlagsAsRead) {
-                // even if all paths are not satisfied, we can elevate certain conditional
-                // dependencies if all of their paths are satisfied.
-                for (Dependency dependency : partialRead.getDependants()) {
-                    Expr dependant = dependency.getDependant();
-                    if (dependant.isConditional() && dependant.getAllCalculationPaths()
-                            .areAllPathsSatisfied(partialRead.mReadSoFar)) {
-                        if (dependant.considerElevatingConditionals(partialRead)) {
-                            elevated = true;
-                        }
-                    }
+        for (Expr partialRead : markedSomeFlagsAsRead) {
+            boolean allPathsAreSatisfied = partialRead.getAllCalculationPaths()
+                    .areAllPathsSatisfied(partialRead.mReadSoFar);
+            if (!allPathsAreSatisfied) {
+                continue;
+            }
+            for (Dependency dependency : partialRead.getDependants()) {
+                if (dependency.getDependant().considerElevatingConditionals(partialRead)) {
+                    elevated = true;
                 }
             }
         }
@@ -625,8 +548,8 @@ public class ExprModel {
         return false;
     }
 
-    public static ArrayList<Expr> filterShouldRead(Iterable<Expr> exprs) {
-        ArrayList<Expr> result = new ArrayList<Expr>();
+    public static List<Expr> filterShouldRead(Iterable<Expr> exprs) {
+        List<Expr> result = new ArrayList<>();
         for (Expr expr : exprs) {
             if (!expr.getShouldReadFlags().isEmpty() &&
                     !hasConditionalOrNestedCannotReadDependency(expr)) {
@@ -671,10 +594,6 @@ public class ExprModel {
         return mInvalidateAnyFlags;
     }
 
-    public int getInvalidateAnyFlagIndex() {
-        return mInvalidateAnyFlagIndex;
-    }
-
     public Expr argListExpr(Iterable<Expr> expressions) {
         return register(new ArgListExpr(mArgListIdCounter ++, expressions));
     }
@@ -683,39 +602,7 @@ public class ExprModel {
         mCurrentLocationInFile = location;
     }
 
-    public Expr listenerExpr(Expr expression, String name, ModelClass listenerType,
-            ModelMethod listenerMethod) {
-        return register(new ListenerExpr(expression, name, listenerType, listenerMethod));
-    }
-
-    public FieldAssignmentExpr assignment(Expr target, String name, Expr value) {
-        return register(new FieldAssignmentExpr(target, name, value));
-    }
-
-    public Map<String, CallbackWrapper> getCallbackWrappers() {
-        return mCallbackWrappers;
-    }
-
-    public CallbackWrapper callbackWrapper(ModelClass klass, ModelMethod method) {
-        final String key = CallbackWrapper.uniqueKey(klass, method);
-        CallbackWrapper wrapper = mCallbackWrappers.get(key);
-        if (wrapper == null) {
-            wrapper = new CallbackWrapper(klass, method);
-            mCallbackWrappers.put(key, wrapper);
-        }
-        return wrapper;
-    }
-
-    public LambdaExpr lambdaExpr(Expr expr, CallbackExprModel callbackExprModel) {
-        return register(new LambdaExpr(expr, callbackExprModel));
-    }
-
-    public IdentifierExpr findIdentifier(String name) {
-        for (Expr expr : mExprMap.values()) {
-            if (expr instanceof IdentifierExpr && name.equals(((IdentifierExpr) expr).getName())) {
-                return (IdentifierExpr) expr;
-            }
-        }
-        return null;
+    public interface ResolveListenersCallback {
+        void resolveListeners();
     }
 }

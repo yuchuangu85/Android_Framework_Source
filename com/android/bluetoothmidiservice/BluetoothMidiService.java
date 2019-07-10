@@ -19,7 +19,6 @@ package com.android.bluetoothmidiservice;
 import android.app.Service;
 import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
-import android.media.midi.IBluetoothMidiService;
 import android.media.midi.MidiManager;
 import android.os.IBinder;
 import android.util.Log;
@@ -35,31 +34,24 @@ public class BluetoothMidiService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        // Return the interface
-        return mBinder;
-    }
-
-
-    private final IBluetoothMidiService.Stub mBinder = new IBluetoothMidiService.Stub() {
-
-        public IBinder addBluetoothDevice(BluetoothDevice bluetoothDevice) {
-            BluetoothMidiDevice device;
+        if (MidiManager.BLUETOOTH_MIDI_SERVICE_INTENT.equals(intent.getAction())) {
+            BluetoothDevice bluetoothDevice = (BluetoothDevice)intent.getParcelableExtra("device");
             if (bluetoothDevice == null) {
-                Log.e(TAG, "no BluetoothDevice in addBluetoothDevice()");
+                Log.e(TAG, "no BluetoothDevice in onBind intent");
                 return null;
             }
+
+            BluetoothMidiDevice device;
             synchronized (mDeviceServerMap) {
                 device = mDeviceServerMap.get(bluetoothDevice);
                 if (device == null) {
-                    device = new BluetoothMidiDevice(BluetoothMidiService.this,
-                            bluetoothDevice, BluetoothMidiService.this);
-                    mDeviceServerMap.put(bluetoothDevice, device);
+                    device = new BluetoothMidiDevice(this, bluetoothDevice, this);
                 }
             }
             return device.getBinder();
         }
-
-    };
+        return null;
+    }
 
     void deviceClosed(BluetoothDevice device) {
         synchronized (mDeviceServerMap) {

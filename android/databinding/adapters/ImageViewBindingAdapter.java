@@ -42,7 +42,7 @@ public class ImageViewBindingAdapter {
     }
 
     @BindingAdapter("android:src")
-    public static void setImageDrawable(ImageView view, Drawable drawable) {
+    public static void setImageUri(ImageView view, Drawable drawable) {
         view.setImageDrawable(drawable);
     }
 }

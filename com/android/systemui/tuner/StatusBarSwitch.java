@@ -18,14 +18,12 @@ package com.android.systemui.tuner;
 import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.preference.SwitchPreference;
 import android.provider.Settings;
-import android.support.v14.preference.SwitchPreference;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.Dependency;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -37,18 +35,6 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
 
     public StatusBarSwitch(Context context, AttributeSet attrs) {
         super(context, attrs);
-    }
-
-    @Override
-    public void onAttached() {
-        super.onAttached();
-        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_BLACKLIST);
-    }
-
-    @Override
-    public void onDetached() {
-        Dependency.get(TunerService.class).removeTunable(this);
-        super.onDetached();
     }
 
     @Override
@@ -65,14 +51,14 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
         if (!value) {
             // If not enabled add to blacklist.
             if (!mBlacklist.contains(getKey())) {
-                MetricsLogger.action(getContext(), MetricsEvent.TUNER_STATUS_BAR_DISABLE,
+                MetricsLogger.action(getContext(), MetricsLogger.TUNER_STATUS_BAR_DISABLE,
                         getKey());
                 mBlacklist.add(getKey());
                 setList(mBlacklist);
             }
         } else {
             if (mBlacklist.remove(getKey())) {
-                MetricsLogger.action(getContext(), MetricsEvent.TUNER_STATUS_BAR_ENABLE, getKey());
+                MetricsLogger.action(getContext(), MetricsLogger.TUNER_STATUS_BAR_ENABLE, getKey());
                 setList(mBlacklist);
             }
         }

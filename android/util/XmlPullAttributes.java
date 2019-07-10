@@ -34,10 +34,6 @@ class XmlPullAttributes implements AttributeSet {
         return mParser.getAttributeCount();
     }
 
-    public String getAttributeNamespace (int index) {
-        return mParser.getAttributeNamespace(index);
-    }
-
     public String getAttributeName(int index) {
         return mParser.getAttributeName(index);
     }

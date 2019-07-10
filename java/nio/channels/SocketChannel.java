@@ -1,526 +1,433 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.nio.channels;
 
 import java.io.IOException;
 import java.net.Socket;
-import java.net.SocketOption;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.spi.AbstractSelectableChannel;
 import java.nio.channels.spi.SelectorProvider;
+import java.util.Set;
 
 /**
- * A selectable channel for stream-oriented connecting sockets.
+ * A {@code SocketChannel} is a selectable channel that provides a partial
+ * abstraction of stream connecting socket.
  *
- * <p> A socket channel is created by invoking one of the {@link #open open}
- * methods of this class.  It is not possible to create a channel for an arbitrary,
- * pre-existing socket. A newly-created socket channel is open but not yet
- * connected.  An attempt to invoke an I/O operation upon an unconnected
- * channel will cause a {@link NotYetConnectedException} to be thrown.  A
- * socket channel can be connected by invoking its {@link #connect connect}
- * method; once connected, a socket channel remains connected until it is
- * closed.  Whether or not a socket channel is connected may be determined by
- * invoking its {@link #isConnected isConnected} method.
+ * The {@link #socket()} method returns a {@link Socket} instance which
+ * allows a wider range of socket operations than {@code SocketChannel} itself.
  *
- * <p> Socket channels support <i>non-blocking connection:</i>&nbsp;A socket
- * channel may be created and the process of establishing the link to the
- * remote socket may be initiated via the {@link #connect connect} method for
- * later completion by the {@link #finishConnect finishConnect} method.
- * Whether or not a connection operation is in progress may be determined by
- * invoking the {@link #isConnectionPending isConnectionPending} method.
+ * <p>A socket channel is open but not connected when created by {@link #open}.
+ * After connecting it by calling {@link #connect(SocketAddress)}, it will remain
+ * connected until closed.
  *
- * <p> Socket channels support <i>asynchronous shutdown,</i> which is similar
- * to the asynchronous close operation specified in the {@link Channel} class.
- * If the input side of a socket is shut down by one thread while another
- * thread is blocked in a read operation on the socket's channel, then the read
- * operation in the blocked thread will complete without reading any bytes and
- * will return <tt>-1</tt>.  If the output side of a socket is shut down by one
- * thread while another thread is blocked in a write operation on the socket's
- * channel, then the blocked thread will receive an {@link
- * AsynchronousCloseException}.
+ * <p>If the connection is non-blocking then
+ * {@link #connect(SocketAddress)} is used to initiate the connection, followed
+ * by a call of {@link #finishConnect} to perform the final steps of
+ * connecting. {@link #isConnectionPending} to tests whether we're still
+ * trying to connect; {@link #isConnected} tests whether the socket connect
+ * completed successfully. Note that realistic code should use a {@link Selector}
+ * instead of polling. Note also that {@link java.net.Socket} can connect with a
+ * timeout, which is the most common use for a non-blocking connect.
  *
- * <p> Socket options are configured using the {@link #setOption(SocketOption,Object)
- * setOption} method. Socket channels support the following options:
- * <blockquote>
- * <table border summary="Socket options">
- *   <tr>
- *     <th>Option Name</th>
- *     <th>Description</th>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_SNDBUF SO_SNDBUF} </td>
- *     <td> The size of the socket send buffer </td>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </td>
- *     <td> The size of the socket receive buffer </td>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_KEEPALIVE SO_KEEPALIVE} </td>
- *     <td> Keep connection alive </td>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </td>
- *     <td> Re-use address </td>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_LINGER SO_LINGER} </td>
- *     <td> Linger on close if data is present (when configured in blocking mode
- *          only) </td>
- *   </tr>
- *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#TCP_NODELAY TCP_NODELAY} </td>
- *     <td> Disable the Nagle algorithm </td>
- *   </tr>
- * </table>
- * </blockquote>
- * Additional (implementation specific) options may also be supported.
+ * <p>The input and output sides of a channel can be shut down independently and
+ * asynchronously without closing the channel. The {@link Socket#shutdownInput} method
+ * on the socket returned by {@link #socket}
+ * is used for the input side of a channel and subsequent read operations return
+ * -1, which means end of stream. If another thread is blocked in a read
+ * operation when the shutdown occurs, the read will end without effect and
+ * return end of stream. Likewise the {@link Socket#shutdownOutput} method is used for the
+ * output side of the channel; subsequent write operations throw a
+ * {@link ClosedChannelException}. If the output is shut down and another thread
+ * is blocked in a write operation, an {@link AsynchronousCloseException} will
+ * be thrown to the pending thread.
  *
- * <p> Socket channels are safe for use by multiple concurrent threads.  They
- * support concurrent reading and writing, though at most one thread may be
- * reading and at most one thread may be writing at any given time.  The {@link
- * #connect connect} and {@link #finishConnect finishConnect} methods are
- * mutually synchronized against each other, and an attempt to initiate a read
- * or write operation while an invocation of one of these methods is in
- * progress will block until that invocation is complete.  </p>
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * <p>Socket channels are thread-safe, no more than one thread can read or write at
+ * any given time. The {@link #connect(SocketAddress)} and {@link
+ * #finishConnect()} methods are synchronized against each other; when they are
+ * processing, calls to {@link #read} and {@link #write} will block.
  */
-
-public abstract class SocketChannel
-    extends AbstractSelectableChannel
-    implements ByteChannel, ScatteringByteChannel, GatheringByteChannel, NetworkChannel
-{
+public abstract class SocketChannel extends AbstractSelectableChannel implements
+        ByteChannel, ScatteringByteChannel, GatheringByteChannel {
 
     /**
-     * Initializes a new instance of this class.
+     * Constructs a new {@code SocketChannel}.
      *
-     * @param  provider
-     *         The provider that created this channel
+     * @param selectorProvider
+     *            an instance of SelectorProvider.
      */
-    protected SocketChannel(SelectorProvider provider) {
-        super(provider);
+    protected SocketChannel(SelectorProvider selectorProvider) {
+        super(selectorProvider);
     }
 
     /**
-     * Opens a socket channel.
+     * Creates an open and unconnected socket channel.
+     * <p>
+     * This channel is created by calling {@code openSocketChannel()} of the
+     * default {@link SelectorProvider} instance.
      *
-     * <p> The new channel is created by invoking the {@link
-     * java.nio.channels.spi.SelectorProvider#openSocketChannel
-     * openSocketChannel} method of the system-wide default {@link
-     * java.nio.channels.spi.SelectorProvider} object.  </p>
-     *
-     * @return  A new socket channel
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @return the new channel which is open but unconnected.
+     * @throws IOException
+     *             if an I/O error occurs.
      */
     public static SocketChannel open() throws IOException {
         return SelectorProvider.provider().openSocketChannel();
     }
 
     /**
-     * Opens a socket channel and connects it to a remote address.
+     * Creates a socket channel and connects it to a socket address.
+     * <p>
+     * This method performs a call to {@code open()} followed by a call to
+     * {@code connect(SocketAddress)}.
      *
-     * <p> This convenience method works as if by invoking the {@link #open()}
-     * method, invoking the {@link #connect(SocketAddress) connect} method upon
-     * the resulting socket channel, passing it <tt>remote</tt>, and then
-     * returning that channel.  </p>
-     *
-     * @param  remote
-     *         The remote address to which the new channel is to be connected
-     *
-     * @return  A new, and connected, socket channel
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the connect operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the connect operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  UnresolvedAddressException
-     *          If the given remote address is not fully resolved
-     *
-     * @throws  UnsupportedAddressTypeException
-     *          If the type of the given remote address is not supported
-     *
-     * @throws  SecurityException
-     *          If a security manager has been installed
-     *          and it does not permit access to the given remote endpoint
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @param address
+     *            the socket address to be connected to.
+     * @return the new connected channel.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is executing. The calling thread will have the
+     *             interrupt state set and the channel will be closed.
+     * @throws UnresolvedAddressException
+     *             if the address is not resolved.
+     * @throws UnsupportedAddressTypeException
+     *             if the address type is not supported.
+     * @throws IOException
+     *             if an I/O error occurs.
      */
-    public static SocketChannel open(SocketAddress remote)
-        throws IOException
-    {
-        SocketChannel sc = open();
-        try {
-            sc.connect(remote);
-        } catch (Throwable x) {
-            try {
-                sc.close();
-            } catch (Throwable suppressed) {
-                x.addSuppressed(suppressed);
-            }
-            throw x;
+    public static SocketChannel open(SocketAddress address) throws IOException {
+        SocketChannel socketChannel = open();
+        if (socketChannel != null) {
+            socketChannel.connect(address);
         }
-        assert sc.isConnected();
-        return sc;
+        return socketChannel;
     }
 
     /**
-     * Returns an operation set identifying this channel's supported
-     * operations.
+     * Gets the valid operations of this channel. Socket channels support
+     * connect, read and write operation, so this method returns
+     * {@code SelectionKey.OP_CONNECT | SelectionKey.OP_READ | SelectionKey.OP_WRITE}.
      *
-     * <p> Socket channels support connecting, reading, and writing, so this
-     * method returns <tt>(</tt>{@link SelectionKey#OP_CONNECT}
-     * <tt>|</tt>&nbsp;{@link SelectionKey#OP_READ} <tt>|</tt>&nbsp;{@link
-     * SelectionKey#OP_WRITE}<tt>)</tt>.  </p>
-     *
-     * @return  The valid-operation set
+     * @return the operations supported by this channel.
+     * @see java.nio.channels.SelectableChannel#validOps()
      */
+    @Override
     public final int validOps() {
-        return (SelectionKey.OP_READ
-                | SelectionKey.OP_WRITE
-                | SelectionKey.OP_CONNECT);
+        return (SelectionKey.OP_CONNECT | SelectionKey.OP_READ | SelectionKey.OP_WRITE);
     }
 
-
-    // -- Socket-specific operations --
-
     /**
-     * @throws  ConnectionPendingException
-     *          If a non-blocking connect operation is already in progress on
-     *          this channel
-     * @throws  AlreadyBoundException               {@inheritDoc}
-     * @throws  UnsupportedAddressTypeException     {@inheritDoc}
-     * @throws  ClosedChannelException              {@inheritDoc}
-     * @throws  IOException                         {@inheritDoc}
-     * @throws  SecurityException
-     *          If a security manager has been installed and its
-     *          {@link SecurityManager#checkListen checkListen} method denies
-     *          the operation
+     * Returns the socket assigned to this channel, which does not declare any public
+     * methods that are not declared in {@code Socket}.
      *
-     * @since 1.7
-     */
-    @Override
-    public abstract SocketChannel bind(SocketAddress local)
-        throws IOException;
-
-    /**
-     * @throws  UnsupportedOperationException           {@inheritDoc}
-     * @throws  IllegalArgumentException                {@inheritDoc}
-     * @throws  ClosedChannelException                  {@inheritDoc}
-     * @throws  IOException                             {@inheritDoc}
-     *
-     * @since 1.7
-     */
-    @Override
-    public abstract <T> SocketChannel setOption(SocketOption<T> name, T value)
-        throws IOException;
-
-    /**
-     * Shutdown the connection for reading without closing the channel.
-     *
-     * <p> Once shutdown for reading then further reads on the channel will
-     * return {@code -1}, the end-of-stream indication. If the input side of the
-     * connection is already shutdown then invoking this method has no effect.
-     *
-     * @return  The channel
-     *
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     * @throws  IOException
-     *          If some other I/O error occurs
-     *
-     * @since 1.7
-     */
-    public abstract SocketChannel shutdownInput() throws IOException;
-
-    /**
-     * Shutdown the connection for writing without closing the channel.
-     *
-     * <p> Once shutdown for writing then further attempts to write to the
-     * channel will throw {@link ClosedChannelException}. If the output side of
-     * the connection is already shutdown then invoking this method has no
-     * effect.
-     *
-     * @return  The channel
-     *
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     * @throws  IOException
-     *          If some other I/O error occurs
-     *
-     * @since 1.7
-     */
-    public abstract SocketChannel shutdownOutput() throws IOException;
-
-    /**
-     * Retrieves a socket associated with this channel.
-     *
-     * <p> The returned object will not declare any public methods that are not
-     * declared in the {@link java.net.Socket} class.  </p>
-     *
-     * @return  A socket associated with this channel
+     * @return the socket assigned to this channel.
      */
     public abstract Socket socket();
 
     /**
-     * Tells whether or not this channel's network socket is connected.
+     * Indicates whether this channel's socket is connected.
      *
-     * @return  <tt>true</tt> if, and only if, this channel's network socket
-     *          is {@link #isOpen open} and connected
+     * @return {@code true} if this channel's socket is connected, {@code false}
+     *         otherwise.
      */
     public abstract boolean isConnected();
 
     /**
-     * Tells whether or not a connection operation is in progress on this
-     * channel.
+     * Indicates whether this channel's socket is still trying to connect.
      *
-     * @return  <tt>true</tt> if, and only if, a connection operation has been
-     *          initiated on this channel but not yet completed by invoking the
-     *          {@link #finishConnect finishConnect} method
+     * @return {@code true} if the connection is initiated but not finished;
+     *         {@code false} otherwise.
      */
     public abstract boolean isConnectionPending();
 
     /**
-     * Connects this channel's socket.
+     * Connects this channel's socket with a remote address.
+     * <p>
+     * If this channel is blocking, this method will suspend until connecting is
+     * finished or an I/O exception occurs. If the channel is non-blocking,
+     * this method will return {@code true} if the connection is finished at
+     * once or return {@code false} when the connection must be finished later
+     * by calling {@code finishConnect()}.
+     * <p>
+     * This method can be called at any moment and can block other read and
+     * write operations while connecting. It executes the same security checks
+     * as the connect method of the {@code Socket} class.
      *
-     * <p> If this channel is in non-blocking mode then an invocation of this
-     * method initiates a non-blocking connection operation.  If the connection
-     * is established immediately, as can happen with a local connection, then
-     * this method returns <tt>true</tt>.  Otherwise this method returns
-     * <tt>false</tt> and the connection operation must later be completed by
-     * invoking the {@link #finishConnect finishConnect} method.
-     *
-     * <p> If this channel is in blocking mode then an invocation of this
-     * method will block until the connection is established or an I/O error
-     * occurs.
-     *
-     * <p> This method performs exactly the same security checks as the {@link
-     * java.net.Socket} class.  That is, if a security manager has been
-     * installed then this method verifies that its {@link
-     * java.lang.SecurityManager#checkConnect checkConnect} method permits
-     * connecting to the address and port number of the given remote endpoint.
-     *
-     * <p> This method may be invoked at any time.  If a read or write
-     * operation upon this channel is invoked while an invocation of this
-     * method is in progress then that operation will first block until this
-     * invocation is complete.  If a connection attempt is initiated but fails,
-     * that is, if an invocation of this method throws a checked exception,
-     * then the channel will be closed.  </p>
-     *
-     * @param  remote
-     *         The remote address to which this channel is to be connected
-     *
-     * @return  <tt>true</tt> if a connection was established,
-     *          <tt>false</tt> if this channel is in non-blocking mode
-     *          and the connection operation is in progress
-     *
-     * @throws  AlreadyConnectedException
-     *          If this channel is already connected
-     *
-     * @throws  ConnectionPendingException
-     *          If a non-blocking connection operation is already in progress
-     *          on this channel
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the connect operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the connect operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  UnresolvedAddressException
-     *          If the given remote address is not fully resolved
-     *
-     * @throws  UnsupportedAddressTypeException
-     *          If the type of the given remote address is not supported
-     *
-     * @throws  SecurityException
-     *          If a security manager has been installed
-     *          and it does not permit access to the given remote endpoint
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @param address
+     *            the address to connect with.
+     * @return {@code true} if the connection is finished, {@code false}
+     *         otherwise.
+     * @throws AlreadyConnectedException
+     *             if the channel is already connected.
+     * @throws ConnectionPendingException
+     *             a non-blocking connecting operation is already executing on
+     *             this channel.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The calling thread will have the
+     *             interrupt state set and this channel will be closed.
+     * @throws UnresolvedAddressException
+     *             if the address is not resolved.
+     * @throws UnsupportedAddressTypeException
+     *             if the address type is not supported.
+     * @throws IOException
+     *             if an I/O error occurs.
      */
-    public abstract boolean connect(SocketAddress remote) throws IOException;
+    public abstract boolean connect(SocketAddress address) throws IOException;
 
     /**
-     * Finishes the process of connecting a socket channel.
+     * Completes the connection process initiated by a call of {@code
+     * connect(SocketAddress)}.
+     * <p>
+     * This method returns {@code true} if the connection is finished already
+     * and returns {@code false} if the channel is non-blocking and the
+     * connection is not finished yet.
+     * <p>
+     * If this channel is in blocking mode, this method will suspend and return
+     * {@code true} when the connection is finished. It closes this channel and
+     * throws an exception if the connection fails.
+     * <p>
+     * This method can be called at any moment and it can block other {@code
+     * read} and {@code write} operations while connecting.
      *
-     * <p> A non-blocking connection operation is initiated by placing a socket
-     * channel in non-blocking mode and then invoking its {@link #connect
-     * connect} method.  Once the connection is established, or the attempt has
-     * failed, the socket channel will become connectable and this method may
-     * be invoked to complete the connection sequence.  If the connection
-     * operation failed then invoking this method will cause an appropriate
-     * {@link java.io.IOException} to be thrown.
-     *
-     * <p> If this channel is already connected then this method will not block
-     * and will immediately return <tt>true</tt>.  If this channel is in
-     * non-blocking mode then this method will return <tt>false</tt> if the
-     * connection process is not yet complete.  If this channel is in blocking
-     * mode then this method will block until the connection either completes
-     * or fails, and will always either return <tt>true</tt> or throw a checked
-     * exception describing the failure.
-     *
-     * <p> This method may be invoked at any time.  If a read or write
-     * operation upon this channel is invoked while an invocation of this
-     * method is in progress then that operation will first block until this
-     * invocation is complete.  If a connection attempt fails, that is, if an
-     * invocation of this method throws a checked exception, then the channel
-     * will be closed.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if, this channel's socket is now
-     *          connected
-     *
-     * @throws  NoConnectionPendingException
-     *          If this channel is not connected and a connection operation
-     *          has not been initiated
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the connect operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the connect operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @return {@code true} if the connection is successfully finished, {@code
+     *         false} otherwise.
+     * @throws NoConnectionPendingException
+     *             if the channel is not connected and the connection process
+     *             has not been initiated.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The calling thread has the
+     *             interrupt state set, and this channel is closed.
+     * @throws IOException
+     *             if an I/O error occurs.
      */
     public abstract boolean finishConnect() throws IOException;
 
     /**
-     * Returns the remote address to which this channel's socket is connected.
-     *
-     * <p> Where the channel is bound and connected to an Internet Protocol
-     * socket address then the return value from this method is of type {@link
-     * java.net.InetSocketAddress}.
-     *
-     * @return  The remote address; {@code null} if the channel's socket is not
-     *          connected
-     *
-     * @throws  ClosedChannelException
-     *          If the channel is closed
-     * @throws  IOException
-     *          If an I/O error occurs
-     *
-     * @since 1.7
-     */
-    public abstract SocketAddress getRemoteAddress() throws IOException;
-
-    // -- ByteChannel operations --
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public abstract int read(ByteBuffer dst) throws IOException;
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public abstract long read(ByteBuffer[] dsts, int offset, int length)
-        throws IOException;
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public final long read(ByteBuffer[] dsts) throws IOException {
-        return read(dsts, 0, dsts.length);
-    }
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public abstract int write(ByteBuffer src) throws IOException;
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public abstract long write(ByteBuffer[] srcs, int offset, int length)
-        throws IOException;
-
-    /**
-     * @throws  NotYetConnectedException
-     *          If this channel is not yet connected
-     */
-    public final long write(ByteBuffer[] srcs) throws IOException {
-        return write(srcs, 0, srcs.length);
-    }
-
-    /**
-     * {@inheritDoc}
+     * Reads bytes from this socket channel into the given buffer.
      * <p>
-     * If there is a security manager set, its {@code checkConnect} method is
-     * called with the local address and {@code -1} as its arguments to see
-     * if the operation is allowed. If the operation is not allowed,
-     * a {@code SocketAddress} representing the
-     * {@link java.net.InetAddress#getLoopbackAddress loopback} address and the
-     * local port of the channel's socket is returned.
+     * The maximum number of bytes that will be read is the remaining number of
+     * bytes in the buffer when the method is invoked. The bytes will be copied
+     * into the buffer starting at the buffer's current position.
+     * <p>
+     * The call may block if other threads are also attempting to read from this
+     * channel.
+     * <p>
+     * Upon completion, the buffer's position is set to the end of the bytes
+     * that have been read. The buffer's limit is not changed.
      *
-     * @return  The {@code SocketAddress} that the socket is bound to, or the
-     *          {@code SocketAddress} representing the loopback address if
-     *          denied by the security manager, or {@code null} if the
-     *          channel's socket is not bound
-     *
-     * @throws  ClosedChannelException     {@inheritDoc}
-     * @throws  IOException                {@inheritDoc}
+     * @param target
+     *            the byte buffer to receive the bytes.
+     * @return the number of bytes actually read.
+     * @throws AsynchronousCloseException
+     *             if another thread closes the channel during the read.
+     * @throws NotYetConnectedException
+     *             if this channel is not yet connected.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @see java.nio.channels.ReadableByteChannel#read(java.nio.ByteBuffer)
      */
-    @Override
-    public abstract SocketAddress getLocalAddress() throws IOException;
+    public abstract int read(ByteBuffer target) throws IOException;
 
+    /**
+     * Reads bytes from this socket channel into a subset of the given buffers.
+     * This method attempts to read all {@code remaining()} bytes from {@code
+     * length} byte buffers, in order, starting at {@code targets[offset]}. The
+     * number of bytes actually read is returned.
+     * <p>
+     * If a read operation is in progress, subsequent threads will block until
+     * the read is completed and will then contend for the ability to read.
+     *
+     * @param targets
+     *            the array of byte buffers into which the bytes will be copied.
+     * @param offset
+     *            the index of the first buffer to store bytes in.
+     * @param length
+     *            the maximum number of buffers to store bytes in.
+     * @return the number of bytes actually read.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this read
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code length < 0}, or if {@code
+     *             offset + length} is greater than the size of {@code targets}.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NotYetConnectedException
+     *             if this channel is not yet connected.
+     * @see java.nio.channels.ScatteringByteChannel#read(java.nio.ByteBuffer[],
+     *      int, int)
+     */
+    public abstract long read(ByteBuffer[] targets, int offset, int length) throws IOException;
+
+    /**
+     * Reads bytes from this socket channel and stores them in the specified
+     * array of buffers. This method attempts to read as many bytes as can be
+     * stored in the buffer array from this channel and returns the number of
+     * bytes actually read.
+     * <p>
+     * If a read operation is in progress, subsequent threads will block until
+     * the read is completed and will then contend for the ability to read.
+     * <p>
+     * Calling this method is equivalent to calling {@code read(targets, 0,
+     * targets.length);}
+     *
+     * @param targets
+     *            the array of byte buffers into which the bytes will be copied.
+     * @return the number of bytes actually read.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this read
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NotYetConnectedException
+     *             if this channel is not yet connected.
+     */
+    public synchronized final long read(ByteBuffer[] targets) throws IOException {
+        return read(targets, 0, targets.length);
+    }
+
+    /**
+     * Writes bytes from the given byte buffer to this socket channel. The
+     * maximum number of bytes that are written is the remaining number of bytes
+     * in the buffer when this method is invoked. The bytes are taken from the
+     * buffer starting at the buffer's position.
+     * <p>
+     * The call may block if other threads are also attempting to write to the
+     * same channel.
+     * <p>
+     * Upon completion, the buffer's position is updated to the end of the bytes
+     * that have been written. The buffer's limit is not changed.
+     *
+     * @param source
+     *            the byte buffer containing the bytes to be written.
+     * @return the number of bytes actually written.
+     * @throws AsynchronousCloseException
+     *             if another thread closes the channel during the write.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if the channel was already closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NotYetConnectedException
+     *             if this channel is not connected yet.
+     * @see java.nio.channels.WritableByteChannel#write(java.nio.ByteBuffer)
+     */
+    public abstract int write(ByteBuffer source) throws IOException;
+
+    /**
+     * Attempts to write a subset of the given bytes from the buffers to this
+     * socket channel. This method attempts to write all {@code remaining()}
+     * bytes from {@code length} byte buffers, in order, starting at {@code
+     * sources[offset]}. The number of bytes actually written is returned.
+     * <p>
+     * If a write operation is in progress, subsequent threads will block until
+     * the write is completed and then contend for the ability to write.
+     *
+     * @param sources
+     *            the array of byte buffers that is the source for bytes written
+     *            to this channel.
+     * @param offset
+     *            the index of the first buffer in {@code buffers }to get bytes
+     *            from.
+     * @param length
+     *            the number of buffers to get bytes from.
+     * @return the number of bytes actually written to this channel.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code length < 0}, or if {@code
+     *             offset + length} is greater than the size of {@code sources}.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NotYetConnectedException
+     *             if this channel is not yet connected.
+     * @see java.nio.channels.GatheringByteChannel#write(java.nio.ByteBuffer[],
+     *      int, int)
+     */
+    public abstract long write(ByteBuffer[] sources, int offset, int length) throws IOException;
+
+    /**
+     * Writes bytes from all the given byte buffers to this socket channel.
+     * <p>
+     * Calling this method is equivalent to calling {@code write(sources, 0,
+     * sources.length);}
+     *
+     * @param sources
+     *            the buffers containing bytes to write.
+     * @return the number of bytes actually written.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NotYetConnectedException
+     *             if this channel is not yet connected.
+     * @see java.nio.channels.GatheringByteChannel#write(java.nio.ByteBuffer[])
+     */
+    public synchronized final long write(ByteBuffer[] sources) throws IOException {
+        return write(sources, 0, sources.length);
+    }
 }

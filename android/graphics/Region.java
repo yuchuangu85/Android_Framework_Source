@@ -30,7 +30,7 @@ public class Region implements Parcelable {
     /**
      * @hide
      */
-    public long mNativeRegion;
+    public final long mNativeRegion;
 
     // the native values for these must match up with the enum in SkRegion.h
     public enum Op {
@@ -110,7 +110,7 @@ public class Region implements Parcelable {
      * (with no antialiasing).
      */
     public boolean setPath(Path path, Region clip) {
-        return nativeSetPath(mNativeRegion, path.readOnlyNI(), clip.mNativeRegion);
+        return nativeSetPath(mNativeRegion, path.ni(), clip.mNativeRegion);
     }
 
     /**
@@ -155,7 +155,7 @@ public class Region implements Parcelable {
      */
     public Path getBoundaryPath() {
         Path path = new Path();
-        nativeGetBoundaryPath(mNativeRegion, path.mutateNI());
+        nativeGetBoundaryPath(mNativeRegion, path.ni());
         return path;
     }
 
@@ -164,7 +164,7 @@ public class Region implements Parcelable {
      * path will also be empty.
      */
     public boolean getBoundaryPath(Path path) {
-        return nativeGetBoundaryPath(mNativeRegion, path.mutateNI());
+        return nativeGetBoundaryPath(mNativeRegion, path.ni());
     }
         
     /**
@@ -380,7 +380,6 @@ public class Region implements Parcelable {
     protected void finalize() throws Throwable {
         try {
             nativeDestructor(mNativeRegion);
-            mNativeRegion = 0;
         } finally {
             super.finalize();
         }

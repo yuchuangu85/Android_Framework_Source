@@ -17,12 +17,10 @@ package android.databinding.testapp;
 
 import android.databinding.testapp.databinding.AbsSpinnerAdapterTestBinding;
 import android.databinding.testapp.vo.AbsSpinnerBindingObject;
+
 import android.os.Build;
-import android.test.UiThreadTest;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
-
-import java.util.List;
 
 public class AbsSpinnerBindingAdapterTest
         extends BindingAdapterTestBase<AbsSpinnerAdapterTestBinding, AbsSpinnerBindingObject> {
@@ -40,7 +38,6 @@ public class AbsSpinnerBindingAdapterTest
         mView = mBinder.view;
     }
 
-    @UiThreadTest
     public void testEntries() throws Throwable {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             validateEntries();
@@ -51,33 +48,12 @@ public class AbsSpinnerBindingAdapterTest
         }
     }
 
-    @UiThreadTest
-    public void testList() throws Throwable {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            validateList();
-
-            mBindingObject.getList().add(1, "Cruel");
-            mBinder.executePendingBindings();
-
-            validateList();
-        }
-    }
-
     private void validateEntries() {
         assertEquals(mBindingObject.getEntries().length, mView.getAdapter().getCount());
         CharSequence[] entries = mBindingObject.getEntries();
         SpinnerAdapter adapter = mView.getAdapter();
         for (int i = 0; i < entries.length; i++) {
             assertEquals(adapter.getItem(i), entries[i]);
-        }
-    }
-
-    private void validateList() {
-        List<String> entries = mBindingObject.getList();
-        SpinnerAdapter adapter = mBinder.view2.getAdapter();
-        assertEquals(entries.size(), adapter.getCount());
-        for (int i = 0; i < entries.size(); i++) {
-            assertEquals(adapter.getItem(i), entries.get(i));
         }
     }
 }

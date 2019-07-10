@@ -1,124 +1,141 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util.regex;
 
-import sun.security.action.GetPropertyAction;
-
+import java.util.Arrays;
 
 /**
- * Unchecked exception thrown to indicate a syntax error in a
- * regular-expression pattern.
+ * Encapsulates a syntax error that occurred during the compilation of a
+ * {@link Pattern}. Might include a detailed description, the original regular
+ * expression, and the index at which the error occurred.
  *
- * @author  unascribed
- * @since 1.4
- * @spec JSR-51
+ * @see Pattern#compile(String)
+ * @see Pattern#compile(java.lang.String,int)
  */
+public class PatternSyntaxException extends IllegalArgumentException {
 
-public class PatternSyntaxException
-    extends IllegalArgumentException
-{
     private static final long serialVersionUID = -3864639126226059218L;
 
-    private final String desc;
-    private final String pattern;
-    private final int index;
+    /**
+     * Holds the description of the syntax error, or null if the description is
+     * not known.
+     */
+    private String desc;
 
     /**
-     * Constructs a new instance of this class.
-     *
-     * @param  desc
-     *         A description of the error
-     *
-     * @param  regex
-     *         The erroneous pattern
-     *
-     * @param  index
-     *         The approximate index in the pattern of the error,
-     *         or <tt>-1</tt> if the index is not known
+     * Holds the syntactically incorrect regular expression, or null if the
+     * regular expression is not known.
      */
-    public PatternSyntaxException(String desc, String regex, int index) {
-        this.desc = desc;
-        this.pattern = regex;
+    private String pattern;
+
+    /**
+     * Holds the index around which the error occured, or -1, in case it is
+     * unknown.
+     */
+    private int index = -1;
+
+    /**
+     * Creates a new PatternSyntaxException for a given message, pattern, and
+     * error index.
+     *
+     * @param description
+     *            the description of the syntax error, or {@code null} if the
+     *            description is not known.
+     * @param pattern
+     *            the syntactically incorrect regular expression, or
+     *            {@code null} if the regular expression is not known.
+     * @param index
+     *            the character index around which the error occurred, or -1 if
+     *            the index is not known.
+     */
+    public PatternSyntaxException(String description, String pattern, int index) {
+        this.desc = description;
+        this.pattern = pattern;
         this.index = index;
     }
 
     /**
-     * Retrieves the error index.
+     * Returns the syntactically incorrect regular expression.
      *
-     * @return  The approximate index in the pattern of the error,
-     *         or <tt>-1</tt> if the index is not known
+     * @return the regular expression.
+     *
      */
-    public int getIndex() {
-        return index;
+    public String getPattern() {
+        return pattern;
     }
 
     /**
-     * Retrieves the description of the error.
+     * Returns a detailed error message for the exception. The message is
+     * potentially multi-line, and it might include a detailed description, the
+     * original regular expression, and the index at which the error occurred.
      *
-     * @return  The description of the error
+     * @return the error message.
+     */
+    @Override
+    public String getMessage() {
+        StringBuilder sb = new StringBuilder();
+        if (desc != null) {
+            sb.append(desc);
+        }
+
+        if (index >= 0) {
+            if (desc != null) {
+                sb.append(' ');
+            }
+            sb.append("near index ");
+            sb.append(index);
+            sb.append(':');
+        }
+
+        if (pattern != null) {
+            sb.append('\n');
+            sb.append(pattern);
+
+            if (index >= 0) {
+                char[] spaces = new char[index];
+                Arrays.fill(spaces, ' ');
+                sb.append('\n');
+                sb.append(spaces);
+                sb.append('^');
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Returns the description of the syntax error, or {@code null} if the
+     * description is not known.
+     *
+     * @return the description.
      */
     public String getDescription() {
         return desc;
     }
 
     /**
-     * Retrieves the erroneous regular-expression pattern.
+     * Returns the character index around which the error occurred, or -1 if the
+     * index is not known.
      *
-     * @return  The erroneous pattern
-     */
-    public String getPattern() {
-        return pattern;
-    }
-
-    private static final String nl =
-        java.security.AccessController
-            .doPrivileged(new GetPropertyAction("line.separator"));
-
-    /**
-     * Returns a multi-line string containing the description of the syntax
-     * error and its index, the erroneous regular-expression pattern, and a
-     * visual indication of the error index within the pattern.
+     * @return the index.
      *
-     * @return  The full detail message
      */
-    public String getMessage() {
-        StringBuffer sb = new StringBuffer();
-        sb.append(desc);
-        if (index >= 0) {
-            sb.append(" near index ");
-            sb.append(index);
-        }
-        sb.append(nl);
-        sb.append(pattern);
-        if (index >= 0) {
-            sb.append(nl);
-            for (int i = 0; i < index; i++) sb.append(' ');
-            sb.append('^');
-        }
-        return sb.toString();
+    public int getIndex() {
+        return index;
     }
-
 }

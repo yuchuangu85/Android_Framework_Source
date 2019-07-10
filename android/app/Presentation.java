@@ -16,21 +16,13 @@
 
 package android.app;
 
-import static android.content.Context.DISPLAY_SERVICE;
-import static android.content.Context.WINDOW_SERVICE;
-import static android.view.WindowManager.LayoutParams.TYPE_PRESENTATION;
-
 import android.content.Context;
 import android.content.res.Resources;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManager.DisplayListener;
-import android.os.Binder;
-import android.os.IBinder;
 import android.view.ContextThemeWrapper;
 import android.view.Display;
 import android.view.Gravity;
-import android.view.Window;
-import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.os.Handler;
 import android.os.Message;
@@ -153,7 +145,6 @@ public class Presentation extends Dialog {
 
     private final Display mDisplay;
     private final DisplayManager mDisplayManager;
-    private final IBinder mToken = new Binder();
 
     /**
      * Creates a new presentation that is attached to the specified display
@@ -186,14 +177,9 @@ public class Presentation extends Dialog {
         super(createPresentationContext(outerContext, display, theme), theme, false);
 
         mDisplay = display;
-        mDisplayManager = (DisplayManager)getContext().getSystemService(DISPLAY_SERVICE);
+        mDisplayManager = (DisplayManager)getContext().getSystemService(Context.DISPLAY_SERVICE);
 
-        final Window w = getWindow();
-        final WindowManager.LayoutParams attr = w.getAttributes();
-        attr.token = mToken;
-        w.setAttributes(attr);
-        w.setGravity(Gravity.FILL);
-        w.setType(TYPE_PRESENTATION);
+        getWindow().setGravity(Gravity.FILL);
         setCanceledOnTouchOutside(false);
     }
 
@@ -322,13 +308,13 @@ public class Presentation extends Dialog {
         // such as the parent window, which is important if the presentation uses
         // an application window type.
         final WindowManagerImpl outerWindowManager =
-                (WindowManagerImpl)outerContext.getSystemService(WINDOW_SERVICE);
+                (WindowManagerImpl)outerContext.getSystemService(Context.WINDOW_SERVICE);
         final WindowManagerImpl displayWindowManager =
-                outerWindowManager.createPresentationWindowManager(displayContext);
+                outerWindowManager.createPresentationWindowManager(display);
         return new ContextThemeWrapper(displayContext, theme) {
             @Override
             public Object getSystemService(String name) {
-                if (WINDOW_SERVICE.equals(name)) {
+                if (Context.WINDOW_SERVICE.equals(name)) {
                     return displayWindowManager;
                 }
                 return super.getSystemService(name);

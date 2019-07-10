@@ -30,7 +30,7 @@ public class ConcurrentSkipListMapTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ConcurrentSkipListMapTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
@@ -1278,7 +1278,7 @@ public class ConcurrentSkipListMapTest extends JSR166TestCase {
     }
 
     static boolean eq(Integer i, int j) {
-        return (i == null) ? j == -1 : i == j;
+        return i == null ? j == -1 : i == j;
     }
 
 }

@@ -155,20 +155,17 @@ public final class DirectStatementService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        final HttpResponseCache responseCache = mHttpResponseCache;
-        mHandler.post(new Runnable() {
-            public void run() {
-                try {
-                    if (responseCache != null) {
-                        responseCache.delete();
-                    }
-                } catch (IOException e) {
-                    Log.i(TAG, "HTTP(S) response cache deletion failed:" + e);
-                }
-                Looper.myLooper().quit();
+        if (mThread != null) {
+            mThread.quit();
+        }
+
+        try {
+            if (mHttpResponseCache != null) {
+                mHttpResponseCache.delete();
             }
-        });
-        mHttpResponseCache = null;
+        } catch (IOException e) {
+            Log.i(TAG, "HTTP(S) response cache deletion failed:" + e);
+        }
     }
 
     @Override

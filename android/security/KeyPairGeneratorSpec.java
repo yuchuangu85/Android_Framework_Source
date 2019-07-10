@@ -251,22 +251,21 @@ public final class KeyPairGeneratorSpec implements AlgorithmParameterSpec {
     /**
      * Builder class for {@link KeyPairGeneratorSpec} objects.
      * <p>
-     * This will build a parameter spec for use with the
-     * <a href="{@docRoot}training/articles/keystore.html">Android KeyStore
-     * facility</a>.
+     * This will build a parameter spec for use with the <a href="{@docRoot}
+     * training/articles/keystore.html">Android KeyStore facility</a>.
      * <p>
      * The required fields must be filled in with the builder.
      * <p>
      * Example:
      *
      * <pre class="prettyprint">
-     * Calendar start = Calendar.getInstance();
-     * Calendar end = Calendar.getInstance();
-     * end.add(Calendar.YEAR, 1);
+     * Calendar start = new Calendar();
+     * Calendar end = new Calendar();
+     * end.add(1, Calendar.YEAR);
      *
      * KeyPairGeneratorSpec spec =
      *         new KeyPairGeneratorSpec.Builder(mContext).setAlias(&quot;myKey&quot;)
-     *                 .setSubject(new X500Principal(&quot;CN=myKey&quot;)).setSerialNumber(BigInteger.valueOf(1337))
+     *                 .setSubject(new X500Principal(&quot;CN=myKey&quot;)).setSerial(BigInteger.valueOf(1337))
      *                 .setStartDate(start.getTime()).setEndDate(end.getTime()).build();
      * </pre>
      *

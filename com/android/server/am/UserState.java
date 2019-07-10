@@ -16,126 +16,52 @@
 
 package com.android.server.am;
 
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
-
-import android.app.IStopUserCallback;
-import android.os.Trace;
-import android.os.UserHandle;
-import android.util.ArrayMap;
-import android.util.Slog;
-import android.util.proto.ProtoOutputStream;
-
-import com.android.internal.util.ProgressReporter;
-
 import java.io.PrintWriter;
 import java.util.ArrayList;
 
-public final class UserState {
-    private static final String TAG = TAG_WITH_CLASS_NAME ? "UserState" : TAG_AM;
+import android.app.IStopUserCallback;
+import android.os.UserHandle;
+import android.util.ArrayMap;
 
+public final class UserState {
     // User is first coming up.
     public final static int STATE_BOOTING = 0;
-    // User is in the locked state.
-    public final static int STATE_RUNNING_LOCKED = 1;
-    // User is in the unlocking state.
-    public final static int STATE_RUNNING_UNLOCKING = 2;
-    // User is in the running state.
-    public final static int STATE_RUNNING_UNLOCKED = 3;
+    // User is in the normal running state.
+    public final static int STATE_RUNNING = 1;
     // User is in the initial process of being stopped.
-    public final static int STATE_STOPPING = 4;
+    public final static int STATE_STOPPING = 2;
     // User is in the final phase of stopping, sending Intent.ACTION_SHUTDOWN.
-    public final static int STATE_SHUTDOWN = 5;
+    public final static int STATE_SHUTDOWN = 3;
 
     public final UserHandle mHandle;
     public final ArrayList<IStopUserCallback> mStopCallbacks
             = new ArrayList<IStopUserCallback>();
-    public final ProgressReporter mUnlockProgress;
 
-    public int state = STATE_BOOTING;
-    public int lastState = STATE_BOOTING;
+    public int mState = STATE_BOOTING;
     public boolean switching;
-    public boolean tokenProvided;
+    public boolean initializing;
 
     /**
      * The last time that a provider was reported to usage stats as being brought to important
      * foreground procstate.
-     * <p><strong>Important: </strong>Only access this field when holding ActivityManagerService
-     * lock.
      */
-    final ArrayMap<String,Long> mProviderLastReportedFg = new ArrayMap<>();
+    public final ArrayMap<String,Long> mProviderLastReportedFg = new ArrayMap<>();
 
-    public UserState(UserHandle handle) {
+    public UserState(UserHandle handle, boolean initial) {
         mHandle = handle;
-        mUnlockProgress = new ProgressReporter(handle.getIdentifier());
-    }
-
-    public boolean setState(int oldState, int newState) {
-        if (state == oldState) {
-            setState(newState);
-            return true;
-        } else {
-            Slog.w(TAG, "Expected user " + mHandle.getIdentifier() + " in state "
-                    + stateToString(oldState) + " but was in state " + stateToString(state));
-            return false;
-        }
-    }
-
-    public void setState(int newState) {
-        if (newState == state) {
-            return;
-        }
-        final int userId = mHandle.getIdentifier();
-        if (state != STATE_BOOTING) {
-            Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER,
-                    stateToString(state) + " " + userId, userId);
-        }
-        if (newState != STATE_SHUTDOWN) {
-            Trace.asyncTraceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
-                    stateToString(newState) + " " + userId, userId);
-        }
-        Slog.i(TAG, "User " + userId + " state changed from "
-                + stateToString(state) + " to " + stateToString(newState));
-        EventLogTags.writeAmUserStateChanged(userId, newState);
-        lastState = state;
-        state = newState;
-    }
-
-    public static String stateToString(int state) {
-        switch (state) {
-            case STATE_BOOTING: return "BOOTING";
-            case STATE_RUNNING_LOCKED: return "RUNNING_LOCKED";
-            case STATE_RUNNING_UNLOCKING: return "RUNNING_UNLOCKING";
-            case STATE_RUNNING_UNLOCKED: return "RUNNING_UNLOCKED";
-            case STATE_STOPPING: return "STOPPING";
-            case STATE_SHUTDOWN: return "SHUTDOWN";
-            default: return Integer.toString(state);
-        }
-    }
-
-    public static int stateToProtoEnum(int state) {
-        switch (state) {
-            case STATE_BOOTING: return UserStateProto.STATE_BOOTING;
-            case STATE_RUNNING_LOCKED: return UserStateProto.STATE_RUNNING_LOCKED;
-            case STATE_RUNNING_UNLOCKING: return UserStateProto.STATE_RUNNING_UNLOCKING;
-            case STATE_RUNNING_UNLOCKED: return UserStateProto.STATE_RUNNING_UNLOCKED;
-            case STATE_STOPPING: return UserStateProto.STATE_STOPPING;
-            case STATE_SHUTDOWN: return UserStateProto.STATE_SHUTDOWN;
-            default: return state;
-        }
     }
 
     void dump(String prefix, PrintWriter pw) {
-        pw.print(prefix);
-        pw.print("state="); pw.print(stateToString(state));
+        pw.print(prefix); pw.print("mState=");
+        switch (mState) {
+            case STATE_BOOTING: pw.print("BOOTING"); break;
+            case STATE_RUNNING: pw.print("RUNNING"); break;
+            case STATE_STOPPING: pw.print("STOPPING"); break;
+            case STATE_SHUTDOWN: pw.print("SHUTDOWN"); break;
+            default: pw.print(mState); break; 
+        }
         if (switching) pw.print(" SWITCHING");
+        if (initializing) pw.print(" INITIALIZING");
         pw.println();
-    }
-
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long token = proto.start(fieldId);
-        proto.write(UserStateProto.STATE, stateToProtoEnum(state));
-        proto.write(UserStateProto.SWITCHING, switching);
-        proto.end(token);
     }
 }

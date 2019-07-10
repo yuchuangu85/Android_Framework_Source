@@ -31,7 +31,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(CopyOnWriteArrayListTest.class);
+    //     return new TestSuite(...);
     // }
 
     static CopyOnWriteArrayList<Integer> populatedArray(int n) {
@@ -67,7 +67,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
      */
     public void testConstructor2() {
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         CopyOnWriteArrayList a = new CopyOnWriteArrayList(ints);
         for (int i = 0; i < SIZE; ++i)
@@ -79,7 +79,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
      */
     public void testConstructor3() {
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         CopyOnWriteArrayList a = new CopyOnWriteArrayList(Arrays.asList(ints));
         for (int i = 0; i < SIZE; ++i)
@@ -181,26 +181,18 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         CopyOnWriteArrayList b = populatedArray(3);
         assertTrue(a.equals(b));
         assertTrue(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertTrue(b.containsAll(a));
         assertEquals(a.hashCode(), b.hashCode());
         a.add(m1);
         assertFalse(a.equals(b));
         assertFalse(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertFalse(b.containsAll(a));
         b.add(m1);
         assertTrue(a.equals(b));
         assertTrue(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertTrue(b.containsAll(a));
         assertEquals(a.hashCode(), b.hashCode());
-
-        assertFalse(a.equals(null));
     }
 
     /**
-     * containsAll returns true for collections with subset of elements
+     * containsAll returns true for collection with subset of elements
      */
     public void testContainsAll() {
         CopyOnWriteArrayList full = populatedArray(3);
@@ -209,11 +201,6 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         assertTrue(full.containsAll(Arrays.asList(one, two)));
         assertFalse(full.containsAll(Arrays.asList(one, two, six)));
         assertFalse(full.containsAll(Arrays.asList(six)));
-
-        try {
-            full.containsAll(null);
-            shouldThrow();
-        } catch (NullPointerException success) {}
     }
 
     /**
@@ -355,7 +342,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         ListIterator i = full.listIterator(1);
         int j;
         for (j = 0; i.hasNext(); j++)
-            assertEquals(j + 1, i.next());
+            assertEquals(j+1, i.next());
         assertEquals(2, j);
     }
 
@@ -454,7 +441,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         a = new Integer[0];
         assertSame(a, empty.toArray(a));
 
-        a = new Integer[SIZE / 2];
+        a = new Integer[SIZE/2];
         Arrays.fill(a, 42);
         assertSame(a, empty.toArray(a));
         assertNull(a[0]);
@@ -478,7 +465,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         assertSame(a, full.toArray(a));
         assertTrue(Arrays.equals(elements, a));
 
-        a = new Integer[2 * SIZE];
+        a = new Integer[2*SIZE];
         Arrays.fill(a, 42);
         assertSame(a, full.toArray(a));
         assertTrue(Arrays.equals(elements, Arrays.copyOf(a, SIZE)));

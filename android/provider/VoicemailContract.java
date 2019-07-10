@@ -16,6 +16,7 @@
 
 package android.provider;
 
+import android.Manifest;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.ComponentName;
@@ -24,6 +25,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.ContentObserver;
+import android.database.Cursor;
 import android.net.Uri;
 import android.provider.CallLog.Calls;
 import android.telecom.PhoneAccount;
@@ -49,8 +51,7 @@ import java.util.List;
  * </ul>
  *
  * <P> The minimum permission needed to access this content provider is
- * {@link android.Manifest.permission#ADD_VOICEMAIL} or carrier privileges (see
- * {@link android.telephony.TelephonyManager#hasCarrierPrivileges}).
+ * {@link Manifest.permission#ADD_VOICEMAIL}
  *
  * <P>Voicemails are inserted by what is called as a "voicemail source"
  * application, which is responsible for syncing voicemail data between a remote
@@ -100,55 +101,10 @@ public class VoicemailContract {
     public static final String ACTION_FETCH_VOICEMAIL = "android.intent.action.FETCH_VOICEMAIL";
 
     /**
-     * Broadcast intent to request all voicemail sources to perform a sync with the remote server.
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_SYNC_VOICEMAIL = "android.provider.action.SYNC_VOICEMAIL";
-
-    /**
-     * Broadcast intent to inform a new visual voicemail SMS has been received. This intent will
-     * only be delivered to the telephony service.
-     *
-     * @see #EXTRA_VOICEMAIL_SMS
-     * @see #EXTRA_TARGET_PACKAGE
-     *
-     * @hide */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_VOICEMAIL_SMS_RECEIVED =
-            "com.android.internal.provider.action.VOICEMAIL_SMS_RECEIVED";
-
-    /**
-     * Extra in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} indicating the content of the SMS.
-     *
-     * @hide
-     */
-    public static final String EXTRA_VOICEMAIL_SMS = "android.provider.extra.VOICEMAIL_SMS";
-
-    /**
-     * Extra in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} indicating the target package to bind {@link
-     * android.telephony.VisualVoicemailService}.
-     *
-     * <p>This extra should be set to android.telephony.VisualVoicemailSmsFilterSettings#packageName
-     * while performing filtering. Since the default dialer might change between the filter sending
-     * it and telephony binding to the service, this ensures the service will not receive SMS
-     * filtered by the previous app.
-     *
-     * @hide
-     */
-    public static final String EXTRA_TARGET_PACKAGE = "android.provider.extra.TARGET_PACAKGE";
-
-    /**
      * Extra included in {@link Intent#ACTION_PROVIDER_CHANGED} broadcast intents to indicate if the
      * receiving package made this change.
      */
     public static final String EXTRA_SELF_CHANGE = "com.android.voicemail.extra.SELF_CHANGE";
-
-    /**
-     * Extra included in {@link #ACTION_SYNC_VOICEMAIL} broadcast intents to indicate which {@link
-     * PhoneAccountHandle} to sync.
-     */
-    public static final String EXTRA_PHONE_ACCOUNT_HANDLE =
-            "android.provider.extra.PHONE_ACCOUNT_HANDLE";
 
     /**
      * Name of the source package field, which must be same across all voicemail related tables.
@@ -188,11 +144,6 @@ public class VoicemailContract {
          * <P>Type: INTEGER (long)</P>
          */
         public static final String DURATION = Calls.DURATION;
-        /**
-         * Whether or not the voicemail has been acknowledged (notification sent to the user).
-         * <P>Type: INTEGER (boolean)</P>
-         */
-        public static final String NEW = Calls.NEW;
         /**
          * Whether this item has been read or otherwise consumed by the user.
          * <P>Type: INTEGER (boolean)</P>
@@ -253,39 +204,6 @@ public class VoicemailContract {
          */
         public static final String TRANSCRIPTION = "transcription";
         /**
-         * The state of the voicemail transcription.
-         * <P> Possible values: {@link #TRANSCRIPTION_NOT_STARTED},
-         * {@link #TRANSCRIPTION_IN_PROGRESS}, {@link #TRANSCRIPTION_FAILED},
-         * {@link #TRANSCRIPTION_AVAILABLE}.
-         * <P>Type: INTEGER</P>
-         * @hide
-         */
-        public static final String TRANSCRIPTION_STATE = "transcription_state";
-        /**
-         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has not yet
-         * been attempted.
-         * @hide
-         */
-        public static final int TRANSCRIPTION_NOT_STARTED = 0;
-        /**
-         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has begun
-         * but is not yet complete.
-         * @hide
-         */
-        public static final int TRANSCRIPTION_IN_PROGRESS = 1;
-        /**
-         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has
-         * been attempted and failed.
-         * @hide
-         */
-        public static final int TRANSCRIPTION_FAILED = 2;
-        /**
-         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has
-         * completed and the result has been stored in the {@link #TRANSCRIPTION} column.
-         * @hide
-         */
-        public static final int TRANSCRIPTION_AVAILABLE = 3;
-        /**
          * Path to the media content file. Internal only field.
          * @hide
          */
@@ -314,24 +232,9 @@ public class VoicemailContract {
          * Flag used to indicate that local, unsynced changes are present.
          * Currently, this is used to indicate that the voicemail was read or deleted.
          * The value will be 1 if dirty is true, 0 if false.
-         *
-         * <p>When a caller updates a voicemail row (either with {@link ContentResolver#update} or
-         * {@link ContentResolver#applyBatch}), and if the {@link ContentValues} doesn't contain
-         * this column, the voicemail provider implicitly sets it to 0 if the calling package is
-         * the {@link #SOURCE_PACKAGE} or to 1 otherwise. To prevent this behavior, explicitly set
-         * {@link #DIRTY_RETAIN} to DIRTY in the {@link ContentValues}.
-         *
          * <P>Type: INTEGER (boolean)</P>
-         *
-         * @see #DIRTY_RETAIN
          */
         public static final String DIRTY = "dirty";
-
-        /**
-         * Value of {@link #DIRTY} when updating to indicate that the value should not be updated
-         * during this operation.
-         */
-        public static final int DIRTY_RETAIN = -1;
 
         /**
          * Flag used to indicate that the voicemail was deleted but not synced to the server.
@@ -340,51 +243,6 @@ public class VoicemailContract {
          * <P>Type: INTEGER (boolean)</P>
          */
         public static final String DELETED = "deleted";
-
-        /**
-         * The date the row is last inserted, updated, or marked as deleted, in milliseconds
-         * since the epoch. Read only.
-         * <P>Type: INTEGER (long)</P>
-         */
-        public static final String LAST_MODIFIED = "last_modified";
-
-        /**
-         * Flag to indicate the voicemail was backed up. The value will be 1 if backed up, 0 if
-         * not.
-         *
-         * <P>Type: INTEGER (boolean)</P>
-         */
-        public static final String BACKED_UP = "backed_up";
-
-        /**
-         * Flag to indicate the voicemail was restored from a backup. The value will be 1 if
-         * restored, 0 if not.
-         *
-         * <P>Type: INTEGER (boolean)</P>
-         */
-        public static final String RESTORED = "restored";
-
-        /**
-         * Flag to indicate the voicemail was marked as archived. Archived voicemail should not be
-         * deleted even if it no longer exist on the server. The value will be 1 if archived true, 0
-         * if not.
-         *
-         * <P>Type: INTEGER (boolean)</P>
-         */
-        public static final String ARCHIVED = "archived";
-
-        /**
-         * Flag to indicate the voicemail is a OMTP voicemail handled by the {@link
-         * android.telephony.VisualVoicemailService}. The UI should only show OMTP voicemails from
-         * the current visual voicemail package. For example, the selection could be
-         * {@code WHERE (IS_OMTP_VOICEMAIL == 0) OR ( IS_OMTP_VOICEMAIL == 1 AND SOURCE_PACKAGE ==
-         * "current.vvm.package")}
-         *
-         * <P>Type: INTEGER (boolean)</P>
-         *
-         * @see android.telephony.TelephonyManager#getVisualVoicemailPackageName
-         */
-        public static final String IS_OMTP_VOICEMAIL = "is_omtp_voicemail";
 
         /**
          * A convenience method to build voicemail URI specific to a source package by appending
@@ -489,20 +347,6 @@ public class VoicemailContract {
          */
         public static final String SOURCE_PACKAGE = SOURCE_PACKAGE_FIELD;
 
-        /**
-         * The type of the source, which determines how to interpret source-specific states.
-         * Typically this will be set to the same string as
-         * {@link android.telephony.CarrierConfigManager#KEY_VVM_TYPE_STRING}. For example,
-         * "vvm_type_omtp".
-         *
-         * <P>Type: TEXT</P>
-         *
-         * @see #CONFIGURATION_STATE
-         * @see #DATA_CHANNEL_STATE
-         * @see #NOTIFICATION_CHANNEL_STATE
-         */
-        public static final String SOURCE_TYPE = "source_type";
-
         // Note: Multiple entries may exist for a single source if they are differentiated by the
         // PHONE_ACCOUNT_* fields.
 
@@ -535,21 +379,13 @@ public class VoicemailContract {
         public static final String VOICEMAIL_ACCESS_URI = "voicemail_access_uri";
         /**
          * The configuration state of the voicemail source.
-         *
-         * <P>Negative values are reserved to the source for source-specific states, see
-         * {@link #SOURCE_TYPE}
-         *
          * <P> Possible values:
          * {@link #CONFIGURATION_STATE_OK},
          * {@link #CONFIGURATION_STATE_NOT_CONFIGURED},
          * {@link #CONFIGURATION_STATE_CAN_BE_CONFIGURED}
-         * {@link #CONFIGURATION_STATE_CONFIGURING}
-         * {@link #CONFIGURATION_STATE_FAILED}
-         * {@link #CONFIGURATION_STATE_DISABLED}
          * <P>Type: INTEGER</P>
          */
         public static final String CONFIGURATION_STATE = "configuration_state";
-
         /** Value of {@link #CONFIGURATION_STATE} to indicate an all OK configuration status. */
         public static final int CONFIGURATION_STATE_OK = 0;
         /**
@@ -565,27 +401,8 @@ public class VoicemailContract {
          */
         public static final int CONFIGURATION_STATE_CAN_BE_CONFIGURED = 2;
         /**
-         * Value of {@link #CONFIGURATION_STATE} to indicate that visual voicemail still is being
-         * configured.
-         */
-        public static final int CONFIGURATION_STATE_CONFIGURING = 3;
-        /**
-         * Value of {@link #CONFIGURATION_STATE} to indicate that visual voicemail has failed to
-         * be configured.
-         */
-        public static final int CONFIGURATION_STATE_FAILED = 4;
-        /**
-         * Value of {@link #CONFIGURATION_STATE} to indicate that visual voicemail is disabled by
-         * the user.
-         */
-        public static final int CONFIGURATION_STATE_DISABLED = 5;
-        /**
          * The data channel state of the voicemail source. This the channel through which the source
          * pulls voicemail data from a remote server.
-         *
-         * <P>Negative values are reserved to the source for source-specific states, see
-         * {@link #SOURCE_TYPE}
-         *
          * <P> Possible values:
          * {@link #DATA_CHANNEL_STATE_OK},
          * {@link #DATA_CHANNEL_STATE_NO_CONNECTION}
@@ -593,50 +410,18 @@ public class VoicemailContract {
          * <P>Type: INTEGER</P>
          */
         public static final String DATA_CHANNEL_STATE = "data_channel_state";
-
         /**
          *  Value of {@link #DATA_CHANNEL_STATE} to indicate that data channel is working fine.
          */
         public static final int DATA_CHANNEL_STATE_OK = 0;
         /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that data channel failed to find a
-         *  suitable network to connect to the server.
+         * Value of {@link #DATA_CHANNEL_STATE} to indicate that data channel connection is not
+         * working.
          */
         public static final int DATA_CHANNEL_STATE_NO_CONNECTION = 1;
         /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that data channel failed to find a
-         *  suitable network to connect to the server, and the carrier requires using cellular
-         *  data network to connect to the server.
-         */
-        public static final int DATA_CHANNEL_STATE_NO_CONNECTION_CELLULAR_REQUIRED = 2;
-        /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that data channel received incorrect
-         *  settings or credentials to connect to the server
-         */
-        public static final int DATA_CHANNEL_STATE_BAD_CONFIGURATION = 3;
-        /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that a error has occurred in the data
-         *  channel while communicating with the server
-         */
-        public static final int DATA_CHANNEL_STATE_COMMUNICATION_ERROR = 4;
-        /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that the server reported an internal
-         *  error to the data channel.
-         */
-        public static final int DATA_CHANNEL_STATE_SERVER_ERROR = 5;
-        /**
-         *  Value of {@link #DATA_CHANNEL_STATE} to indicate that while there is a suitable network,
-         *  the data channel is unable to establish a connection with the server.
-         */
-        public static final int DATA_CHANNEL_STATE_SERVER_CONNECTION_ERROR = 6;
-
-        /**
          * The notification channel state of the voicemail source. This is the channel through which
          * the source gets notified of new voicemails on the remote server.
-         *
-         * <P>Negative values are reserved to the source for source-specific states, see
-         * {@link #SOURCE_TYPE}
-         *
          * <P> Possible values:
          * {@link #NOTIFICATION_CHANNEL_STATE_OK},
          * {@link #NOTIFICATION_CHANNEL_STATE_NO_CONNECTION},
@@ -645,7 +430,6 @@ public class VoicemailContract {
          * <P>Type: INTEGER</P>
          */
         public static final String NOTIFICATION_CHANNEL_STATE = "notification_channel_state";
-
         /**
          * Value of {@link #NOTIFICATION_CHANNEL_STATE} to indicate that the notification channel is
          * working fine.
@@ -665,35 +449,59 @@ public class VoicemailContract {
         public static final int NOTIFICATION_CHANNEL_STATE_MESSAGE_WAITING = 2;
 
         /**
-         * Amount of resource that is used by existing voicemail in the visual voicemail inbox,
-         * or {@link #QUOTA_UNAVAILABLE} if the quota has never been updated before. This value is
-         * used to inform the client the situation on the remote server. Unit is not specified.
-         * <P>Type: INTEGER</P>
-         */
-        public static final String QUOTA_OCCUPIED = "quota_occupied";
-
-        /**
-         * Total resource in the visual voicemail inbox that can be used, or
-         * {@link #QUOTA_UNAVAILABLE} if server either has unlimited quota or does not provide quota
-         * information. This value is used to inform the client the situation on the remote server.
-         * Unit is not specified.
-         * <P>Type: INTEGER</P>
-         */
-        public static final String QUOTA_TOTAL = "quota_total";
-
-        /**
-         * Value for {@link #QUOTA_OCCUPIED} and {@link #QUOTA_TOTAL} to indicate that no
-         * information is available.
-         */
-        public static final int QUOTA_UNAVAILABLE = -1;
-
-        /**
          * A convenience method to build status URI specific to a source package by appending
          * {@link VoicemailContract#PARAM_KEY_SOURCE_PACKAGE} param to the base URI.
          */
         public static Uri buildSourceUri(String packageName) {
             return Status.CONTENT_URI.buildUpon()
                     .appendQueryParameter(PARAM_KEY_SOURCE_PACKAGE, packageName).build();
+        }
+
+        /**
+         * A helper method to set the status of a voicemail source.
+         *
+         * @param context The context from the package calling the method. This will be the source.
+         * @param accountHandle The handle for the account the source is associated with.
+         * @param configurationState See {@link Status#CONFIGURATION_STATE}
+         * @param dataChannelState See {@link Status#DATA_CHANNEL_STATE}
+         * @param notificationChannelState See {@link Status#NOTIFICATION_CHANNEL_STATE}
+         *
+         * @hide
+         */
+        public static void setStatus(Context context, PhoneAccountHandle accountHandle,
+                int configurationState, int dataChannelState, int notificationChannelState) {
+            ContentResolver contentResolver = context.getContentResolver();
+            Uri statusUri = buildSourceUri(context.getPackageName());
+            ContentValues values = new ContentValues();
+            values.put(Status.PHONE_ACCOUNT_COMPONENT_NAME,
+                    accountHandle.getComponentName().flattenToString());
+            values.put(Status.PHONE_ACCOUNT_ID, accountHandle.getId());
+            values.put(Status.CONFIGURATION_STATE, configurationState);
+            values.put(Status.DATA_CHANNEL_STATE, dataChannelState);
+            values.put(Status.NOTIFICATION_CHANNEL_STATE, notificationChannelState);
+
+            if (isStatusPresent(contentResolver, statusUri)) {
+                contentResolver.update(statusUri, values, null, null);
+            } else {
+                contentResolver.insert(statusUri, values);
+            }
+        }
+
+        /**
+         * Determines if a voicemail source exists in the status table.
+         *
+         * @param contentResolver A content resolver constructed from the appropriate context.
+         * @param statusUri The content uri for the source.
+         * @return {@code true} if a status entry for this source exists
+         */
+        private static boolean isStatusPresent(ContentResolver contentResolver, Uri statusUri) {
+            Cursor cursor = null;
+            try {
+                cursor = contentResolver.query(statusUri, null, null, null, null);
+                return cursor != null && cursor.getCount() != 0;
+            } finally {
+                if (cursor != null) cursor.close();
+            }
         }
     }
 }

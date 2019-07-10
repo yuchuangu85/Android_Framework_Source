@@ -1,95 +1,74 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
 
+import java.io.Serializable;
 import java.sql.SQLException;
+import java.util.EventObject;
 
 /**
- * <P>An <code>Event</code> object that provides information about the
- * source of a connection-related event.  <code>ConnectionEvent</code>
- * objects are generated when an application closes a pooled connection
- * and when an error occurs.  The <code>ConnectionEvent</code> object
- * contains two kinds of information:
- * <UL>
- *   <LI>The pooled connection closed by the application
- *   <LI>In the case of an error event, the <code>SQLException</code>
- *       about to be thrown to the application
- * </UL>
- *
- * @since 1.4
+ * Sent when specific events happen on a {@link PooledConnection} object. These
+ * events are a facility to report when an application closes the pooled
+ * connection or when an error occurs in the pooled connection.
  */
+public class ConnectionEvent extends EventObject implements Serializable {
 
-public class ConnectionEvent extends java.util.EventObject {
+    private static final long serialVersionUID = -4843217645290030002L;
 
-  /**
-   * <P>Constructs a <code>ConnectionEvent</code> object initialized with
-   * the given <code>PooledConnection</code> object. <code>SQLException</code>
-   * defaults to <code>null</code>.
-   *
-   * @param con the pooled connection that is the source of the event
-   * @throws IllegalArgumentException if <code>con</code> is null.
-   */
-  public ConnectionEvent(PooledConnection con) {
-    super(con);
-  }
+    private SQLException ex;
 
-  /**
-   * <P>Constructs a <code>ConnectionEvent</code> object initialized with
-   * the given <code>PooledConnection</code> object and
-   * <code>SQLException</code> object.
-   *
-   * @param con the pooled connection that is the source of the event
-   * @param ex the SQLException about to be thrown to the application
-   * @throws IllegalArgumentException if <code>con</code> is null.
-   */
-  public ConnectionEvent(PooledConnection con, SQLException ex) {
-    super(con);
-    this.ex = ex;
-  }
+    /**
+     * Creates a connection event initialized with the supplied {@code
+     * PooledConnection} reporting that the application has closed the
+     * connection.
+     *
+     * @param theConnection
+     *            the connection for which this event is created.
+     */
+    public ConnectionEvent(PooledConnection theConnection) {
+        super(theConnection);
+    }
 
-  /**
-   * <P>Retrieves the <code>SQLException</code> for this
-   * <code>ConnectionEvent</code> object. May be <code>null</code>.
-   *
-   * @return the SQLException about to be thrown or <code>null</code>
-   */
-  public SQLException getSQLException() { return ex; }
+    /**
+     * Creates a {@code ConnectionEvent} initialized with the supplied {@code
+     * PooledConnection} and with the supplied {@code SQLException} indicating
+     * that an error has occurred within the {@code PooledConnection}.
+     *
+     * @param theConnection
+     *            the connection for which this event is created.
+     * @param theException
+     *            information about the state of error that has occurred on the
+     *            application side.
+     */
+    public ConnectionEvent(PooledConnection theConnection,
+            SQLException theException) {
+        super(theConnection);
+        ex = theException;
+    }
 
-  /**
-   * The <code>SQLException</code> that the driver will throw to the
-   * application when an error occurs and the pooled connection is no
-   * longer usable.
-   * @serial
-   */
-  private SQLException ex = null;
-
-  /**
-   * Private serial version unique ID to ensure serialization
-   * compatibility.
-   */
-  static final long serialVersionUID = -4843217645290030002L;
-
- }
+    /**
+     * Gets the {@code SQLException} which holds information about the error
+     * which occurred in the {@code PooledConnection}.
+     *
+     * @return a {@code SQLException} containing information about the error.
+     *         May be {@code null} if no error has occurred.
+     */
+    public SQLException getSQLException() {
+        return ex;
+    }
+}

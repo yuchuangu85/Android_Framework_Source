@@ -1,1144 +1,760 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.Reader;
+import java.io.StringReader;
 import java.io.Writer;
-import java.io.OutputStreamWriter;
-import java.io.BufferedWriter;
+import java.nio.charset.Charset;
+import java.nio.charset.IllegalCharsetNameException;
+import java.nio.charset.UnsupportedCharsetException;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.w3c.dom.Text;
+import org.xml.sax.EntityResolver;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
 
-// Android-changed: Removed dead native2ascii links
 /**
- * The {@code Properties} class represents a persistent set of
- * properties. The {@code Properties} can be saved to a stream
- * or loaded from a stream. Each key and its corresponding value in
- * the property list is a string.
- * <p>
- * A property list can contain another property list as its
- * "defaults"; this second property list is searched if
- * the property key is not found in the original property list.
- * <p>
- * Because {@code Properties} inherits from {@code Hashtable}, the
- * {@code put} and {@code putAll} methods can be applied to a
- * {@code Properties} object.  Their use is strongly discouraged as they
- * allow the caller to insert entries whose keys or values are not
- * {@code Strings}.  The {@code setProperty} method should be used
- * instead.  If the {@code store} or {@code save} method is called
- * on a "compromised" {@code Properties} object that contains a
- * non-{@code String} key or value, the call will fail. Similarly,
- * the call to the {@code propertyNames} or {@code list} method
- * will fail if it is called on a "compromised" {@code Properties}
- * object that contains a non-{@code String} key.
+ * A {@code Properties} object is a {@code Hashtable} where the keys and values
+ * must be {@code String}s. Each property can have a default
+ * {@code Properties} list which specifies the default
+ * values to be used when a given key is not found in this {@code Properties}
+ * instance.
  *
- * <p>
- * The {@link #load(java.io.Reader) load(Reader)} <tt>/</tt>
- * {@link #store(java.io.Writer, java.lang.String) store(Writer, String)}
- * methods load and store properties from and to a character based stream
- * in a simple line-oriented format specified below.
+ * <a name="character_encoding"></a><h3>Character Encoding</h3>
+ * <p>Note that in some cases {@code Properties} uses ISO-8859-1 instead of UTF-8.
+ * ISO-8859-1 is only capable of representing a tiny subset of Unicode.
+ * Use either the {@code loadFromXML}/{@code storeToXML} methods (which use UTF-8 by
+ * default) or the {@code load}/{@code store} overloads that take
+ * an {@code OutputStreamWriter} (so you can supply a UTF-8 instance) instead.
  *
- * The {@link #load(java.io.InputStream) load(InputStream)} <tt>/</tt>
- * {@link #store(java.io.OutputStream, java.lang.String) store(OutputStream, String)}
- * methods work the same way as the load(Reader)/store(Writer, String) pair, except
- * the input/output stream is encoded in ISO 8859-1 character encoding.
- * Characters that cannot be directly represented in this encoding can be written using
- * Unicode escapes as defined in section 3.3 of
- * <cite>The Java&trade; Language Specification</cite>;
- * only a single 'u' character is allowed in an escape
- * sequence. The native2ascii tool can be used to convert property files to and
- * from other character encodings.
- *
- * <p> The {@link #loadFromXML(InputStream)} and {@link
- * #storeToXML(OutputStream, String, String)} methods load and store properties
- * in a simple XML format.  By default the UTF-8 character encoding is used,
- * however a specific encoding may be specified if required. Implementations
- * are required to support UTF-8 and UTF-16 and may support other encodings.
- * An XML properties document has the following DOCTYPE declaration:
- *
- * <pre>
- * &lt;!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd"&gt;
- * </pre>
- * Note that the system URI (http://java.sun.com/dtd/properties.dtd) is
- * <i>not</i> accessed when exporting or importing properties; it merely
- * serves as a string to uniquely identify the DTD, which is:
- * <pre>
- *    &lt;?xml version="1.0" encoding="UTF-8"?&gt;
- *
- *    &lt;!-- DTD for properties --&gt;
- *
- *    &lt;!ELEMENT properties ( comment?, entry* ) &gt;
- *
- *    &lt;!ATTLIST properties version CDATA #FIXED "1.0"&gt;
- *
- *    &lt;!ELEMENT comment (#PCDATA) &gt;
- *
- *    &lt;!ELEMENT entry (#PCDATA) &gt;
- *
- *    &lt;!ATTLIST entry key CDATA #REQUIRED&gt;
- * </pre>
- *
- * <p>This class is thread-safe: multiple threads can share a single
- * <tt>Properties</tt> object without the need for external synchronization.
- *
- * @author  Arthur van Hoff
- * @author  Michael McCloskey
- * @author  Xueming Shen
- * @since   JDK1.0
+ * @see Hashtable
+ * @see java.lang.System#getProperties
  */
-public
-class Properties extends Hashtable<Object,Object> {
-    /**
-     * use serialVersionUID from JDK 1.1.X for interoperability
-     */
-     private static final long serialVersionUID = 4112578634029874840L;
+public class Properties extends Hashtable<Object, Object> {
+
+    private static final long serialVersionUID = 4112578634029874840L;
+
+    private transient DocumentBuilder builder = null;
+
+    private static final String PROP_DTD_NAME = "http://java.sun.com/dtd/properties.dtd";
+
+    private static final String PROP_DTD = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            + "    <!ELEMENT properties (comment?, entry*) >"
+            + "    <!ATTLIST properties version CDATA #FIXED \"1.0\" >"
+            + "    <!ELEMENT comment (#PCDATA) >"
+            + "    <!ELEMENT entry (#PCDATA) >"
+            + "    <!ATTLIST entry key CDATA #REQUIRED >";
 
     /**
-     * A property list that contains default values for any keys not
-     * found in this property list.
-     *
-     * @serial
+     * The default values for keys not found in this {@code Properties}
+     * instance.
      */
     protected Properties defaults;
 
+    private static final int NONE = 0, SLASH = 1, UNICODE = 2, CONTINUE = 3,
+            KEY_DONE = 4, IGNORE = 5;
+
     /**
-     * Creates an empty property list with no default values.
+     * Constructs a new {@code Properties} object.
      */
     public Properties() {
-        this(null);
     }
 
     /**
-     * Creates an empty property list with the specified defaults.
+     * Constructs a new {@code Properties} object using the specified default
+     * {@code Properties}.
      *
-     * @param   defaults   the defaults.
+     * @param properties
+     *            the default {@code Properties}.
      */
-    public Properties(Properties defaults) {
-        this.defaults = defaults;
+    public Properties(Properties properties) {
+        defaults = properties;
     }
 
-    /**
-     * Calls the <tt>Hashtable</tt> method {@code put}. Provided for
-     * parallelism with the <tt>getProperty</tt> method. Enforces use of
-     * strings for property keys and values. The value returned is the
-     * result of the <tt>Hashtable</tt> call to {@code put}.
-     *
-     * @param key the key to be placed into this property list.
-     * @param value the value corresponding to <tt>key</tt>.
-     * @return     the previous value of the specified key in this property
-     *             list, or {@code null} if it did not have one.
-     * @see #getProperty
-     * @since    1.2
-     */
-    public synchronized Object setProperty(String key, String value) {
-        return put(key, value);
-    }
+    private void dumpString(StringBuilder buffer, String string, boolean key) {
+        int i = 0;
+        if (!key && i < string.length() && string.charAt(i) == ' ') {
+            buffer.append("\\ ");
+            i++;
+        }
 
-
-    /**
-     * Reads a property list (key and element pairs) from the input
-     * character stream in a simple line-oriented format.
-     * <p>
-     * Properties are processed in terms of lines. There are two
-     * kinds of line, <i>natural lines</i> and <i>logical lines</i>.
-     * A natural line is defined as a line of
-     * characters that is terminated either by a set of line terminator
-     * characters ({@code \n} or {@code \r} or {@code \r\n})
-     * or by the end of the stream. A natural line may be either a blank line,
-     * a comment line, or hold all or some of a key-element pair. A logical
-     * line holds all the data of a key-element pair, which may be spread
-     * out across several adjacent natural lines by escaping
-     * the line terminator sequence with a backslash character
-     * {@code \}.  Note that a comment line cannot be extended
-     * in this manner; every natural line that is a comment must have
-     * its own comment indicator, as described below. Lines are read from
-     * input until the end of the stream is reached.
-     *
-     * <p>
-     * A natural line that contains only white space characters is
-     * considered blank and is ignored.  A comment line has an ASCII
-     * {@code '#'} or {@code '!'} as its first non-white
-     * space character; comment lines are also ignored and do not
-     * encode key-element information.  In addition to line
-     * terminators, this format considers the characters space
-     * ({@code ' '}, {@code '\u005Cu0020'}), tab
-     * ({@code '\t'}, {@code '\u005Cu0009'}), and form feed
-     * ({@code '\f'}, {@code '\u005Cu000C'}) to be white
-     * space.
-     *
-     * <p>
-     * If a logical line is spread across several natural lines, the
-     * backslash escaping the line terminator sequence, the line
-     * terminator sequence, and any white space at the start of the
-     * following line have no affect on the key or element values.
-     * The remainder of the discussion of key and element parsing
-     * (when loading) will assume all the characters constituting
-     * the key and element appear on a single natural line after
-     * line continuation characters have been removed.  Note that
-     * it is <i>not</i> sufficient to only examine the character
-     * preceding a line terminator sequence to decide if the line
-     * terminator is escaped; there must be an odd number of
-     * contiguous backslashes for the line terminator to be escaped.
-     * Since the input is processed from left to right, a
-     * non-zero even number of 2<i>n</i> contiguous backslashes
-     * before a line terminator (or elsewhere) encodes <i>n</i>
-     * backslashes after escape processing.
-     *
-     * <p>
-     * The key contains all of the characters in the line starting
-     * with the first non-white space character and up to, but not
-     * including, the first unescaped {@code '='},
-     * {@code ':'}, or white space character other than a line
-     * terminator. All of these key termination characters may be
-     * included in the key by escaping them with a preceding backslash
-     * character; for example,<p>
-     *
-     * {@code \:\=}<p>
-     *
-     * would be the two-character key {@code ":="}.  Line
-     * terminator characters can be included using {@code \r} and
-     * {@code \n} escape sequences.  Any white space after the
-     * key is skipped; if the first non-white space character after
-     * the key is {@code '='} or {@code ':'}, then it is
-     * ignored and any white space characters after it are also
-     * skipped.  All remaining characters on the line become part of
-     * the associated element string; if there are no remaining
-     * characters, the element is the empty string
-     * {@code ""}.  Once the raw character sequences
-     * constituting the key and element are identified, escape
-     * processing is performed as described above.
-     *
-     * <p>
-     * As an example, each of the following three lines specifies the key
-     * {@code "Truth"} and the associated element value
-     * {@code "Beauty"}:
-     * <pre>
-     * Truth = Beauty
-     *  Truth:Beauty
-     * Truth                    :Beauty
-     * </pre>
-     * As another example, the following three lines specify a single
-     * property:
-     * <pre>
-     * fruits                           apple, banana, pear, \
-     *                                  cantaloupe, watermelon, \
-     *                                  kiwi, mango
-     * </pre>
-     * The key is {@code "fruits"} and the associated element is:
-     * <pre>"apple, banana, pear, cantaloupe, watermelon, kiwi, mango"</pre>
-     * Note that a space appears before each {@code \} so that a space
-     * will appear after each comma in the final result; the {@code \},
-     * line terminator, and leading white space on the continuation line are
-     * merely discarded and are <i>not</i> replaced by one or more other
-     * characters.
-     * <p>
-     * As a third example, the line:
-     * <pre>cheeses
-     * </pre>
-     * specifies that the key is {@code "cheeses"} and the associated
-     * element is the empty string {@code ""}.
-     * <p>
-     * <a name="unicodeescapes"></a>
-     * Characters in keys and elements can be represented in escape
-     * sequences similar to those used for character and string literals
-     * (see sections 3.3 and 3.10.6 of
-     * <cite>The Java&trade; Language Specification</cite>).
-     *
-     * The differences from the character escape sequences and Unicode
-     * escapes used for characters and strings are:
-     *
-     * <ul>
-     * <li> Octal escapes are not recognized.
-     *
-     * <li> The character sequence {@code \b} does <i>not</i>
-     * represent a backspace character.
-     *
-     * <li> The method does not treat a backslash character,
-     * {@code \}, before a non-valid escape character as an
-     * error; the backslash is silently dropped.  For example, in a
-     * Java string the sequence {@code "\z"} would cause a
-     * compile time error.  In contrast, this method silently drops
-     * the backslash.  Therefore, this method treats the two character
-     * sequence {@code "\b"} as equivalent to the single
-     * character {@code 'b'}.
-     *
-     * <li> Escapes are not necessary for single and double quotes;
-     * however, by the rule above, single and double quote characters
-     * preceded by a backslash still yield single and double quote
-     * characters, respectively.
-     *
-     * <li> Only a single 'u' character is allowed in a Unicode escape
-     * sequence.
-     *
-     * </ul>
-     * <p>
-     * The specified stream remains open after this method returns.
-     *
-     * @param   reader   the input character stream.
-     * @throws  IOException  if an error occurred when reading from the
-     *          input stream.
-     * @throws  IllegalArgumentException if a malformed Unicode escape
-     *          appears in the input.
-     * @since   1.6
-     */
-    public synchronized void load(Reader reader) throws IOException {
-        load0(new LineReader(reader));
-    }
-
-    /**
-     * Reads a property list (key and element pairs) from the input
-     * byte stream. The input stream is in a simple line-oriented
-     * format as specified in
-     * {@link #load(java.io.Reader) load(Reader)} and is assumed to use
-     * the ISO 8859-1 character encoding; that is each byte is one Latin1
-     * character. Characters not in Latin1, and certain special characters,
-     * are represented in keys and elements using Unicode escapes as defined in
-     * section 3.3 of
-     * <cite>The Java&trade; Language Specification</cite>.
-     * <p>
-     * The specified stream remains open after this method returns.
-     *
-     * @param      inStream   the input stream.
-     * @exception  IOException  if an error occurred when reading from the
-     *             input stream.
-     * @throws     IllegalArgumentException if the input stream contains a
-     *             malformed Unicode escape sequence.
-     * @since 1.2
-     */
-    public synchronized void load(InputStream inStream) throws IOException {
-        load0(new LineReader(inStream));
-    }
-
-    private void load0 (LineReader lr) throws IOException {
-        char[] convtBuf = new char[1024];
-        int limit;
-        int keyLen;
-        int valueStart;
-        char c;
-        boolean hasSep;
-        boolean precedingBackslash;
-
-        while ((limit = lr.readLine()) >= 0) {
-            c = 0;
-            keyLen = 0;
-            valueStart = limit;
-            hasSep = false;
-
-            //System.out.println("line=<" + new String(lineBuf, 0, limit) + ">");
-            precedingBackslash = false;
-            while (keyLen < limit) {
-                c = lr.lineBuf[keyLen];
-                //need check if escaped.
-                if ((c == '=' ||  c == ':') && !precedingBackslash) {
-                    valueStart = keyLen + 1;
-                    hasSep = true;
-                    break;
+        for (; i < string.length(); i++) {
+            char ch = string.charAt(i);
+            switch (ch) {
+            case '\t':
+                buffer.append("\\t");
+                break;
+            case '\n':
+                buffer.append("\\n");
+                break;
+            case '\f':
+                buffer.append("\\f");
+                break;
+            case '\r':
+                buffer.append("\\r");
+                break;
+            default:
+                if ("\\#!=:".indexOf(ch) >= 0 || (key && ch == ' ')) {
+                    buffer.append('\\');
                 }
-                // Android-changed: use of Character.isWhitespace(c) b/25998006
-                else if (Character.isWhitespace(c) && !precedingBackslash) {
-                    valueStart = keyLen + 1;
-                    break;
-                }
-                if (c == '\\') {
-                    precedingBackslash = !precedingBackslash;
+                if (ch >= ' ' && ch <= '~') {
+                    buffer.append(ch);
                 } else {
-                    precedingBackslash = false;
+                    String hex = Integer.toHexString(ch);
+                    buffer.append("\\u");
+                    for (int j = 0; j < 4 - hex.length(); j++) {
+                        buffer.append("0");
+                    }
+                    buffer.append(hex);
                 }
-                keyLen++;
             }
-            while (valueStart < limit) {
-                c = lr.lineBuf[valueStart];
-                // Android-changed: use of Character.isWhitespace(c) b/25998006
-                if (!Character.isWhitespace(c)) {
-                    if (!hasSep && (c == '=' ||  c == ':')) {
-                        hasSep = true;
-                    } else {
-                        break;
+        }
+    }
+
+    /**
+     * Searches for the property with the specified name. If the property is not
+     * found, the default {@code Properties} are checked. If the property is not
+     * found in the default {@code Properties}, {@code null} is returned.
+     *
+     * @param name
+     *            the name of the property to find.
+     * @return the named property value, or {@code null} if it can't be found.
+     */
+    public String getProperty(String name) {
+        Object result = super.get(name);
+        String property = result instanceof String ? (String) result : null;
+        if (property == null && defaults != null) {
+            property = defaults.getProperty(name);
+        }
+        return property;
+    }
+
+    /**
+     * Searches for the property with the specified name. If the property is not
+     * found, it looks in the default {@code Properties}. If the property is not
+     * found in the default {@code Properties}, it returns the specified
+     * default.
+     *
+     * @param name
+     *            the name of the property to find.
+     * @param defaultValue
+     *            the default value.
+     * @return the named property value.
+     */
+    public String getProperty(String name, String defaultValue) {
+        Object result = super.get(name);
+        String property = result instanceof String ? (String) result : null;
+        if (property == null && defaults != null) {
+            property = defaults.getProperty(name);
+        }
+        if (property == null) {
+            return defaultValue;
+        }
+        return property;
+    }
+
+    /**
+     * Lists the mappings in this {@code Properties} to {@code out} in a human-readable form.
+     * Note that values are truncated to 37 characters, so this method is rarely useful.
+     */
+    public void list(PrintStream out) {
+        listToAppendable(out);
+    }
+
+    /**
+     * Lists the mappings in this {@code Properties} to {@code out} in a human-readable form.
+     * Note that values are truncated to 37 characters, so this method is rarely useful.
+     */
+    public void list(PrintWriter out) {
+        listToAppendable(out);
+    }
+
+    private void listToAppendable(Appendable out) {
+        try {
+            if (out == null) {
+                throw new NullPointerException("out == null");
+            }
+            StringBuilder sb = new StringBuilder(80);
+            Enumeration<?> keys = propertyNames();
+            while (keys.hasMoreElements()) {
+                String key = (String) keys.nextElement();
+                sb.append(key);
+                sb.append('=');
+                String property = (String) super.get(key);
+                Properties def = defaults;
+                while (property == null) {
+                    property = (String) def.get(key);
+                    def = def.defaults;
+                }
+                if (property.length() > 40) {
+                    sb.append(property.substring(0, 37));
+                    sb.append("...");
+                } else {
+                    sb.append(property);
+                }
+                sb.append(System.lineSeparator());
+                out.append(sb.toString());
+                sb.setLength(0);
+            }
+        } catch (IOException ex) {
+            // Appendable.append throws IOException, but PrintStream and PrintWriter don't.
+            throw new AssertionError(ex);
+        }
+    }
+
+    /**
+     * Loads properties from the specified {@code InputStream}, assumed to be ISO-8859-1.
+     * See "<a href="#character_encoding">Character Encoding</a>".
+     *
+     * @param in the {@code InputStream}
+     * @throws IOException
+     */
+    public synchronized void load(InputStream in) throws IOException {
+        if (in == null) {
+            throw new NullPointerException("in == null");
+        }
+        load(new InputStreamReader(in, "ISO-8859-1"));
+    }
+
+    /**
+     * Loads properties from the specified {@code Reader}.
+     * The properties file is interpreted according to the following rules:
+     * <ul>
+     * <li>Empty lines are ignored.</li>
+     * <li>Lines starting with either a "#" or a "!" are comment lines and are
+     * ignored.</li>
+     * <li>A backslash at the end of the line escapes the following newline
+     * character ("\r", "\n", "\r\n"). If there's whitespace after the
+     * backslash it will just escape that whitespace instead of concatenating
+     * the lines. This does not apply to comment lines.</li>
+     * <li>A property line consists of the key, the space between the key and
+     * the value, and the value. The key goes up to the first whitespace, "=" or
+     * ":" that is not escaped. The space between the key and the value contains
+     * either one whitespace, one "=" or one ":" and any amount of additional
+     * whitespace before and after that character. The value starts with the
+     * first character after the space between the key and the value.</li>
+     * <li>Following escape sequences are recognized: "\ ", "\\", "\r", "\n",
+     * "\!", "\#", "\t", "\b", "\f", and "&#92;uXXXX" (unicode character).</li>
+     * </ul>
+     *
+     * @param in the {@code Reader}
+     * @throws IOException
+     * @since 1.6
+     */
+    @SuppressWarnings("fallthrough")
+    public synchronized void load(Reader in) throws IOException {
+        if (in == null) {
+            throw new NullPointerException("in == null");
+        }
+        int mode = NONE, unicode = 0, count = 0;
+        char nextChar, buf[] = new char[40];
+        int offset = 0, keyLength = -1, intVal;
+        boolean firstChar = true;
+
+        BufferedReader br = new BufferedReader(in);
+
+        while (true) {
+            intVal = br.read();
+            if (intVal == -1) {
+                break;
+            }
+            nextChar = (char) intVal;
+
+            if (offset == buf.length) {
+                char[] newBuf = new char[buf.length * 2];
+                System.arraycopy(buf, 0, newBuf, 0, offset);
+                buf = newBuf;
+            }
+            if (mode == UNICODE) {
+                int digit = Character.digit(nextChar, 16);
+                if (digit >= 0) {
+                    unicode = (unicode << 4) + digit;
+                    if (++count < 4) {
+                        continue;
+                    }
+                } else if (count <= 4) {
+                    throw new IllegalArgumentException("Invalid Unicode sequence: illegal character");
+                }
+                mode = NONE;
+                buf[offset++] = (char) unicode;
+                if (nextChar != '\n') {
+                    continue;
+                }
+            }
+            if (mode == SLASH) {
+                mode = NONE;
+                switch (nextChar) {
+                case '\r':
+                    mode = CONTINUE; // Look for a following \n
+                    continue;
+                case '\n':
+                    mode = IGNORE; // Ignore whitespace on the next line
+                    continue;
+                case 'b':
+                    nextChar = '\b';
+                    break;
+                case 'f':
+                    nextChar = '\f';
+                    break;
+                case 'n':
+                    nextChar = '\n';
+                    break;
+                case 'r':
+                    nextChar = '\r';
+                    break;
+                case 't':
+                    nextChar = '\t';
+                    break;
+                case 'u':
+                    mode = UNICODE;
+                    unicode = count = 0;
+                    continue;
+                }
+            } else {
+                switch (nextChar) {
+                case '#':
+                case '!':
+                    if (firstChar) {
+                        while (true) {
+                            intVal = br.read();
+                            if (intVal == -1) {
+                                break;
+                            }
+                            nextChar = (char) intVal;
+                            if (nextChar == '\r' || nextChar == '\n') {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                    break;
+                case '\n':
+                    if (mode == CONTINUE) { // Part of a \r\n sequence
+                        mode = IGNORE; // Ignore whitespace on the next line
+                        continue;
+                    }
+                    // fall into the next case
+                case '\r':
+                    mode = NONE;
+                    firstChar = true;
+                    if (offset > 0 || (offset == 0 && keyLength == 0)) {
+                        if (keyLength == -1) {
+                            keyLength = offset;
+                        }
+                        String temp = new String(buf, 0, offset);
+                        put(temp.substring(0, keyLength), temp
+                                .substring(keyLength));
+                    }
+                    keyLength = -1;
+                    offset = 0;
+                    continue;
+                case '\\':
+                    if (mode == KEY_DONE) {
+                        keyLength = offset;
+                    }
+                    mode = SLASH;
+                    continue;
+                case ':':
+                case '=':
+                    if (keyLength == -1) { // if parsing the key
+                        mode = NONE;
+                        keyLength = offset;
+                        continue;
+                    }
+                    break;
+                }
+                if (Character.isWhitespace(nextChar)) {
+                    if (mode == CONTINUE) {
+                        mode = IGNORE;
+                    }
+                    // if key length == 0 or value length == 0
+                    if (offset == 0 || offset == keyLength || mode == IGNORE) {
+                        continue;
+                    }
+                    if (keyLength == -1) { // if parsing the key
+                        mode = KEY_DONE;
+                        continue;
                     }
                 }
-                valueStart++;
+                if (mode == IGNORE || mode == CONTINUE) {
+                    mode = NONE;
+                }
             }
-            String key = loadConvert(lr.lineBuf, 0, keyLen, convtBuf);
-            String value = loadConvert(lr.lineBuf, valueStart, limit - valueStart, convtBuf);
+            firstChar = false;
+            if (mode == KEY_DONE) {
+                keyLength = offset;
+                mode = NONE;
+            }
+            buf[offset++] = nextChar;
+        }
+        if (mode == UNICODE && count <= 4) {
+            throw new IllegalArgumentException("Invalid Unicode sequence: expected format \\uxxxx");
+        }
+        if (keyLength == -1 && offset > 0) {
+            keyLength = offset;
+        }
+        if (keyLength >= 0) {
+            String temp = new String(buf, 0, offset);
+            String key = temp.substring(0, keyLength);
+            String value = temp.substring(keyLength);
+            if (mode == SLASH) {
+                value += "\u0000";
+            }
             put(key, value);
         }
     }
 
-    /* Read in a "logical line" from an InputStream/Reader, skip all comment
-     * and blank lines and filter out those leading whitespace characters
-     * (\u0020, \u0009 and \u000c) from the beginning of a "natural line".
-     * Method returns the char length of the "logical line" and stores
-     * the line in "lineBuf".
+    /**
+     * Returns all of the property names (keys) in this {@code Properties} object.
      */
-    class LineReader {
-        public LineReader(InputStream inStream) {
-            this.inStream = inStream;
-            inByteBuf = new byte[8192];
-        }
-
-        public LineReader(Reader reader) {
-            this.reader = reader;
-            inCharBuf = new char[8192];
-        }
-
-        byte[] inByteBuf;
-        char[] inCharBuf;
-        char[] lineBuf = new char[1024];
-        int inLimit = 0;
-        int inOff = 0;
-        InputStream inStream;
-        Reader reader;
-
-        int readLine() throws IOException {
-            int len = 0;
-            char c = 0;
-
-            boolean skipWhiteSpace = true;
-            boolean isCommentLine = false;
-            boolean isNewLine = true;
-            boolean appendedLineBegin = false;
-            boolean precedingBackslash = false;
-            boolean skipLF = false;
-
-            while (true) {
-                if (inOff >= inLimit) {
-                    inLimit = (inStream==null)?reader.read(inCharBuf)
-                                              :inStream.read(inByteBuf);
-                    inOff = 0;
-                    if (inLimit <= 0) {
-                        if (len == 0 || isCommentLine) {
-                            return -1;
-                        }
-                        if (precedingBackslash) {
-                            len--;
-                        }
-                        return len;
-                    }
-                }
-                if (inStream != null) {
-                    //The line below is equivalent to calling a
-                    //ISO8859-1 decoder.
-                    c = (char) (0xff & inByteBuf[inOff++]);
-                } else {
-                    c = inCharBuf[inOff++];
-                }
-                if (skipLF) {
-                    skipLF = false;
-                    if (c == '\n') {
-                        continue;
-                    }
-                }
-                if (skipWhiteSpace) {
-                    // Android-changed: use of Character.isWhitespace(c) b/25998006
-                    if (Character.isWhitespace(c)) {
-                        continue;
-                    }
-                    if (!appendedLineBegin && (c == '\r' || c == '\n')) {
-                        continue;
-                    }
-                    skipWhiteSpace = false;
-                    appendedLineBegin = false;
-                }
-                if (isNewLine) {
-                    isNewLine = false;
-                    if (c == '#' || c == '!') {
-                        isCommentLine = true;
-                        continue;
-                    }
-                }
-
-                if (c != '\n' && c != '\r') {
-                    lineBuf[len++] = c;
-                    if (len == lineBuf.length) {
-                        int newLength = lineBuf.length * 2;
-                        if (newLength < 0) {
-                            newLength = Integer.MAX_VALUE;
-                        }
-                        char[] buf = new char[newLength];
-                        System.arraycopy(lineBuf, 0, buf, 0, lineBuf.length);
-                        lineBuf = buf;
-                    }
-                    //flip the preceding backslash flag
-                    if (c == '\\') {
-                        precedingBackslash = !precedingBackslash;
-                    } else {
-                        precedingBackslash = false;
-                    }
-                }
-                else {
-                    // reached EOL
-                    if (isCommentLine || len == 0) {
-                        isCommentLine = false;
-                        isNewLine = true;
-                        skipWhiteSpace = true;
-                        len = 0;
-                        continue;
-                    }
-                    if (inOff >= inLimit) {
-                        inLimit = (inStream==null)
-                                  ?reader.read(inCharBuf)
-                                  :inStream.read(inByteBuf);
-                        inOff = 0;
-                        if (inLimit <= 0) {
-                            if (precedingBackslash) {
-                                len--;
-                            }
-                            return len;
-                        }
-                    }
-                    if (precedingBackslash) {
-                        len -= 1;
-                        //skip the leading whitespace characters in following line
-                        skipWhiteSpace = true;
-                        appendedLineBegin = true;
-                        precedingBackslash = false;
-                        if (c == '\r') {
-                            skipLF = true;
-                        }
-                    } else {
-                        return len;
-                    }
-                }
-            }
-        }
-    }
-
-    /*
-     * Converts encoded &#92;uxxxx to unicode chars
-     * and changes special saved chars to their original forms
-     */
-    private String loadConvert (char[] in, int off, int len, char[] convtBuf) {
-        if (convtBuf.length < len) {
-            int newLen = len * 2;
-            if (newLen < 0) {
-                newLen = Integer.MAX_VALUE;
-            }
-            convtBuf = new char[newLen];
-        }
-        char aChar;
-        char[] out = convtBuf;
-        int outLen = 0;
-        int end = off + len;
-
-        while (off < end) {
-            aChar = in[off++];
-            if (aChar == '\\') {
-                aChar = in[off++];
-                if(aChar == 'u') {
-                    // Read the xxxx
-                    int value=0;
-                    for (int i=0; i<4; i++) {
-                        aChar = in[off++];
-                        switch (aChar) {
-                          case '0': case '1': case '2': case '3': case '4':
-                          case '5': case '6': case '7': case '8': case '9':
-                             value = (value << 4) + aChar - '0';
-                             break;
-                          case 'a': case 'b': case 'c':
-                          case 'd': case 'e': case 'f':
-                             value = (value << 4) + 10 + aChar - 'a';
-                             break;
-                          case 'A': case 'B': case 'C':
-                          case 'D': case 'E': case 'F':
-                             value = (value << 4) + 10 + aChar - 'A';
-                             break;
-                          default:
-                              throw new IllegalArgumentException(
-                                           "Malformed \\uxxxx encoding.");
-                        }
-                     }
-                    out[outLen++] = (char)value;
-                } else {
-                    if (aChar == 't') aChar = '\t';
-                    else if (aChar == 'r') aChar = '\r';
-                    else if (aChar == 'n') aChar = '\n';
-                    else if (aChar == 'f') aChar = '\f';
-                    out[outLen++] = aChar;
-                }
-            } else {
-                out[outLen++] = aChar;
-            }
-        }
-        return new String (out, 0, outLen);
-    }
-
-    /*
-     * Converts unicodes to encoded &#92;uxxxx and escapes
-     * special characters with a preceding slash
-     */
-    private String saveConvert(String theString,
-                               boolean escapeSpace,
-                               boolean escapeUnicode) {
-        int len = theString.length();
-        int bufLen = len * 2;
-        if (bufLen < 0) {
-            bufLen = Integer.MAX_VALUE;
-        }
-        StringBuffer outBuffer = new StringBuffer(bufLen);
-
-        for(int x=0; x<len; x++) {
-            char aChar = theString.charAt(x);
-            // Handle common case first, selecting largest block that
-            // avoids the specials below
-            if ((aChar > 61) && (aChar < 127)) {
-                if (aChar == '\\') {
-                    outBuffer.append('\\'); outBuffer.append('\\');
-                    continue;
-                }
-                outBuffer.append(aChar);
-                continue;
-            }
-            switch(aChar) {
-                case ' ':
-                    if (x == 0 || escapeSpace)
-                        outBuffer.append('\\');
-                    outBuffer.append(' ');
-                    break;
-                case '\t':outBuffer.append('\\'); outBuffer.append('t');
-                          break;
-                case '\n':outBuffer.append('\\'); outBuffer.append('n');
-                          break;
-                case '\r':outBuffer.append('\\'); outBuffer.append('r');
-                          break;
-                case '\f':outBuffer.append('\\'); outBuffer.append('f');
-                          break;
-                case '=': // Fall through
-                case ':': // Fall through
-                case '#': // Fall through
-                case '!':
-                    outBuffer.append('\\'); outBuffer.append(aChar);
-                    break;
-                default:
-                    if (((aChar < 0x0020) || (aChar > 0x007e)) & escapeUnicode ) {
-                        outBuffer.append('\\');
-                        outBuffer.append('u');
-                        outBuffer.append(toHex((aChar >> 12) & 0xF));
-                        outBuffer.append(toHex((aChar >>  8) & 0xF));
-                        outBuffer.append(toHex((aChar >>  4) & 0xF));
-                        outBuffer.append(toHex( aChar        & 0xF));
-                    } else {
-                        outBuffer.append(aChar);
-                    }
-            }
-        }
-        return outBuffer.toString();
-    }
-
-    private static void writeComments(BufferedWriter bw, String comments)
-        throws IOException {
-        bw.write("#");
-        int len = comments.length();
-        int current = 0;
-        int last = 0;
-        char[] uu = new char[6];
-        uu[0] = '\\';
-        uu[1] = 'u';
-        while (current < len) {
-            char c = comments.charAt(current);
-            if (c > '\u00ff' || c == '\n' || c == '\r') {
-                if (last != current)
-                    bw.write(comments.substring(last, current));
-                if (c > '\u00ff') {
-                    uu[2] = toHex((c >> 12) & 0xf);
-                    uu[3] = toHex((c >>  8) & 0xf);
-                    uu[4] = toHex((c >>  4) & 0xf);
-                    uu[5] = toHex( c        & 0xf);
-                    bw.write(new String(uu));
-                } else {
-                    bw.newLine();
-                    if (c == '\r' &&
-                        current != len - 1 &&
-                        comments.charAt(current + 1) == '\n') {
-                        current++;
-                    }
-                    if (current == len - 1 ||
-                        (comments.charAt(current + 1) != '#' &&
-                        comments.charAt(current + 1) != '!'))
-                        bw.write("#");
-                }
-                last = current + 1;
-            }
-            current++;
-        }
-        if (last != current)
-            bw.write(comments.substring(last, current));
-        bw.newLine();
+    public Enumeration<?> propertyNames() {
+        Hashtable<Object, Object> selected = new Hashtable<Object, Object>();
+        selectProperties(selected, false);
+        return selected.keys();
     }
 
     /**
-     * Calls the {@code store(OutputStream out, String comments)} method
-     * and suppresses IOExceptions that were thrown.
+     * Returns those property names (keys) in this {@code Properties} object for which
+     * both key and value are strings.
      *
-     * @deprecated This method does not throw an IOException if an I/O error
-     * occurs while saving the property list.  The preferred way to save a
-     * properties list is via the {@code store(OutputStream out,
-     * String comments)} method or the
-     * {@code storeToXML(OutputStream os, String comment)} method.
+     * @return a set of keys in the property list
+     * @since 1.6
+     */
+    public Set<String> stringPropertyNames() {
+        Hashtable<String, Object> stringProperties = new Hashtable<String, Object>();
+        selectProperties(stringProperties, true);
+        return Collections.unmodifiableSet(stringProperties.keySet());
+    }
+
+    private <K> void selectProperties(Hashtable<K, Object> selectProperties, final boolean isStringOnly) {
+        if (defaults != null) {
+            defaults.selectProperties(selectProperties, isStringOnly);
+        }
+        Enumeration<Object> keys = keys();
+        while (keys.hasMoreElements()) {
+            @SuppressWarnings("unchecked")
+            K key = (K) keys.nextElement();
+            if (isStringOnly && !(key instanceof String)) {
+                // Only select property with string key and value
+                continue;
+            }
+            Object value = get(key);
+            selectProperties.put(key, value);
+        }
+    }
+
+    /**
+     * Saves the mappings in this {@code Properties} to the specified {@code
+     * OutputStream}, putting the specified comment at the beginning. The output
+     * from this method is suitable for being read by the
+     * {@link #load(InputStream)} method.
      *
-     * @param   out      an output stream.
-     * @param   comments   a description of the property list.
-     * @exception  ClassCastException  if this {@code Properties} object
-     *             contains any keys or values that are not
-     *             {@code Strings}.
+     * @param out the {@code OutputStream} to write to.
+     * @param comment the comment to add at the beginning.
+     * @throws ClassCastException if the key or value of a mapping is not a
+     *                String.
+     * @deprecated This method ignores any {@code IOException} thrown while
+     *             writing &mdash; use {@link #store} instead for better exception
+     *             handling.
      */
     @Deprecated
-    public void save(OutputStream out, String comments)  {
+    public void save(OutputStream out, String comment) {
         try {
-            store(out, comments);
+            store(out, comment);
         } catch (IOException e) {
         }
     }
 
     /**
-     * Writes this property list (key and element pairs) in this
-     * {@code Properties} table to the output character stream in a
-     * format suitable for using the {@link #load(java.io.Reader) load(Reader)}
-     * method.
-     * <p>
-     * Properties from the defaults table of this {@code Properties}
-     * table (if any) are <i>not</i> written out by this method.
-     * <p>
-     * If the comments argument is not null, then an ASCII {@code #}
-     * character, the comments string, and a line separator are first written
-     * to the output stream. Thus, the {@code comments} can serve as an
-     * identifying comment. Any one of a line feed ('\n'), a carriage
-     * return ('\r'), or a carriage return followed immediately by a line feed
-     * in comments is replaced by a line separator generated by the {@code Writer}
-     * and if the next character in comments is not character {@code #} or
-     * character {@code !} then an ASCII {@code #} is written out
-     * after that line separator.
-     * <p>
-     * Next, a comment line is always written, consisting of an ASCII
-     * {@code #} character, the current date and time (as if produced
-     * by the {@code toString} method of {@code Date} for the
-     * current time), and a line separator as generated by the {@code Writer}.
-     * <p>
-     * Then every entry in this {@code Properties} table is
-     * written out, one per line. For each entry the key string is
-     * written, then an ASCII {@code =}, then the associated
-     * element string. For the key, all space characters are
-     * written with a preceding {@code \} character.  For the
-     * element, leading space characters, but not embedded or trailing
-     * space characters, are written with a preceding {@code \}
-     * character. The key and element characters {@code #},
-     * {@code !}, {@code =}, and {@code :} are written
-     * with a preceding backslash to ensure that they are properly loaded.
-     * <p>
-     * After the entries have been written, the output stream is flushed.
-     * The output stream remains open after this method returns.
-     * <p>
+     * Maps the specified key to the specified value. If the key already exists,
+     * the old value is replaced. The key and value cannot be {@code null}.
      *
-     * @param   writer      an output character stream writer.
-     * @param   comments   a description of the property list.
-     * @exception  IOException if writing this property list to the specified
-     *             output stream throws an <tt>IOException</tt>.
-     * @exception  ClassCastException  if this {@code Properties} object
-     *             contains any keys or values that are not {@code Strings}.
-     * @exception  NullPointerException  if {@code writer} is null.
+     * @param name
+     *            the key.
+     * @param value
+     *            the value.
+     * @return the old value mapped to the key, or {@code null}.
+     */
+    public Object setProperty(String name, String value) {
+        return put(name, value);
+    }
+
+    /**
+     * Stores properties to the specified {@code OutputStream}, using ISO-8859-1.
+     * See "<a href="#character_encoding">Character Encoding</a>".
+     *
+     * @param out the {@code OutputStream}
+     * @param comment an optional comment to be written, or null
+     * @throws IOException
+     * @throws ClassCastException if a key or value is not a string
+     */
+    public synchronized void store(OutputStream out, String comment) throws IOException {
+        store(new OutputStreamWriter(out, "ISO-8859-1"), comment);
+    }
+
+    /**
+     * Stores the mappings in this {@code Properties} object to {@code out},
+     * putting the specified comment at the beginning.
+     *
+     * @param writer the {@code Writer}
+     * @param comment an optional comment to be written, or null
+     * @throws IOException
+     * @throws ClassCastException if a key or value is not a string
      * @since 1.6
      */
-    public void store(Writer writer, String comments)
-        throws IOException
-    {
-        store0((writer instanceof BufferedWriter)?(BufferedWriter)writer
-                                                 : new BufferedWriter(writer),
-               comments,
-               false);
+    public synchronized void store(Writer writer, String comment) throws IOException {
+        if (comment != null) {
+            writer.write("#");
+            writer.write(comment);
+            writer.write(System.lineSeparator());
+        }
+        writer.write("#");
+        writer.write(new Date().toString());
+        writer.write(System.lineSeparator());
+
+        StringBuilder sb = new StringBuilder(200);
+        for (Map.Entry<Object, Object> entry : entrySet()) {
+            String key = (String) entry.getKey();
+            dumpString(sb, key, true);
+            sb.append('=');
+            dumpString(sb, (String) entry.getValue(), false);
+            sb.append(System.lineSeparator());
+            writer.write(sb.toString());
+            sb.setLength(0);
+        }
+        writer.flush();
     }
 
     /**
-     * Writes this property list (key and element pairs) in this
-     * {@code Properties} table to the output stream in a format suitable
-     * for loading into a {@code Properties} table using the
-     * {@link #load(InputStream) load(InputStream)} method.
-     * <p>
-     * Properties from the defaults table of this {@code Properties}
-     * table (if any) are <i>not</i> written out by this method.
-     * <p>
-     * This method outputs the comments, properties keys and values in
-     * the same format as specified in
-     * {@link #store(java.io.Writer, java.lang.String) store(Writer)},
-     * with the following differences:
-     * <ul>
-     * <li>The stream is written using the ISO 8859-1 character encoding.
+     * Loads the properties from an {@code InputStream} containing the
+     * properties in XML form. The XML document must begin with (and conform to)
+     * following DOCTYPE:
      *
-     * <li>Characters not in Latin-1 in the comments are written as
-     * {@code \u005Cu}<i>xxxx</i> for their appropriate unicode
-     * hexadecimal value <i>xxxx</i>.
-     *
-     * <li>Characters less than {@code \u005Cu0020} and characters greater
-     * than {@code \u005Cu007E} in property keys or values are written
-     * as {@code \u005Cu}<i>xxxx</i> for the appropriate hexadecimal
-     * value <i>xxxx</i>.
-     * </ul>
-     * <p>
-     * After the entries have been written, the output stream is flushed.
-     * The output stream remains open after this method returns.
-     * <p>
-     * @param   out      an output stream.
-     * @param   comments   a description of the property list.
-     * @exception  IOException if writing this property list to the specified
-     *             output stream throws an <tt>IOException</tt>.
-     * @exception  ClassCastException  if this {@code Properties} object
-     *             contains any keys or values that are not {@code Strings}.
-     * @exception  NullPointerException  if {@code out} is null.
-     * @since 1.2
-     */
-    public void store(OutputStream out, String comments)
-        throws IOException
-    {
-        store0(new BufferedWriter(new OutputStreamWriter(out, "8859_1")),
-               comments,
-               true);
-    }
-
-    private void store0(BufferedWriter bw, String comments, boolean escUnicode)
-        throws IOException
-    {
-        if (comments != null) {
-            writeComments(bw, comments);
-        }
-        bw.write("#" + new Date().toString());
-        bw.newLine();
-        synchronized (this) {
-            for (Enumeration<?> e = keys(); e.hasMoreElements();) {
-                String key = (String)e.nextElement();
-                String val = (String)get(key);
-                key = saveConvert(key, true, escUnicode);
-                /* No need to escape embedded and trailing spaces for value, hence
-                 * pass false to flag.
-                 */
-                val = saveConvert(val, false, escUnicode);
-                bw.write(key + "=" + val);
-                bw.newLine();
-            }
-        }
-        bw.flush();
-    }
-
-    /**
-     * Loads all of the properties represented by the XML document on the
-     * specified input stream into this properties table.
-     *
-     * <p>The XML document must have the following DOCTYPE declaration:
      * <pre>
-     * &lt;!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd"&gt;
+     * &lt;!DOCTYPE properties SYSTEM &quot;http://java.sun.com/dtd/properties.dtd&quot;&gt;
      * </pre>
-     * Furthermore, the document must satisfy the properties DTD described
-     * above.
      *
-     * <p> An implementation is required to read XML documents that use the
-     * "{@code UTF-8}" or "{@code UTF-16}" encoding. An implementation may
-     * support additional encodings.
+     * Also the content of the XML data must satisfy the DTD but the xml is not
+     * validated against it. The DTD is not loaded from the SYSTEM ID. After
+     * this method returns the InputStream is not closed.
      *
-     * <p>The specified stream is closed after this method returns.
-     *
-     * @param in the input stream from which to read the XML document.
-     * @throws IOException if reading from the specified input stream
-     *         results in an <tt>IOException</tt>.
-     * @throws java.io.UnsupportedEncodingException if the document's encoding
-     *         declaration can be read and it specifies an encoding that is not
-     *         supported
-     * @throws InvalidPropertiesFormatException Data on input stream does not
-     *         constitute a valid XML document with the mandated document type.
-     * @throws NullPointerException if {@code in} is null.
-     * @see    #storeToXML(OutputStream, String, String)
-     * @see    <a href="http://www.w3.org/TR/REC-xml/#charencoding">Character
-     *         Encoding in Entities</a>
-     * @since 1.5
+     * @param in the InputStream containing the XML document.
+     * @throws IOException in case an error occurs during a read operation.
+     * @throws InvalidPropertiesFormatException if the XML data is not a valid
+     *             properties file.
      */
-    public synchronized void loadFromXML(InputStream in)
-        throws IOException, InvalidPropertiesFormatException
-    {
-        // Android-changed: Keep OpenJDK7u40's XmlUtils.
-        // XmlSupport's system property based XmlPropertiesProvider
-        // selection does not make sense on Android and has too many
-        // dependencies on classes that are not available on Android.
-        //
-        // XmlSupport.load(this, Objects.requireNonNull(in));
-        XMLUtils.load(this, Objects.requireNonNull(in));
-        in.close();
+    public synchronized void loadFromXML(InputStream in) throws IOException,
+            InvalidPropertiesFormatException {
+        if (in == null) {
+            throw new NullPointerException("in == null");
+        }
+
+        if (builder == null) {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // BEGIN android-removed: we still don't support validation.
+            // factory.setValidating(true);
+            // END android-removed
+
+            try {
+                builder = factory.newDocumentBuilder();
+            } catch (ParserConfigurationException e) {
+                throw new Error(e);
+            }
+
+            builder.setErrorHandler(new ErrorHandler() {
+                public void warning(SAXParseException e) throws SAXException {
+                    throw e;
+                }
+
+                public void error(SAXParseException e) throws SAXException {
+                    throw e;
+                }
+
+                public void fatalError(SAXParseException e) throws SAXException {
+                    throw e;
+                }
+            });
+
+            builder.setEntityResolver(new EntityResolver() {
+                public InputSource resolveEntity(String publicId,
+                        String systemId) throws SAXException, IOException {
+                    if (systemId.equals(PROP_DTD_NAME)) {
+                        InputSource result = new InputSource(new StringReader(
+                                PROP_DTD));
+                        result.setSystemId(PROP_DTD_NAME);
+                        return result;
+                    }
+                    throw new SAXException("Invalid DOCTYPE declaration: "
+                            + systemId);
+                }
+            });
+        }
+
+        try {
+            Document doc = builder.parse(in);
+            NodeList entries = doc.getElementsByTagName("entry");
+            if (entries == null) {
+                return;
+            }
+            int entriesListLength = entries.getLength();
+
+            for (int i = 0; i < entriesListLength; i++) {
+                Element entry = (Element) entries.item(i);
+                String key = entry.getAttribute("key");
+                String value = entry.getTextContent();
+
+                /*
+                 * key != null & value != null but key or(and) value can be
+                 * empty String
+                 */
+                put(key, value);
+            }
+        } catch (IOException e) {
+            throw e;
+        } catch (SAXException e) {
+            throw new InvalidPropertiesFormatException(e);
+        }
     }
 
     /**
-     * Emits an XML document representing all of the properties contained
-     * in this table.
+     * Writes all properties stored in this instance into the {@code
+     * OutputStream} in XML representation. The DOCTYPE is
      *
-     * <p> An invocation of this method of the form <tt>props.storeToXML(os,
-     * comment)</tt> behaves in exactly the same way as the invocation
-     * <tt>props.storeToXML(os, comment, "UTF-8");</tt>.
+     * <pre>
+     * &lt;!DOCTYPE properties SYSTEM &quot;http://java.sun.com/dtd/properties.dtd&quot;&gt;
+     * </pre>
      *
-     * @param os the output stream on which to emit the XML document.
-     * @param comment a description of the property list, or {@code null}
-     *        if no comment is desired.
-     * @throws IOException if writing to the specified output stream
-     *         results in an <tt>IOException</tt>.
-     * @throws NullPointerException if {@code os} is null.
-     * @throws ClassCastException  if this {@code Properties} object
-     *         contains any keys or values that are not
-     *         {@code Strings}.
-     * @see    #loadFromXML(InputStream)
-     * @since 1.5
+     * If the comment is null, no comment is added to the output. UTF-8 is used
+     * as the encoding. The {@code OutputStream} is not closed at the end. A
+     * call to this method is the same as a call to {@code storeToXML(os,
+     * comment, "UTF-8")}.
+     *
+     * @param os the {@code OutputStream} to write to.
+     * @param comment the comment to add. If null, no comment is added.
+     * @throws IOException if an error occurs during writing to the output.
      */
-    public void storeToXML(OutputStream os, String comment)
-        throws IOException
-    {
+    public void storeToXML(OutputStream os, String comment) throws IOException {
         storeToXML(os, comment, "UTF-8");
     }
 
     /**
-     * Emits an XML document representing all of the properties contained
-     * in this table, using the specified encoding.
+     * Writes all properties stored in this instance into the {@code
+     * OutputStream} in XML representation. The DOCTYPE is
      *
-     * <p>The XML document will have the following DOCTYPE declaration:
      * <pre>
-     * &lt;!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd"&gt;
+     * &lt;!DOCTYPE properties SYSTEM &quot;http://java.sun.com/dtd/properties.dtd&quot;&gt;
      * </pre>
      *
-     * <p>If the specified comment is {@code null} then no comment
-     * will be stored in the document.
+     * If the comment is null, no comment is added to the output. The parameter
+     * {@code encoding} defines which encoding should be used. The {@code
+     * OutputStream} is not closed at the end.
      *
-     * <p> An implementation is required to support writing of XML documents
-     * that use the "{@code UTF-8}" or "{@code UTF-16}" encoding. An
-     * implementation may support additional encodings.
-     *
-     * <p>The specified stream remains open after this method returns.
-     *
-     * @param os        the output stream on which to emit the XML document.
-     * @param comment   a description of the property list, or {@code null}
-     *                  if no comment is desired.
-     * @param  encoding the name of a supported
-     *                  <a href="../lang/package-summary.html#charenc">
-     *                  character encoding</a>
-     *
-     * @throws IOException if writing to the specified output stream
-     *         results in an <tt>IOException</tt>.
-     * @throws java.io.UnsupportedEncodingException if the encoding is not
-     *         supported by the implementation.
-     * @throws NullPointerException if {@code os} is {@code null},
-     *         or if {@code encoding} is {@code null}.
-     * @throws ClassCastException  if this {@code Properties} object
-     *         contains any keys or values that are not
-     *         {@code Strings}.
-     * @see    #loadFromXML(InputStream)
-     * @see    <a href="http://www.w3.org/TR/REC-xml/#charencoding">Character
-     *         Encoding in Entities</a>
-     * @since 1.5
+     * @param os the {@code OutputStream} to write to.
+     * @param comment the comment to add. If null, no comment is added.
+     * @param encoding the code identifying the encoding that should be used to
+     *            write into the {@code OutputStream}.
+     * @throws IOException if an error occurs during writing to the output.
      */
-    public void storeToXML(OutputStream os, String comment, String encoding)
-        throws IOException
-    {
-        // Android-changed: Keep OpenJDK7u40's XmlUtils.
-        // XmlSupport's system property based XmlPropertiesProvider
-        // selection does not make sense on Android and has too many
-        // dependencies on classes that are not available on Android.
-        //
-        // XmlSupport.save(this, Objects.requireNonNull(os), comment,
-        //                Objects.requireNonNull(encoding));
-        XMLUtils.save(this, Objects.requireNonNull(os), comment,
-                       Objects.requireNonNull(encoding));
-    }
+    public synchronized void storeToXML(OutputStream os, String comment,
+            String encoding) throws IOException {
 
-    /**
-     * Searches for the property with the specified key in this property list.
-     * If the key is not found in this property list, the default property list,
-     * and its defaults, recursively, are then checked. The method returns
-     * {@code null} if the property is not found.
-     *
-     * @param   key   the property key.
-     * @return  the value in this property list with the specified key value.
-     * @see     #setProperty
-     * @see     #defaults
-     */
-    public String getProperty(String key) {
-        Object oval = super.get(key);
-        String sval = (oval instanceof String) ? (String)oval : null;
-        return ((sval == null) && (defaults != null)) ? defaults.getProperty(key) : sval;
-    }
-
-    /**
-     * Searches for the property with the specified key in this property list.
-     * If the key is not found in this property list, the default property list,
-     * and its defaults, recursively, are then checked. The method returns the
-     * default value argument if the property is not found.
-     *
-     * @param   key            the hashtable key.
-     * @param   defaultValue   a default value.
-     *
-     * @return  the value in this property list with the specified key value.
-     * @see     #setProperty
-     * @see     #defaults
-     */
-    public String getProperty(String key, String defaultValue) {
-        String val = getProperty(key);
-        return (val == null) ? defaultValue : val;
-    }
-
-    /**
-     * Returns an enumeration of all the keys in this property list,
-     * including distinct keys in the default property list if a key
-     * of the same name has not already been found from the main
-     * properties list.
-     *
-     * @return  an enumeration of all the keys in this property list, including
-     *          the keys in the default property list.
-     * @throws  ClassCastException if any key in this property list
-     *          is not a string.
-     * @see     java.util.Enumeration
-     * @see     java.util.Properties#defaults
-     * @see     #stringPropertyNames
-     */
-    public Enumeration<?> propertyNames() {
-        Hashtable<String,Object> h = new Hashtable<>();
-        enumerate(h);
-        return h.keys();
-    }
-
-    /**
-     * Returns a set of keys in this property list where
-     * the key and its corresponding value are strings,
-     * including distinct keys in the default property list if a key
-     * of the same name has not already been found from the main
-     * properties list.  Properties whose key or value is not
-     * of type <tt>String</tt> are omitted.
-     * <p>
-     * The returned set is not backed by the <tt>Properties</tt> object.
-     * Changes to this <tt>Properties</tt> are not reflected in the set,
-     * or vice versa.
-     *
-     * @return  a set of keys in this property list where
-     *          the key and its corresponding value are strings,
-     *          including the keys in the default property list.
-     * @see     java.util.Properties#defaults
-     * @since   1.6
-     */
-    public Set<String> stringPropertyNames() {
-        Hashtable<String, String> h = new Hashtable<>();
-        enumerateStringProperties(h);
-        return h.keySet();
-    }
-
-    /**
-     * Prints this property list out to the specified output stream.
-     * This method is useful for debugging.
-     *
-     * @param   out   an output stream.
-     * @throws  ClassCastException if any key in this property list
-     *          is not a string.
-     */
-    public void list(PrintStream out) {
-        out.println("-- listing properties --");
-        Hashtable<String,Object> h = new Hashtable<>();
-        enumerate(h);
-        for (Enumeration<String> e = h.keys() ; e.hasMoreElements() ;) {
-            String key = e.nextElement();
-            String val = (String)h.get(key);
-            if (val.length() > 40) {
-                val = val.substring(0, 37) + "...";
-            }
-            out.println(key + "=" + val);
+        if (os == null) {
+            throw new NullPointerException("os == null");
+        } else if (encoding == null) {
+            throw new NullPointerException("encoding == null");
         }
+
+        /*
+         * We can write to XML file using encoding parameter but note that some
+         * aliases for encodings are not supported by the XML parser. Thus we
+         * have to know canonical name for encoding used to store data in XML
+         * since the XML parser must recognize encoding name used to store data.
+         */
+
+        String encodingCanonicalName;
+        try {
+            encodingCanonicalName = Charset.forName(encoding).name();
+        } catch (IllegalCharsetNameException e) {
+            System.out.println("Warning: encoding name " + encoding
+                    + " is illegal, using UTF-8 as default encoding");
+            encodingCanonicalName = "UTF-8";
+        } catch (UnsupportedCharsetException e) {
+            System.out.println("Warning: encoding " + encoding
+                    + " is not supported, using UTF-8 as default encoding");
+            encodingCanonicalName = "UTF-8";
+        }
+
+        PrintStream printStream = new PrintStream(os, false,
+                encodingCanonicalName);
+
+        printStream.print("<?xml version=\"1.0\" encoding=\"");
+        printStream.print(encodingCanonicalName);
+        printStream.println("\"?>");
+
+        printStream.print("<!DOCTYPE properties SYSTEM \"");
+        printStream.print(PROP_DTD_NAME);
+        printStream.println("\">");
+
+        printStream.println("<properties>");
+
+        if (comment != null) {
+            printStream.print("<comment>");
+            printStream.print(substitutePredefinedEntries(comment));
+            printStream.println("</comment>");
+        }
+
+        for (Map.Entry<Object, Object> entry : entrySet()) {
+            String keyValue = (String) entry.getKey();
+            String entryValue = (String) entry.getValue();
+            printStream.print("<entry key=\"");
+            printStream.print(substitutePredefinedEntries(keyValue));
+            printStream.print("\">");
+            printStream.print(substitutePredefinedEntries(entryValue));
+            printStream.println("</entry>");
+        }
+        printStream.println("</properties>");
+        printStream.flush();
     }
 
-    /**
-     * Prints this property list out to the specified output stream.
-     * This method is useful for debugging.
-     *
-     * @param   out   an output stream.
-     * @throws  ClassCastException if any key in this property list
-     *          is not a string.
-     * @since   JDK1.1
-     */
-    /*
-     * Rather than use an anonymous inner class to share common code, this
-     * method is duplicated in order to ensure that a non-1.1 compiler can
-     * compile this file.
-     */
-    public void list(PrintWriter out) {
-        out.println("-- listing properties --");
-        Hashtable<String,Object> h = new Hashtable<>();
-        enumerate(h);
-        for (Enumeration<String> e = h.keys() ; e.hasMoreElements() ;) {
-            String key = e.nextElement();
-            String val = (String)h.get(key);
-            if (val.length() > 40) {
-                val = val.substring(0, 37) + "...";
-            }
-            out.println(key + "=" + val);
-        }
+    private String substitutePredefinedEntries(String s) {
+        // substitution for predefined character entities to use them safely in XML.
+        s = s.replaceAll("&", "&amp;");
+        s = s.replaceAll("<", "&lt;");
+        s = s.replaceAll(">", "&gt;");
+        s = s.replaceAll("'", "&apos;");
+        s = s.replaceAll("\"", "&quot;");
+        return s;
     }
-
-    /**
-     * Enumerates all key/value pairs in the specified hashtable.
-     * @param h the hashtable
-     * @throws ClassCastException if any of the property keys
-     *         is not of String type.
-     */
-    private synchronized void enumerate(Hashtable<String,Object> h) {
-        if (defaults != null) {
-            defaults.enumerate(h);
-        }
-        for (Enumeration<?> e = keys() ; e.hasMoreElements() ;) {
-            String key = (String)e.nextElement();
-            h.put(key, get(key));
-        }
-    }
-
-    /**
-     * Enumerates all key/value pairs in the specified hashtable
-     * and omits the property if the key or value is not a string.
-     * @param h the hashtable
-     */
-    private synchronized void enumerateStringProperties(Hashtable<String, String> h) {
-        if (defaults != null) {
-            defaults.enumerateStringProperties(h);
-        }
-        for (Enumeration<?> e = keys() ; e.hasMoreElements() ;) {
-            Object k = e.nextElement();
-            Object v = get(k);
-            if (k instanceof String && v instanceof String) {
-                h.put((String) k, (String) v);
-            }
-        }
-    }
-
-    /**
-     * Convert a nibble to a hex character
-     * @param   nibble  the nibble to convert.
-     */
-    private static char toHex(int nibble) {
-        return hexDigit[(nibble & 0xF)];
-    }
-
-    /** A table of hex digits */
-    private static final char[] hexDigit = {
-        '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'
-    };
 }

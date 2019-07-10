@@ -15,14 +15,14 @@
  */
 package android.databinding.tool.store;
 
-import android.databinding.InverseBindingListener;
+import org.apache.commons.lang3.StringUtils;
+
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.reflection.ModelMethod;
 import android.databinding.tool.util.GenerationalClassUtil;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.util.StringUtils;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -31,7 +31,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -51,10 +50,8 @@ import javax.lang.model.type.TypeMirror;
 public class SetterStore {
     private static SetterStore sStore;
 
-    private final IntermediateV2 mStore;
+    private final IntermediateV1 mStore;
     private final ModelAnalyzer mClassAnalyzer;
-    private HashMap<String, List<String>> mInstanceAdapters;
-    private final HashSet<String> mInverseEventAttributes = new HashSet<String>();
 
     private Comparator<MultiAttributeSetter> COMPARE_MULTI_ATTRIBUTE_SETTERS =
             new Comparator<MultiAttributeSetter>() {
@@ -143,19 +140,9 @@ public class SetterStore {
                 }
             };
 
-    private SetterStore(ModelAnalyzer modelAnalyzer, IntermediateV2 store) {
+    private SetterStore(ModelAnalyzer modelAnalyzer, IntermediateV1 store) {
         mClassAnalyzer = modelAnalyzer;
         mStore = store;
-        for (HashMap<AccessorKey, InverseDescription> adapter : mStore.inverseAdapters.values()) {
-            for (InverseDescription inverseDescription : adapter.values()) {
-                mInverseEventAttributes.add(inverseDescription.event);
-            }
-        }
-        for (HashMap<String, InverseDescription> method : mStore.inverseMethods.values()) {
-            for (InverseDescription inverseDescription : method.values()) {
-                mInverseEventAttributes.add(inverseDescription.event);
-            }
-        }
     }
 
     public static SetterStore get(ModelAnalyzer modelAnalyzer) {
@@ -166,7 +153,7 @@ public class SetterStore {
     }
 
     private static SetterStore load(ModelAnalyzer modelAnalyzer) {
-        IntermediateV2 store = new IntermediateV2();
+        IntermediateV1 store = new IntermediateV1();
         List<Intermediate> previousStores = GenerationalClassUtil
                 .loadObjects(GenerationalClassUtil.ExtensionFilter.SETTER_STORE);
         for (Intermediate intermediate : previousStores) {
@@ -187,21 +174,6 @@ public class SetterStore {
                 declaredOn.getQualifiedName().toString(), method);
         L.d("STORE addmethod desc %s", methodDescription);
         renamed.put(declaringClass, methodDescription);
-    }
-
-    public void addInverseMethod(String attribute, String event, String declaringClass,
-            String method, TypeElement declaredOn) {
-        attribute = stripNamespace(attribute);
-        event = stripNamespace(event);
-        HashMap<String, InverseDescription> inverseMethods = mStore.inverseMethods.get(attribute);
-        if (inverseMethods == null) {
-            inverseMethods = new HashMap<String, InverseDescription>();
-            mStore.inverseMethods.put(attribute, inverseMethods);
-        }
-        InverseDescription methodDescription = new InverseDescription(
-                declaredOn.getQualifiedName().toString(), method, event);
-        L.d("STORE addInverseMethod desc %s", methodDescription);
-        inverseMethods.put(declaringClass, methodDescription);
     }
 
     public void addBindingAdapter(ProcessingEnvironment processingEnv, String attribute,
@@ -227,32 +199,6 @@ public class SetterStore {
         }
 
         adapters.put(key, new MethodDescription(bindingMethod, 1, takesComponent));
-    }
-
-    public void addInverseAdapter(ProcessingEnvironment processingEnv, String attribute,
-            String event, ExecutableElement bindingMethod, boolean takesComponent) {
-        attribute = stripNamespace(attribute);
-        event = stripNamespace(event);
-        L.d("STORE addInverseAdapter %s %s", attribute, bindingMethod);
-        HashMap<AccessorKey, InverseDescription> adapters = mStore.inverseAdapters.get(attribute);
-
-        if (adapters == null) {
-            adapters = new HashMap<AccessorKey, InverseDescription>();
-            mStore.inverseAdapters.put(attribute, adapters);
-        }
-        List<? extends VariableElement> parameters = bindingMethod.getParameters();
-        final int viewIndex = takesComponent ? 1 : 0;
-        TypeMirror viewType = eraseType(processingEnv, parameters.get(viewIndex).asType());
-        String view = getQualifiedName(viewType);
-        TypeMirror returnType = eraseType(processingEnv, bindingMethod.getReturnType());
-        String value = getQualifiedName(returnType);
-
-        AccessorKey key = new AccessorKey(view, value);
-        if (adapters.containsKey(key)) {
-            throw new IllegalArgumentException("Already exists!");
-        }
-
-        adapters.put(key, new InverseDescription(bindingMethod, event, takesComponent));
     }
 
     private static TypeMirror eraseType(ProcessingEnvironment processingEnv,
@@ -315,10 +261,10 @@ public class SetterStore {
     }
 
     public void addBindingAdapter(ProcessingEnvironment processingEnv, String[] attributes,
-            ExecutableElement bindingMethod, boolean takesComponent, boolean requireAll) {
+            ExecutableElement bindingMethod, boolean takesComponent) {
         L.d("STORE add multi-value BindingAdapter %d %s", attributes.length, bindingMethod);
         MultiValueAdapterKey key = new MultiValueAdapterKey(processingEnv, bindingMethod,
-                attributes, takesComponent, requireAll);
+                attributes, takesComponent);
         MethodDescription methodDescription = new MethodDescription(bindingMethod,
                 attributes.length, takesComponent);
         mStore.multiValueAdapters.put(key, methodDescription);
@@ -327,9 +273,7 @@ public class SetterStore {
     private static String[] stripAttributes(String[] attributes) {
         String[] strippedAttributes = new String[attributes.length];
         for (int i = 0; i < attributes.length; i++) {
-            if (attributes[i] != null) {
-                strippedAttributes[i] = stripNamespace(attributes[i]);
-            }
+            strippedAttributes[i] = stripNamespace(attributes[i]);
         }
         return strippedAttributes;
     }
@@ -343,34 +287,11 @@ public class SetterStore {
     }
 
     private static String getQualifiedName(TypeMirror type) {
-        final TypeKind kind = type.getKind();
-        if (kind == TypeKind.ARRAY) {
+        if (type.getKind() == TypeKind.ARRAY) {
             return getQualifiedName(((ArrayType) type).getComponentType()) + "[]";
-        } else if (kind == TypeKind.DECLARED && isIncompleteType(type)) {
-            DeclaredType declaredType = (DeclaredType) type;
-            return declaredType.asElement().toString();
         } else {
             return type.toString();
         }
-    }
-
-    private static boolean isIncompleteType(TypeMirror type) {
-        final TypeKind kind = type.getKind();
-        if (kind == TypeKind.TYPEVAR || kind == TypeKind.WILDCARD) {
-            return true;
-        } else if (kind == TypeKind.DECLARED) {
-            DeclaredType declaredType = (DeclaredType) type;
-            List<? extends TypeMirror> typeArgs = declaredType.getTypeArguments();
-            if (typeArgs == null) {
-                return false;
-            }
-            for (TypeMirror arg : typeArgs) {
-                if (isIncompleteType(arg)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     public void addConversionMethod(ExecutableElement conversionMethod) {
@@ -453,10 +374,6 @@ public class SetterStore {
         return attribute;
     }
 
-    public boolean isTwoWayEventAttribute(String attribute) {
-        attribute = stripNamespace(attribute);
-        return mInverseEventAttributes.contains(attribute);
-    }
     public List<MultiAttributeSetter> getMultiAttributeSetterCalls(String[] attributes,
             ModelClass viewType, ModelClass[] valueType) {
         attributes = stripAttributes(attributes);
@@ -477,72 +394,6 @@ public class SetterStore {
             removeConsumedAttributes(matching, bestMatch.attributes);
         }
         return calls;
-    }
-
-    private static String simpleName(String className) {
-        int dotIndex = className.lastIndexOf('.');
-        if (dotIndex < 0) {
-            return className;
-        } else {
-            return className.substring(dotIndex + 1);
-        }
-    }
-
-    public Map<String, List<String>> getComponentBindingAdapters() {
-        ensureInstanceAdapters();
-        return mInstanceAdapters;
-    }
-
-    private String getBindingAdapterCall(String className) {
-        ensureInstanceAdapters();
-        final String simpleName = simpleName(className);
-        List<String> adapters = mInstanceAdapters.get(simpleName);
-        if (adapters.size() == 1) {
-            return "get" + simpleName + "()";
-        } else {
-            int index = adapters.indexOf(className) + 1;
-            return "get" + simpleName + index + "()";
-        }
-    }
-
-    private void ensureInstanceAdapters() {
-        if (mInstanceAdapters == null) {
-            HashSet<String> adapters = new HashSet<String>();
-            for (HashMap<AccessorKey, MethodDescription> methods : mStore.adapterMethods.values()) {
-                for (MethodDescription method : methods.values()) {
-                    if (!method.isStatic) {
-                        adapters.add(method.type);
-                    }
-                }
-            }
-            for (MethodDescription method : mStore.multiValueAdapters.values()) {
-                if (!method.isStatic) {
-                    adapters.add(method.type);
-                }
-            }
-            for (Map<AccessorKey, InverseDescription> methods : mStore.inverseAdapters.values()) {
-                for (InverseDescription method : methods.values()) {
-                    if (!method.isStatic) {
-                        adapters.add(method.type);
-                    }
-                }
-            }
-            mInstanceAdapters = new HashMap<String, List<String>>();
-            for (String adapter : adapters) {
-                final String simpleName = simpleName(adapter);
-                List<String> list = mInstanceAdapters.get(simpleName);
-                if (list == null) {
-                    list = new ArrayList<String>();
-                    mInstanceAdapters.put(simpleName, list);
-                }
-                list.add(adapter);
-            }
-            for (List<String> list : mInstanceAdapters.values()) {
-                if (list.size() > 1) {
-                    Collections.sort(list);
-                }
-            }
-        }
     }
 
     // Removes all MultiAttributeSetters that require any of the values in attributes
@@ -577,7 +428,7 @@ public class SetterStore {
             ModelClass viewType, ModelClass[] valueType) {
         final ArrayList<MultiAttributeSetter> setters = new ArrayList<MultiAttributeSetter>();
         for (MultiValueAdapterKey adapter : mStore.multiValueAdapters.keySet()) {
-            if (adapter.requireAll && adapter.attributes.length > attributes.length) {
+            if (adapter.attributes.length > attributes.length) {
                 continue;
             }
             ModelClass viewClass = mClassAnalyzer.findClass(adapter.viewType, null);
@@ -602,12 +453,10 @@ public class SetterStore {
         int matchingAttributes = 0;
         String[] casts = new String[adapter.attributes.length];
         MethodDescription[] conversions = new MethodDescription[adapter.attributes.length];
-        boolean[] supplied = new boolean[adapter.attributes.length];
 
         for (int i = 0; i < allAttributes.length; i++) {
             Integer index = adapter.attributeIndices.get(allAttributes[i]);
             if (index != null) {
-                supplied[index] = true;
                 matchingAttributes++;
                 final String parameterTypeStr = adapter.parameterTypes[index];
                 final ModelClass parameterType = eraseType(
@@ -636,11 +485,11 @@ public class SetterStore {
             }
         }
 
-        if ((adapter.requireAll && matchingAttributes != adapter.attributes.length) ||
-                matchingAttributes == 0) {
+        if (matchingAttributes != adapter.attributes.length) {
             return null;
         } else {
-            return new MultiAttributeSetter(adapter, supplied, method, conversions, casts);
+            return new MultiAttributeSetter(adapter, adapter.attributes, method, conversions,
+                    casts);
         }
     }
 
@@ -675,7 +524,7 @@ public class SetterStore {
                                         adapters.get(key).method, adapterValueType.toJavaCode(),
                                         valueType.toJavaCode());
                                 boolean isBetterView = bestViewType == null ||
-                                        bestViewType.isAssignableFrom(adapterViewType);
+                                        bestValueType.isAssignableFrom(adapterValueType);
                                 if (isBetterParameter(valueType, adapterValueType, bestValueType,
                                         isBetterView, imports)) {
                                     bestViewType = adapterViewType;
@@ -707,76 +556,6 @@ public class SetterStore {
         }
         setterCall.setConverter(conversionMethod);
         return setterCall;
-    }
-
-    public BindingGetterCall getGetterCall(String attribute, ModelClass viewType,
-            ModelClass valueType, Map<String, String> imports) {
-        if (viewType == null) {
-            return null;
-        } else if (viewType.isViewDataBinding()) {
-            return new ViewDataBindingGetterCall(viewType, attribute);
-        }
-
-        attribute = stripNamespace(attribute);
-        viewType = viewType.erasure();
-
-        InverseMethod bestMethod = getBestGetter(viewType, valueType, attribute, imports);
-        HashMap<AccessorKey, InverseDescription> adapters = mStore.inverseAdapters.get(attribute);
-        if (adapters != null) {
-            for (AccessorKey key : adapters.keySet()) {
-                try {
-                    ModelClass adapterViewType = mClassAnalyzer
-                            .findClass(key.viewType, imports).erasure();
-                    if (adapterViewType != null && adapterViewType.isAssignableFrom(viewType)) {
-                        try {
-                            L.d("getter return type is %s", key.valueType);
-                            final ModelClass adapterValueType = eraseType(mClassAnalyzer
-                                    .findClass(key.valueType, imports));
-                            L.d("getter %s returns type %s, compared to %s",
-                                    adapters.get(key).method, adapterValueType.toJavaCode(),
-                                    valueType);
-                            boolean isBetterView = bestMethod.viewType == null ||
-                                    bestMethod.viewType.isAssignableFrom(adapterViewType);
-                            if (valueType == null ||
-                                    isBetterParameter(adapterValueType, valueType,
-                                            bestMethod.returnType, isBetterView, imports)) {
-                                bestMethod.viewType = adapterViewType;
-                                bestMethod.returnType = adapterValueType;
-                                InverseDescription inverseDescription = adapters.get(key);
-                                ModelClass listenerType = ModelAnalyzer.getInstance().findClass(
-                                        InverseBindingListener.class);
-                                BindingSetterCall eventCall = getSetterCall(
-                                        inverseDescription.event, viewType, listenerType, imports);
-                                if (eventCall == null) {
-                                    List<MultiAttributeSetter> setters =
-                                            getMultiAttributeSetterCalls(
-                                                    new String[]{inverseDescription.event},
-                                                    viewType, new ModelClass[] {listenerType});
-                                    if (setters.size() != 1) {
-                                        L.e("Could not find event '%s' on View type '%s'",
-                                                inverseDescription.event,
-                                                viewType.getCanonicalName());
-                                    } else {
-                                        bestMethod.call = new AdapterGetter(inverseDescription,
-                                                setters.get(0), key.valueType);
-                                    }
-                                } else {
-                                    bestMethod.call = new AdapterGetter(inverseDescription,
-                                            eventCall, key.valueType);
-                                }
-                            }
-
-                        } catch (Exception e) {
-                            L.e(e, "Unknown class: %s", key.valueType);
-                        }
-                    }
-                } catch (Exception e) {
-                    L.e(e, "Unknown class: %s", key.viewType);
-                }
-            }
-        }
-
-        return bestMethod.call;
     }
 
     public boolean isUntaggable(String viewType) {
@@ -825,72 +604,6 @@ public class SetterStore {
             }
         }
         return bestMethod;
-    }
-
-    private InverseMethod getBestGetter(ModelClass viewType, ModelClass valueType,
-            String attribute, Map<String, String> imports) {
-        if (viewType.isGeneric()) {
-            if (valueType != null) {
-                valueType = eraseType(valueType, viewType.getTypeArguments());
-            }
-            viewType = viewType.erasure();
-        }
-        ModelClass bestReturnType = null;
-        InverseDescription bestDescription = null;
-        ModelClass bestViewType = null;
-        ModelMethod bestMethod = null;
-
-        HashMap<String, InverseDescription> inverseMethods = mStore.inverseMethods.get(attribute);
-        if (inverseMethods != null) {
-            for (String className : inverseMethods.keySet()) {
-                try {
-                    ModelClass methodViewType = mClassAnalyzer.findClass(className, imports);
-                    if (methodViewType.erasure().isAssignableFrom(viewType)) {
-                        boolean isBetterViewType = bestViewType == null ||
-                                bestViewType.isAssignableFrom(methodViewType);
-                        final InverseDescription inverseDescription = inverseMethods.get(className);
-                        final String name =  inverseDescription.method.isEmpty() ?
-                                trimAttributeNamespace(attribute) : inverseDescription.method;
-                        ModelMethod method = methodViewType.findInstanceGetter(name);
-                        ModelClass returnType = method.getReturnType(null); // no parameters
-                        if (valueType == null || bestReturnType == null ||
-                                isBetterParameter(returnType, valueType, bestReturnType,
-                                        isBetterViewType, imports)) {
-                            bestDescription = inverseDescription;
-                            bestReturnType = returnType;
-                            bestViewType = methodViewType;
-                            bestMethod = method;
-                        }
-                    }
-                } catch (Exception e) {
-                    //printMessage(Diagnostic.Kind.NOTE, "Unknown class: " + className);
-                }
-            }
-        }
-
-        BindingGetterCall call = null;
-        if (bestDescription != null) {
-            final ModelClass listenerType = ModelAnalyzer.getInstance().findClass(
-                    InverseBindingListener.class);
-            SetterCall eventSetter = getSetterCall(bestDescription.event, viewType,
-                    listenerType, imports);
-            if (eventSetter == null) {
-                List<MultiAttributeSetter> setters = getMultiAttributeSetterCalls(
-                        new String[] {bestDescription.event}, viewType,
-                        new ModelClass[] {listenerType});
-                if (setters.size() != 1) {
-                    L.e("Could not find event '%s' on View type '%s'", bestDescription.event,
-                            viewType.getCanonicalName());
-                    bestViewType = null;
-                    bestReturnType = null;
-                } else {
-                    call = new ViewGetterCall(bestDescription, bestMethod, setters.get(0));
-                }
-            } else {
-                call = new ViewGetterCall(bestDescription, bestMethod, eventSetter);
-            }
-        }
-        return new InverseMethod(call, bestReturnType, bestViewType);
     }
 
     private static ModelClass eraseType(ModelClass type, List<ModelClass> typeParameters) {
@@ -961,9 +674,6 @@ public class SetterStore {
     private MethodDescription getConversionMethod(ModelClass from, ModelClass to,
             Map<String, String> imports) {
         if (from != null && to != null) {
-            if (to.isObject()) {
-                return null;
-            }
             for (String fromClassName : mStore.conversionMethods.keySet()) {
                 try {
                     ModelClass convertFrom = mClassAnalyzer.findClass(fromClassName, imports);
@@ -991,30 +701,24 @@ public class SetterStore {
     }
 
     private boolean canUseForConversion(ModelClass from, ModelClass to) {
-        if (from.isIncomplete() || to.isIncomplete()) {
-            from = from.erasure();
-            to = to.erasure();
-        }
         return from.equals(to) || ModelMethod.isBoxingConversion(from, to) ||
                 to.isAssignableFrom(from);
     }
 
-    private static void merge(IntermediateV2 store, Intermediate dumpStore) {
-        IntermediateV2 intermediateV2 = (IntermediateV2) dumpStore.upgrade();
-        merge(store.adapterMethods, intermediateV2.adapterMethods);
-        merge(store.renamedMethods, intermediateV2.renamedMethods);
-        merge(store.conversionMethods, intermediateV2.conversionMethods);
-        store.multiValueAdapters.putAll(intermediateV2.multiValueAdapters);
-        store.untaggableTypes.putAll(intermediateV2.untaggableTypes);
-        merge(store.inverseAdapters, intermediateV2.inverseAdapters);
-        merge(store.inverseMethods, intermediateV2.inverseMethods);
+    private static void merge(IntermediateV1 store, Intermediate dumpStore) {
+        IntermediateV1 intermediateV1 = (IntermediateV1) dumpStore.upgrade();
+        merge(store.adapterMethods, intermediateV1.adapterMethods);
+        merge(store.renamedMethods, intermediateV1.renamedMethods);
+        merge(store.conversionMethods, intermediateV1.conversionMethods);
+        store.multiValueAdapters.putAll(intermediateV1.multiValueAdapters);
+        store.untaggableTypes.putAll(intermediateV1.untaggableTypes);
     }
 
-    private static <K, V, D> void merge(HashMap<K, HashMap<V, D>> first,
-            HashMap<K, HashMap<V, D>> second) {
+    private static <K, V> void merge(HashMap<K, HashMap<V, MethodDescription>> first,
+            HashMap<K, HashMap<V, MethodDescription>> second) {
         for (K key : second.keySet()) {
-            HashMap<V, D> firstVals = first.get(key);
-            HashMap<V, D> secondVals = second.get(key);
+            HashMap<V, MethodDescription> firstVals = first.get(key);
+            HashMap<V, MethodDescription> secondVals = second.get(key);
             if (firstVals == null) {
                 first.put(key, secondVals);
             } else {
@@ -1027,16 +731,14 @@ public class SetterStore {
         }
     }
 
-    private static String createAdapterCall(MethodDescription adapter,
+    private static String createAdapterCall(MethodDescription adapter, String bindingAdapterCall,
             String componentExpression, String viewExpression, String... args) {
         StringBuilder sb = new StringBuilder();
 
         if (adapter.isStatic) {
             sb.append(adapter.type);
         } else {
-            final SetterStore setterStore = SetterStore.get(ModelAnalyzer.getInstance());
-            final String binderCall =  setterStore.getBindingAdapterCall(adapter.type);
-            sb.append(componentExpression).append('.').append(binderCall);
+            sb.append(componentExpression).append('.').append(bindingAdapterCall);
         }
         sb.append('.').append(adapter.method).append('(');
         if (adapter.componentClass != null) {
@@ -1062,15 +764,11 @@ public class SetterStore {
 
         public final String[] parameterTypes;
 
-        public final boolean requireAll;
-
         public final TreeMap<String, Integer> attributeIndices = new TreeMap<String, Integer>();
 
         public MultiValueAdapterKey(ProcessingEnvironment processingEnv,
-                ExecutableElement method, String[] attributes, boolean takesComponent,
-                boolean requireAll) {
+                ExecutableElement method, String[] attributes, boolean takesComponent) {
             this.attributes = stripAttributes(attributes);
-            this.requireAll = requireAll;
             List<? extends VariableElement> parameters = method.getParameters();
             final int argStart = 1 + (takesComponent ? 1 : 0);
             this.viewType = getQualifiedName(eraseType(processingEnv,
@@ -1176,35 +874,6 @@ public class SetterStore {
         }
     }
 
-    private static class InverseDescription extends MethodDescription {
-        private static final long serialVersionUID = 1;
-
-        public final String event;
-
-        public InverseDescription(String type, String method, String event) {
-            super(type, method);
-            this.event = event;
-        }
-
-        public InverseDescription(ExecutableElement method, String event, boolean takesComponent) {
-            super(method, 1, takesComponent);
-            this.event = event;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!super.equals(obj) || !(obj instanceof InverseDescription)) {
-                return false;
-            }
-            return event.equals(((InverseDescription) obj).event);
-        }
-
-        @Override
-        public int hashCode() {
-            return mergedHashCode(type, method, event);
-        }
-    }
-
     private static class AccessorKey implements Serializable {
 
         private static final long serialVersionUID = 1;
@@ -1260,25 +929,6 @@ public class SetterStore {
 
         @Override
         public Intermediate upgrade() {
-            IntermediateV2 v2 = new IntermediateV2();
-            v2.adapterMethods.putAll(adapterMethods);
-            v2.renamedMethods.putAll(renamedMethods);
-            v2.conversionMethods.putAll(conversionMethods);
-            v2.untaggableTypes.putAll(untaggableTypes);
-            v2.multiValueAdapters.putAll(multiValueAdapters);
-            return v2;
-        }
-    }
-
-    private static class IntermediateV2 extends IntermediateV1 {
-        private static final long serialVersionUID = 0xA45C2EB637E35C07L;
-        public final HashMap<String, HashMap<AccessorKey, InverseDescription>> inverseAdapters =
-                new HashMap<String, HashMap<AccessorKey, InverseDescription>>();
-        public final HashMap<String, HashMap<String, InverseDescription>> inverseMethods =
-                new HashMap<String, HashMap<String, InverseDescription>>();
-
-        @Override
-        public Intermediate upgrade() {
             return this;
         }
     }
@@ -1323,11 +973,16 @@ public class SetterStore {
         public String getBindingAdapterInstanceClass() {
             return null;
         }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+        }
     }
 
     public static class AdapterSetter extends SetterCall {
         final MethodDescription mAdapter;
         final ModelClass mParameterType;
+        String mBindingAdapterCall;
 
         public AdapterSetter(MethodDescription adapter, ModelClass parameterType) {
             mAdapter = adapter;
@@ -1337,14 +992,14 @@ public class SetterStore {
         @Override
         public String toJavaInternal(String componentExpression, String viewExpression,
                 String valueExpression) {
-            return createAdapterCall(mAdapter, componentExpression,
+            return createAdapterCall(mAdapter, mBindingAdapterCall, componentExpression,
                     viewExpression, mCastString + valueExpression);
         }
 
         @Override
         protected String toJavaInternal(String componentExpression, String viewExpression,
                 String oldValue, String valueExpression) {
-            return createAdapterCall(mAdapter, componentExpression,
+            return createAdapterCall(mAdapter, mBindingAdapterCall, componentExpression,
                     viewExpression, mCastString + oldValue, mCastString + valueExpression);
         }
 
@@ -1366,6 +1021,11 @@ public class SetterStore {
         @Override
         public String getBindingAdapterInstanceClass() {
             return mAdapter.isStatic ? null : mAdapter.type;
+        }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+            mBindingAdapterCall = method;
         }
     }
 
@@ -1409,6 +1069,10 @@ public class SetterStore {
         public String getBindingAdapterInstanceClass() {
             return null;
         }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+        }
     }
 
     public interface BindingSetterCall {
@@ -1422,6 +1086,8 @@ public class SetterStore {
         ModelClass[] getParameterTypes();
 
         String getBindingAdapterInstanceClass();
+
+        void setBindingAdapterCall(String method);
     }
 
     public static abstract class SetterCall implements BindingSetterCall {
@@ -1472,41 +1138,19 @@ public class SetterStore {
         private final MethodDescription[] mConverters;
         private final String[] mCasts;
         private final MultiValueAdapterKey mKey;
-        private final boolean[] mSupplied;
+        String mBindingAdapterCall;
 
-        public MultiAttributeSetter(MultiValueAdapterKey key, boolean[] supplied,
+        public MultiAttributeSetter(MultiValueAdapterKey key, String[] attributes,
                 MethodDescription adapter, MethodDescription[] converters, String[] casts) {
             Preconditions.check(converters != null &&
-                    converters.length == key.attributes.length &&
-                    casts != null && casts.length == key.attributes.length &&
-                    supplied.length == key.attributes.length,
+                    converters.length == attributes.length &&
+                    casts != null && casts.length == attributes.length,
                     "invalid arguments to create multi attr setter");
+            this.attributes = attributes;
             this.mAdapter = adapter;
             this.mConverters = converters;
             this.mCasts = casts;
             this.mKey = key;
-            this.mSupplied = supplied;
-            if (key.requireAll) {
-                this.attributes = key.attributes;
-            } else {
-                int numSupplied = 0;
-                for (int i = 0; i < mKey.attributes.length; i++) {
-                    if (supplied[i]) {
-                        numSupplied++;
-                    }
-                }
-                if (numSupplied == key.attributes.length) {
-                    this.attributes = key.attributes;
-                } else {
-                    this.attributes = new String[numSupplied];
-                    int attrIndex = 0;
-                    for (int i = 0; i < key.attributes.length; i++) {
-                        if (supplied[i]) {
-                            attributes[attrIndex++] = key.attributes[i];
-                        }
-                    }
-                }
-            }
         }
 
         @Override
@@ -1515,45 +1159,33 @@ public class SetterStore {
             Preconditions.check(valueExpressions.length == attributes.length * 2,
                     "MultiAttributeSetter needs %s items, received %s",
                     Arrays.toString(attributes), Arrays.toString(valueExpressions));
-            final int numAttrs = mKey.attributes.length;
+            final int numAttrs = attributes.length;
             String[] args = new String[numAttrs + (requiresOldValue() ? numAttrs : 0)];
 
-            final int startIndex = mAdapter.requiresOldValue ? 0 : numAttrs;
-            int attrIndex = mAdapter.requiresOldValue ? 0 : attributes.length;
-            final ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
+            final int startIndex = mAdapter.requiresOldValue ? 0 : attributes.length;
             StringBuilder argBuilder = new StringBuilder();
-            final int endIndex = numAttrs * 2;
-            for (int i = startIndex; i < endIndex; i++) {
+            for (int i = startIndex; i < valueExpressions.length; i++) {
                 argBuilder.setLength(0);
-                if (!mSupplied[i % numAttrs]) {
-                    final String paramType = mKey.parameterTypes[i % numAttrs];
-                    final String defaultValue = modelAnalyzer.getDefaultValue(paramType);
-                    argBuilder.append('(')
-                            .append(paramType)
-                            .append(')')
-                            .append(defaultValue);
+                if (mConverters[i % attributes.length] != null) {
+                    final MethodDescription converter = mConverters[i % attributes.length];
+                    argBuilder.append(converter.type)
+                            .append('.')
+                            .append(converter.method)
+                            .append('(')
+                            .append(valueExpressions[i])
+                            .append(')');
                 } else {
-                    if (mConverters[i % numAttrs] != null) {
-                        final MethodDescription converter = mConverters[i % numAttrs];
-                        argBuilder.append(converter.type)
-                                .append('.')
-                                .append(converter.method)
-                                .append('(')
-                                .append(valueExpressions[attrIndex])
+                    if (mCasts[i % attributes.length] != null) {
+                        argBuilder.append('(')
+                                .append(mCasts[i % attributes.length])
                                 .append(')');
-                    } else {
-                        if (mCasts[i % numAttrs] != null) {
-                            argBuilder.append('(')
-                                    .append(mCasts[i % numAttrs])
-                                    .append(')');
-                        }
-                        argBuilder.append(valueExpressions[attrIndex]);
                     }
-                    attrIndex++;
+                    argBuilder.append(valueExpressions[i]);
                 }
                 args[i - startIndex] = argBuilder.toString();
             }
-            return createAdapterCall(mAdapter, componentExpression, viewExpression, args);
+            return createAdapterCall(mAdapter, mBindingAdapterCall, componentExpression,
+                    viewExpression, args);
         }
 
         @Override
@@ -1571,11 +1203,8 @@ public class SetterStore {
             ModelClass[] parameters = new ModelClass[attributes.length];
             String[] paramTypeStrings = mKey.parameterTypes;
             ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
-            int attrIndex = 0;
-            for (int i = 0; i < mKey.attributes.length; i++) {
-                if (mSupplied[i]) {
-                    parameters[attrIndex++] = modelAnalyzer.findClass(paramTypeStrings[i], null);
-                }
+            for (int i = 0; i < attributes.length; i++) {
+                parameters[i] = modelAnalyzer.findClass(paramTypeStrings[i], null);
             }
             return parameters;
         }
@@ -1583,6 +1212,11 @@ public class SetterStore {
         @Override
         public String getBindingAdapterInstanceClass() {
             return mAdapter.isStatic ? null : mAdapter.type;
+        }
+
+        @Override
+        public void setBindingAdapterCall(String method) {
+            mBindingAdapterCall = method;
         }
 
         @Override
@@ -1594,230 +1228,6 @@ public class SetterStore {
                     ", mCasts=" + Arrays.toString(mCasts) +
                     ", mKey=" + mKey +
                     '}';
-        }
-    }
-
-    public static class ViewDataBindingEventSetter implements BindingSetterCall {
-
-        public ViewDataBindingEventSetter() {
-        }
-
-        @Override
-        public String toJava(String componentExpression, String viewExpression,
-                String... valueExpressions) {
-            return "setBindingInverseListener(" + viewExpression + ", " +
-                    valueExpressions[0] + ", " + valueExpressions[1] + ")";
-        }
-
-        @Override
-        public int getMinApi() {
-            return 0;
-        }
-
-        @Override
-        public boolean requiresOldValue() {
-            return true;
-        }
-
-        @Override
-        public ModelClass[] getParameterTypes() {
-            ModelClass[] parameterTypes = new ModelClass[1];
-            parameterTypes[0] = ModelAnalyzer.getInstance().findClass(
-                    "android.databinding.ViewDataBinder.PropertyChangedInverseListener", null);
-            return parameterTypes;
-        }
-
-        @Override
-        public String getBindingAdapterInstanceClass() {
-            return null;
-        }
-    }
-
-    public interface BindingGetterCall {
-        String toJava(String componentExpression, String viewExpression);
-
-        String getGetterType();
-
-        int getMinApi();
-
-        String getBindingAdapterInstanceClass();
-
-        void setBindingAdapterCall(String method);
-
-        BindingSetterCall getEvent();
-
-        String getEventAttribute();
-    }
-
-    public static class ViewDataBindingGetterCall implements BindingGetterCall {
-        private final String mGetter;
-        private final BindingSetterCall mEventSetter;
-        private final String mAttribute;
-        private final ModelClass mBindingClass;
-
-        public ViewDataBindingGetterCall(ModelClass bindingClass, String attribute) {
-            final int colonIndex = attribute.indexOf(':');
-            mAttribute = attribute.substring(colonIndex + 1);
-            mGetter = "get" + StringUtils.capitalize(mAttribute);
-            mEventSetter = new ViewDataBindingEventSetter();
-            mBindingClass = bindingClass;
-        }
-
-        @Override
-        public String toJava(String componentExpression, String viewExpression) {
-            return viewExpression + "." + mGetter + "()";
-        }
-
-        @Override
-        public String getGetterType() {
-            return mBindingClass.findInstanceGetter(mGetter).getReturnType().toJavaCode();
-        }
-
-        @Override
-        public int getMinApi() {
-            return 0;
-        }
-
-        @Override
-        public String getBindingAdapterInstanceClass() {
-            return null;
-        }
-
-        @Override
-        public void setBindingAdapterCall(String method) {
-        }
-
-        @Override
-        public BindingSetterCall getEvent() {
-            return mEventSetter;
-        }
-
-        @Override
-        public String getEventAttribute() {
-            return mAttribute;
-        }
-    }
-
-    public static class ViewGetterCall implements BindingGetterCall {
-        private final InverseDescription mInverseDescription;
-        private final BindingSetterCall mEventCall;
-        private final ModelMethod mMethod;
-
-        public ViewGetterCall(InverseDescription inverseDescription, ModelMethod method,
-                BindingSetterCall eventCall) {
-            mInverseDescription = inverseDescription;
-            mEventCall = eventCall;
-            mMethod = method;
-        }
-
-        @Override
-        public BindingSetterCall getEvent() {
-            return mEventCall;
-        }
-
-        @Override
-        public String getEventAttribute() {
-            return mInverseDescription.event;
-        }
-
-        @Override
-        public String toJava(String componentExpression, String viewExpression) {
-            return viewExpression + "." + mMethod.getName() + "()";
-        }
-
-        @Override
-        public String getGetterType() {
-            return mMethod.getReturnType().toJavaCode();
-        }
-
-        @Override
-        public int getMinApi() {
-            return mMethod.getMinApi();
-        }
-
-        @Override
-        public String getBindingAdapterInstanceClass() {
-            return null;
-        }
-
-        @Override
-        public void setBindingAdapterCall(String method) {
-        }
-    }
-
-    public static class AdapterGetter implements BindingGetterCall {
-        private final InverseDescription mInverseDescription;
-        private String mBindingAdapterCall;
-        private final BindingSetterCall mEventCall;
-        private final String mGetterType;
-
-        public AdapterGetter(InverseDescription description, BindingSetterCall eventCall,
-                String getterType) {
-            mInverseDescription = description;
-            mEventCall = eventCall;
-            mGetterType = getterType;
-        }
-
-        @Override
-        public String getGetterType() {
-            return mGetterType;
-        }
-
-        @Override
-        public String toJava(String componentExpression, String viewExpression) {
-            StringBuilder sb = new StringBuilder();
-
-            if (mInverseDescription.isStatic) {
-                sb.append(mInverseDescription.type);
-            } else {
-                sb.append(componentExpression).append('.').append(mBindingAdapterCall);
-            }
-            sb.append('.').append(mInverseDescription.method).append('(');
-            if (mInverseDescription.componentClass != null) {
-                if (!"DataBindingComponent".equals(mInverseDescription.componentClass)) {
-                    sb.append('(').append(mInverseDescription.componentClass).append(") ");
-                }
-                sb.append(componentExpression).append(", ");
-            }
-            sb.append(viewExpression).append(')');
-            return sb.toString();
-        }
-
-        @Override
-        public int getMinApi() {
-            return 1;
-        }
-
-        @Override
-        public String getBindingAdapterInstanceClass() {
-            return mInverseDescription.isStatic ? null : mInverseDescription.type;
-        }
-
-        @Override
-        public void setBindingAdapterCall(String method) {
-            mBindingAdapterCall = method;
-        }
-
-        @Override
-        public BindingSetterCall getEvent() {
-            return mEventCall;
-        }
-
-        @Override
-        public String getEventAttribute() {
-            return mInverseDescription.event;
-        }
-    }
-
-    private static class InverseMethod {
-        public BindingGetterCall call;
-        public ModelClass returnType;
-        public ModelClass viewType;
-
-        public InverseMethod(BindingGetterCall call, ModelClass returnType, ModelClass viewType) {
-            this.call = call;
-            this.returnType = returnType;
-            this.viewType = viewType;
         }
     }
 }

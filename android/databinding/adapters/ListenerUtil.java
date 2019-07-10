@@ -25,7 +25,7 @@ import java.util.WeakHashMap;
 
 public class ListenerUtil {
     private static SparseArray<WeakHashMap<View, WeakReference<?>>> sListeners =
-            new SparseArray<WeakHashMap<View, WeakReference<?>>>();
+            new SparseArray<>();
 
     /**
      * This method tracks listeners for a View. Only one listener per listenerResourceId
@@ -61,7 +61,7 @@ public class ListenerUtil {
             synchronized (sListeners) {
                 WeakHashMap<View, WeakReference<?>> listeners = sListeners.get(listenerResourceId);
                 if (listeners == null) {
-                    listeners = new WeakHashMap<View, WeakReference<?>>();
+                    listeners = new WeakHashMap<>();
                     sListeners.put(listenerResourceId, listeners);
                 }
                 final WeakReference<T> oldValue;
@@ -79,31 +79,4 @@ public class ListenerUtil {
         }
     }
 
-    /**
-     * Returns the previous value for a listener if one was stored previously with
-     * {@link #trackListener(View, Object, int)}
-     * @param view The View to check for a listener previously stored with
-     * {@link #trackListener(View, Object, int)}
-     * @param listenerResourceId A unique resource ID associated with the listener type.
-     * @return The previously tracked listener. This will be null if the View did not have
-     * a previously-tracked listener.
-     */
-    public static <T> T getListener(View view, int listenerResourceId) {
-        if (VERSION.SDK_INT >= VERSION_CODES.ICE_CREAM_SANDWICH) {
-            return (T) view.getTag(listenerResourceId);
-        } else {
-            synchronized (sListeners) {
-                WeakHashMap<View, WeakReference<?>> listeners = sListeners.get(listenerResourceId);
-                if (listeners == null) {
-                    return null;
-                }
-                final WeakReference<T> oldValue = (WeakReference<T>) listeners.get(view);
-                if (oldValue == null) {
-                    return null;
-                } else {
-                    return oldValue.get();
-                }
-            }
-        }
-    }
 }

@@ -1,153 +1,146 @@
 /*
- * Copyright (c) 1998, 2007, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.security.*;
-import java.security.spec.*;
-
 import java.nio.ByteBuffer;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.spec.AlgorithmParameterSpec;
 
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the <code>Mac</code> class.
- * All the abstract methods in this class must be implemented by each
- * cryptographic service provider who wishes to supply the implementation
- * of a particular MAC algorithm.
+ * The <i>Service-Provider Interface</i> (<b>SPI</b>) definition for the {@code
+ * Mac} class.
  *
- * <p> Implementations are free to implement the Cloneable interface.
- *
- * @author Jan Luehe
- *
- * @since 1.4
+ * @see Mac
  */
-
 public abstract class MacSpi {
 
     /**
-     * Returns the length of the MAC in bytes.
+     * Creates a new {@code MacSpi} instance.
+     */
+    public MacSpi() {
+    }
+
+    /**
+     * Returns the length of this MAC (in bytes).
      *
-     * @return the MAC length in bytes.
+     * @return the length of this MAC (in bytes).
      */
     protected abstract int engineGetMacLength();
 
     /**
-     * Initializes the MAC with the given (secret) key and algorithm
-     * parameters.
+     * Initializes this {@code MacSpi} instance with the specified key and
+     * algorithm parameters.
      *
-     * @param key the (secret) key.
-     * @param params the algorithm parameters.
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this MAC.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this MAC.
+     * @param key
+     *            the key to initialize this algorithm.
+     * @param params
+     *            the parameters for this algorithm.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this
+     *             algorithm, or it is {@code null}.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters cannot be used to initialize this
+     *             algorithm.
      */
-    protected abstract void engineInit(Key key,
-                                       AlgorithmParameterSpec params)
-        throws InvalidKeyException, InvalidAlgorithmParameterException ;
+    protected abstract void engineInit(Key key, AlgorithmParameterSpec params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException;
 
     /**
-     * Processes the given byte.
+     * Updates this {@code MacSpi} instance with the specified byte.
      *
-     * @param input the input byte to be processed.
+     * @param input
+     *            the byte.
      */
     protected abstract void engineUpdate(byte input);
 
     /**
-     * Processes the first <code>len</code> bytes in <code>input</code>,
-     * starting at <code>offset</code> inclusive.
+     * Updates this {@code MacSpi} instance with the data from the specified
+     * buffer {@code input} from the specified {@code offset} and length {@code
+     * len}.
      *
-     * @param input the input buffer.
-     * @param offset the offset in <code>input</code> where the input starts.
-     * @param len the number of bytes to process.
+     * @param input
+     *            the buffer.
+     * @param offset
+     *            the offset in the buffer.
+     * @param len
+     *            the length of the data in the buffer.
      */
     protected abstract void engineUpdate(byte[] input, int offset, int len);
 
     /**
-     * Processes <code>input.remaining()</code> bytes in the ByteBuffer
-     * <code>input</code>, starting at <code>input.position()</code>.
-     * Upon return, the buffer's position will be equal to its limit;
-     * its limit will not have changed.
+     * Updates this {@code MacSpi} instance with the data from the specified
+     * buffer, starting at {@link ByteBuffer#position()}, including the next
+     * {@link ByteBuffer#remaining()} bytes.
      *
-     * <p>Subclasses should consider overriding this method if they can
-     * process ByteBuffers more efficiently than byte arrays.
-     *
-     * @param input the ByteBuffer
-     * @since 1.5
+     * @param input
+     *            the buffer.
      */
     protected void engineUpdate(ByteBuffer input) {
-        if (input.hasRemaining() == false) {
+        if (!input.hasRemaining()) {
             return;
         }
+        byte[] bInput;
         if (input.hasArray()) {
-            byte[] b = input.array();
-            int ofs = input.arrayOffset();
-            int pos = input.position();
-            int lim = input.limit();
-            engineUpdate(b, ofs + pos, lim - pos);
-            input.position(lim);
+            bInput = input.array();
+            int offset = input.arrayOffset();
+            int position = input.position();
+            int limit = input.limit();
+            engineUpdate(bInput, offset + position, limit - position);
+            input.position(limit);
         } else {
-            int len = input.remaining();
-            byte[] b = new byte[CipherSpi.getTempArraySize(len)];
-            while (len > 0) {
-                int chunk = Math.min(len, b.length);
-                input.get(b, 0, chunk);
-                engineUpdate(b, 0, chunk);
-                len -= chunk;
-            }
+            bInput = new byte[input.limit() - input.position()];
+            input.get(bInput);
+            engineUpdate(bInput, 0, bInput.length);
         }
     }
 
     /**
-     * Completes the MAC computation and resets the MAC for further use,
-     * maintaining the secret key that the MAC was initialized with.
+     * Computes the digest of this MAC based on the data previously specified in
+     * {@link #engineUpdate} calls.
+     * <p>
+     * This {@code MacSpi} instance is reverted to its initial state and
+     * can be used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
      *
-     * @return the MAC result.
+     * @return the generated digest.
      */
     protected abstract byte[] engineDoFinal();
 
     /**
-     * Resets the MAC for further use, maintaining the secret key that the
-     * MAC was initialized with.
+     * Resets this {@code MacSpi} instance to its initial state.
+     * <p>
+     * This {@code MacSpi} instance is reverted to its initial state and can be
+     * used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
      */
     protected abstract void engineReset();
 
     /**
-     * Returns a clone if the implementation is cloneable.
+     * Clones this {@code MacSpi} instance.
      *
-     * @return a clone if the implementation is cloneable.
-     *
-     * @exception CloneNotSupportedException if this is called
-     * on an implementation that does not support <code>Cloneable</code>.
+     * @return the cloned instance.
+     * @throws CloneNotSupportedException
+     *             if cloning is not supported.
      */
+    @Override
     public Object clone() throws CloneNotSupportedException {
-        if (this instanceof Cloneable) {
-            return super.clone();
-        } else {
-            throw new CloneNotSupportedException();
-        }
+        return super.clone();
     }
 }

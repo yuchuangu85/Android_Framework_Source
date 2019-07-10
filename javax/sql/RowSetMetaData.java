@@ -1,235 +1,293 @@
 /*
- * Copyright (c) 2000, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
 
-import java.sql.*;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 
 /**
- * An object that contains information about the columns in a
- * <code>RowSet</code> object.  This interface is
- * an extension of the <code>ResultSetMetaData</code> interface with
- * methods for setting the values in a <code>RowSetMetaData</code> object.
- * When a <code>RowSetReader</code> object reads data into a <code>RowSet</code>
- * object, it creates a <code>RowSetMetaData</code> object and initializes it
- * using the methods in the <code>RowSetMetaData</code> interface.  Then the
- * reader passes the <code>RowSetMetaData</code> object to the rowset.
- * <P>
- * The methods in this interface are invoked internally when an application
- * calls the method <code>RowSet.execute</code>; an application
- * programmer would not use them directly.
+ * An interface which provides facilities for getting information about the
+ * columns in a {@code RowSet}.
+ * <p>
+ * {@code RowSetMetaData} extends {@link java.sql.ResultSetMetaData}, adding new
+ * operations for carrying out value sets.
+ * <p>
+ * Application code would not normally call this interface directly. It would be
+ * called internally when {@code RowSet.execute} is called.
  *
- * @since 1.4
+ * @see RowSetInternal#setMetaData(RowSetMetaData)
  */
-
 public interface RowSetMetaData extends ResultSetMetaData {
 
-  /**
-   * Sets the number of columns in the <code>RowSet</code> object to
-   * the given number.
-   *
-   * @param columnCount the number of columns in the <code>RowSet</code> object
-   * @exception SQLException if a database access error occurs
-   */
-  void setColumnCount(int columnCount) throws SQLException;
+    /**
+     * Sets automatic numbering for a specified column in the {@code RowSet}. If
+     * automatic numbering is on, the column is read-only. The default value for
+     * the auto increment parameter is {@code false}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param autoIncrement
+     *            {@code true} to set automatic numbering on, {@code false} to
+     *            turn it off (default).
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setAutoIncrement(int columnIndex, boolean autoIncrement)
+            throws SQLException;
 
-  /**
-   * Sets whether the designated column is automatically numbered,
-   * The default is for a <code>RowSet</code> object's
-   * columns not to be automatically numbered.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property <code>true</code> if the column is automatically
-   *                 numbered; <code>false</code> if it is not
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setAutoIncrement(int columnIndex, boolean property) throws SQLException;
+    /**
+     * Sets the case sensitive property for a specified column in the {@code
+     * RowSet}. The default is that the column is not case sensitive.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param caseSensitive
+     *            {@code true} to make the column case sensitive, {@code false}
+     *            to make it case insensitive (default).
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setCaseSensitive(int columnIndex, boolean caseSensitive)
+            throws SQLException;
 
-  /**
-   * Sets whether the designated column is case sensitive.
-   * The default is <code>false</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property <code>true</code> if the column is case sensitive;
-   *                 <code>false</code> if it is not
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setCaseSensitive(int columnIndex, boolean property) throws SQLException;
+    /**
+     * Sets the catalog name for a specified column in the {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param catalogName
+     *            the new catalog's name.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setCatalogName(int columnIndex, String catalogName)
+            throws SQLException;
 
-  /**
-   * Sets whether the designated column can be used in a where clause.
-   * The default is <code>false</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property <code>true</code> if the column can be used in a
-   *                 <code>WHERE</code> clause; <code>false</code> if it cannot
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setSearchable(int columnIndex, boolean property) throws SQLException;
+    /**
+     * Sets the number of columns contained in the row set.
+     *
+     * @param columnCount
+     *            the number of columns contained in the {@code RowSet}.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnCount(int columnCount) throws SQLException;
 
-  /**
-   * Sets whether the designated column is a cash value.
-   * The default is <code>false</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property <code>true</code> if the column is a cash value;
-   *                 <code>false</code> if it is not
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setCurrency(int columnIndex, boolean property) throws SQLException;
+    /**
+     * Sets the normal maximum width in characters for a specified column in the
+     * {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param displaySize
+     *            the normal maximum column width in characters.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnDisplaySize(int columnIndex, int displaySize)
+            throws SQLException;
 
-  /**
-   * Sets whether the designated column's value can be set to
-   * <code>NULL</code>.
-   * The default is <code>ResultSetMetaData.columnNullableUnknown</code>
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property one of the following constants:
-   *                 <code>ResultSetMetaData.columnNoNulls</code>,
-   *                 <code>ResultSetMetaData.columnNullable</code>, or
-   *                 <code>ResultSetMetaData.columnNullableUnknown</code>
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setNullable(int columnIndex, int property) throws SQLException;
+    /**
+     * Sets the suggested name as label for the column contained in the {@code
+     * RowSet}. The label is an alias for printing and displaying purposes.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theLabel
+     *            the alias name for the column.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnLabel(int columnIndex, String theLabel)
+            throws SQLException;
 
-  /**
-   * Sets whether the designated column is a signed number.
-   * The default is <code>false</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param property <code>true</code> if the column is a signed number;
-   *                 <code>false</code> if it is not
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setSigned(int columnIndex, boolean property) throws SQLException;
+    /**
+     * Sets the column name for a specified column in the {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theColumnName
+     *            the column's label.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnName(int columnIndex, String theColumnName)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's normal maximum width in chars to the
-   * given <code>int</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param size the normal maximum number of characters for
-   *           the designated column
-   *
-   * @exception SQLException if a database access error occurs
-   */
-  void setColumnDisplaySize(int columnIndex, int size) throws SQLException;
+    /**
+     * Sets the SQL type for a specified column in the {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theSQLType
+     *            the SQL Type, as defined by {@code java.sql.Types}.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnType(int columnIndex, int theSQLType)
+            throws SQLException;
 
-  /**
-   * Sets the suggested column title for use in printouts and
-   * displays, if any, to the given <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param label the column title
-   * @exception SQLException if a database access error occurs
-   */
-  void setColumnLabel(int columnIndex, String label) throws SQLException;
+    /**
+     * Sets the type name for a specified column in the {@code RowSet}, where
+     * the data type is specific to the data source.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theTypeName
+     *            the SQL type name for the column.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setColumnTypeName(int columnIndex, String theTypeName)
+            throws SQLException;
 
-  /**
-   * Sets the name of the designated column to the given <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param columnName the designated column's name
-   * @exception SQLException if a database access error occurs
-   */
-  void setColumnName(int columnIndex, String columnName) throws SQLException;
+    /**
+     * Sets whether a specified column is a currency value. The default value is
+     * {@code false}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param isCurrency
+     *            {@code true} if the column should be treated as a currency
+     *            value, {@code false} if it should not be treated as a currency
+     *            value (default).
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setCurrency(int columnIndex, boolean isCurrency)
+            throws SQLException;
 
-  /**
-   * Sets the name of the designated column's table's schema, if any, to
-   * the given <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param schemaName the schema name
-   * @exception SQLException if a database access error occurs
-   */
-  void setSchemaName(int columnIndex, String schemaName) throws SQLException;
+    /**
+     * Sets whether a specified column can contain SQL {@code NULL} values.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param nullability
+     *            an integer which is one of the following values:
+     *            <ul>
+     *            <li>{@code ResultSetMetaData.columnNoNulls}</li>
+     *            <li>{@code ResultSetMetaData.columnNullable}</li>
+     *            <li>{@code ResultSetMetaData.columnNullableUnknown}</li>
+     *            </ul>
+     *            <p>
+     *            The default value is {@code
+     *            ResultSetMetaData.columnNullableUnknown}.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setNullable(int columnIndex, int nullability)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's number of decimal digits to the
-   * given <code>int</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param precision the total number of decimal digits
-   * @exception SQLException if a database access error occurs
-   */
-  void setPrecision(int columnIndex, int precision) throws SQLException;
+    /**
+     * Sets the number of decimal digits for a specified column in the {@code
+     * RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param thePrecision
+     *            the number of decimal digits.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setPrecision(int columnIndex, int thePrecision)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's number of digits to the
-   * right of the decimal point to the given <code>int</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param scale the number of digits to right of decimal point
-   * @exception SQLException if a database access error occurs
-   */
-  void setScale(int columnIndex, int scale) throws SQLException;
+    /**
+     * Declares how many decimal digits there should be after a decimal point
+     * for the column specified by {@code columnIndex}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theScale
+     *            the number of digits after the decimal point.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setScale(int columnIndex, int theScale) throws SQLException;
 
-  /**
-   * Sets the designated column's table name, if any, to the given
-   * <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param tableName the column's table name
-   * @exception SQLException if a database access error occurs
-   */
-  void setTableName(int columnIndex, String tableName) throws SQLException;
+    /**
+     * Sets the schema name for a specified column in the {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theSchemaName
+     *            a {@code String} containing the schema name.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setSchemaName(int columnIndex, String theSchemaName)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's table's catalog name, if any, to the given
-   * <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param catalogName the column's catalog name
-   * @exception SQLException if a database access error occurs
-   */
-  void setCatalogName(int columnIndex, String catalogName) throws SQLException;
+    /**
+     * Sets whether a specified column can be used in a search involving a
+     * {@code WHERE} clause. The default value is {@code false}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param isSearchable
+     *            {@code true} of the column can be used in a {@code WHERE}
+     *            clause search, {@code false} otherwise.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setSearchable(int columnIndex, boolean isSearchable)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's SQL type to the one given.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param SQLType the column's SQL type
-   * @exception SQLException if a database access error occurs
-   * @see Types
-   */
-  void setColumnType(int columnIndex, int SQLType) throws SQLException;
+    /**
+     * Sets if a specified column can contain signed numbers.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param isSigned
+     *            {@code true} if the column can contain signed numbers, {@code
+     *            false} otherwise.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setSigned(int columnIndex, boolean isSigned)
+            throws SQLException;
 
-  /**
-   * Sets the designated column's type name that is specific to the
-   * data source, if any, to the given <code>String</code>.
-   *
-   * @param columnIndex the first column is 1, the second is 2, ...
-   * @param typeName data source specific type name.
-   * @exception SQLException if a database access error occurs
-   */
-  void setColumnTypeName(int columnIndex, String typeName) throws SQLException;
-
+    /**
+     * Sets the table name for a specified column in the {@code RowSet}.
+     *
+     * @param columnIndex
+     *            the index number for the column; the first column's index is
+     *            1.
+     * @param theTableName
+     *            the table name for the column.
+     * @throws SQLException
+     *             if a problem occurs accessing the database.
+     */
+    public void setTableName(int columnIndex, String theTableName)
+            throws SQLException;
 }

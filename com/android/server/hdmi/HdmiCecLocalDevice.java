@@ -650,7 +650,7 @@ abstract class HdmiCecLocalDevice {
     void addAndStartAction(final HdmiCecFeatureAction action) {
         assertRunOnServiceThread();
         mActions.add(action);
-        if (mService.isPowerStandby() || !mService.isAddressAllocated()) {
+        if (mService.isPowerStandby()) {
             Slog.i(TAG, "Not ready to start action. Queued for deferred start:" + action);
             return;
         }
@@ -660,8 +660,7 @@ abstract class HdmiCecLocalDevice {
     @ServiceThreadOnly
     void startQueuedActions() {
         assertRunOnServiceThread();
-        // Use copied action list in that start() may remove itself.
-        for (HdmiCecFeatureAction action : new ArrayList<>(mActions)) {
+        for (HdmiCecFeatureAction action : mActions) {
             if (!action.started()) {
                 Slog.i(TAG, "Starting queued action:" + action);
                 action.start();
@@ -889,42 +888,13 @@ abstract class HdmiCecLocalDevice {
     }
 
     /**
-     * Send a key event to other CEC device. The logical address of target device will be given by
-     * {@link #findKeyReceiverAddress}.
+     * Send a key event to other device.
      *
      * @param keyCode key code defined in {@link android.view.KeyEvent}
      * @param isPressed {@code true} for key down event
-     * @see #findKeyReceiverAddress()
      */
-    @ServiceThreadOnly
     protected void sendKeyEvent(int keyCode, boolean isPressed) {
-        assertRunOnServiceThread();
-        if (!HdmiCecKeycode.isSupportedKeycode(keyCode)) {
-            Slog.w(TAG, "Unsupported key: " + keyCode);
-            return;
-        }
-        List<SendKeyAction> action = getActions(SendKeyAction.class);
-        int logicalAddress = findKeyReceiverAddress();
-        if (logicalAddress == Constants.ADDR_INVALID || logicalAddress == mAddress) {
-            // Don't send key event to invalid device or itself.
-            Slog.w(TAG, "Discard key event: " + keyCode + ", pressed:" + isPressed
-                    + ", receiverAddr=" + logicalAddress);
-        } else if (!action.isEmpty()) {
-            action.get(0).processKeyEvent(keyCode, isPressed);
-        } else if (isPressed) {
-            addAndStartAction(new SendKeyAction(this, logicalAddress, keyCode));
-        }
-    }
-
-    /**
-     * Returns the logical address of the device which will receive key events via
-     * {@link #sendKeyEvent}.
-     *
-     * @see #sendKeyEvent(int, boolean)
-     */
-    protected int findKeyReceiverAddress() {
-        Slog.w(TAG, "findKeyReceiverAddress is not implemented");
-        return Constants.ADDR_INVALID;
+        Slog.w(TAG, "sendKeyEvent not implemented");
     }
 
     void sendUserControlPressedAndReleased(int targetAddress, int cecKeycode) {

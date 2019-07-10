@@ -16,56 +16,27 @@
 
 package com.android.internal.telephony.test;
 
-import android.hardware.radio.V1_0.DataRegStateResult;
-import android.hardware.radio.V1_0.SetupDataCallResult;
-import android.hardware.radio.V1_0.VoiceRegStateResult;
-import android.net.KeepalivePacketData;
-import android.net.LinkProperties;
 import android.os.AsyncResult;
-import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
-import android.os.Parcel;
-import android.os.SystemClock;
-import android.os.WorkSource;
-import android.service.carrier.CarrierIdentifier;
-import android.telephony.CellInfo;
-import android.telephony.CellInfoGsm;
-import android.telephony.IccOpenLogicalChannelResponse;
-import android.telephony.ImsiEncryptionInfo;
-import android.telephony.NetworkRegistrationState;
-import android.telephony.NetworkScanRequest;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
-import android.telephony.SignalStrength;
-import android.telephony.data.DataCallResponse;
-import android.telephony.data.DataProfile;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.BaseCommands;
-import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.LastCallFailCause;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.RadioCapability;
-import com.android.internal.telephony.SmsResponse;
-import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.dataconnection.DataCallResponse;
+import com.android.internal.telephony.dataconnection.DataProfile;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.UUSInfo;
+import com.android.internal.telephony.gsm.CallFailCause;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
-import com.android.internal.telephony.uicc.IccCardStatus;
-import com.android.internal.telephony.uicc.IccIoResult;
-import com.android.internal.telephony.uicc.IccSlotStatus;
 
 import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
-public class SimulatedCommands extends BaseCommands
+public final class SimulatedCommands extends BaseCommands
         implements CommandsInterface, SimulatedRadioControl {
     private final static String LOG_TAG = "SimulatedCommands";
 
@@ -84,23 +55,11 @@ public class SimulatedCommands extends BaseCommands
     }
 
     private final static SimLockState INITIAL_LOCK_STATE = SimLockState.NONE;
-    public final static String DEFAULT_SIM_PIN_CODE = "1234";
+    private final static String DEFAULT_SIM_PIN_CODE = "1234";
     private final static String SIM_PUK_CODE = "12345678";
     private final static SimFdnState INITIAL_FDN_STATE = SimFdnState.NONE;
-    public final static String DEFAULT_SIM_PIN2_CODE = "5678";
+    private final static String DEFAULT_SIM_PIN2_CODE = "5678";
     private final static String SIM_PUK2_CODE = "87654321";
-    public final static String FAKE_LONG_NAME = "Fake long name";
-    public final static String FAKE_SHORT_NAME = "Fake short name";
-    public final static String FAKE_MCC_MNC = "310260";
-    public final static String FAKE_IMEI = "012345678901234";
-    public final static String FAKE_IMEISV = "99";
-    public final static String FAKE_ESN = "1234";
-    public final static String FAKE_MEID = "1234";
-    public final static int DEFAULT_PIN1_ATTEMPT = 5;
-    public final static int DEFAULT_PIN2_ATTEMPT = 5;
-
-    private String mImei;
-    private String mImeiSv;
 
     //***** Instance Variables
 
@@ -111,7 +70,6 @@ public class SimulatedCommands extends BaseCommands
     int mPinUnlockAttempts;
     int mPukUnlockAttempts;
     String mPinCode;
-    int mPin1attemptsRemaining = DEFAULT_PIN1_ATTEMPT;
     SimFdnState mSimFdnEnabledState;
     boolean mSimFdnEnabled;
     int mPin2UnlockAttempts;
@@ -119,35 +77,14 @@ public class SimulatedCommands extends BaseCommands
     int mNetworkType;
     String mPin2Code;
     boolean mSsnNotifyOn = false;
-    private int mVoiceRegState = NetworkRegistrationState.REG_STATE_HOME;
-    private int mVoiceRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UMTS;
-    private int mDataRegState = NetworkRegistrationState.REG_STATE_HOME;
-    private int mDataRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UMTS;
-    public boolean mCssSupported;
-    public int mRoamingIndicator;
-    public int mSystemIsInPrl;
-    public int mDefaultRoamingIndicator;
-    public int mReasonForDenial;
-    public int mMaxDataCalls;
-
-    private SignalStrength mSignalStrength;
-    private List<CellInfo> mCellInfoList;
-    private int[] mImsRegState;
-    private IccCardStatus mIccCardStatus;
-    private IccSlotStatus mIccSlotStatus;
-    private IccIoResult mIccIoResultForApduLogicalChannel;
-    private int mChannelId = IccOpenLogicalChannelResponse.INVALID_CHANNEL;
 
     int mPausedResponseCount;
     ArrayList<Message> mPausedResponses = new ArrayList<Message>();
 
     int mNextCallFailCause = CallFailCause.NORMAL_CLEARING;
 
-    private boolean mDcSuccess = true;
-    private SetupDataCallResult mSetupDataCallResult;
-    private boolean mIsRadioPowerFailResponse = false;
-
     //***** Constructor
+
     public
     SimulatedCommands() {
         super(null);  // Don't log statistics
@@ -157,7 +94,7 @@ public class SimulatedCommands extends BaseCommands
 
         simulatedCallState = new SimulatedGsmCallState(looper);
 
-        setRadioState(RadioState.RADIO_ON);
+        setRadioState(RadioState.RADIO_OFF);
         mSimLockedState = INITIAL_LOCK_STATE;
         mSimLockEnabled = (mSimLockedState != SimLockState.NONE);
         mPinCode = DEFAULT_SIM_PIN_CODE;
@@ -166,45 +103,10 @@ public class SimulatedCommands extends BaseCommands
         mPin2Code = DEFAULT_SIM_PIN2_CODE;
     }
 
-    public void dispose() {
-        if (mHandlerThread != null) {
-            mHandlerThread.quit();
-        }
-    }
-
-    private void log(String str) {
-        Rlog.d(LOG_TAG, str);
-    }
-
     //***** CommandsInterface implementation
 
     @Override
     public void getIccCardStatus(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIccCardStatus(result);
-        if (mIccCardStatus != null) {
-            resultSuccess(result, mIccCardStatus);
-        } else {
-            resultFail(result, null, new RuntimeException("IccCardStatus not set"));
-        }
-    }
-
-    public void setIccSlotStatus(IccSlotStatus iccSlotStatus) {
-        mIccSlotStatus = iccSlotStatus;
-    }
-
-    @Override
-    public void getIccSlotsStatus(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIccSlotsStatus(result);
-        if (mIccSlotStatus != null) {
-            resultSuccess(result, mIccSlotStatus);
-        } else {
-            resultFail(result, null,
-                    new CommandException(CommandException.Error.REQUEST_NOT_SUPPORTED));
-        }
-    }
-
-    @Override
-    public void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result) {
         unimplemented(result);
     }
 
@@ -215,7 +117,8 @@ public class SimulatedCommands extends BaseCommands
                     mSimLockedState);
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
             return;
         }
 
@@ -225,7 +128,10 @@ public class SimulatedCommands extends BaseCommands
             mSimLockedState = SimLockState.NONE;
             mIccStatusChangedRegistrants.notifyRegistrants();
 
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
 
             return;
         }
@@ -235,14 +141,15 @@ public class SimulatedCommands extends BaseCommands
 
             Rlog.i(LOG_TAG, "[SimCmd] supplyIccPin: failed! attempt=" +
                     mPinUnlockAttempts);
-            if (mPinUnlockAttempts >= DEFAULT_PIN1_ATTEMPT) {
+            if (mPinUnlockAttempts >= 3) {
                 Rlog.i(LOG_TAG, "[SimCmd] supplyIccPin: set state to REQUIRE_PUK");
                 mSimLockedState = SimLockState.REQUIRE_PUK;
             }
 
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
         }
     }
 
@@ -253,7 +160,8 @@ public class SimulatedCommands extends BaseCommands
                     mSimLockedState);
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
             return;
         }
 
@@ -263,7 +171,11 @@ public class SimulatedCommands extends BaseCommands
             mPukUnlockAttempts = 0;
             mIccStatusChangedRegistrants.notifyRegistrants();
 
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
+
             return;
         }
 
@@ -279,7 +191,8 @@ public class SimulatedCommands extends BaseCommands
 
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
         }
     }
 
@@ -290,7 +203,8 @@ public class SimulatedCommands extends BaseCommands
                     mSimFdnEnabledState);
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
             return;
         }
 
@@ -299,7 +213,11 @@ public class SimulatedCommands extends BaseCommands
             mPin2UnlockAttempts = 0;
             mSimFdnEnabledState = SimFdnState.NONE;
 
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
+
             return;
         }
 
@@ -308,14 +226,15 @@ public class SimulatedCommands extends BaseCommands
 
             Rlog.i(LOG_TAG, "[SimCmd] supplyIccPin2: failed! attempt=" +
                     mPin2UnlockAttempts);
-            if (mPin2UnlockAttempts >= DEFAULT_PIN2_ATTEMPT) {
+            if (mPin2UnlockAttempts >= 3) {
                 Rlog.i(LOG_TAG, "[SimCmd] supplyIccPin2: set state to REQUIRE_PUK2");
                 mSimFdnEnabledState = SimFdnState.REQUIRE_PUK2;
             }
 
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
         }
     }
 
@@ -326,7 +245,8 @@ public class SimulatedCommands extends BaseCommands
                     mSimLockedState);
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
             return;
         }
 
@@ -335,7 +255,11 @@ public class SimulatedCommands extends BaseCommands
             mSimFdnEnabledState = SimFdnState.NONE;
             mPuk2UnlockAttempts = 0;
 
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
+
             return;
         }
 
@@ -351,7 +275,8 @@ public class SimulatedCommands extends BaseCommands
 
             CommandException ex = new CommandException(
                     CommandException.Error.PASSWORD_INCORRECT);
-            resultFail(result, null, ex);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
         }
     }
 
@@ -359,32 +284,44 @@ public class SimulatedCommands extends BaseCommands
     public void changeIccPin(String oldPin, String newPin, Message result)  {
         if (oldPin != null && oldPin.equals(mPinCode)) {
             mPinCode = newPin;
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
 
             return;
         }
 
-        Rlog.i(LOG_TAG, "[SimCmd] changeIccPin: pin failed!");
+        if (result != null) {
+            Rlog.i(LOG_TAG, "[SimCmd] changeIccPin: pin failed!");
 
-        CommandException ex = new CommandException(
-                CommandException.Error.PASSWORD_INCORRECT);
-        resultFail(result, null, ex);
+            CommandException ex = new CommandException(
+                    CommandException.Error.PASSWORD_INCORRECT);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
+        }
     }
 
     @Override
-    public void changeIccPin2(String oldPin2, String newPin2, Message result) {
+    public void changeIccPin2(String oldPin2, String newPin2, Message result)  {
         if (oldPin2 != null && oldPin2.equals(mPin2Code)) {
             mPin2Code = newPin2;
-            resultSuccess(result, null);
+            if (result != null) {
+                AsyncResult.forMessage(result, null, null);
+                result.sendToTarget();
+            }
 
             return;
         }
 
-        Rlog.i(LOG_TAG, "[SimCmd] changeIccPin2: pin2 failed!");
+        if (result != null) {
+            Rlog.i(LOG_TAG, "[SimCmd] changeIccPin2: pin2 failed!");
 
-        CommandException ex = new CommandException(
-                CommandException.Error.PASSWORD_INCORRECT);
-        resultFail(result, null, ex);
+            CommandException ex = new CommandException(
+                    CommandException.Error.PASSWORD_INCORRECT);
+            AsyncResult.forMessage(result, null, ex);
+            result.sendToTarget();
+        }
     }
 
     @Override
@@ -420,7 +357,8 @@ public class SimulatedCommands extends BaseCommands
                 r[0] = (mSimLockEnabled ? 1 : 0);
                 Rlog.i(LOG_TAG, "[SimCmd] queryFacilityLock: SIM is "
                         + (r[0] == 0 ? "unlocked" : "locked"));
-                resultSuccess(result, r);
+                AsyncResult.forMessage(result, r, null);
+                result.sendToTarget();
             }
             return;
         } else if (facility != null && facility.equals(CommandsInterface.CB_FACILITY_BA_FD)) {
@@ -429,7 +367,8 @@ public class SimulatedCommands extends BaseCommands
                 r[0] = (mSimFdnEnabled ? 1 : 0);
                 Rlog.i(LOG_TAG, "[SimCmd] queryFacilityLock: FDN is "
                         + (r[0] == 0 ? "disabled" : "enabled"));
-                resultSuccess(result, r);
+                AsyncResult.forMessage(result, r, null);
+                result.sendToTarget();
             }
             return;
         }
@@ -453,16 +392,22 @@ public class SimulatedCommands extends BaseCommands
                 Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin is valid");
                 mSimLockEnabled = lockEnabled;
 
-                resultSuccess(result, null);
+                if (result != null) {
+                    AsyncResult.forMessage(result, null, null);
+                    result.sendToTarget();
+                }
 
                 return;
             }
 
-            Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin failed!");
+            if (result != null) {
+                Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin failed!");
 
-            CommandException ex = new CommandException(
-                    CommandException.Error.GENERIC_FAILURE);
-            resultFail(result, null, ex);
+                CommandException ex = new CommandException(
+                        CommandException.Error.GENERIC_FAILURE);
+                AsyncResult.forMessage(result, null, ex);
+                result.sendToTarget();
+            }
 
             return;
         }  else if (facility != null &&
@@ -471,16 +416,22 @@ public class SimulatedCommands extends BaseCommands
                 Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin2 is valid");
                 mSimFdnEnabled = lockEnabled;
 
-                resultSuccess(result, null);
+                if (result != null) {
+                    AsyncResult.forMessage(result, null, null);
+                    result.sendToTarget();
+                }
 
                 return;
             }
 
-            Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin2 failed!");
+            if (result != null) {
+                Rlog.i(LOG_TAG, "[SimCmd] setFacilityLock: pin2 failed!");
 
-            CommandException ex = new CommandException(
-                    CommandException.Error.GENERIC_FAILURE);
-            resultFail(result, null, ex);
+                CommandException ex = new CommandException(
+                        CommandException.Error.GENERIC_FAILURE);
+                AsyncResult.forMessage(result, null, ex);
+                result.sendToTarget();
+            }
 
             return;
         }
@@ -489,7 +440,7 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void supplyNetworkDepersonalization(String netpin, Message result) {
+    public void supplyNetworkDepersonalization(String netpin, Message result)  {
         unimplemented(result);
     }
 
@@ -503,14 +454,14 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void getCurrentCalls (Message result) {
-        SimulatedCommandsVerifier.getInstance().getCurrentCalls(result);
         if ((mState == RadioState.RADIO_ON) && !isSimLocked()) {
             //Rlog.i("GSM", "[SimCmds] getCurrentCalls");
             resultSuccess(result, simulatedCallState.getDriverCalls());
         } else {
             //Rlog.i("GSM", "[SimCmds] getCurrentCalls: RADIO_OFF or SIM not ready!");
-            resultFail(result, null,
-                new CommandException(CommandException.Error.RADIO_NOT_AVAILABLE));
+            resultFail(result,
+                new CommandException(
+                    CommandException.Error.RADIO_NOT_AVAILABLE));
         }
     }
 
@@ -548,7 +499,6 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void dial (String address, int clirMode, Message result) {
-        SimulatedCommandsVerifier.getInstance().dial(address, clirMode, result);
         simulatedCallState.onDial(address);
 
         resultSuccess(result, null);
@@ -567,7 +517,6 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void dial(String address, int clirMode, UUSInfo uusInfo, Message result) {
-        SimulatedCommandsVerifier.getInstance().dial(address, clirMode, uusInfo, result);
         simulatedCallState.onDial(address);
 
         resultSuccess(result, null);
@@ -589,10 +538,6 @@ public class SimulatedCommands extends BaseCommands
         resultSuccess(result, "012345678901234");
     }
 
-    public void setIMEI(String imei) {
-        mImei = imei;
-    }
-
     /**
      *  returned message
      *  retMsg.obj = AsyncResult ar
@@ -602,12 +547,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void getIMEI(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIMEI(result);
-        resultSuccess(result, mImei != null ? mImei : FAKE_IMEI);
-    }
-
-    public void setIMEISV(String imeisv) {
-        mImeiSv = imeisv;
+        resultSuccess(result, "012345678901234");
     }
 
     /**
@@ -619,8 +559,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void getIMEISV(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIMEISV(result);
-        resultSuccess(result, mImeiSv != null ? mImeiSv : FAKE_IMEISV);
+        resultSuccess(result, "99");
     }
 
     /**
@@ -642,7 +581,7 @@ public class SimulatedCommands extends BaseCommands
 
         if (!success){
             Rlog.i("GSM", "[SimCmd] hangupConnection: resultFail");
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             Rlog.i("GSM", "[SimCmd] hangupConnection: resultSuccess");
             resultSuccess(result, null);
@@ -664,7 +603,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('0', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -686,7 +625,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('1', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -708,7 +647,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('2', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -729,7 +668,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('3', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -750,7 +689,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('4', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -769,7 +708,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('2', ch);
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -785,11 +724,10 @@ public class SimulatedCommands extends BaseCommands
     public void acceptCall (Message result) {
         boolean success;
 
-        SimulatedCommandsVerifier.getInstance().acceptCall(result);
         success = simulatedCallState.onAnswer();
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -808,7 +746,7 @@ public class SimulatedCommands extends BaseCommands
         success = simulatedCallState.onChld('0', '\0');
 
         if (!success){
-            resultFail(result, null, new RuntimeException("Hangup Error"));
+            resultFail(result, new RuntimeException("Hangup Error"));
         } else {
             resultSuccess(result, null);
         }
@@ -824,9 +762,10 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void getLastCallFailCause (Message result) {
-        LastCallFailCause mFailCause = new LastCallFailCause();
-        mFailCause.causeCode = mNextCallFailCause;
-        resultSuccess(result, mFailCause);
+        int[] ret = new int[1];
+
+        ret[0] = mNextCallFailCause;
+        resultSuccess(result, ret);
     }
 
     /**
@@ -850,32 +789,21 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void getMute (Message result) {unimplemented(result);}
 
-    public void setSignalStrength(SignalStrength signalStrength) {
-        mSignalStrength = signalStrength;
-    }
-
+    /**
+     * response.obj is an AsyncResult
+     * response.obj.result is an int[2]
+     * response.obj.result[0] is received signal strength (0-31, 99)
+     * response.obj.result[1] is  bit error rate (0-7, 99)
+     * as defined in TS 27.007 8.5
+     */
     @Override
     public void getSignalStrength (Message result) {
+        int ret[] = new int[2];
 
-        if (mSignalStrength == null) {
-            mSignalStrength = new SignalStrength(
-                20, // gsmSignalStrength
-                0,  // gsmBitErrorRate
-                -1, // cdmaDbm
-                -1, // cdmaEcio
-                -1, // evdoDbm
-                -1, // evdoEcio
-                -1, // evdoSnr
-                99, // lteSignalStrength
-                SignalStrength.INVALID,     // lteRsrp
-                SignalStrength.INVALID,     // lteRsrq
-                SignalStrength.INVALID,     // lteRssnr
-                SignalStrength.INVALID,     // lteCqi
-                SignalStrength.INVALID      // tdScdmaRscp
-            );
-        }
+        ret[0] = 23;
+        ret[1] = 0;
 
-        resultSuccess(result, mSignalStrength);
+        resultSuccess(result, ret);
     }
 
      /**
@@ -942,14 +870,6 @@ public class SimulatedCommands extends BaseCommands
         resultSuccess(response, null);
     }
 
-    public void setVoiceRadioTech(int voiceRadioTech) {
-        mVoiceRadioTech = voiceRadioTech;
-    }
-
-    public void setVoiceRegState(int voiceRegState) {
-        mVoiceRegState = voiceRegState;
-    }
-
     /**
      * response.obj.result is an String[14]
      * See ril.h for details
@@ -958,54 +878,54 @@ public class SimulatedCommands extends BaseCommands
      * as "out of service" above
      */
     @Override
-    public void getVoiceRegistrationState(Message result) {
-        mGetVoiceRegistrationStateCallCount.incrementAndGet();
+    public void getVoiceRegistrationState (Message result) {
+        String ret[] = new String[14];
 
-        VoiceRegStateResult ret = new VoiceRegStateResult();
-        ret.regState = mVoiceRegState;
-        ret.rat = mVoiceRadioTech;
-        ret.cssSupported = mCssSupported;
-        ret.roamingIndicator = mRoamingIndicator;
-        ret.systemIsInPrl = mSystemIsInPrl;
-        ret.defaultRoamingIndicator = mDefaultRoamingIndicator;
-        ret.reasonForDenial = mReasonForDenial;
+        ret[0] = "5"; // registered roam
+        ret[1] = null;
+        ret[2] = null;
+        ret[3] = null;
+        ret[4] = null;
+        ret[5] = null;
+        ret[6] = null;
+        ret[7] = null;
+        ret[8] = null;
+        ret[9] = null;
+        ret[10] = null;
+        ret[11] = null;
+        ret[12] = null;
+        ret[13] = null;
 
         resultSuccess(result, ret);
     }
 
-    private final AtomicInteger mGetVoiceRegistrationStateCallCount = new AtomicInteger(0);
-
-    @VisibleForTesting
-    public int getGetVoiceRegistrationStateCallCount() {
-        return mGetVoiceRegistrationStateCallCount.get();
-    }
-
-    public void setDataRadioTech(int radioTech) {
-        mDataRadioTech = radioTech;
-    }
-
-    public void setDataRegState(int dataRegState) {
-        mDataRegState = dataRegState;
-    }
-
+    /**
+     * response.obj.result is an String[4]
+     * response.obj.result[0] is registration state 0-5 from TS 27.007 7.2
+     * response.obj.result[1] is LAC if registered or NULL if not
+     * response.obj.result[2] is CID if registered or NULL if not
+     * response.obj.result[3] indicates the available radio technology, where:
+     *      0 == unknown
+     *      1 == GPRS only
+     *      2 == EDGE
+     *      3 == UMTS
+     *
+     * valid LAC are 0x0000 - 0xffff
+     * valid CID are 0x00000000 - 0xffffffff
+     *
+     * Please note that registration state 4 ("unknown") is treated
+     * as "out of service" in the Android telephony system
+     */
     @Override
     public void getDataRegistrationState (Message result) {
-        mGetDataRegistrationStateCallCount.incrementAndGet();
+        String ret[] = new String[4];
 
-        DataRegStateResult ret = new DataRegStateResult();
-        ret.regState = mDataRegState;
-        ret.rat = mDataRadioTech;
-        ret.maxDataCalls = mMaxDataCalls;
-        ret.reasonDataDenied = mReasonForDenial;
+        ret[0] = "5"; // registered roam
+        ret[1] = null;
+        ret[2] = null;
+        ret[3] = "2";
 
         resultSuccess(result, ret);
-    }
-
-    private final AtomicInteger mGetDataRegistrationStateCallCount = new AtomicInteger(0);
-
-    @VisibleForTesting
-    public int getGetDataRegistrationStateCallCount() {
-        return mGetDataRegistrationStateCallCount.get();
     }
 
     /**
@@ -1016,22 +936,13 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void getOperator(Message result) {
-        mGetOperatorCallCount.incrementAndGet();
         String[] ret = new String[3];
 
-        ret[0] = FAKE_LONG_NAME;
-        ret[1] = FAKE_SHORT_NAME;
-        ret[2] = FAKE_MCC_MNC;
+        ret[0] = "El Telco Loco";
+        ret[1] = "Telco Loco";
+        ret[2] = "001001";
 
         resultSuccess(result, ret);
-    }
-
-    private final AtomicInteger mGetOperatorCallCount = new AtomicInteger(0);
-
-    @VisibleForTesting
-    public int getGetOperatorCallCount() {
-        final int count = mGetOperatorCallCount.get();
-        return mGetOperatorCallCount.get();
     }
 
     /**
@@ -1071,7 +982,6 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void sendBurstDtmf(String dtmfString, int on, int off, Message result) {
-        SimulatedCommandsVerifier.getInstance().sendBurstDtmf(dtmfString, on, off, result);
         resultSuccess(result, null);
     }
 
@@ -1082,10 +992,7 @@ public class SimulatedCommands extends BaseCommands
      *      less the SMSC address
      */
     @Override
-    public void sendSMS (String smscPDU, String pdu, Message result) {
-        SimulatedCommandsVerifier.getInstance().sendSMS(smscPDU, pdu, result);
-        resultSuccess(result, new SmsResponse(0 /*messageRef*/, null, 0));
-    }
+    public void sendSMS (String smscPDU, String pdu, Message result) {unimplemented(result);}
 
     /**
      * Send an SMS message, Identical to sendSMS,
@@ -1124,69 +1031,24 @@ public class SimulatedCommands extends BaseCommands
         unimplemented(response);
     }
 
-    public void setDataCallResult(final boolean success, final SetupDataCallResult dcResult) {
-        mSetupDataCallResult = dcResult;
-        mDcSuccess = success;
-    }
-
-    public void triggerNITZupdate(String NITZStr) {
-        if (NITZStr != null) {
-            mNITZTimeRegistrant.notifyRegistrant(new AsyncResult (null, new Object[]{NITZStr,
-                    SystemClock.elapsedRealtime()}, null));
-        }
+    @Override
+    public void setupDataCall(String radioTechnology, String profile,
+            String apn, String user, String password, String authType,
+            String protocol, Message result) {
+        unimplemented(result);
     }
 
     @Override
-    public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              Message result) {
-
-        SimulatedCommandsVerifier.getInstance().setupDataCall(accessNetworkType, dataProfile,
-                isRoaming, allowRoaming, reason, linkProperties, result);
-
-        if (mSetupDataCallResult == null) {
-            try {
-                mSetupDataCallResult = new SetupDataCallResult();
-                mSetupDataCallResult.status = 0;
-                mSetupDataCallResult.suggestedRetryTime = -1;
-                mSetupDataCallResult.cid = 1;
-                mSetupDataCallResult.active = 2;
-                mSetupDataCallResult.type = "IP";
-                mSetupDataCallResult.ifname = "rmnet_data7";
-                mSetupDataCallResult.addresses = "12.34.56.78";
-                mSetupDataCallResult.dnses = "98.76.54.32";
-                mSetupDataCallResult.gateways = "11.22.33.44";
-                mSetupDataCallResult.pcscf = "";
-                mSetupDataCallResult.mtu = 1440;
-            } catch (Exception e) {
-
-            }
-        }
-
-        if (mDcSuccess) {
-            resultSuccess(result, mSetupDataCallResult);
-        } else {
-            resultFail(result, mSetupDataCallResult,
-                    new RuntimeException("Setup data call failed!"));
-        }
-    }
-
-    @Override
-    public void deactivateDataCall(int cid, int reason, Message result) {
-        SimulatedCommandsVerifier.getInstance().deactivateDataCall(cid, reason, result);
-        resultSuccess(result, null);
-    }
+    public void deactivateDataCall(int cid, int reason, Message result) {unimplemented(result);}
 
     @Override
     public void setPreferredNetworkType(int networkType , Message result) {
-        SimulatedCommandsVerifier.getInstance().setPreferredNetworkType(networkType, result);
         mNetworkType = networkType;
         resultSuccess(result, null);
     }
 
     @Override
     public void getPreferredNetworkType(Message result) {
-        SimulatedCommandsVerifier.getInstance().getPreferredNetworkType(result);
         int ret[] = new int[1];
 
         ret[0] = mNetworkType;
@@ -1194,7 +1056,7 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void getNeighboringCids(Message result, WorkSource workSource) {
+    public void getNeighboringCids(Message result) {
         int ret[] = new int[7];
 
         ret[0] = 6;
@@ -1206,8 +1068,7 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setLocationUpdates(boolean enable, Message response) {
-        SimulatedCommandsVerifier.getInstance().setLocationUpdates(enable, response);
-        resultSuccess(response, null);
+        unimplemented(response);
     }
 
     @Override
@@ -1222,8 +1083,7 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void reportSmsMemoryStatus(boolean available, Message result) {
-        resultSuccess(result, null);
-        SimulatedCommandsVerifier.getInstance().reportSmsMemoryStatus(available, result);
+        unimplemented(result);
     }
 
     @Override
@@ -1245,25 +1105,17 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setRadioPower(boolean on, Message result) {
-        if (mIsRadioPowerFailResponse) {
-            resultFail(result, null, new RuntimeException("setRadioPower failed!"));
-            return;
-        }
-
         if(on) {
             setRadioState(RadioState.RADIO_ON);
         } else {
             setRadioState(RadioState.RADIO_OFF);
         }
-        resultSuccess(result, null);
     }
 
 
     @Override
     public void acknowledgeLastIncomingGsmSms(boolean success, int cause, Message result) {
         unimplemented(result);
-        SimulatedCommandsVerifier.getInstance().
-                acknowledgeLastIncomingGsmSms(success, cause, result);
     }
 
     @Override
@@ -1280,7 +1132,7 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void iccIO(int command, int fileid, String path, int p1, int p2, int p3, String data,
             String pin2, Message response) {
-        iccIOForApp(command, fileid, path, p1, p2, p3, data, pin2, null, response);
+        iccIOForApp(command, fileid, path, p1, p2, p3, data,pin2, null, response);
     }
 
     /**
@@ -1364,11 +1216,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void setCallForward(int action, int cfReason, int serviceClass,
-            String number, int timeSeconds, Message result) {
-        SimulatedCommandsVerifier.getInstance().setCallForward(action, cfReason, serviceClass,
-                number, timeSeconds, result);
-        resultSuccess(result, null);
-    }
+            String number, int timeSeconds, Message result) {unimplemented(result);}
 
     /**
      * cfReason is one of CF_REASON_*
@@ -1380,11 +1228,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void queryCallForwardStatus(int cfReason, int serviceClass,
-            String number, Message result) {
-        SimulatedCommandsVerifier.getInstance().queryCallForwardStatus(cfReason, serviceClass,
-                number, result);
-        resultSuccess(result, null);
-    }
+            String number, Message result) {unimplemented(result);}
 
     @Override
     public void setNetworkSelectionModeAutomatic(Message result) {unimplemented(result);}
@@ -1404,19 +1248,10 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void getNetworkSelectionMode(Message result) {
-        SimulatedCommandsVerifier.getInstance().getNetworkSelectionMode(result);
-        getNetworkSelectionModeCallCount.incrementAndGet();
         int ret[] = new int[1];
 
         ret[0] = 0;
         resultSuccess(result, ret);
-    }
-
-    private final AtomicInteger getNetworkSelectionModeCallCount = new AtomicInteger(0);
-
-    @VisibleForTesting
-    public int getGetNetworkSelectionModeCallCount() {
-        return getNetworkSelectionModeCallCount.get();
     }
 
     /**
@@ -1425,29 +1260,10 @@ public class SimulatedCommands extends BaseCommands
      * ((AsyncResult)response.obj).result  is a List of NetworkInfo objects
      */
     @Override
-    public void getAvailableNetworks(Message result) {
-        unimplemented(result);
-    }
-
-    /**
-     * Starts a network scan
-     */
-    @Override
-    public void startNetworkScan(NetworkScanRequest nsr, Message result) {
-        unimplemented(result);
-    }
-
-    /**
-     * Stops an ongoing network scan
-     */
-    @Override
-    public void stopNetworkScan(Message result) {
-        unimplemented(result);
-    }
+    public void getAvailableNetworks(Message result) {unimplemented(result);}
 
     @Override
     public void getBasebandVersion (Message result) {
-        SimulatedCommandsVerifier.getInstance().getBasebandVersion(result);
         resultSuccess(result, "SimulatedCommands");
     }
 
@@ -1513,16 +1329,6 @@ public class SimulatedCommands extends BaseCommands
         // Just echo back data
         if (response != null) {
             AsyncResult.forMessage(response).result = data;
-            response.sendToTarget();
-        }
-    }
-
-    @Override
-    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
-                                                Message response) {
-        // Just echo back data
-        if (response != null) {
-            AsyncResult.forMessage(response).result = imsiEncryptionInfo;
             response.sendToTarget();
         }
     }
@@ -1678,9 +1484,9 @@ public class SimulatedCommands extends BaseCommands
         }
     }
 
-    private void resultFail(Message result, Object ret, Throwable tr) {
+    private void resultFail(Message result, Throwable tr) {
         if (result != null) {
-            AsyncResult.forMessage(result, ret, tr);
+            AsyncResult.forMessage(result).exception = tr;
             if (mPausedResponseCount > 0) {
                 mPausedResponses.add(result);
             } else {
@@ -1693,50 +1499,51 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void
     getDeviceIdentity(Message response) {
-        SimulatedCommandsVerifier.getInstance().getDeviceIdentity(response);
-        resultSuccess(response, new String[] {FAKE_IMEI, FAKE_IMEISV, FAKE_ESN, FAKE_MEID});
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
+        unimplemented(response);
     }
 
     @Override
     public void
-    getCDMASubscription(Message result) {
-        String ret[] = new String[5];
-        ret[0] = "123";
-        ret[1] = "456";
-        ret[2] = "789";
-        ret[3] = "234";
-        ret[4] = "345";
-        resultSuccess(result, ret);
+    getCDMASubscription(Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
+        unimplemented(response);
     }
 
     @Override
     public void
     setCdmaSubscriptionSource(int cdmaSubscriptionType, Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(response);
     }
 
     @Override
     public void queryCdmaRoamingPreference(Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(response);
     }
 
     @Override
     public void setCdmaRoamingPreference(int cdmaRoamingType, Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(response);
     }
 
     @Override
     public void
     setPhoneType(int phoneType) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
     }
 
     @Override
     public void getPreferredVoicePrivacy(Message result) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(result);
     }
 
     @Override
     public void setPreferredVoicePrivacy(boolean enable, Message result) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(result);
     }
 
@@ -1768,6 +1575,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void queryTTYMode(Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(response);
     }
 
@@ -1776,6 +1584,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void sendCDMAFeatureCode(String FeatureCode, Message response) {
+        Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
         unimplemented(response);
     }
 
@@ -1784,8 +1593,7 @@ public class SimulatedCommands extends BaseCommands
      */
     @Override
     public void sendCdmaSms(byte[] pdu, Message response){
-        SimulatedCommandsVerifier.getInstance().sendCdmaSms(pdu, response);
-        resultSuccess(response, null);
+       Rlog.w(LOG_TAG, "CDMA not implemented in SimulatedCommands");
     }
 
     @Override
@@ -1828,17 +1636,7 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void supplyIccPinForApp(String pin, String aid, Message response) {
-        SimulatedCommandsVerifier.getInstance().supplyIccPinForApp(pin, aid, response);
-        if (mPinCode != null && mPinCode.equals(pin)) {
-            resultSuccess(response, null);
-            return;
-        }
-
-        Rlog.i(LOG_TAG, "[SimCmd] supplyIccPinForApp: pin failed!");
-        CommandException ex = new CommandException(
-                CommandException.Error.PASSWORD_INCORRECT);
-        resultFail(response, new int[]{
-                (--mPin1attemptsRemaining < 0) ? 0 : mPin1attemptsRemaining}, ex);
+        unimplemented(response);
     }
 
     @Override
@@ -1858,14 +1656,17 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void changeIccPinForApp(String oldPin, String newPin, String aidPtr, Message response) {
-        SimulatedCommandsVerifier.getInstance().changeIccPinForApp(oldPin, newPin, aidPtr,
-                response);
-        changeIccPin(oldPin, newPin, response);
+        unimplemented(response);
     }
 
     @Override
     public void changeIccPin2ForApp(String oldPin2, String newPin2, String aidPtr,
             Message response) {
+        unimplemented(response);
+    }
+
+    @Override
+    public void requestIsimAuthentication(String nonce, Message response) {
         unimplemented(response);
     }
 
@@ -1876,92 +1677,48 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void getVoiceRadioTechnology(Message response) {
-        SimulatedCommandsVerifier.getInstance().getVoiceRadioTechnology(response);
-        int ret[] = new int[1];
-        ret[0] = mVoiceRadioTech;
-        resultSuccess(response, ret);
-    }
-
-    public void setCellInfoList(List<CellInfo> list) {
-        mCellInfoList = list;
-    }
-
-    @Override
-    public void getCellInfoList(Message response, WorkSource WorkSource) {
-        if (mCellInfoList == null) {
-            Parcel p = Parcel.obtain();
-            p.writeInt(1);
-            p.writeInt(1);
-            p.writeInt(2);
-            p.writeLong(1453510289108L);
-            p.writeInt(310);
-            p.writeInt(260);
-            p.writeInt(123);
-            p.writeInt(456);
-            p.writeInt(99);
-            p.writeInt(3);
-            p.setDataPosition(0);
-
-            CellInfoGsm cellInfo = CellInfoGsm.CREATOR.createFromParcel(p);
-
-            ArrayList<CellInfo> mCellInfoList = new ArrayList();
-            mCellInfoList.add(cellInfo);
-        }
-
-        resultSuccess(response, mCellInfoList);
-    }
-
-    @Override
-    public int getRilVersion() {
-        return 11;
-    }
-
-    @Override
-    public void setCellInfoListRate(int rateInMillis, Message response, WorkSource workSource) {
         unimplemented(response);
     }
 
     @Override
-    public void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result) {
+    public void getCellInfoList(Message response) {
+        unimplemented(response);
     }
 
     @Override
-    public void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result) {
+    public void setCellInfoListRate(int rateInMillis, Message response) {
+        unimplemented(response);
     }
 
-    public void setImsRegistrationState(int[] regState) {
-        mImsRegState = regState;
+    @Override
+    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
+            String password, Message result) {
+    }
+
+    @Override
+    public void setDataProfile(DataProfile[] dps, Message result) {
     }
 
     @Override
     public void getImsRegistrationState(Message response) {
-        if (mImsRegState == null) {
-            mImsRegState = new int[]{1, PhoneConstants.PHONE_TYPE_NONE};
-        }
-
-        resultSuccess(response, mImsRegState);
+        unimplemented(response);
     }
 
     @Override
     public void sendImsCdmaSms(byte[] pdu, int retry, int messageRef,
             Message response){
-        SimulatedCommandsVerifier.getInstance().sendImsCdmaSms(pdu, retry, messageRef, response);
-        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, 0));
+        unimplemented(response);
     }
 
     @Override
     public void sendImsGsmSms(String smscPDU, String pdu,
             int retry, int messageRef, Message response){
-        SimulatedCommandsVerifier.getInstance().sendImsGsmSms(smscPDU, pdu, retry, messageRef,
-                response);
-        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, 0));
+        unimplemented(response);
     }
 
     @Override
-    public void iccOpenLogicalChannel(String AID, int p2, Message response) {
-        SimulatedCommandsVerifier.getInstance().iccOpenLogicalChannel(AID, p2, response);
-        Object result = new int[]{mChannelId};
-        resultSuccess(response, result);
+    public void iccOpenLogicalChannel(String AID, Message response) {
+        unimplemented(response);
     }
 
     @Override
@@ -1971,15 +1728,8 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void iccTransmitApduLogicalChannel(int channel, int cla, int instruction,
-                                              int p1, int p2, int p3, String data,
-                                              Message response) {
-        SimulatedCommandsVerifier.getInstance().iccTransmitApduLogicalChannel(channel, cla,
-                instruction, p1, p2, p3, data, response);
-        if(mIccIoResultForApduLogicalChannel!=null) {
-            resultSuccess(response, mIccIoResultForApduLogicalChannel);
-        }else {
-            resultFail(response, null, new RuntimeException("IccIoResult not set"));
-        }
+            int p1, int p2, int p3, String data, Message response) {
+        unimplemented(response);
     }
 
     @Override
@@ -2020,8 +1770,7 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void startLceService(int report_interval_ms, boolean pullMode, Message result) {
-        SimulatedCommandsVerifier.getInstance().startLceService(report_interval_ms, pullMode,
-                result);
+        unimplemented(result);
     }
 
     @Override
@@ -2035,253 +1784,7 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void registerForLceInfo(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForLceInfo(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForLceInfo(Handler h) {
-        SimulatedCommandsVerifier.getInstance().unregisterForLceInfo(h);
-    }
-
-    @Override
     public void getModemActivityInfo(Message result) {
         unimplemented(result);
-    }
-
-    @Override
-    public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
-        unimplemented(result);
-    }
-
-    @Override
-    public void getAllowedCarriers(Message result) {
-        unimplemented(result);
-    }
-
-    @Override
-    public void getRadioCapability(Message result) {
-        SimulatedCommandsVerifier.getInstance().getRadioCapability(result);
-        resultSuccess(result, new RadioCapability(0, 0, 0, 0xFFFF, null, 0));
-    }
-    public void notifySmsStatus(Object result) {
-        if (mSmsStatusRegistrant != null) {
-            mSmsStatusRegistrant.notifyRegistrant(new AsyncResult(null, result, null));
-        }
-    }
-
-    public void notifyGsmBroadcastSms(Object result) {
-        if (mGsmBroadcastSmsRegistrant != null) {
-            mGsmBroadcastSmsRegistrant.notifyRegistrant(new AsyncResult(null, result, null));
-        }
-    }
-
-    public void notifyIccSmsFull() {
-        if (mIccSmsFullRegistrant != null) {
-            mIccSmsFullRegistrant.notifyRegistrant();
-        }
-    }
-
-    public void notifyEmergencyCallbackMode() {
-        if (mEmergencyCallbackModeRegistrant != null) {
-            mEmergencyCallbackModeRegistrant.notifyRegistrant();
-        }
-    }
-
-    @Override
-    public void setEmergencyCallbackMode(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().setEmergencyCallbackMode(h, what, obj);
-        super.setEmergencyCallbackMode(h, what, obj);
-    }
-
-    public void notifyExitEmergencyCallbackMode() {
-        if (mExitEmergencyCallbackModeRegistrants != null) {
-            mExitEmergencyCallbackModeRegistrants.notifyRegistrants(
-                    new AsyncResult (null, null, null));
-        }
-    }
-
-    public void notifyImsNetworkStateChanged() {
-        if(mImsNetworkStateChangedRegistrants != null) {
-            mImsNetworkStateChangedRegistrants.notifyRegistrants();
-        }
-    }
-
-    public void notifyModemReset() {
-        if (mModemResetRegistrants != null) {
-            mModemResetRegistrants.notifyRegistrants(new AsyncResult(null, "Test", null));
-        }
-    }
-
-    @Override
-    public void registerForExitEmergencyCallbackMode(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForExitEmergencyCallbackMode(h, what, obj);
-        super.registerForExitEmergencyCallbackMode(h, what, obj);
-    }
-
-    public void notifyRadioOn() {
-        mOnRegistrants.notifyRegistrants();
-    }
-
-    @VisibleForTesting
-    public void notifyNetworkStateChanged() {
-        mNetworkStateRegistrants.notifyRegistrants();
-    }
-
-    @VisibleForTesting
-    public void notifyOtaProvisionStatusChanged() {
-        if (mOtaProvisionRegistrants != null) {
-            int ret[] = new int[1];
-            ret[0] = Phone.CDMA_OTA_PROVISION_STATUS_COMMITTED;
-            mOtaProvisionRegistrants.notifyRegistrants(new AsyncResult(null, ret, null));
-        }
-    }
-
-    public void notifySignalStrength() {
-        if (mSignalStrength == null) {
-            mSignalStrength = new SignalStrength(
-                    20, // gsmSignalStrength
-                    0,  // gsmBitErrorRate
-                    -1, // cdmaDbm
-                    -1, // cdmaEcio
-                    -1, // evdoDbm
-                    -1, // evdoEcio
-                    -1, // evdoSnr
-                    99, // lteSignalStrength
-                    SignalStrength.INVALID,     // lteRsrp
-                    SignalStrength.INVALID,     // lteRsrq
-                    SignalStrength.INVALID,     // lteRssnr
-                    SignalStrength.INVALID,     // lteCqi
-                    SignalStrength.INVALID      // tdScdmaRscp
-            );
-        }
-
-        if (mSignalStrengthRegistrant != null) {
-            mSignalStrengthRegistrant.notifyRegistrant(
-                    new AsyncResult (null, mSignalStrength, null));
-        }
-    }
-
-    public void setIccCardStatus(IccCardStatus iccCardStatus){
-        mIccCardStatus = iccCardStatus;
-    }
-
-    public void setIccIoResultForApduLogicalChannel(IccIoResult iccIoResult) {
-        mIccIoResultForApduLogicalChannel = iccIoResult;
-    }
-
-    public void setOpenChannelId(int channelId) {
-        mChannelId = channelId;
-    }
-
-    public void setPin1RemainingAttempt(int pin1attemptsRemaining) {
-        mPin1attemptsRemaining = pin1attemptsRemaining;
-    }
-
-    private AtomicBoolean mAllowed = new AtomicBoolean(false);
-
-    @Override
-    public void setDataAllowed(boolean allowed, Message result) {
-        log("setDataAllowed = " + allowed);
-        mAllowed.set(allowed);
-        resultSuccess(result, null);
-    }
-
-    @VisibleForTesting
-    public boolean isDataAllowed() {
-        return mAllowed.get();
-    }
-
-    @Override
-    public void registerForPcoData(Handler h, int what, Object obj) {
-    }
-
-    @Override
-    public void unregisterForPcoData(Handler h) {
-    }
-
-    @Override
-    public void registerForModemReset(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForModemReset(h, what, obj);
-        super.registerForModemReset(h, what, obj);
-    }
-
-    @Override
-    public void sendDeviceState(int stateType, boolean state, Message result) {
-        SimulatedCommandsVerifier.getInstance().sendDeviceState(stateType, state, result);
-        resultSuccess(result, null);
-    }
-
-    @Override
-    public void setUnsolResponseFilter(int filter, Message result) {
-        SimulatedCommandsVerifier.getInstance().setUnsolResponseFilter(filter, result);
-        resultSuccess(result, null);
-    }
-
-    @Override
-    public void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb,
-            int[] thresholdsDbm, int ran, Message result) {
-    }
-
-    @Override
-    public void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
-            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
-            Message result) {
-    }
-
-    @Override
-    public void setSimCardPower(int state, Message result) {
-    }
-
-    @VisibleForTesting
-    public void triggerRestrictedStateChanged(int restrictedState) {
-        if (mRestrictedStateRegistrant != null) {
-            mRestrictedStateRegistrant.notifyRegistrant(
-                    new AsyncResult(null, restrictedState, null));
-        }
-    }
-
-    @Override
-    public void setOnRestrictedStateChanged(Handler h, int what, Object obj) {
-        super.setOnRestrictedStateChanged(h, what, obj);
-        SimulatedCommandsVerifier.getInstance().setOnRestrictedStateChanged(h, what, obj);
-    }
-
-    public void setRadioPowerFailResponse(boolean fail) {
-        mIsRadioPowerFailResponse = fail;
-    }
-
-    @Override
-    public void registerForIccRefresh(Handler h, int what, Object obj) {
-        super.registerForIccRefresh(h, what, obj);
-        SimulatedCommandsVerifier.getInstance().registerForIccRefresh(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForIccRefresh(Handler h) {
-        super.unregisterForIccRefresh(h);
-        SimulatedCommandsVerifier.getInstance().unregisterForIccRefresh(h);
-    }
-
-    @Override
-    public void registerForNattKeepaliveStatus(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForNattKeepaliveStatus(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForNattKeepaliveStatus(Handler h) {
-        SimulatedCommandsVerifier.getInstance().unregisterForNattKeepaliveStatus(h);
-    }
-
-    @Override
-    public void startNattKeepalive(
-            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result) {
-        SimulatedCommandsVerifier.getInstance().startNattKeepalive(
-                contextId, packetData, intervalMillis, result);
-    }
-
-    @Override
-    public void stopNattKeepalive(int sessionHandle, Message result) {
-        SimulatedCommandsVerifier.getInstance().stopNattKeepalive(sessionHandle, result);
     }
 }

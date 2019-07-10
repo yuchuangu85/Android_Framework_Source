@@ -16,11 +16,7 @@
 package com.android.internal.os;
 
 import android.os.Process;
-import android.os.StrictMode;
-import android.os.SystemClock;
 import android.util.Slog;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.FileInputStream;
 import java.util.Iterator;
@@ -68,9 +64,7 @@ public class KernelWakelockReader {
         byte[] buffer = new byte[32*1024];
         int len;
         boolean wakeup_sources;
-        final long startTime = SystemClock.uptimeMillis();
 
-        final int oldMask = StrictMode.allowThreadDiskReadsMask();
         try {
             FileInputStream is;
             try {
@@ -92,13 +86,6 @@ public class KernelWakelockReader {
         } catch (java.io.IOException e) {
             Slog.wtf(TAG, "failed to read kernel wakelocks", e);
             return null;
-        } finally {
-            StrictMode.setThreadPolicyMask(oldMask);
-        }
-
-        final long readTime = SystemClock.uptimeMillis() - startTime;
-        if (readTime > 100) {
-            Slog.w(TAG, "Reading wakelock stats took " + readTime + "ms");
         }
 
         if (len > 0) {
@@ -119,14 +106,14 @@ public class KernelWakelockReader {
     /**
      * Reads the wakelocks and updates the staleStats with the new information.
      */
-    @VisibleForTesting
-    public KernelWakelockStats parseProcWakelocks(byte[] wlBuffer, int len, boolean wakeup_sources,
-                                                  final KernelWakelockStats staleStats) {
+    private KernelWakelockStats parseProcWakelocks(byte[] wlBuffer, int len, boolean wakeup_sources,
+                                                   final KernelWakelockStats staleStats) {
         String name;
         int count;
         long totalTime;
         int startIndex;
         int endIndex;
+        int numUpdatedWlNames = 0;
 
         // Advance past the first line.
         int i;
@@ -139,10 +126,11 @@ public class KernelWakelockReader {
                 for (endIndex=startIndex;
                         endIndex < len && wlBuffer[endIndex] != '\n' && wlBuffer[endIndex] != '\0';
                         endIndex++);
+                endIndex++; // endIndex is an exclusive upper bound.
                 // Don't go over the end of the buffer, Process.parseProcLine might
                 // write to wlBuffer[endIndex]
-                if (endIndex > (len - 1) ) {
-                    break;
+                if (endIndex >= (len - 1) ) {
+                    return staleStats;
                 }
 
                 String[] nameStringArray = mProcWakelocksName;
@@ -173,6 +161,7 @@ public class KernelWakelockReader {
                     if (!staleStats.containsKey(name)) {
                         staleStats.put(name, new KernelWakelockStats.Entry(count, totalTime,
                                 sKernelWakelockUpdateVersion));
+                        numUpdatedWlNames++;
                     } else {
                         KernelWakelockStats.Entry kwlStats = staleStats.get(name);
                         if (kwlStats.mVersion == sKernelWakelockUpdateVersion) {
@@ -182,6 +171,7 @@ public class KernelWakelockReader {
                             kwlStats.mCount = count;
                             kwlStats.mTotalTime = totalTime;
                             kwlStats.mVersion = sKernelWakelockUpdateVersion;
+                            numUpdatedWlNames++;
                         }
                     }
                 } else if (!parsed) {
@@ -192,14 +182,16 @@ public class KernelWakelockReader {
                         Slog.wtf(TAG, "Failed to parse proc line!");
                     }
                 }
-                startIndex = endIndex + 1;
+                startIndex = endIndex;
             }
 
-            // Don't report old data.
-            Iterator<KernelWakelockStats.Entry> itr = staleStats.values().iterator();
-            while (itr.hasNext()) {
-                if (itr.next().mVersion != sKernelWakelockUpdateVersion) {
-                    itr.remove();
+            if (staleStats.size() != numUpdatedWlNames) {
+                // Don't report old data.
+                Iterator<KernelWakelockStats.Entry> itr = staleStats.values().iterator();
+                while (itr.hasNext()) {
+                    if (itr.next().mVersion != sKernelWakelockUpdateVersion) {
+                        itr.remove();
+                    }
                 }
             }
 

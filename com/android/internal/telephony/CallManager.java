@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.sip.SipPhone;
 
 import android.content.Context;
@@ -55,7 +56,7 @@ import java.util.List;
  *
  *
  */
-public class CallManager {
+public final class CallManager {
 
     private static final String LOG_TAG ="CallManager";
     private static final boolean DBG = true;
@@ -89,7 +90,7 @@ public class CallManager {
     // Singleton instance
     private static final CallManager INSTANCE = new CallManager();
 
-    // list of registered phones, which are Phone objs
+    // list of registered phones, which are PhoneBase objs
     private final ArrayList<Phone> mPhones;
 
     // list of supported ringing calls
@@ -107,14 +108,12 @@ public class CallManager {
     // mapping of phones to registered handler instances used for callbacks from RIL
     private final HashMap<Phone, CallManagerHandler> mHandlerMap = new HashMap<>();
 
-    // default phone as the first phone registered, which is Phone obj
+    // default phone as the first phone registered, which is PhoneBase obj
     private Phone mDefaultPhone;
 
     private boolean mSpeedUpAudioForMtCall = false;
     // FIXME Taken from klp-sprout-dev but setAudioMode was removed in L.
     //private boolean mIsEccDialing = false;
-
-    private Object mRegistrantidentifier = new Object();
 
     // state registrants
     protected final RegistrantList mPreciseCallStateRegistrants
@@ -203,6 +202,46 @@ public class CallManager {
     }
 
     /**
+     * Get the corresponding PhoneBase obj
+     *
+     * @param phone a Phone object
+     * @return the corresponding PhoneBase obj in Phone if Phone
+     * is a PhoneProxy obj
+     * or the Phone itself if Phone is not a PhoneProxy obj
+     */
+    private static Phone getPhoneBase(Phone phone) {
+        if (phone instanceof PhoneProxy) {
+            return phone.getForegroundCall().getPhone();
+        }
+        return phone;
+    }
+
+    /**
+     * Check if two phones refer to the same PhoneBase obj
+     *
+     * Note: PhoneBase, not PhoneProxy, is to be used inside of CallManager
+     *
+     * Both PhoneBase and PhoneProxy implement Phone interface, so
+     * they have same phone APIs, such as dial(). The real implementation, for
+     * example in GSM,  is in GSMPhone as extend from PhoneBase, so that
+     * foregroundCall.getPhone() returns GSMPhone obj. On the other hand,
+     * PhoneFactory.getDefaultPhone() returns PhoneProxy obj, which has a class
+     * member of GSMPhone.
+     *
+     * So for phone returned by PhoneFacotry, which is used by PhoneApp,
+     *        phone.getForegroundCall().getPhone() != phone
+     * but
+     *        isSamePhone(phone, phone.getForegroundCall().getPhone()) == true
+     *
+     * @param p1 is the first Phone obj
+     * @param p2 is the second Phone obj
+     * @return true if p1 and p2 refer to the same phone
+     */
+    public static boolean isSamePhone(Phone p1, Phone p2) {
+        return (getPhoneBase(p1) == getPhoneBase(p2));
+    }
+
+    /**
      * Returns all the registered phone objects.
      * @return all the registered phone objects.
      */
@@ -217,8 +256,7 @@ public class CallManager {
     private Phone getPhone(int subId) {
         Phone p = null;
         for (Phone phone : mPhones) {
-            if (phone.getSubId() == subId &&
-                    phone.getPhoneType() != PhoneConstants.PHONE_TYPE_IMS) {
+            if (phone.getSubId() == subId && !(phone instanceof ImsPhone)) {
                 p = phone;
                 break;
             }
@@ -366,7 +404,9 @@ public class CallManager {
      * @return true if register successfully
      */
     public boolean registerPhone(Phone phone) {
-        if (phone != null && !mPhones.contains(phone)) {
+        Phone basePhone = getPhoneBase(phone);
+
+        if (basePhone != null && !mPhones.contains(basePhone)) {
 
             if (DBG) {
                 Rlog.d(LOG_TAG, "registerPhone(" +
@@ -374,13 +414,13 @@ public class CallManager {
             }
 
             if (mPhones.isEmpty()) {
-                mDefaultPhone = phone;
+                mDefaultPhone = basePhone;
             }
-            mPhones.add(phone);
-            mRingingCalls.add(phone.getRingingCall());
-            mBackgroundCalls.add(phone.getBackgroundCall());
-            mForegroundCalls.add(phone.getForegroundCall());
-            registerForPhoneStates(phone);
+            mPhones.add(basePhone);
+            mRingingCalls.add(basePhone.getRingingCall());
+            mBackgroundCalls.add(basePhone.getBackgroundCall());
+            mForegroundCalls.add(basePhone.getForegroundCall());
+            registerForPhoneStates(basePhone);
             return true;
         }
         return false;
@@ -391,24 +431,26 @@ public class CallManager {
      * @param phone to be unregistered
      */
     public void unregisterPhone(Phone phone) {
-        if (phone != null && mPhones.contains(phone)) {
+        Phone basePhone = getPhoneBase(phone);
+
+        if (basePhone != null && mPhones.contains(basePhone)) {
 
             if (DBG) {
                 Rlog.d(LOG_TAG, "unregisterPhone(" +
                         phone.getPhoneName() + " " + phone + ")");
             }
 
-            Phone imsPhone = phone.getImsPhone();
-            if (imsPhone != null) {
-                unregisterPhone(imsPhone);
+            Phone vPhone = basePhone.getImsPhone();
+            if (vPhone != null) {
+               unregisterPhone(vPhone);
             }
 
-            mPhones.remove(phone);
-            mRingingCalls.remove(phone.getRingingCall());
-            mBackgroundCalls.remove(phone.getBackgroundCall());
-            mForegroundCalls.remove(phone.getForegroundCall());
-            unregisterForPhoneStates(phone);
-            if (phone == mDefaultPhone) {
+            mPhones.remove(basePhone);
+            mRingingCalls.remove(basePhone.getRingingCall());
+            mBackgroundCalls.remove(basePhone.getBackgroundCall());
+            mForegroundCalls.remove(basePhone.getForegroundCall());
+            unregisterForPhoneStates(basePhone);
+            if (basePhone == mDefaultPhone) {
                 if (mPhones.isEmpty()) {
                     mDefaultPhone = null;
                 } else {
@@ -550,10 +592,6 @@ public class CallManager {
         return ((defaultPhone == null) ? null : defaultPhone.getContext());
     }
 
-    public Object getRegistrantIdentifier() {
-        return mRegistrantidentifier;
-    }
-
     private void registerForPhoneStates(Phone phone) {
         // We need to keep a mapping of handler to Phone for proper unregistration.
         // TODO: Clean up this solution as it is just a work around for each Phone instance
@@ -571,61 +609,51 @@ public class CallManager {
         mHandlerMap.put(phone, handler);
 
         // for common events supported by all phones
-        // The mRegistrantIdentifier passed here, is to identify in the Phone
-        // that the registrants are coming from the CallManager.
-        phone.registerForPreciseCallStateChanged(handler, EVENT_PRECISE_CALL_STATE_CHANGED,
-                mRegistrantidentifier);
-        phone.registerForDisconnect(handler, EVENT_DISCONNECT,
-                mRegistrantidentifier);
-        phone.registerForNewRingingConnection(handler, EVENT_NEW_RINGING_CONNECTION,
-                mRegistrantidentifier);
-        phone.registerForUnknownConnection(handler, EVENT_UNKNOWN_CONNECTION,
-                mRegistrantidentifier);
-        phone.registerForIncomingRing(handler, EVENT_INCOMING_RING,
-                mRegistrantidentifier);
-        phone.registerForRingbackTone(handler, EVENT_RINGBACK_TONE,
-                mRegistrantidentifier);
-        phone.registerForInCallVoicePrivacyOn(handler, EVENT_IN_CALL_VOICE_PRIVACY_ON,
-                mRegistrantidentifier);
-        phone.registerForInCallVoicePrivacyOff(handler, EVENT_IN_CALL_VOICE_PRIVACY_OFF,
-                mRegistrantidentifier);
-        phone.registerForDisplayInfo(handler, EVENT_DISPLAY_INFO,
-                mRegistrantidentifier);
-        phone.registerForSignalInfo(handler, EVENT_SIGNAL_INFO,
-                mRegistrantidentifier);
-        phone.registerForResendIncallMute(handler, EVENT_RESEND_INCALL_MUTE,
-                mRegistrantidentifier);
-        phone.registerForMmiInitiate(handler, EVENT_MMI_INITIATE,
-                mRegistrantidentifier);
-        phone.registerForMmiComplete(handler, EVENT_MMI_COMPLETE,
-                mRegistrantidentifier);
-        phone.registerForSuppServiceFailed(handler, EVENT_SUPP_SERVICE_FAILED,
-                mRegistrantidentifier);
-        phone.registerForServiceStateChanged(handler, EVENT_SERVICE_STATE_CHANGED,
-                mRegistrantidentifier);
-
+        phone.registerForPreciseCallStateChanged(handler, EVENT_PRECISE_CALL_STATE_CHANGED, null);
+        phone.registerForDisconnect(handler, EVENT_DISCONNECT, null);
+        phone.registerForNewRingingConnection(handler, EVENT_NEW_RINGING_CONNECTION, null);
+        phone.registerForUnknownConnection(handler, EVENT_UNKNOWN_CONNECTION, null);
+        phone.registerForIncomingRing(handler, EVENT_INCOMING_RING, null);
+        phone.registerForRingbackTone(handler, EVENT_RINGBACK_TONE, null);
+        phone.registerForInCallVoicePrivacyOn(handler, EVENT_IN_CALL_VOICE_PRIVACY_ON, null);
+        phone.registerForInCallVoicePrivacyOff(handler, EVENT_IN_CALL_VOICE_PRIVACY_OFF, null);
+        phone.registerForDisplayInfo(handler, EVENT_DISPLAY_INFO, null);
+        phone.registerForSignalInfo(handler, EVENT_SIGNAL_INFO, null);
+        phone.registerForResendIncallMute(handler, EVENT_RESEND_INCALL_MUTE, null);
+        phone.registerForMmiInitiate(handler, EVENT_MMI_INITIATE, null);
+        phone.registerForMmiComplete(handler, EVENT_MMI_COMPLETE, null);
+        phone.registerForSuppServiceFailed(handler, EVENT_SUPP_SERVICE_FAILED, null);
+        phone.registerForServiceStateChanged(handler, EVENT_SERVICE_STATE_CHANGED, null);
         // FIXME Taken from klp-sprout-dev but setAudioMode was removed in L.
         //phone.registerForRadioOffOrNotAvailable(handler, EVENT_RADIO_OFF_OR_NOT_AVAILABLE, null);
 
         // for events supported only by GSM, CDMA and IMS phone
-        phone.setOnPostDialCharacter(handler, EVENT_POST_DIAL_CHARACTER, null);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM ||
+                phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA ||
+                phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
+            phone.setOnPostDialCharacter(handler, EVENT_POST_DIAL_CHARACTER, null);
+        }
 
         // for events supported only by CDMA phone
-        phone.registerForCdmaOtaStatusChange(handler, EVENT_CDMA_OTA_STATUS_CHANGE, null);
-        phone.registerForSubscriptionInfoReady(handler, EVENT_SUBSCRIPTION_INFO_READY, null);
-        phone.registerForCallWaiting(handler, EVENT_CALL_WAITING, null);
-        phone.registerForEcmTimerReset(handler, EVENT_ECM_TIMER_RESET, null);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA ){
+            phone.registerForCdmaOtaStatusChange(handler, EVENT_CDMA_OTA_STATUS_CHANGE, null);
+            phone.registerForSubscriptionInfoReady(handler, EVENT_SUBSCRIPTION_INFO_READY, null);
+            phone.registerForCallWaiting(handler, EVENT_CALL_WAITING, null);
+            phone.registerForEcmTimerReset(handler, EVENT_ECM_TIMER_RESET, null);
+        }
 
         // for events supported only by IMS phone
-        phone.registerForOnHoldTone(handler, EVENT_ONHOLD_TONE, null);
-        phone.registerForSuppServiceFailed(handler, EVENT_SUPP_SERVICE_FAILED, null);
-        phone.registerForTtyModeReceived(handler, EVENT_TTY_MODE_RECEIVED, null);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
+            phone.registerForOnHoldTone(handler, EVENT_ONHOLD_TONE, null);
+            phone.registerForSuppServiceFailed(handler, EVENT_SUPP_SERVICE_FAILED, null);
+            phone.registerForTtyModeReceived(handler, EVENT_TTY_MODE_RECEIVED, null);
+        }
     }
 
     private void unregisterForPhoneStates(Phone phone) {
         // Make sure that we clean up our map of handlers to Phones.
         CallManagerHandler handler = mHandlerMap.get(phone);
-        if (handler == null) {
+        if (handler != null) {
             Rlog.e(LOG_TAG, "Could not find Phone handler for unregistration");
             return;
         }
@@ -652,17 +680,25 @@ public class CallManager {
         //phone.unregisterForRadioOffOrNotAvailable(handler);
 
         // for events supported only by GSM, CDMA and IMS phone
-        phone.setOnPostDialCharacter(null, EVENT_POST_DIAL_CHARACTER, null);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM ||
+                phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA ||
+                phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
+            phone.setOnPostDialCharacter(null, EVENT_POST_DIAL_CHARACTER, null);
+        }
 
         // for events supported only by CDMA phone
-        phone.unregisterForCdmaOtaStatusChange(handler);
-        phone.unregisterForSubscriptionInfoReady(handler);
-        phone.unregisterForCallWaiting(handler);
-        phone.unregisterForEcmTimerReset(handler);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA ){
+            phone.unregisterForCdmaOtaStatusChange(handler);
+            phone.unregisterForSubscriptionInfoReady(handler);
+            phone.unregisterForCallWaiting(handler);
+            phone.unregisterForEcmTimerReset(handler);
+        }
 
         // for events supported only by IMS phone
-        phone.unregisterForOnHoldTone(handler);
-        phone.unregisterForSuppServiceFailed(handler);
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
+            phone.unregisterForOnHoldTone(handler);
+            phone.unregisterForSuppServiceFailed(handler);
+        }
     }
 
     /**
@@ -915,11 +951,12 @@ public class CallManager {
      */
     public Connection dial(Phone phone, String dialString, int videoState)
             throws CallStateException {
+        Phone basePhone = getPhoneBase(phone);
         int subId = phone.getSubId();
         Connection result;
 
         if (VDBG) {
-            Rlog.d(LOG_TAG, " dial(" + phone + ", "+ dialString + ")" +
+            Rlog.d(LOG_TAG, " dial(" + basePhone + ", "+ dialString + ")" +
                     " subId = " + subId);
             Rlog.d(LOG_TAG, toString());
         }
@@ -931,7 +968,7 @@ public class CallManager {
              * within a call eg: call hold, call deflection, explicit call transfer etc.
              */
             String newDialString = PhoneNumberUtils.stripSeparators(dialString);
-            if (phone.handleInCallMmiCommands(newDialString)) {
+            if (basePhone.handleInCallMmiCommands(newDialString)) {
                 return null;
             } else {
                 throw new CallStateException("cannot dial in current state");
@@ -943,14 +980,14 @@ public class CallManager {
             boolean hasBgCall = !(activePhone.getBackgroundCall().isIdle());
 
             if (DBG) {
-                Rlog.d(LOG_TAG, "hasBgCall: "+ hasBgCall + " sameChannel:" + (activePhone == phone));
+                Rlog.d(LOG_TAG, "hasBgCall: "+ hasBgCall + " sameChannel:" + (activePhone == basePhone));
             }
 
             // Manipulation between IMS phone and its owner
             // will be treated in GSM/CDMA phone.
-            Phone imsPhone = phone.getImsPhone();
-            if (activePhone != phone
-                    && (imsPhone == null || imsPhone != activePhone)) {
+            Phone vPhone = basePhone.getImsPhone();
+            if (activePhone != basePhone
+                    && (vPhone == null || vPhone != activePhone)) {
                 if (hasBgCall) {
                     Rlog.d(LOG_TAG, "Hangup");
                     getActiveFgCall(subId).hangup();
@@ -964,11 +1001,10 @@ public class CallManager {
         // FIXME Taken from klp-sprout-dev but setAudioMode was removed in L.
         //mIsEccDialing = PhoneNumberUtils.isEmergencyNumber(dialString);
 
-        result = phone.dial(dialString, new PhoneInternalInterface.DialArgs.Builder<>()
-                .setVideoState(videoState).build());
+        result = basePhone.dial(dialString, videoState);
 
         if (VDBG) {
-            Rlog.d(LOG_TAG, "End dial(" + phone + ", "+ dialString + ")");
+            Rlog.d(LOG_TAG, "End dial(" + basePhone + ", "+ dialString + ")");
             Rlog.d(LOG_TAG, toString());
         }
 
@@ -987,10 +1023,7 @@ public class CallManager {
      */
     public Connection dial(Phone phone, String dialString, UUSInfo uusInfo, int videoState)
             throws CallStateException {
-        return phone.dial(dialString,
-                new PhoneInternalInterface.DialArgs.Builder<>()
-                        .setUusInfo(uusInfo)
-                        .setVideoState(videoState).build());
+        return phone.dial(dialString, uusInfo, videoState, null);
     }
 
     /**
@@ -1497,7 +1530,6 @@ public class CallManager {
      * <code>obj.result</code> will be an "MmiCode" object
      */
     public void registerForMmiComplete(Handler h, int what, Object obj){
-        Rlog.d(LOG_TAG, "registerForMmiComplete");
         mMmiCompleteRegistrants.addUnique(h, what, obj);
     }
 
@@ -2322,7 +2354,7 @@ public class CallManager {
                     mMmiInitiateRegistrants.notifyRegistrants((AsyncResult) msg.obj);
                     break;
                 case EVENT_MMI_COMPLETE:
-                    Rlog.d(LOG_TAG, "CallManager: handleMessage (EVENT_MMI_COMPLETE)");
+                    if (VDBG) Rlog.d(LOG_TAG, " handleMessage (EVENT_MMI_COMPLETE)");
                     mMmiCompleteRegistrants.notifyRegistrants((AsyncResult) msg.obj);
                     break;
                 case EVENT_ECM_TIMER_RESET:

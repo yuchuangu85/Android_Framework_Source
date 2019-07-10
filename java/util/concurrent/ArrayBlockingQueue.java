@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -36,14 +7,11 @@
 package java.util.concurrent;
 
 import java.lang.ref.WeakReference;
-import java.util.AbstractQueue;
 import java.util.Arrays;
+import java.util.AbstractQueue;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Objects;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -124,7 +92,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * are known not to be any.  Allows queue operations to update
      * iterator state.
      */
-    transient Itrs itrs;
+    transient Itrs itrs = null;
 
     // Internal helper methods
 
@@ -269,8 +237,10 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         try {
             int i = 0;
             try {
-                for (E e : c)
-                    items[i++] = Objects.requireNonNull(e);
+                for (E e : c) {
+                    if (e == null) throw new NullPointerException();
+                    items[i++] = e;
+                }
             } catch (ArrayIndexOutOfBoundsException ex) {
                 throw new IllegalArgumentException();
             }
@@ -306,7 +276,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws NullPointerException if the specified element is null
      */
     public boolean offer(E e) {
-        Objects.requireNonNull(e);
+        if (e == null) throw new NullPointerException();
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
@@ -329,7 +299,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws NullPointerException {@inheritDoc}
      */
     public void put(E e) throws InterruptedException {
-        Objects.requireNonNull(e);
+        if (e == null) throw new NullPointerException();
         final ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
         try {
@@ -352,13 +322,13 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     public boolean offer(E e, long timeout, TimeUnit unit)
         throws InterruptedException {
 
-        Objects.requireNonNull(e);
+        if (e == null) throw new NullPointerException();
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
         try {
             while (count == items.length) {
-                if (nanos <= 0L)
+                if (nanos <= 0)
                     return false;
                 nanos = notFull.awaitNanos(nanos);
             }
@@ -397,7 +367,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         lock.lockInterruptibly();
         try {
             while (count == 0) {
-                if (nanos <= 0L)
+                if (nanos <= 0)
                     return null;
                 nanos = notEmpty.awaitNanos(nanos);
             }
@@ -614,7 +584,27 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     }
 
     public String toString() {
-        return Helpers.collectionToString(this);
+        final ReentrantLock lock = this.lock;
+        lock.lock();
+        try {
+            int k = count;
+            if (k == 0)
+                return "[]";
+
+            final Object[] items = this.items;
+            StringBuilder sb = new StringBuilder();
+            sb.append('[');
+            for (int i = takeIndex; ; ) {
+                Object e = items[i];
+                sb.append(e == this ? "(this Collection)" : e);
+                if (--k == 0)
+                    return sb.append(']').toString();
+                sb.append(',').append(' ');
+                if (++i == items.length) i = 0;
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -622,12 +612,12 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * The queue will be empty after this call returns.
      */
     public void clear() {
+        final Object[] items = this.items;
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
             int k = count;
             if (k > 0) {
-                final Object[] items = this.items;
                 final int putIndex = this.putIndex;
                 int i = takeIndex;
                 do {
@@ -663,7 +653,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws IllegalArgumentException      {@inheritDoc}
      */
     public int drainTo(Collection<? super E> c, int maxElements) {
-        Objects.requireNonNull(c);
+        if (c == null) throw new NullPointerException();
         if (c == this)
             throw new IllegalArgumentException();
         if (maxElements <= 0)
@@ -1341,29 +1331,6 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
 //                     "size()=" + size() + " " +
 //                     "remainingCapacity()=" + remainingCapacity());
 //         }
-    }
-
-    /**
-     * Returns a {@link Spliterator} over the elements in this queue.
-     *
-     * <p>The returned spliterator is
-     * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
-     *
-     * <p>The {@code Spliterator} reports {@link Spliterator#CONCURRENT},
-     * {@link Spliterator#ORDERED}, and {@link Spliterator#NONNULL}.
-     *
-     * @implNote
-     * The {@code Spliterator} implements {@code trySplit} to permit limited
-     * parallelism.
-     *
-     * @return a {@code Spliterator} over the elements in this queue
-     * @since 1.8
-     */
-    public Spliterator<E> spliterator() {
-        return Spliterators.spliterator
-            (this, (Spliterator.ORDERED |
-                    Spliterator.NONNULL |
-                    Spliterator.CONCURRENT));
     }
 
 }

@@ -21,7 +21,6 @@ import android.graphics.PointF;
 import android.util.FloatProperty;
 import android.util.IntProperty;
 import android.util.Log;
-import android.util.PathParser;
 import android.util.Property;
 
 import java.lang.reflect.InvocationTargetException;
@@ -236,7 +235,6 @@ public class PropertyValuesHolder implements Cloneable {
      * @see ObjectAnimator#ofMultiInt(Object, String, TypeConverter, TypeEvaluator, Object[])
      * @see ObjectAnimator#ofPropertyValuesHolder(Object, PropertyValuesHolder...)
      */
-    @SafeVarargs
     public static <V> PropertyValuesHolder ofMultiInt(String propertyName,
             TypeConverter<V, int[]> converter, TypeEvaluator<V> evaluator, V... values) {
         return new MultiIntValuesHolder(propertyName, converter, evaluator, values);
@@ -354,7 +352,6 @@ public class PropertyValuesHolder implements Cloneable {
      * @return PropertyValuesHolder The constructed PropertyValuesHolder object.
      * @see ObjectAnimator#ofMultiFloat(Object, String, TypeConverter, TypeEvaluator, Object[])
      */
-    @SafeVarargs
     public static <V> PropertyValuesHolder ofMultiFloat(String propertyName,
             TypeConverter<V, float[]> converter, TypeEvaluator<V> evaluator, V... values) {
         return new MultiFloatValuesHolder(propertyName, converter, evaluator, values);
@@ -387,11 +384,6 @@ public class PropertyValuesHolder implements Cloneable {
      * Constructs and returns a PropertyValuesHolder with a given property name and
      * set of Object values. This variant also takes a TypeEvaluator because the system
      * cannot automatically interpolate between objects of unknown type.
-     *
-     * <p><strong>Note:</strong> The Object values are stored as references to the original
-     * objects, which means that changes to those objects after this method is called will
-     * affect the values on the PropertyValuesHolder. If the objects will be mutated externally
-     * after this method is called, callers should pass a copy of those objects instead.
      *
      * @param propertyName The name of the property being animated.
      * @param evaluator A TypeEvaluator that will be called on each animation frame to
@@ -438,11 +430,6 @@ public class PropertyValuesHolder implements Cloneable {
      * set of Object values. This variant also takes a TypeEvaluator because the system
      * cannot automatically interpolate between objects of unknown type.
      *
-     * <p><strong>Note:</strong> The Object values are stored as references to the original
-     * objects, which means that changes to those objects after this method is called will
-     * affect the values on the PropertyValuesHolder. If the objects will be mutated externally
-     * after this method is called, callers should pass a copy of those objects instead.
-     *
      * @param property The property being animated. Should not be null.
      * @param evaluator A TypeEvaluator that will be called on each animation frame to
      * provide the necessary interpolation between the Object values to derive the animated
@@ -450,7 +437,6 @@ public class PropertyValuesHolder implements Cloneable {
      * @param values The values that the property will animate between.
      * @return PropertyValuesHolder The constructed PropertyValuesHolder object.
      */
-    @SafeVarargs
     public static <V> PropertyValuesHolder ofObject(Property property,
             TypeEvaluator<V> evaluator, V... values) {
         PropertyValuesHolder pvh = new PropertyValuesHolder(property);
@@ -468,11 +454,6 @@ public class PropertyValuesHolder implements Cloneable {
      * must be a {@link android.animation.BidirectionalTypeConverter} to retrieve the current
      * value.
      *
-     * <p><strong>Note:</strong> The Object values are stored as references to the original
-     * objects, which means that changes to those objects after this method is called will
-     * affect the values on the PropertyValuesHolder. If the objects will be mutated externally
-     * after this method is called, callers should pass a copy of those objects instead.
-     *
      * @param property The property being animated. Should not be null.
      * @param converter Converts the animated object to the Property type.
      * @param evaluator A TypeEvaluator that will be called on each animation frame to
@@ -483,7 +464,6 @@ public class PropertyValuesHolder implements Cloneable {
      * @see #setConverter(TypeConverter)
      * @see TypeConverter
      */
-    @SafeVarargs
     public static <T, V> PropertyValuesHolder ofObject(Property<?, V> property,
             TypeConverter<T, V> converter, TypeEvaluator<T> evaluator, T... values) {
         PropertyValuesHolder pvh = new PropertyValuesHolder(property);
@@ -651,12 +631,7 @@ public class PropertyValuesHolder implements Cloneable {
      * {@link ObjectAnimator}, and with a getter function
      * derived automatically from <code>propertyName</code>, since otherwise PropertyValuesHolder has
      * no way of determining what the value should be.
-     *
-     * <p><strong>Note:</strong> The Object values are stored as references to the original
-     * objects, which means that changes to those objects after this method is called will
-     * affect the values on the PropertyValuesHolder. If the objects will be mutated externally
-     * after this method is called, callers should pass a copy of those objects instead.
-     *
+     * 
      * @param values One or more values that the animation will animate between.
      */
     public void setObjectValues(Object... values) {
@@ -807,6 +782,7 @@ public class PropertyValuesHolder implements Cloneable {
      * @param target The object on which the setter (and possibly getter) exist.
      */
     void setupSetterAndGetter(Object target) {
+        mKeyframes.invalidateCache();
         if (mProperty != null) {
             // check to make sure that mProperty is on the class of target
             try {
@@ -885,23 +861,22 @@ public class PropertyValuesHolder implements Cloneable {
         if (mProperty != null) {
             Object value = convertBack(mProperty.get(target));
             kf.setValue(value);
-        } else {
-            try {
+        }
+        try {
+            if (mGetter == null) {
+                Class targetClass = target.getClass();
+                setupGetter(targetClass);
                 if (mGetter == null) {
-                    Class targetClass = target.getClass();
-                    setupGetter(targetClass);
-                    if (mGetter == null) {
-                        // Already logged the error - just return to avoid NPE
-                        return;
-                    }
+                    // Already logged the error - just return to avoid NPE
+                    return;
                 }
-                Object value = convertBack(mGetter.invoke(target));
-                kf.setValue(value);
-            } catch (InvocationTargetException e) {
-                Log.e("PropertyValuesHolder", e.toString());
-            } catch (IllegalAccessException e) {
-                Log.e("PropertyValuesHolder", e.toString());
             }
+            Object value = convertBack(mGetter.invoke(target));
+            kf.setValue(value);
+        } catch (InvocationTargetException e) {
+            Log.e("PropertyValuesHolder", e.toString());
+        } catch (IllegalAccessException e) {
+            Log.e("PropertyValuesHolder", e.toString());
         }
     }
 
@@ -1070,54 +1045,6 @@ public class PropertyValuesHolder implements Cloneable {
         return mAnimatedValue;
     }
 
-    /**
-     * PropertyValuesHolder is Animators use to hold internal animation related data.
-     * Therefore, in order to replicate the animation behavior, we need to get data out of
-     * PropertyValuesHolder.
-     * @hide
-     */
-    public void getPropertyValues(PropertyValues values) {
-        init();
-        values.propertyName = mPropertyName;
-        values.type = mValueType;
-        values.startValue = mKeyframes.getValue(0);
-        if (values.startValue instanceof PathParser.PathData) {
-            // PathData evaluator returns the same mutable PathData object when query fraction,
-            // so we have to make a copy here.
-            values.startValue = new PathParser.PathData((PathParser.PathData) values.startValue);
-        }
-        values.endValue = mKeyframes.getValue(1);
-        if (values.endValue instanceof PathParser.PathData) {
-            // PathData evaluator returns the same mutable PathData object when query fraction,
-            // so we have to make a copy here.
-            values.endValue = new PathParser.PathData((PathParser.PathData) values.endValue);
-        }
-        // TODO: We need a better way to get data out of keyframes.
-        if (mKeyframes instanceof PathKeyframes.FloatKeyframesBase
-                || mKeyframes instanceof PathKeyframes.IntKeyframesBase
-                || (mKeyframes.getKeyframes() != null && mKeyframes.getKeyframes().size() > 2)) {
-            // When a pvh has more than 2 keyframes, that means there are intermediate values in
-            // addition to start/end values defined for animators. Another case where such
-            // intermediate values are defined is when animator has a path to animate along. In
-            // these cases, a data source is needed to capture these intermediate values.
-            values.dataSource = new PropertyValues.DataSource() {
-                @Override
-                public Object getValueAtFraction(float fraction) {
-                    return mKeyframes.getValue(fraction);
-                }
-            };
-        } else {
-            values.dataSource = null;
-        }
-    }
-
-    /**
-     * @hide
-     */
-    public Class getValueType() {
-        return mValueType;
-    }
-
     @Override
     public String toString() {
         return mPropertyName + ": " + mKeyframes.toString();
@@ -1184,15 +1111,6 @@ public class PropertyValuesHolder implements Cloneable {
             setIntValues(values);
             if (property instanceof  IntProperty) {
                 mIntProperty = (IntProperty) mProperty;
-            }
-        }
-
-        @Override
-        public void setProperty(Property property) {
-            if (property instanceof IntProperty) {
-                mIntProperty = (IntProperty) property;
-            } else {
-                super.setProperty(property);
             }
         }
 
@@ -1331,15 +1249,6 @@ public class PropertyValuesHolder implements Cloneable {
             setFloatValues(values);
             if (property instanceof  FloatProperty) {
                 mFloatProperty = (FloatProperty) mProperty;
-            }
-        }
-
-        @Override
-        public void setProperty(Property property) {
-            if (property instanceof FloatProperty) {
-                mFloatProperty = (FloatProperty) property;
-            } else {
-                super.setProperty(property);
             }
         }
 
@@ -1544,7 +1453,7 @@ public class PropertyValuesHolder implements Cloneable {
                     }
                     propertyMap.put(mPropertyName, mJniSetter);
                 }
-            }
+           }
         }
     }
 
@@ -1690,24 +1599,6 @@ public class PropertyValuesHolder implements Cloneable {
             return mCoordinates;
         }
     };
-
-    /**
-     * @hide
-     */
-    public static class PropertyValues {
-        public String propertyName;
-        public Class type;
-        public Object startValue;
-        public Object endValue;
-        public DataSource dataSource = null;
-        public interface DataSource {
-            Object getValueAtFraction(float fraction);
-        }
-        public String toString() {
-            return ("property name: " + propertyName + ", type: " + type + ", startValue: "
-                    + startValue.toString() + ", endValue: " + endValue.toString());
-        }
-    }
 
     native static private long nGetIntMethod(Class targetClass, String methodName);
     native static private long nGetFloatMethod(Class targetClass, String methodName);

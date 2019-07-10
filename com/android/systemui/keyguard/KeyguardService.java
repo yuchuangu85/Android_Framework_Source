@@ -23,15 +23,12 @@ import android.os.Bundle;
 import android.os.Debug;
 import android.os.IBinder;
 import android.os.Process;
-import android.os.Trace;
 import android.util.Log;
 
-import com.android.internal.policy.IKeyguardDismissCallback;
 import com.android.internal.policy.IKeyguardDrawnCallback;
 import com.android.internal.policy.IKeyguardExitCallback;
 import com.android.internal.policy.IKeyguardService;
 import com.android.internal.policy.IKeyguardStateCallback;
-import com.android.systemui.Dependency;
 import com.android.systemui.SystemUIApplication;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -41,17 +38,12 @@ public class KeyguardService extends Service {
     static final String PERMISSION = android.Manifest.permission.CONTROL_KEYGUARD;
 
     private KeyguardViewMediator mKeyguardViewMediator;
-    private KeyguardLifecyclesDispatcher mKeyguardLifecyclesDispatcher;
 
     @Override
     public void onCreate() {
         ((SystemUIApplication) getApplication()).startServicesIfNeeded();
         mKeyguardViewMediator =
                 ((SystemUIApplication) getApplication()).getComponent(KeyguardViewMediator.class);
-        mKeyguardLifecyclesDispatcher = new KeyguardLifecyclesDispatcher(
-                Dependency.get(ScreenLifecycle.class),
-                Dependency.get(WakefulnessLifecycle.class));
-
     }
 
     @Override
@@ -81,24 +73,26 @@ public class KeyguardService extends Service {
 
         @Override // Binder interface
         public void verifyUnlock(IKeyguardExitCallback callback) {
-            Trace.beginSection("KeyguardService.mBinder#verifyUnlock");
             checkPermission();
             mKeyguardViewMediator.verifyUnlock(callback);
-            Trace.endSection();
         }
 
         @Override // Binder interface
-        public void setOccluded(boolean isOccluded, boolean animate) {
-            Trace.beginSection("KeyguardService.mBinder#setOccluded");
+        public void keyguardDone(boolean authenticated, boolean wakeup) {
             checkPermission();
-            mKeyguardViewMediator.setOccluded(isOccluded, animate);
-            Trace.endSection();
+            mKeyguardViewMediator.keyguardDone(authenticated, wakeup);
         }
 
         @Override // Binder interface
-        public void dismiss(IKeyguardDismissCallback callback, CharSequence message) {
+        public void setOccluded(boolean isOccluded) {
             checkPermission();
-            mKeyguardViewMediator.dismiss(callback, message);
+            mKeyguardViewMediator.setOccluded(isOccluded);
+        }
+
+        @Override // Binder interface
+        public void dismiss() {
+            checkPermission();
+            mKeyguardViewMediator.dismiss();
         }
 
         @Override // Binder interface
@@ -117,64 +111,36 @@ public class KeyguardService extends Service {
         public void onStartedGoingToSleep(int reason) {
             checkPermission();
             mKeyguardViewMediator.onStartedGoingToSleep(reason);
-            mKeyguardLifecyclesDispatcher.dispatch(
-                    KeyguardLifecyclesDispatcher.STARTED_GOING_TO_SLEEP);
         }
 
         @Override // Binder interface
-        public void onFinishedGoingToSleep(int reason, boolean cameraGestureTriggered) {
+        public void onFinishedGoingToSleep(int reason) {
             checkPermission();
-            mKeyguardViewMediator.onFinishedGoingToSleep(reason, cameraGestureTriggered);
-            mKeyguardLifecyclesDispatcher.dispatch(
-                    KeyguardLifecyclesDispatcher.FINISHED_GOING_TO_SLEEP);
+            mKeyguardViewMediator.onFinishedGoingToSleep(reason);
         }
 
         @Override // Binder interface
         public void onStartedWakingUp() {
-            Trace.beginSection("KeyguardService.mBinder#onStartedWakingUp");
             checkPermission();
             mKeyguardViewMediator.onStartedWakingUp();
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.STARTED_WAKING_UP);
-            Trace.endSection();
-        }
-
-        @Override // Binder interface
-        public void onFinishedWakingUp() {
-            Trace.beginSection("KeyguardService.mBinder#onFinishedWakingUp");
-            checkPermission();
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.FINISHED_WAKING_UP);
-            Trace.endSection();
         }
 
         @Override // Binder interface
         public void onScreenTurningOn(IKeyguardDrawnCallback callback) {
-            Trace.beginSection("KeyguardService.mBinder#onScreenTurningOn");
             checkPermission();
             mKeyguardViewMediator.onScreenTurningOn(callback);
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.SCREEN_TURNING_ON);
-            Trace.endSection();
         }
 
         @Override // Binder interface
         public void onScreenTurnedOn() {
-            Trace.beginSection("KeyguardService.mBinder#onScreenTurnedOn");
             checkPermission();
             mKeyguardViewMediator.onScreenTurnedOn();
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.SCREEN_TURNED_ON);
-            Trace.endSection();
-        }
-
-        @Override // Binder interface
-        public void onScreenTurningOff() {
-            checkPermission();
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.SCREEN_TURNING_OFF);
         }
 
         @Override // Binder interface
         public void onScreenTurnedOff() {
             checkPermission();
             mKeyguardViewMediator.onScreenTurnedOff();
-            mKeyguardLifecyclesDispatcher.dispatch(KeyguardLifecyclesDispatcher.SCREEN_TURNED_OFF);
         }
 
         @Override // Binder interface
@@ -185,22 +151,14 @@ public class KeyguardService extends Service {
 
         @Override // Binder interface
         public void onSystemReady() {
-            Trace.beginSection("KeyguardService.mBinder#onSystemReady");
             checkPermission();
             mKeyguardViewMediator.onSystemReady();
-            Trace.endSection();
         }
 
         @Override // Binder interface
         public void doKeyguardTimeout(Bundle options) {
             checkPermission();
             mKeyguardViewMediator.doKeyguardTimeout(options);
-        }
-
-        @Override // Binder interface
-        public void setSwitchingUser(boolean switching) {
-            checkPermission();
-            mKeyguardViewMediator.setSwitchingUser(switching);
         }
 
         @Override // Binder interface
@@ -217,16 +175,14 @@ public class KeyguardService extends Service {
 
         @Override
         public void startKeyguardExitAnimation(long startTime, long fadeoutDuration) {
-            Trace.beginSection("KeyguardService.mBinder#startKeyguardExitAnimation");
             checkPermission();
             mKeyguardViewMediator.startKeyguardExitAnimation(startTime, fadeoutDuration);
-            Trace.endSection();
         }
 
         @Override
-        public void onShortPowerPressedGoHome() {
+        public void onActivityDrawn() {
             checkPermission();
-            mKeyguardViewMediator.onShortPowerPressedGoHome();
+            mKeyguardViewMediator.onActivityDrawn();
         }
     };
 }

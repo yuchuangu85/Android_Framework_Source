@@ -114,13 +114,13 @@ public class ConferenceParticipant implements Parcelable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("[ConferenceParticipant Handle: ");
-        sb.append(Log.pii(mHandle));
+        sb.append(mHandle);
         sb.append(" DisplayName: ");
-        sb.append(Log.pii(mDisplayName));
+        sb.append(mDisplayName);
         sb.append(" Endpoint: ");
-        sb.append(Log.pii(mEndpoint));
+        sb.append(mEndpoint);
         sb.append(" State: ");
-        sb.append(Connection.stateToString(mState));
+        sb.append(mState);
         sb.append("]");
         return sb.toString();
     }

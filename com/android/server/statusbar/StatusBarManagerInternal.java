@@ -16,82 +16,16 @@
 
 package com.android.server.statusbar;
 
-import android.graphics.Rect;
 import android.os.Bundle;
 
 import com.android.server.notification.NotificationDelegate;
 
 public interface StatusBarManagerInternal {
     void setNotificationDelegate(NotificationDelegate delegate);
-    void showScreenPinningRequest(int taskId);
+    void buzzBeepBlinked();
+    void notificationLightPulse(int argb, int onMillis, int offMillis);
+    void notificationLightOff();
+    void showScreenPinningRequest();
     void showAssistDisclosure();
-
-    void preloadRecentApps();
-
-    void cancelPreloadRecentApps();
-
-    void showRecentApps(boolean triggeredFromAltTab);
-
-    void hideRecentApps(boolean triggeredFromAltTab, boolean triggeredFromHomeKey);
-
-    void dismissKeyboardShortcutsMenu();
-    void toggleKeyboardShortcutsMenu(int deviceId);
-
-    void showChargingAnimation(int batteryLevel);
-
-    /**
-     * Show picture-in-picture menu.
-     */
-    void showPictureInPictureMenu();
-
-    void setWindowState(int window, int state);
-
-    /**
-     * Notifies the status bar that an app transition is pending to delay applying some flags with
-     * visual impact until {@link #appTransitionReady} is called.
-     */
-    void appTransitionPending();
-
-    /**
-     * Notifies the status bar that a pending app transition has been cancelled.
-     */
-    void appTransitionCancelled();
-
-    /**
-     * Notifies the status bar that an app transition is now being executed.
-     *
-     * @param statusBarAnimationsStartTime the desired start time for all visual animations in the
-     *        status bar caused by this app transition in uptime millis
-     * @param statusBarAnimationsDuration the duration for all visual animations in the status
-     *        bar caused by this app transition in millis
-     */
-    void appTransitionStarting(long statusBarAnimationsStartTime, long statusBarAnimationsDuration);
-
     void startAssist(Bundle args);
-    void onCameraLaunchGestureDetected(int source);
-    void topAppWindowChanged(boolean menuVisible);
-    void setSystemUiVisibility(int vis, int fullscreenStackVis, int dockedStackVis, int mask,
-            Rect fullscreenBounds, Rect dockedBounds, String cause);
-    void toggleSplitScreen();
-    void appTransitionFinished();
-
-    void toggleRecentApps();
-
-    void setCurrentUser(int newUserId);
-
-    /**
-     * Set whether the top app currently hides the statusbar.
-     *
-     * @param hidesStatusBar whether it is being hidden
-     */
-    void setTopAppHidesStatusBar(boolean hidesStatusBar);
-
-    boolean showShutdownUi(boolean isReboot, String requestString);
-
-    /**
-     * Show a rotation suggestion that a user may approve to rotate the screen.
-     *
-     * @param rotation rotation suggestion
-     */
-    void onProposedRotationChanged(int rotation, boolean isValid);
 }

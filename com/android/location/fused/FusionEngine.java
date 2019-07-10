@@ -37,7 +37,7 @@ import android.util.Log;
 
 public class FusionEngine implements LocationListener {
     public interface Callback {
-        void reportLocation(Location location);
+        public void reportLocation(Location location);
     }
 
     private static final String TAG = "FusedLocation";
@@ -45,7 +45,7 @@ public class FusionEngine implements LocationListener {
     private static final String GPS = LocationManager.GPS_PROVIDER;
     private static final String FUSED = LocationProviderBase.FUSED_PROVIDER;
 
-    public static final long SWITCH_ON_FRESHNESS_CLIFF_NS = 11 * 1000000000L; // 11 seconds
+    public static final long SWITCH_ON_FRESHNESS_CLIFF_NS = 11 * 1000000000; // 11 seconds
 
     private final Context mContext;
     private final LocationManager mLocationManager;
@@ -60,7 +60,7 @@ public class FusionEngine implements LocationListener {
     private boolean mEnabled;
     private ProviderRequestUnbundled mRequest;
 
-    private final HashMap<String, ProviderStats> mStats = new HashMap<>();
+    private final HashMap<String, ProviderStats> mStats = new HashMap<String, ProviderStats>();
 
     public FusionEngine(Context context, Looper looper) {
         mContext = context;
@@ -72,7 +72,9 @@ public class FusionEngine implements LocationListener {
         mLooper = looper;
 
         mStats.put(GPS, new ProviderStats());
+        mStats.get(GPS).available = mLocationManager.isProviderEnabled(GPS);
         mStats.put(NETWORK, new ProviderStats());
+        mStats.get(NETWORK).available = mLocationManager.isProviderEnabled(NETWORK);
 
     }
 
@@ -117,35 +119,35 @@ public class FusionEngine implements LocationListener {
     }
 
     private static class ProviderStats {
+        public boolean available;
         public boolean requested;
         public long requestTime;
         public long minTime;
         @Override
         public String toString() {
-            return (requested ? " REQUESTED" : " ---");
+            StringBuilder s = new StringBuilder();
+            s.append(available ? "AVAILABLE" : "UNAVAILABLE");
+            s.append(requested ? " REQUESTED" : " ---");
+            return s.toString();
         }
     }
 
     private void enableProvider(String name, long minTime) {
         ProviderStats stats = mStats.get(name);
-        if (stats == null) return;
 
-        if (mLocationManager.isProviderEnabled(name)) {
-            if (!stats.requested) {
-                stats.requestTime = SystemClock.elapsedRealtime();
-                stats.requested = true;
-                stats.minTime = minTime;
-                mLocationManager.requestLocationUpdates(name, minTime, 0, this, mLooper);
-            } else if (stats.minTime != minTime) {
-                stats.minTime = minTime;
-                mLocationManager.requestLocationUpdates(name, minTime, 0, this, mLooper);
-            }
+        if (!stats.requested) {
+            stats.requestTime = SystemClock.elapsedRealtime();
+            stats.requested = true;
+            stats.minTime = minTime;
+            mLocationManager.requestLocationUpdates(name, minTime, 0, this, mLooper);
+        } else if (stats.minTime != minTime) {
+            stats.minTime = minTime;
+            mLocationManager.requestLocationUpdates(name, minTime, 0, this, mLooper);
         }
     }
 
     private void disableProvider(String name) {
         ProviderStats stats = mStats.get(name);
-        if (stats == null) return;
 
         if (stats.requested) {
             stats.requested = false;
@@ -154,7 +156,7 @@ public class FusionEngine implements LocationListener {
     }
 
     private void updateRequirements() {
-        if (!mEnabled || mRequest == null) {
+        if (mEnabled == false || mRequest == null) {
             mRequest = null;
             disableProvider(NETWORK);
             disableProvider(GPS);
@@ -246,7 +248,7 @@ public class FusionEngine implements LocationListener {
                         mFusedLocation.setExtras(dstExtras);
                     }
                     dstExtras.putParcelable(LocationProviderBase.EXTRA_NO_GPS_LOCATION,
-                            srcParcelable);
+                            (Location) srcParcelable);
                 }
             }
         }
@@ -276,15 +278,25 @@ public class FusionEngine implements LocationListener {
 
     /** Called on mLooper thread */
     @Override
-    public void onProviderEnabled(String provider) {  }
+    public void onProviderEnabled(String provider) {
+        ProviderStats stats = mStats.get(provider);
+        if (stats == null) return;
+
+        stats.available = true;
+    }
 
     /** Called on mLooper thread */
     @Override
-    public void onProviderDisabled(String provider) {  }
+    public void onProviderDisabled(String provider) {
+        ProviderStats stats = mStats.get(provider);
+        if (stats == null) return;
+
+        stats.available = false;
+    }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         StringBuilder s = new StringBuilder();
-        s.append("mEnabled=").append(mEnabled).append(' ').append(mRequest).append('\n');
+        s.append("mEnabled=" + mEnabled).append(' ').append(mRequest).append('\n');
         s.append("fused=").append(mFusedLocation).append('\n');
         s.append(String.format("gps %s\n", mGpsLocation));
         s.append("    ").append(mStats.get(GPS)).append('\n');

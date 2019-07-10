@@ -1,819 +1,1012 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
-import java.io.Closeable;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FilePermission;
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.AccessControlContext;
-import java.security.AccessController;
-import java.security.CodeSigner;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.security.CodeSource;
-import java.security.Permission;
 import java.security.PermissionCollection;
-import java.security.PrivilegedAction;
-import java.security.PrivilegedExceptionAction;
 import java.security.SecureClassLoader;
+import java.security.cert.Certificate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import java.util.Set;
-import java.util.WeakHashMap;
+import java.util.Map;
+import java.util.StringTokenizer;
 import java.util.jar.Attributes;
-import java.util.jar.Attributes.Name;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
-import sun.misc.Resource;
-import sun.misc.URLClassPath;
-import sun.net.www.ParseUtil;
-import sun.security.util.SecurityConstants;
+import libcore.io.IoUtils;
+import libcore.io.Streams;
 
 /**
- * This class loader is used to load classes and resources from a search
- * path of URLs referring to both JAR files and directories. Any URL that
- * ends with a '/' is assumed to refer to a directory. Otherwise, the URL
- * is assumed to refer to a JAR file which will be opened as needed.
- * <p>
- * The AccessControlContext of the thread that created the instance of
- * URLClassLoader will be used when subsequently loading classes and
- * resources.
- * <p>
- * The classes that are loaded are by default granted permission only to
- * access the URLs specified when the URLClassLoader was created.
- *
- * @author  David Connelly
- * @since   1.2
+ * This class loader is responsible for loading classes and resources from a
+ * list of URLs which can refer to either directories or JAR files. Classes
+ * loaded by this {@code URLClassLoader} are granted permission to access the
+ * URLs contained in the URL search list.
  */
-public class URLClassLoader extends SecureClassLoader implements Closeable {
-    /* The search path for classes and resources */
-    private final URLClassPath ucp;
+@FindBugsSuppressWarnings({ "DMI_COLLECTION_OF_URLS", "DP_CREATE_CLASSLOADER_INSIDE_DO_PRIVILEGED" })
+public class URLClassLoader extends SecureClassLoader {
 
-    /* The context to be used when loading classes and resources */
-    private final AccessControlContext acc;
+    ArrayList<URL> originalUrls;
 
-    /**
-     * Constructs a new URLClassLoader for the given URLs. The URLs will be
-     * searched in the order specified for classes and resources after first
-     * searching in the specified parent class loader. Any URL that ends with
-     * a '/' is assumed to refer to a directory. Otherwise, the URL is assumed
-     * to refer to a JAR file which will be downloaded and opened as needed.
-     *
-     * <p>If there is a security manager, this method first
-     * calls the security manager's {@code checkCreateClassLoader} method
-     * to ensure creation of a class loader is allowed.
-     *
-     * @param urls the URLs from which to load classes and resources
-     * @param parent the parent class loader for delegation
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkCreateClassLoader} method doesn't allow
-     *             creation of a class loader.
-     * @exception  NullPointerException if {@code urls} is {@code null}.
-     * @see SecurityManager#checkCreateClassLoader
-     */
-    public URLClassLoader(URL[] urls, ClassLoader parent) {
-        super(parent);
-        // this is to make the stack depth consistent with 1.1
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkCreateClassLoader();
-        }
-        this.acc = AccessController.getContext();
-        ucp = new URLClassPath(urls, acc);
-    }
+    List<URL> searchList;
+    ArrayList<URLHandler> handlerList;
+    Map<URL, URLHandler> handlerMap = new HashMap<URL, URLHandler>();
 
-    URLClassLoader(URL[] urls, ClassLoader parent,
-                   AccessControlContext acc) {
-        super(parent);
-        // this is to make the stack depth consistent with 1.1
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkCreateClassLoader();
-        }
-        this.acc = acc;
-        ucp = new URLClassPath(urls, acc);
-    }
+    private URLStreamHandlerFactory factory;
 
-    /**
-     * Constructs a new URLClassLoader for the specified URLs using the
-     * default delegation parent {@code ClassLoader}. The URLs will
-     * be searched in the order specified for classes and resources after
-     * first searching in the parent class loader. Any URL that ends with
-     * a '/' is assumed to refer to a directory. Otherwise, the URL is
-     * assumed to refer to a JAR file which will be downloaded and opened
-     * as needed.
-     *
-     * <p>If there is a security manager, this method first
-     * calls the security manager's {@code checkCreateClassLoader} method
-     * to ensure creation of a class loader is allowed.
-     *
-     * @param urls the URLs from which to load classes and resources
-     *
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkCreateClassLoader} method doesn't allow
-     *             creation of a class loader.
-     * @exception  NullPointerException if {@code urls} is {@code null}.
-     * @see SecurityManager#checkCreateClassLoader
-     */
-    public URLClassLoader(URL[] urls) {
-        super();
-        // this is to make the stack depth consistent with 1.1
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkCreateClassLoader();
-        }
-        this.acc = AccessController.getContext();
-        ucp = new URLClassPath(urls, acc);
-    }
+    static class IndexFile {
 
-    URLClassLoader(URL[] urls, AccessControlContext acc) {
-        super();
-        // this is to make the stack depth consistent with 1.1
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkCreateClassLoader();
-        }
-        this.acc = acc;
-        ucp = new URLClassPath(urls, acc);
-    }
+        private HashMap<String, ArrayList<URL>> map;
+        //private URLClassLoader host;
 
-    /**
-     * Constructs a new URLClassLoader for the specified URLs, parent
-     * class loader, and URLStreamHandlerFactory. The parent argument
-     * will be used as the parent class loader for delegation. The
-     * factory argument will be used as the stream handler factory to
-     * obtain protocol handlers when creating new jar URLs.
-     *
-     * <p>If there is a security manager, this method first
-     * calls the security manager's {@code checkCreateClassLoader} method
-     * to ensure creation of a class loader is allowed.
-     *
-     * @param urls the URLs from which to load classes and resources
-     * @param parent the parent class loader for delegation
-     * @param factory the URLStreamHandlerFactory to use when creating URLs
-     *
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkCreateClassLoader} method doesn't allow
-     *             creation of a class loader.
-     * @exception  NullPointerException if {@code urls} is {@code null}.
-     * @see SecurityManager#checkCreateClassLoader
-     */
-    public URLClassLoader(URL[] urls, ClassLoader parent,
-                          URLStreamHandlerFactory factory) {
-        super(parent);
-        // this is to make the stack depth consistent with 1.1
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkCreateClassLoader();
-        }
-        acc = AccessController.getContext();
-        ucp = new URLClassPath(urls, factory, acc);
-    }
 
-    /* A map (used as a set) to keep track of closeable local resources
-     * (either JarFiles or FileInputStreams). We don't care about
-     * Http resources since they don't need to be closed.
-     *
-     * If the resource is coming from a jar file
-     * we keep a (weak) reference to the JarFile object which can
-     * be closed if URLClassLoader.close() called. Due to jar file
-     * caching there will typically be only one JarFile object
-     * per underlying jar file.
-     *
-     * For file resources, which is probably a less common situation
-     * we have to keep a weak reference to each stream.
-     */
-
-    private WeakHashMap<Closeable,Void>
-        closeables = new WeakHashMap<>();
-
-    /**
-     * Returns an input stream for reading the specified resource.
-     * If this loader is closed, then any resources opened by this method
-     * will be closed.
-     *
-     * <p> The search order is described in the documentation for {@link
-     * #getResource(String)}.  </p>
-     *
-     * @param  name
-     *         The resource name
-     *
-     * @return  An input stream for reading the resource, or {@code null}
-     *          if the resource could not be found
-     *
-     * @since  1.7
-     */
-    public InputStream getResourceAsStream(String name) {
-        URL url = getResource(name);
-        try {
-            if (url == null) {
-                return null;
-            }
-            URLConnection urlc = url.openConnection();
-            InputStream is = urlc.getInputStream();
-            if (urlc instanceof JarURLConnection) {
-                JarURLConnection juc = (JarURLConnection)urlc;
-                JarFile jar = juc.getJarFile();
-                synchronized (closeables) {
-                    if (!closeables.containsKey(jar)) {
-                        closeables.put(jar, null);
+        static IndexFile readIndexFile(JarFile jf, JarEntry indexEntry, URL url) {
+            BufferedReader in = null;
+            InputStream is = null;
+            try {
+                // Add mappings from resource to jar file
+                String parentURLString = getParentURL(url).toExternalForm();
+                String prefix = "jar:" + parentURLString + "/";
+                is = jf.getInputStream(indexEntry);
+                in = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                HashMap<String, ArrayList<URL>> pre_map = new HashMap<String, ArrayList<URL>>();
+                // Ignore the 2 first lines (index version)
+                if (in.readLine() == null) return null;
+                if (in.readLine() == null) return null;
+                TOP_CYCLE:
+                while (true) {
+                    String line = in.readLine();
+                    if (line == null) {
+                        break;
+                    }
+                    URL jar = new URL(prefix + line + "!/");
+                    while (true) {
+                        line = in.readLine();
+                        if (line == null) {
+                            break TOP_CYCLE;
+                        }
+                        if (line.isEmpty()) {
+                            break;
+                        }
+                        ArrayList<URL> list;
+                        if (pre_map.containsKey(line)) {
+                            list = pre_map.get(line);
+                        } else {
+                            list = new ArrayList<URL>();
+                            pre_map.put(line, list);
+                        }
+                        list.add(jar);
                     }
                 }
-            } else if (urlc instanceof sun.net.www.protocol.file.FileURLConnection) {
-                synchronized (closeables) {
-                    closeables.put(is, null);
+                if (!pre_map.isEmpty()) {
+                    return new IndexFile(pre_map);
                 }
+            } catch (MalformedURLException e) {
+                // Ignore this jar's index
+            } catch (IOException e) {
+                // Ignore this jar's index
+            } finally {
+                IoUtils.closeQuietly(in);
+                IoUtils.closeQuietly(is);
             }
-            return is;
-        } catch (IOException e) {
             return null;
         }
+
+        private static URL getParentURL(URL url) throws IOException {
+            URL fileURL = ((JarURLConnection) url.openConnection()).getJarFileURL();
+            String file = fileURL.getFile();
+            String parentFile = new File(file).getParent();
+            parentFile = parentFile.replace(File.separatorChar, '/');
+            if (parentFile.charAt(0) != '/') {
+                parentFile = "/" + parentFile;
+            }
+            URL parentURL = new URL(fileURL.getProtocol(), fileURL
+                    .getHost(), fileURL.getPort(), parentFile);
+            return parentURL;
+        }
+
+        public IndexFile(HashMap<String, ArrayList<URL>> map) {
+            this.map = map;
+        }
+
+        ArrayList<URL> get(String name) {
+            return map.get(name);
+        }
     }
 
-   /**
-    * Closes this URLClassLoader, so that it can no longer be used to load
-    * new classes or resources that are defined by this loader.
-    * Classes and resources defined by any of this loader's parents in the
-    * delegation hierarchy are still accessible. Also, any classes or resources
-    * that are already loaded, are still accessible.
-    * <p>
-    * In the case of jar: and file: URLs, it also closes any files
-    * that were opened by it. If another thread is loading a
-    * class when the {@code close} method is invoked, then the result of
-    * that load is undefined.
-    * <p>
-    * The method makes a best effort attempt to close all opened files,
-    * by catching {@link IOException}s internally. Unchecked exceptions
-    * and errors are not caught. Calling close on an already closed
-    * loader has no effect.
-    * <p>
-    * @exception IOException if closing any file opened by this class loader
-    * resulted in an IOException. Any such exceptions are caught internally.
-    * If only one is caught, then it is re-thrown. If more than one exception
-    * is caught, then the second and following exceptions are added
-    * as suppressed exceptions of the first one caught, which is then re-thrown.
-    *
-    * @exception SecurityException if a security manager is set, and it denies
-    *   {@link RuntimePermission}{@code ("closeClassLoader")}
-    *
-    * @since 1.7
-    */
-    public void close() throws IOException {
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkPermission(new RuntimePermission("closeClassLoader"));
+    class URLHandler {
+        URL url;
+        URL codeSourceUrl;
+
+        public URLHandler(URL url) {
+            this.url = url;
+            this.codeSourceUrl = url;
         }
-        List<IOException> errors = ucp.closeLoaders();
 
-        // now close any remaining streams.
+        void findResources(String name, ArrayList<URL> resources) {
+            URL res = findResource(name);
+            if (res != null && !resources.contains(res)) {
+                resources.add(res);
+            }
+        }
 
-        synchronized (closeables) {
-            Set<Closeable> keys = closeables.keySet();
-            for (Closeable c : keys) {
+        Class<?> findClass(String packageName, String name, String origName) {
+            URL resURL = targetURL(url, name);
+            if (resURL != null) {
                 try {
-                    c.close();
-                } catch (IOException ioex) {
-                    errors.add(ioex);
+                    InputStream is = resURL.openStream();
+                    return createClass(is, packageName, origName);
+                } catch (IOException e) {
                 }
             }
-            closeables.clear();
+            return null;
         }
 
-        if (errors.isEmpty()) {
-            return;
+
+        Class<?> createClass(InputStream is, String packageName, String origName) {
+            if (is == null) {
+                return null;
+            }
+            byte[] clBuf;
+            try {
+                clBuf = Streams.readFully(is);
+            } catch (IOException e) {
+                return null;
+            }
+            if (packageName != null) {
+                String packageDotName = packageName.replace('/', '.');
+                Package packageObj = getPackage(packageDotName);
+                if (packageObj == null) {
+                    definePackage(packageDotName, null, null,
+                            null, null, null, null, null);
+                } else {
+                    if (packageObj.isSealed()) {
+                        throw new SecurityException("Package is sealed");
+                    }
+                }
+            }
+            return defineClass(origName, clBuf, 0, clBuf.length, new CodeSource(codeSourceUrl, (Certificate[]) null));
         }
 
-        IOException firstex = errors.remove(0);
-
-        // Suppress any remaining exceptions
-
-        for (IOException error: errors) {
-            firstex.addSuppressed(error);
+        URL findResource(String name) {
+            URL resURL = targetURL(url, name);
+            if (resURL != null) {
+                try {
+                    URLConnection uc = resURL.openConnection();
+                    uc.getInputStream().close();
+                    // HTTP can return a stream on a non-existent file
+                    // So check for the return code;
+                    if (!resURL.getProtocol().equals("http")) {
+                        return resURL;
+                    }
+                    int code;
+                    if ((code = ((HttpURLConnection) uc).getResponseCode()) >= 200
+                            && code < 300) {
+                        return resURL;
+                    }
+                } catch (SecurityException e) {
+                    return null;
+                } catch (IOException e) {
+                    return null;
+                }
+            }
+            return null;
         }
-        throw firstex;
+
+        URL targetURL(URL base, String name) {
+            try {
+                StringBuilder fileBuilder = new StringBuilder();
+                fileBuilder.append(base.getFile());
+                URI.PATH_ENCODER.appendEncoded(fileBuilder, name);
+                String file = fileBuilder.toString();
+
+                return new URL(base.getProtocol(), base.getHost(), base.getPort(), file, null);
+            } catch (MalformedURLException e) {
+                return null;
+            }
+        }
+
     }
 
-    /**
-     * Appends the specified URL to the list of URLs to search for
-     * classes and resources.
-     * <p>
-     * If the URL specified is {@code null} or is already in the
-     * list of URLs, or if this loader is closed, then invoking this
-     * method has no effect.
-     *
-     * @param url the URL to be added to the search path of URLs
-     */
-    protected void addURL(URL url) {
-        ucp.addURL(url);
-    }
+    class URLJarHandler extends URLHandler {
+        final JarFile jf;
+        final String prefixName;
+        final IndexFile index;
+        final Map<URL, URLHandler> subHandlers = new HashMap<URL, URLHandler>();
 
-    /**
-     * Returns the search path of URLs for loading classes and resources.
-     * This includes the original list of URLs specified to the constructor,
-     * along with any URLs subsequently appended by the addURL() method.
-     * @return the search path of URLs for loading classes and resources.
-     */
-    public URL[] getURLs() {
-        return ucp.getURLs();
-    }
+        public URLJarHandler(URL url, URL jarURL, JarFile jf, String prefixName) {
+            super(url);
+            this.jf = jf;
+            this.prefixName = prefixName;
+            this.codeSourceUrl = jarURL;
+            final JarEntry je = jf.getJarEntry("META-INF/INDEX.LIST");
+            this.index = (je == null ? null : IndexFile.readIndexFile(jf, je, url));
+        }
 
-    /**
-     * Finds and loads the class with the specified name from the URL search
-     * path. Any URLs referring to JAR files are loaded and opened as needed
-     * until the class is found.
-     *
-     * @param name the name of the class
-     * @return the resulting class
-     * @exception ClassNotFoundException if the class could not be found,
-     *            or if the loader is closed.
-     * @exception NullPointerException if {@code name} is {@code null}.
-     */
-    protected Class<?> findClass(final String name)
-        throws ClassNotFoundException
-    {
-        final Class<?> result;
-        try {
-            result = AccessController.doPrivileged(
-                new PrivilegedExceptionAction<Class<?>>() {
-                    public Class<?> run() throws ClassNotFoundException {
-                        String path = name.replace('.', '/').concat(".class");
-                        Resource res = ucp.getResource(path, false);
-                        if (res != null) {
-                            try {
-                                return defineClass(name, res);
-                            } catch (IOException e) {
-                                throw new ClassNotFoundException(name, e);
-                            }
-                        } else {
-                            return null;
+        public URLJarHandler(URL url, URL jarURL, JarFile jf, String prefixName, IndexFile index) {
+            super(url);
+            this.jf = jf;
+            this.prefixName = prefixName;
+            this.index = index;
+            this.codeSourceUrl = jarURL;
+        }
+
+        IndexFile getIndex() {
+            return index;
+        }
+
+        @Override
+        void findResources(String name, ArrayList<URL> resources) {
+            URL res = findResourceInOwn(name);
+            if (res != null && !resources.contains(res)) {
+                resources.add(res);
+            }
+            if (index != null) {
+                int pos = name.lastIndexOf("/");
+                // only keep the directory part of the resource
+                // as index.list only keeps track of directories and root files
+                String indexedName = (pos > 0) ? name.substring(0, pos) : name;
+                ArrayList<URL> urls = index.get(indexedName);
+                if (urls != null) {
+                    urls.remove(url);
+                    for (URL url : urls) {
+                        URLHandler h = getSubHandler(url);
+                        if (h != null) {
+                            h.findResources(name, resources);
                         }
                     }
-                }, acc);
-        } catch (java.security.PrivilegedActionException pae) {
-            throw (ClassNotFoundException) pae.getException();
-        }
-        if (result == null) {
-            throw new ClassNotFoundException(name);
-        }
-        return result;
-    }
-
-    /*
-     * Retrieve the package using the specified package name.
-     * If non-null, verify the package using the specified code
-     * source and manifest.
-     */
-    private Package getAndVerifyPackage(String pkgname,
-                                        Manifest man, URL url) {
-        Package pkg = getPackage(pkgname);
-        if (pkg != null) {
-            // Package found, so check package sealing.
-            if (pkg.isSealed()) {
-                // Verify that code source URL is the same.
-                if (!pkg.isSealed(url)) {
-                    throw new SecurityException(
-                        "sealing violation: package " + pkgname + " is sealed");
-                }
-            } else {
-                // Make sure we are not attempting to seal the package
-                // at this code source URL.
-                if ((man != null) && isSealed(pkgname, man)) {
-                    throw new SecurityException(
-                        "sealing violation: can't seal package " + pkgname +
-                        ": already loaded");
                 }
             }
-        }
-        return pkg;
-    }
 
-    // Also called by VM to define Package for classes loaded from the CDS
-    // archive
-    private void definePackageInternal(String pkgname, Manifest man, URL url)
-    {
-        if (getAndVerifyPackage(pkgname, man, url) == null) {
-            try {
-                if (man != null) {
-                    definePackage(pkgname, man, url);
+        }
+
+        @Override
+        Class<?> findClass(String packageName, String name, String origName) {
+            String entryName = prefixName + name;
+            JarEntry entry = jf.getJarEntry(entryName);
+            if (entry != null) {
+                /**
+                 * Avoid recursive load class, especially the class
+                 * is an implementation class of security provider
+                 * and the jar is signed.
+                 */
+                try {
+                    Manifest manifest = jf.getManifest();
+                    return createClass(entry, manifest, packageName, origName);
+                } catch (IOException e) {
+                }
+            }
+            if (index != null) {
+                ArrayList<URL> urls;
+                if (packageName == null) {
+                    urls = index.get(name);
                 } else {
-                    definePackage(pkgname, null, null, null, null, null, null, null);
+                    urls = index.get(packageName);
                 }
-            } catch (IllegalArgumentException iae) {
-                // parallel-capable class loaders: re-verify in case of a
-                // race condition
-                if (getAndVerifyPackage(pkgname, man, url) == null) {
-                    // Should never happen
-                    throw new AssertionError("Cannot find package " +
-                                             pkgname);
-                }
-            }
-        }
-    }
-
-    /*
-     * Defines a Class using the class bytes obtained from the specified
-     * Resource. The resulting Class must be resolved before it can be
-     * used.
-     */
-    private Class<?> defineClass(String name, Resource res) throws IOException {
-        long t0 = System.nanoTime();
-        int i = name.lastIndexOf('.');
-        URL url = res.getCodeSourceURL();
-        if (i != -1) {
-            String pkgname = name.substring(0, i);
-            // Check if package already loaded.
-            Manifest man = res.getManifest();
-            definePackageInternal(pkgname, man, url);
-        }
-        // Now read the class bytes and define the class
-        java.nio.ByteBuffer bb = res.getByteBuffer();
-        if (bb != null) {
-            // Use (direct) ByteBuffer:
-            CodeSigner[] signers = res.getCodeSigners();
-            CodeSource cs = new CodeSource(url, signers);
-            // Android-removed: Android doesn't use sun.misc.PerfCounter.
-            // sun.misc.PerfCounter.getReadClassBytesTime().addElapsedTimeFrom(t0);
-            return defineClass(name, bb, cs);
-        } else {
-            byte[] b = res.getBytes();
-            // must read certificates AFTER reading bytes.
-            CodeSigner[] signers = res.getCodeSigners();
-            CodeSource cs = new CodeSource(url, signers);
-            // Android-removed: Android doesn't use sun.misc.PerfCounter.
-            // sun.misc.PerfCounter.getReadClassBytesTime().addElapsedTimeFrom(t0);
-            return defineClass(name, b, 0, b.length, cs);
-        }
-    }
-
-    /**
-     * Defines a new package by name in this ClassLoader. The attributes
-     * contained in the specified Manifest will be used to obtain package
-     * version and sealing information. For sealed packages, the additional
-     * URL specifies the code source URL from which the package was loaded.
-     *
-     * @param name  the package name
-     * @param man   the Manifest containing package version and sealing
-     *              information
-     * @param url   the code source url for the package, or null if none
-     * @exception   IllegalArgumentException if the package name duplicates
-     *              an existing package either in this class loader or one
-     *              of its ancestors
-     * @return the newly defined Package object
-     */
-    protected Package definePackage(String name, Manifest man, URL url)
-        throws IllegalArgumentException
-    {
-        String path = name.replace('.', '/').concat("/");
-        String specTitle = null, specVersion = null, specVendor = null;
-        String implTitle = null, implVersion = null, implVendor = null;
-        String sealed = null;
-        URL sealBase = null;
-
-        Attributes attr = man.getAttributes(path);
-        if (attr != null) {
-            specTitle   = attr.getValue(Name.SPECIFICATION_TITLE);
-            specVersion = attr.getValue(Name.SPECIFICATION_VERSION);
-            specVendor  = attr.getValue(Name.SPECIFICATION_VENDOR);
-            implTitle   = attr.getValue(Name.IMPLEMENTATION_TITLE);
-            implVersion = attr.getValue(Name.IMPLEMENTATION_VERSION);
-            implVendor  = attr.getValue(Name.IMPLEMENTATION_VENDOR);
-            sealed      = attr.getValue(Name.SEALED);
-        }
-        attr = man.getMainAttributes();
-        if (attr != null) {
-            if (specTitle == null) {
-                specTitle = attr.getValue(Name.SPECIFICATION_TITLE);
-            }
-            if (specVersion == null) {
-                specVersion = attr.getValue(Name.SPECIFICATION_VERSION);
-            }
-            if (specVendor == null) {
-                specVendor = attr.getValue(Name.SPECIFICATION_VENDOR);
-            }
-            if (implTitle == null) {
-                implTitle = attr.getValue(Name.IMPLEMENTATION_TITLE);
-            }
-            if (implVersion == null) {
-                implVersion = attr.getValue(Name.IMPLEMENTATION_VERSION);
-            }
-            if (implVendor == null) {
-                implVendor = attr.getValue(Name.IMPLEMENTATION_VENDOR);
-            }
-            if (sealed == null) {
-                sealed = attr.getValue(Name.SEALED);
-            }
-        }
-        if ("true".equalsIgnoreCase(sealed)) {
-            sealBase = url;
-        }
-        return definePackage(name, specTitle, specVersion, specVendor,
-                             implTitle, implVersion, implVendor, sealBase);
-    }
-
-    /*
-     * Returns true if the specified package name is sealed according to the
-     * given manifest.
-     */
-    private boolean isSealed(String name, Manifest man) {
-        String path = name.replace('.', '/').concat("/");
-        Attributes attr = man.getAttributes(path);
-        String sealed = null;
-        if (attr != null) {
-            sealed = attr.getValue(Name.SEALED);
-        }
-        if (sealed == null) {
-            if ((attr = man.getMainAttributes()) != null) {
-                sealed = attr.getValue(Name.SEALED);
-            }
-        }
-        return "true".equalsIgnoreCase(sealed);
-    }
-
-    /**
-     * Finds the resource with the specified name on the URL search path.
-     *
-     * @param name the name of the resource
-     * @return a {@code URL} for the resource, or {@code null}
-     * if the resource could not be found, or if the loader is closed.
-     */
-    public URL findResource(final String name) {
-        /*
-         * The same restriction to finding classes applies to resources
-         */
-        URL url = AccessController.doPrivileged(
-            new PrivilegedAction<URL>() {
-                public URL run() {
-                    return ucp.findResource(name, true);
-                }
-            }, acc);
-
-        return url != null ? ucp.checkURL(url) : null;
-    }
-
-    /**
-     * Returns an Enumeration of URLs representing all of the resources
-     * on the URL search path having the specified name.
-     *
-     * @param name the resource name
-     * @exception IOException if an I/O exception occurs
-     * @return an {@code Enumeration} of {@code URL}s
-     *         If the loader is closed, the Enumeration will be empty.
-     */
-    public Enumeration<URL> findResources(final String name)
-        throws IOException
-    {
-        final Enumeration<URL> e = ucp.findResources(name, true);
-
-        return new Enumeration<URL>() {
-            private URL url = null;
-
-            private boolean next() {
-                if (url != null) {
-                    return true;
-                }
-                do {
-                    URL u = AccessController.doPrivileged(
-                        new PrivilegedAction<URL>() {
-                            public URL run() {
-                                if (!e.hasMoreElements())
-                                    return null;
-                                return e.nextElement();
+                if (urls != null) {
+                    urls.remove(url);
+                    for (URL url : urls) {
+                        URLHandler h = getSubHandler(url);
+                        if (h != null) {
+                            Class<?> res = h.findClass(packageName, name, origName);
+                            if (res != null) {
+                                return res;
                             }
-                        }, acc);
-                    if (u == null)
-                        break;
-                    url = ucp.checkURL(u);
-                } while (url == null);
-                return url != null;
-            }
-
-            public URL nextElement() {
-                if (!next()) {
-                    throw new NoSuchElementException();
-                }
-                URL u = url;
-                url = null;
-                return u;
-            }
-
-            public boolean hasMoreElements() {
-                return next();
-            }
-        };
-    }
-
-    /**
-     * Returns the permissions for the given codesource object.
-     * The implementation of this method first calls super.getPermissions
-     * and then adds permissions based on the URL of the codesource.
-     * <p>
-     * If the protocol of this URL is "jar", then the permission granted
-     * is based on the permission that is required by the URL of the Jar
-     * file.
-     * <p>
-     * If the protocol is "file" and there is an authority component, then
-     * permission to connect to and accept connections from that authority
-     * may be granted. If the protocol is "file"
-     * and the path specifies a file, then permission to read that
-     * file is granted. If protocol is "file" and the path is
-     * a directory, permission is granted to read all files
-     * and (recursively) all files and subdirectories contained in
-     * that directory.
-     * <p>
-     * If the protocol is not "file", then permission
-     * to connect to and accept connections from the URL's host is granted.
-     * @param codesource the codesource
-     * @exception NullPointerException if {@code codesource} is {@code null}.
-     * @return the permissions granted to the codesource
-     */
-    protected PermissionCollection getPermissions(CodeSource codesource)
-    {
-        PermissionCollection perms = super.getPermissions(codesource);
-
-        URL url = codesource.getLocation();
-
-        Permission p;
-        URLConnection urlConnection;
-
-        try {
-            urlConnection = url.openConnection();
-            p = urlConnection.getPermission();
-        } catch (java.io.IOException ioe) {
-            p = null;
-            urlConnection = null;
-        }
-
-        if (p instanceof FilePermission) {
-            // if the permission has a separator char on the end,
-            // it means the codebase is a directory, and we need
-            // to add an additional permission to read recursively
-            String path = p.getName();
-            if (path.endsWith(File.separator)) {
-                path += "-";
-                p = new FilePermission(path, SecurityConstants.FILE_READ_ACTION);
-            }
-        } else if ((p == null) && (url.getProtocol().equals("file"))) {
-            String path = url.getFile().replace('/', File.separatorChar);
-            path = ParseUtil.decode(path);
-            if (path.endsWith(File.separator))
-                path += "-";
-            p =  new FilePermission(path, SecurityConstants.FILE_READ_ACTION);
-        } else {
-            /**
-             * Not loading from a 'file:' URL so we want to give the class
-             * permission to connect to and accept from the remote host
-             * after we've made sure the host is the correct one and is valid.
-             */
-            URL locUrl = url;
-            if (urlConnection instanceof JarURLConnection) {
-                locUrl = ((JarURLConnection)urlConnection).getJarFileURL();
-            }
-            String host = locUrl.getHost();
-            if (host != null && (host.length() > 0))
-                p = new SocketPermission(host,
-                                         SecurityConstants.SOCKET_CONNECT_ACCEPT_ACTION);
-        }
-
-        // make sure the person that created this class loader
-        // would have this permission
-
-        if (p != null) {
-            final SecurityManager sm = System.getSecurityManager();
-            if (sm != null) {
-                final Permission fp = p;
-                AccessController.doPrivileged(new PrivilegedAction<Void>() {
-                    public Void run() throws SecurityException {
-                        sm.checkPermission(fp);
-                        return null;
+                        }
                     }
-                }, acc);
-            }
-            perms.add(p);
-        }
-        return perms;
-    }
-
-    /**
-     * Creates a new instance of URLClassLoader for the specified
-     * URLs and parent class loader. If a security manager is
-     * installed, the {@code loadClass} method of the URLClassLoader
-     * returned by this method will invoke the
-     * {@code SecurityManager.checkPackageAccess} method before
-     * loading the class.
-     *
-     * @param urls the URLs to search for classes and resources
-     * @param parent the parent class loader for delegation
-     * @exception  NullPointerException if {@code urls} is {@code null}.
-     * @return the resulting class loader
-     */
-    public static URLClassLoader newInstance(final URL[] urls,
-                                             final ClassLoader parent) {
-        // Save the caller's context
-        final AccessControlContext acc = AccessController.getContext();
-        // Need a privileged block to create the class loader
-        URLClassLoader ucl = AccessController.doPrivileged(
-            new PrivilegedAction<URLClassLoader>() {
-                public URLClassLoader run() {
-                    return new FactoryURLClassLoader(urls, parent, acc);
                 }
-            });
-        return ucl;
+            }
+            return null;
+        }
+
+        private Class<?> createClass(JarEntry entry, Manifest manifest, String packageName, String origName) {
+            byte[] clBuf;
+            try {
+                InputStream is = jf.getInputStream(entry);
+                clBuf = Streams.readFully(is);
+            } catch (IOException e) {
+                return null;
+            }
+            if (packageName != null) {
+                String packageDotName = packageName.replace('/', '.');
+                Package packageObj = getPackage(packageDotName);
+                if (packageObj == null) {
+                    if (manifest != null) {
+                        definePackage(packageDotName, manifest,
+                                codeSourceUrl);
+                    } else {
+                        definePackage(packageDotName, null, null,
+                                null, null, null, null, null);
+                    }
+                } else {
+                    boolean exception = packageObj.isSealed();
+                    if (manifest != null) {
+                        if (isSealed(manifest, packageName + "/")) {
+                            exception = !packageObj
+                                    .isSealed(codeSourceUrl);
+                        }
+                    }
+                    if (exception) {
+                        throw new SecurityException(String.format("Package %s is sealed",
+                                packageName));
+                    }
+                }
+            }
+            CodeSource codeS = new CodeSource(codeSourceUrl, entry.getCertificates());
+            return defineClass(origName, clBuf, 0, clBuf.length, codeS);
+        }
+
+        URL findResourceInOwn(String name) {
+            String entryName = prefixName + name;
+            if (jf.getEntry(entryName) != null) {
+                return targetURL(url, name);
+            }
+            return null;
+        }
+
+        @Override
+        URL findResource(String name) {
+            URL res = findResourceInOwn(name);
+            if (res != null) {
+                return res;
+            }
+            if (index != null) {
+                int pos = name.lastIndexOf("/");
+                // only keep the directory part of the resource
+                // as index.list only keeps track of directories and root files
+                String indexedName = (pos > 0) ? name.substring(0, pos) : name;
+                ArrayList<URL> urls = index.get(indexedName);
+                if (urls != null) {
+                    urls.remove(url);
+                    for (URL url : urls) {
+                        URLHandler h = getSubHandler(url);
+                        if (h != null) {
+                            res = h.findResource(name);
+                            if (res != null) {
+                                return res;
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        private synchronized URLHandler getSubHandler(URL url) {
+            URLHandler sub = subHandlers.get(url);
+            if (sub != null) {
+                return sub;
+            }
+            String protocol = url.getProtocol();
+            if (protocol.equals("jar")) {
+                sub = createURLJarHandler(url);
+            } else if (protocol.equals("file")) {
+                sub = createURLSubJarHandler(url);
+            } else {
+                sub = createURLHandler(url);
+            }
+            if (sub != null) {
+                subHandlers.put(url, sub);
+            }
+            return sub;
+        }
+
+        private URLHandler createURLSubJarHandler(URL url) {
+            String prefixName;
+            String file = url.getFile();
+            if (url.getFile().endsWith("!/")) {
+                prefixName = "";
+            } else {
+                int sepIdx = file.lastIndexOf("!/");
+                if (sepIdx == -1) {
+                    // Invalid URL, don't look here again
+                    return null;
+                }
+                sepIdx += 2;
+                prefixName = file.substring(sepIdx);
+            }
+            try {
+                URL jarURL = ((JarURLConnection) url
+                        .openConnection()).getJarFileURL();
+                JarURLConnection juc = (JarURLConnection) new URL(
+                        "jar", "",
+                        jarURL.toExternalForm() + "!/").openConnection();
+                JarFile jf = juc.getJarFile();
+                URLJarHandler jarH = new URLJarHandler(url, jarURL, jf, prefixName, null);
+                // TODO : to think what we should do with indexes & manifest.class file here
+                return jarH;
+            } catch (IOException e) {
+            }
+            return null;
+        }
+
+    }
+
+    class URLFileHandler extends URLHandler {
+        private String prefix;
+
+        public URLFileHandler(URL url) {
+            super(url);
+            String baseFile = url.getFile();
+            String host = url.getHost();
+            int hostLength = 0;
+            if (host != null) {
+                hostLength = host.length();
+            }
+            StringBuilder buf = new StringBuilder(2 + hostLength
+                    + baseFile.length());
+            if (hostLength > 0) {
+                buf.append("//").append(host);
+            }
+            // baseFile always ends with '/'
+            buf.append(baseFile);
+            prefix = buf.toString();
+        }
+
+        @Override
+        Class<?> findClass(String packageName, String name, String origName) {
+            String filename = prefix + name;
+            try {
+                filename = URLDecoder.decode(filename, "UTF-8");
+            } catch (IllegalArgumentException e) {
+                return null;
+            } catch (UnsupportedEncodingException e) {
+                return null;
+            }
+
+            File file = new File(filename);
+            if (file.exists()) {
+                try {
+                    InputStream is = new FileInputStream(file);
+                    return createClass(is, packageName, origName);
+                } catch (FileNotFoundException e) {
+                }
+            }
+            return null;
+        }
+
+        @Override
+        URL findResource(String name) {
+            int idx = 0;
+            String filename;
+
+            // Do not create a UNC path, i.e. \\host
+            while (idx < name.length() &&
+                   ((name.charAt(idx) == '/') || (name.charAt(idx) == '\\'))) {
+                idx++;
+            }
+
+            if (idx > 0) {
+                name = name.substring(idx);
+            }
+
+            try {
+                filename = URLDecoder.decode(prefix, "UTF-8") + name;
+
+                if (new File(filename).exists()) {
+                    return targetURL(url, name);
+                }
+                return null;
+            } catch (IllegalArgumentException e) {
+                return null;
+            } catch (UnsupportedEncodingException e) {
+                // must not happen
+                throw new AssertionError(e);
+            }
+        }
+
+    }
+
+
+    /**
+     * Constructs a new {@code URLClassLoader} instance. The newly created
+     * instance will have the system ClassLoader as its parent. URLs that end
+     * with "/" are assumed to be directories, otherwise they are assumed to be
+     * JAR files.
+     *
+     * @param urls
+     *            the list of URLs where a specific class or file could be
+     *            found.
+     */
+    public URLClassLoader(URL[] urls) {
+        this(urls, ClassLoader.getSystemClassLoader(), null);
     }
 
     /**
-     * Creates a new instance of URLClassLoader for the specified
-     * URLs and default parent class loader. If a security manager is
-     * installed, the {@code loadClass} method of the URLClassLoader
-     * returned by this method will invoke the
-     * {@code SecurityManager.checkPackageAccess} before
-     * loading the class.
+     * Constructs a new URLClassLoader instance. The newly created instance will
+     * have the system ClassLoader as its parent. URLs that end with "/" are
+     * assumed to be directories, otherwise they are assumed to be JAR files.
      *
-     * @param urls the URLs to search for classes and resources
-     * @exception  NullPointerException if {@code urls} is {@code null}.
-     * @return the resulting class loader
+     * @param urls
+     *            the list of URLs where a specific class or file could be
+     *            found.
+     * @param parent
+     *            the class loader to assign as this loader's parent.
+     */
+    public URLClassLoader(URL[] urls, ClassLoader parent) {
+        this(urls, parent, null);
+    }
+
+    /**
+     * Adds the specified URL to the search list.
+     *
+     * @param url
+     *            the URL which is to add.
+     */
+    protected void addURL(URL url) {
+        try {
+            originalUrls.add(url);
+            searchList.add(createSearchURL(url));
+        } catch (MalformedURLException e) {
+        }
+    }
+
+    /**
+     * Returns all known URLs which point to the specified resource.
+     *
+     * @param name
+     *            the name of the requested resource.
+     * @return the enumeration of URLs which point to the specified resource.
+     * @throws IOException
+     *             if an I/O error occurs while attempting to connect.
+     */
+    @Override
+    public Enumeration<URL> findResources(final String name) throws IOException {
+        if (name == null) {
+            return null;
+        }
+        ArrayList<URL> result = new ArrayList<URL>();
+        int n = 0;
+        while (true) {
+            URLHandler handler = getHandler(n++);
+            if (handler == null) {
+                break;
+            }
+            handler.findResources(name, result);
+        }
+        return Collections.enumeration(result);
+    }
+
+    /**
+     * Gets all permissions for the specified {@code codesource}. First, this
+     * method retrieves the permissions from the system policy. If the protocol
+     * is "file:/" then a new permission, {@code FilePermission}, granting the
+     * read permission to the file is added to the permission collection.
+     * Otherwise, connecting to and accepting connections from the URL is
+     * granted.
+     *
+     * @param codesource
+     *            the code source object whose permissions have to be known.
+     * @return the list of permissions according to the code source object.
+     */
+    @Override
+    protected PermissionCollection getPermissions(final CodeSource codesource) {
+        PermissionCollection pc = super.getPermissions(codesource);
+        URL u = codesource.getLocation();
+        if (u.getProtocol().equals("jar")) {
+            try {
+                // Create a URL for the resource the jar refers to
+                u = ((JarURLConnection) u.openConnection()).getJarFileURL();
+            } catch (IOException e) {
+                // This should never occur. If it does continue using the jar
+                // URL
+            }
+        }
+        if (u.getProtocol().equals("file")) {
+            String path = u.getFile();
+            String host = u.getHost();
+            if (host != null && host.length() > 0) {
+                path = "//" + host + path;
+            }
+
+            if (File.separatorChar != '/') {
+                path = path.replace('/', File.separatorChar);
+            }
+            if (isDirectory(u)) {
+                pc.add(new FilePermission(path + "-", "read"));
+            } else {
+                pc.add(new FilePermission(path, "read"));
+            }
+        } else {
+            String host = u.getHost();
+            if (host.length() == 0) {
+                host = "localhost";
+            }
+            pc.add(new SocketPermission(host, "connect, accept"));
+        }
+        return pc;
+    }
+
+    /**
+     * Returns the search list of this {@code URLClassLoader}.
+     *
+     * @return the list of all known URLs of this instance.
+     */
+    public URL[] getURLs() {
+        return originalUrls.toArray(new URL[originalUrls.size()]);
+    }
+
+    /**
+     * Determines if the URL is pointing to a directory.
+     */
+    private static boolean isDirectory(URL url) {
+        String file = url.getFile();
+        return (file.length() > 0 && file.charAt(file.length() - 1) == '/');
+    }
+
+    /**
+     * Returns a new {@code URLClassLoader} instance for the given URLs and the
+     * system {@code ClassLoader} as its parent.
+     *
+     * @param urls
+     *            the list of URLs that is passed to the new {@code
+     *            URLClassLoader}.
+     * @return the created {@code URLClassLoader} instance.
      */
     public static URLClassLoader newInstance(final URL[] urls) {
-        // Save the caller's context
-        final AccessControlContext acc = AccessController.getContext();
-        // Need a privileged block to create the class loader
-        URLClassLoader ucl = AccessController.doPrivileged(
-            new PrivilegedAction<URLClassLoader>() {
-                public URLClassLoader run() {
-                    return new FactoryURLClassLoader(urls, acc);
-                }
-            });
-        return ucl;
+        return new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
     }
 
-    static {
-        // Android-removed: SharedSecrets.setJavaNetAccess call. Android doesn't use it.
-        /*sun.misc.SharedSecrets.setJavaNetAccess (
-            new sun.misc.JavaNetAccess() {
-                public URLClassPath getURLClassPath (URLClassLoader u) {
-                    return u.ucp;
-                }
-
-                public String getOriginalHostName(InetAddress ia) {
-                    return ia.holder.getOriginalHostName();
-                }
-            }
-        );*/
-        ClassLoader.registerAsParallelCapable();
-    }
-}
-
-final class FactoryURLClassLoader extends URLClassLoader {
-
-    static {
-        ClassLoader.registerAsParallelCapable();
+    /**
+     * Returns a new {@code URLClassLoader} instance for the given URLs and the
+     * specified {@code ClassLoader} as its parent.
+     *
+     * @param urls
+     *            the list of URLs that is passed to the new URLClassLoader.
+     * @param parentCl
+     *            the parent class loader that is passed to the new
+     *            URLClassLoader.
+     * @return the created {@code URLClassLoader} instance.
+     */
+    public static URLClassLoader newInstance(final URL[] urls, final ClassLoader parentCl) {
+        return new URLClassLoader(urls, parentCl);
     }
 
-    FactoryURLClassLoader(URL[] urls, ClassLoader parent,
-                          AccessControlContext acc) {
-        super(urls, parent, acc);
-    }
-
-    FactoryURLClassLoader(URL[] urls, AccessControlContext acc) {
-        super(urls, acc);
-    }
-
-    public final Class<?> loadClass(String name, boolean resolve)
-        throws ClassNotFoundException
-    {
-        // First check if we have permission to access the package. This
-        // should go away once we've added support for exported packages.
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            int i = name.lastIndexOf('.');
-            if (i != -1) {
-                sm.checkPackageAccess(name.substring(0, i));
+    /**
+     * Constructs a new {@code URLClassLoader} instance. The newly created
+     * instance will have the specified {@code ClassLoader} as its parent and
+     * use the specified factory to create stream handlers. URLs that end with
+     * "/" are assumed to be directories, otherwise they are assumed to be JAR
+     * files.
+     *
+     * @param searchUrls
+     *            the list of URLs where a specific class or file could be
+     *            found.
+     * @param parent
+     *            the {@code ClassLoader} to assign as this loader's parent.
+     * @param factory
+     *            the factory that will be used to create protocol-specific
+     *            stream handlers.
+     */
+    public URLClassLoader(URL[] searchUrls, ClassLoader parent, URLStreamHandlerFactory factory) {
+        super(parent);
+        this.factory = factory;
+        int nbUrls = searchUrls.length;
+        originalUrls = new ArrayList<URL>(nbUrls);
+        handlerList = new ArrayList<URLHandler>(nbUrls);
+        searchList = Collections.synchronizedList(new ArrayList<URL>(nbUrls));
+        for (int i = 0; i < nbUrls; i++) {
+            originalUrls.add(searchUrls[i]);
+            try {
+                searchList.add(createSearchURL(searchUrls[i]));
+            } catch (MalformedURLException e) {
             }
         }
-        return super.loadClass(name, resolve);
+    }
+
+    /**
+     * Tries to locate and load the specified class using the known URLs. If the
+     * class could be found, a class object representing the loaded class will
+     * be returned.
+     *
+     * @throws ClassNotFoundException
+     *             if the specified class cannot be loaded.
+     */
+    @Override
+    protected Class<?> findClass(final String className) throws ClassNotFoundException {
+        String partialName = className.replace('.', '/');
+        final String classFileName = new StringBuilder(partialName).append(".class").toString();
+        String packageName = null;
+        int position = partialName.lastIndexOf('/');
+        if ((position = partialName.lastIndexOf('/')) != -1) {
+            packageName = partialName.substring(0, position);
+        }
+        int n = 0;
+        while (true) {
+            URLHandler handler = getHandler(n++);
+            if (handler == null) {
+                break;
+            }
+            Class<?> res = handler.findClass(packageName, classFileName, className);
+            if (res != null) {
+                return res;
+            }
+        }
+        throw new ClassNotFoundException(className);
+    }
+
+    /**
+     * Returns an URL that will be checked if it contains the class or resource.
+     * If the file component of the URL is not a directory, a Jar URL will be
+     * created.
+     *
+     * @return java.net.URL a test URL
+     */
+    private URL createSearchURL(URL url) throws MalformedURLException {
+        if (url == null) {
+            return url;
+        }
+
+        String protocol = url.getProtocol();
+
+        if (isDirectory(url) || protocol.equals("jar")) {
+            return url;
+        }
+        if (factory == null) {
+            return new URL("jar", "",
+                    -1, url.toString() + "!/");
+        }
+        // use jar protocol as the stream handler protocol
+        return new URL("jar", "",
+                -1, url.toString() + "!/",
+                factory.createURLStreamHandler("jar"));
+    }
+
+    /**
+     * Returns an URL referencing the specified resource or {@code null} if the
+     * resource could not be found.
+     *
+     * @param name
+     *            the name of the requested resource.
+     * @return the URL which points to the given resource.
+     */
+    @Override
+    public URL findResource(final String name) {
+        if (name == null) {
+            return null;
+        }
+        int n = 0;
+        while (true) {
+            URLHandler handler = getHandler(n++);
+            if (handler == null) {
+                break;
+            }
+            URL res = handler.findResource(name);
+            if (res != null) {
+                return res;
+            }
+        }
+        return null;
+    }
+
+    private URLHandler getHandler(int num) {
+        if (num < handlerList.size()) {
+            return handlerList.get(num);
+        }
+        makeNewHandler();
+        if (num < handlerList.size()) {
+            return handlerList.get(num);
+        }
+        return null;
+    }
+
+    private synchronized void makeNewHandler() {
+        while (!searchList.isEmpty()) {
+            URL nextCandidate = searchList.remove(0);
+            if (nextCandidate == null) {
+                throw new NullPointerException("nextCandidate == null");
+            }
+            if (!handlerMap.containsKey(nextCandidate)) {
+                URLHandler result;
+                String protocol = nextCandidate.getProtocol();
+                if (protocol.equals("jar")) {
+                    result = createURLJarHandler(nextCandidate);
+                } else if (protocol.equals("file")) {
+                    result = createURLFileHandler(nextCandidate);
+                } else {
+                    result = createURLHandler(nextCandidate);
+                }
+                if (result != null) {
+                    handlerMap.put(nextCandidate, result);
+                    handlerList.add(result);
+                    return;
+                }
+            }
+        }
+    }
+
+    private URLHandler createURLHandler(URL url) {
+        return new URLHandler(url);
+    }
+
+    private URLHandler createURLFileHandler(URL url) {
+        return new URLFileHandler(url);
+    }
+
+    private URLHandler createURLJarHandler(URL url) {
+        String prefixName;
+        String file = url.getFile();
+        if (url.getFile().endsWith("!/")) {
+            prefixName = "";
+        } else {
+            int sepIdx = file.lastIndexOf("!/");
+            if (sepIdx == -1) {
+                // Invalid URL, don't look here again
+                return null;
+            }
+            sepIdx += 2;
+            prefixName = file.substring(sepIdx);
+        }
+        try {
+            URL jarURL = ((JarURLConnection) url
+                    .openConnection()).getJarFileURL();
+            JarURLConnection juc = (JarURLConnection) new URL(
+                    "jar", "",
+                    jarURL.toExternalForm() + "!/").openConnection();
+            JarFile jf = juc.getJarFile();
+            URLJarHandler jarH = new URLJarHandler(url, jarURL, jf, prefixName);
+
+            if (jarH.getIndex() == null) {
+                try {
+                    Manifest manifest = jf.getManifest();
+                    if (manifest != null) {
+                        String classpath = manifest.getMainAttributes().getValue(
+                                Attributes.Name.CLASS_PATH);
+                        if (classpath != null) {
+                            searchList.addAll(0, getInternalURLs(url, classpath));
+                        }
+                    }
+                } catch (IOException e) {
+                }
+            }
+            return jarH;
+        } catch (IOException e) {
+        }
+        return null;
+    }
+
+    /**
+     * Defines a new package using the information extracted from the specified
+     * manifest.
+     *
+     * @param packageName
+     *            the name of the new package.
+     * @param manifest
+     *            the manifest containing additional information for the new
+     *            package.
+     * @param url
+     *            the URL to the code source for the new package.
+     * @return the created package.
+     * @throws IllegalArgumentException
+     *             if a package with the given name already exists.
+     */
+    protected Package definePackage(String packageName, Manifest manifest,
+                                    URL url) throws IllegalArgumentException {
+        Attributes mainAttributes = manifest.getMainAttributes();
+        String dirName = packageName.replace('.', '/') + "/";
+        Attributes packageAttributes = manifest.getAttributes(dirName);
+        boolean noEntry = false;
+        if (packageAttributes == null) {
+            noEntry = true;
+            packageAttributes = mainAttributes;
+        }
+        String specificationTitle = packageAttributes
+                .getValue(Attributes.Name.SPECIFICATION_TITLE);
+        if (specificationTitle == null && !noEntry) {
+            specificationTitle = mainAttributes
+                    .getValue(Attributes.Name.SPECIFICATION_TITLE);
+        }
+        String specificationVersion = packageAttributes
+                .getValue(Attributes.Name.SPECIFICATION_VERSION);
+        if (specificationVersion == null && !noEntry) {
+            specificationVersion = mainAttributes
+                    .getValue(Attributes.Name.SPECIFICATION_VERSION);
+        }
+        String specificationVendor = packageAttributes
+                .getValue(Attributes.Name.SPECIFICATION_VENDOR);
+        if (specificationVendor == null && !noEntry) {
+            specificationVendor = mainAttributes
+                    .getValue(Attributes.Name.SPECIFICATION_VENDOR);
+        }
+        String implementationTitle = packageAttributes
+                .getValue(Attributes.Name.IMPLEMENTATION_TITLE);
+        if (implementationTitle == null && !noEntry) {
+            implementationTitle = mainAttributes
+                    .getValue(Attributes.Name.IMPLEMENTATION_TITLE);
+        }
+        String implementationVersion = packageAttributes
+                .getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+        if (implementationVersion == null && !noEntry) {
+            implementationVersion = mainAttributes
+                    .getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+        }
+        String implementationVendor = packageAttributes
+                .getValue(Attributes.Name.IMPLEMENTATION_VENDOR);
+        if (implementationVendor == null && !noEntry) {
+            implementationVendor = mainAttributes
+                    .getValue(Attributes.Name.IMPLEMENTATION_VENDOR);
+        }
+
+        return definePackage(packageName, specificationTitle,
+                specificationVersion, specificationVendor, implementationTitle,
+                implementationVersion, implementationVendor, isSealed(manifest,
+                dirName) ? url : null);
+    }
+
+    private boolean isSealed(Manifest manifest, String dirName) {
+        Attributes attributes = manifest.getAttributes(dirName);
+        if (attributes != null) {
+            String value = attributes.getValue(Attributes.Name.SEALED);
+            if (value != null) {
+                return value.equalsIgnoreCase("true");
+            }
+        }
+        Attributes mainAttributes = manifest.getMainAttributes();
+        String value = mainAttributes.getValue(Attributes.Name.SEALED);
+        return (value != null && value.equalsIgnoreCase("true"));
+    }
+
+    /**
+     * returns URLs referenced in the string classpath.
+     *
+     * @param root
+     *            the jar URL that classpath is related to
+     * @param classpath
+     *            the relative URLs separated by spaces
+     * @return URL[] the URLs contained in the string classpath.
+     */
+    private ArrayList<URL> getInternalURLs(URL root, String classpath) {
+        // Class-path attribute is composed of space-separated values.
+        StringTokenizer tokenizer = new StringTokenizer(classpath);
+        ArrayList<URL> addedURLs = new ArrayList<URL>();
+        String file = root.getFile();
+        int jarIndex = file.lastIndexOf("!/") - 1;
+        int index = file.lastIndexOf("/", jarIndex) + 1;
+        if (index == 0) {
+            index = file.lastIndexOf(
+                    System.getProperty("file.separator"), jarIndex) + 1;
+        }
+        file = file.substring(0, index);
+        while (tokenizer.hasMoreElements()) {
+            String element = tokenizer.nextToken();
+            if (!element.isEmpty()) {
+                try {
+                    // Take absolute path case into consideration
+                    URL url = new URL(new URL(file), element);
+                    addedURLs.add(createSearchURL(url));
+                } catch (MalformedURLException e) {
+                    // Nothing is added
+                }
+            }
+        }
+        return addedURLs;
     }
 }

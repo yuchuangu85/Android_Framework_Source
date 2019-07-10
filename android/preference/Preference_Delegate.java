@@ -29,6 +29,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ListView;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Delegate that provides implementation for native methods in {@link Preference}
  * <p/>
@@ -56,9 +59,9 @@ public class Preference_Delegate {
      */
     public static View inflatePreference(Context context, XmlPullParser parser, ViewGroup root) {
         PreferenceManager pm = new PreferenceManager(context);
+        PreferenceScreen ps = pm.getPreferenceScreen();
         PreferenceInflater inflater = new BridgePreferenceInflater(context, pm);
-        PreferenceScreen ps = (PreferenceScreen) inflater.inflate(parser, null, true);
-        pm.setPreferences(ps);
+        ps = (PreferenceScreen) inflater.inflate(parser, ps, true);
         ListView preferenceView = createContainerView(context, root);
         ps.bind(preferenceView);
         return preferenceView;

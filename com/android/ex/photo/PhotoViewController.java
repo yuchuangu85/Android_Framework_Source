@@ -12,8 +12,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Process;
-import android.support.annotation.IdRes;
-import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.app.LoaderManager;
@@ -26,8 +24,8 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewPropertyAnimator;
-import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.WindowManager;
+import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.accessibility.AccessibilityManager;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
@@ -78,7 +76,7 @@ public class PhotoViewController implements
         public Context getApplicationContext();
         public Intent getIntent();
         public void setContentView(int resId);
-        public <T extends View> T findViewById(int id);
+        public View findViewById(int id);
         public Resources getResources();
         public FragmentManager getSupportFragmentManager();
         public LoaderManager getSupportLoaderManager();
@@ -146,12 +144,10 @@ public class PhotoViewController implements
     protected View mRootView;
     /** Background image that contains nothing, so it can be alpha faded from
      * transparent to black without affecting any other views. */
-    @Nullable
     protected View mBackground;
     /** The main pager; provides left/right swipe between photos */
     protected PhotoViewPager mViewPager;
     /** The temporary image so that we can quickly scale up the fullscreen thumbnail */
-    @Nullable
     protected ImageView mTemporaryImage;
     /** Adapter to create pager views */
     protected PhotoPagerAdapter mAdapter;
@@ -183,8 +179,6 @@ public class PhotoViewController implements
     protected int mAnimationStartWidth;
     protected int mAnimationStartHeight;
 
-    /** Whether lights out should invoked based on timer */
-    protected boolean mIsTimerLightsOutEnabled;
     protected boolean mActionBarHiddenInitially;
     protected boolean mDisplayThumbsFullScreen;
 
@@ -200,8 +194,6 @@ public class PhotoViewController implements
     // track the loading by this variable which is fragile and may cause phantom "loading..."
     // text.
     private long mEnterFullScreenDelayTime;
-
-    private int lastAnnouncedTitle = -1;
 
     public PhotoViewController(ActivityInterface activity) {
         mActivity = activity;
@@ -245,10 +237,6 @@ public class PhotoViewController implements
         if (intent.hasExtra(Intents.EXTRA_PHOTOS_URI)) {
             mPhotosUri = intent.getStringExtra(Intents.EXTRA_PHOTOS_URI);
         }
-
-        mIsTimerLightsOutEnabled = intent.getBooleanExtra(
-                Intents.EXTRA_ENABLE_TIMER_LIGHTS_OUT, true);
-
         if (intent.getBooleanExtra(Intents.EXTRA_SCALE_UP_ANIMATION, false)) {
             mScaleAnimationEnabled = true;
             mAnimationStartX = intent.getIntExtra(Intents.EXTRA_ANIMATION_START_X, 0);
@@ -304,18 +292,18 @@ public class PhotoViewController implements
             mFullScreen = mActionBarHiddenInitially;
         }
 
-        mActivity.setContentView(getContentViewId());
+        mActivity.setContentView(R.layout.photo_activity_view);
 
         // Create the adapter and add the view pager
         mAdapter = createPhotoPagerAdapter(mActivity.getContext(),
                         mActivity.getSupportFragmentManager(), null, mMaxInitialScale);
         final Resources resources = mActivity.getResources();
-        mRootView = findViewById(getRootViewId());
+        mRootView = findViewById(R.id.photo_activity_root_view);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
             mRootView.setOnSystemUiVisibilityChangeListener(getSystemUiVisibilityChangeListener());
         }
-        mBackground = getBackground();
-        mTemporaryImage = getTemporaryImage();
+        mBackground = findViewById(R.id.photo_activity_background);
+        mTemporaryImage = (ImageView) findViewById(R.id.photo_activity_temporary_image);
         mViewPager = (PhotoViewPager) findViewById(R.id.photo_view_pager);
         mViewPager.setAdapter(mAdapter);
         mViewPager.setOnPageChangeListener(this);
@@ -329,9 +317,7 @@ public class PhotoViewController implements
             mActivity.getSupportLoaderManager().initLoader(LOADER_PHOTO_LIST, null, this);
             // Make the background opaque immediately so that we don't see the activity
             // behind this one.
-            if (hasBackground()) {
-                mBackground.setVisibility(View.VISIBLE);
-            }
+            mBackground.setVisibility(View.VISIBLE);
         } else {
             // Attempt to load the initial image thumbnail. Once we have the
             // image, animate it up. Once the animation is complete, we can kick off
@@ -401,58 +387,6 @@ public class PhotoViewController implements
 
     protected View findViewById(int id) {
         return mActivity.findViewById(id);
-    }
-
-    /**
-     * Returns the android id of the viewer's root view. Subclasses should override this method if
-     * they provide their own layout.
-     */
-    @IdRes
-    protected int getRootViewId() {
-      return R.id.photo_activity_root_view;
-    }
-
-    /**
-     * Returns the android layout id of the root layout that should be inflated for the viewer.
-     * Subclasses should override this method if they provide their own layout.
-     */
-    @IdRes
-    protected int getContentViewId() {
-        return R.layout.photo_activity_view;
-    }
-
-    /**
-     * Returns the android view for the viewer's background view, if it has one. Subclasses should
-     * override this if they have a different (or no) background view.
-     */
-    @Nullable
-    protected View getBackground() {
-        return findViewById(R.id.photo_activity_background);
-    }
-
-    /**
-     * Returns whether or not the view has a background object. Subclasses should override this if
-     * they do not contain a background object.
-     */
-    protected boolean hasBackground() {
-        return mBackground != null;
-    }
-
-    /**
-     * Returns the android view for the viewer's temporary image, if it has one. Subclasses should
-     * override this if they have a different (or no) temporary image view.
-     */
-    @Nullable
-    protected ImageView getTemporaryImage() {
-        return (ImageView) findViewById(R.id.photo_activity_temporary_image);
-    }
-
-    /**
-     * Returns whether or not the view has a temporary image view. Subclasses should override this
-     * if they do not use a temporary image.
-     */
-    protected boolean hasTemporaryImage() {
-        return mTemporaryImage != null;
     }
 
     public void onStart() {}
@@ -770,14 +704,8 @@ public class PhotoViewController implements
         }
     }
 
-    /**
-     * Posts a runnable to enter full screen after mEnterFullScreenDelayTime. This method is a
-     * no-op if mIsTimerLightsOutEnabled is set to false.
-     */
     private void postEnterFullScreenRunnableWithDelay() {
-        if (mIsTimerLightsOutEnabled) {
-            mHandler.postDelayed(mEnterFullScreenRunnable, mEnterFullScreenDelayTime);
-        }
+        mHandler.postDelayed(mEnterFullScreenRunnable, mEnterFullScreenDelayTime);
     }
 
     private void cancelEnterFullScreenRunnable() {
@@ -809,11 +737,10 @@ public class PhotoViewController implements
         int uriIndex = cursor.getColumnIndex(PhotoContract.PhotoViewColumns.URI);
         mCurrentPhotoUri = cursor.getString(uriIndex);
         updateActionBar();
-        if (mAccessibilityManager.isEnabled() && lastAnnouncedTitle != position) {
+        if (mAccessibilityManager.isEnabled()) {
             String announcement = getPhotoAccessibilityAnnouncement(position);
             if (announcement != null) {
                 Util.announceForAccessibility(mRootView, mAccessibilityManager, announcement);
-                lastAnnouncedTitle = position;
             }
         }
 
@@ -935,13 +862,11 @@ public class PhotoViewController implements
 
     @Override
     public void onFragmentPhotoLoadComplete(PhotoViewFragment fragment, boolean success) {
-        if (hasTemporaryImage() && mTemporaryImage.getVisibility() != View.GONE &&
+        if (mTemporaryImage.getVisibility() != View.GONE &&
                 TextUtils.equals(fragment.getPhotoUri(), mCurrentPhotoUri)) {
             if (success) {
                 // The fragment for the current image is now ready for display.
-                if (hasTemporaryImage()) {
-                    mTemporaryImage.setVisibility(View.GONE);
-                }
+                mTemporaryImage.setVisibility(View.GONE);
                 mViewPager.setVisibility(View.VISIBLE);
             } else {
                 // This means that we are unable to load the fragment's photo.
@@ -949,9 +874,7 @@ public class PhotoViewController implements
                 // we display the viewPager, the fragment itself can decide how to
                 // display the failure of its own image.
                 Log.w(TAG, "Failed to load fragment image");
-                if (hasTemporaryImage()) {
-                    mTemporaryImage.setVisibility(View.GONE);
-                }
+                mTemporaryImage.setVisibility(View.GONE);
                 mViewPager.setVisibility(View.VISIBLE);
             }
             mActivity.getSupportLoaderManager().destroyLoader(
@@ -991,9 +914,7 @@ public class PhotoViewController implements
         // FLAG: Need to handle the aspect ratio of the bitmap.  If it's a portrait
         // bitmap, then we need to position the view higher so that the middle
         // pixels line up.
-        if (hasTemporaryImage()) {
-            mTemporaryImage.setVisibility(View.VISIBLE);
-        }
+        mTemporaryImage.setVisibility(View.VISIBLE);
         // We need to take a full screen image, and scale/translate it so that
         // it appears at exactly the same location onscreen as it is in the
         // prior activity.
@@ -1010,68 +931,60 @@ public class PhotoViewController implements
 
         final int version = android.os.Build.VERSION.SDK_INT;
         if (version >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            if (hasBackground()) {
-                mBackground.setAlpha(0f);
-                mBackground.animate().alpha(1f).setDuration(ENTER_ANIMATION_DURATION_MS).start();
-                mBackground.setVisibility(View.VISIBLE);
-            }
+            mBackground.setAlpha(0f);
+            mBackground.animate().alpha(1f).setDuration(ENTER_ANIMATION_DURATION_MS).start();
+            mBackground.setVisibility(View.VISIBLE);
 
-            if (hasTemporaryImage()) {
-                mTemporaryImage.setScaleX(scale);
-                mTemporaryImage.setScaleY(scale);
-                mTemporaryImage.setTranslationX(translateX);
-                mTemporaryImage.setTranslationY(translateY);
+            mTemporaryImage.setScaleX(scale);
+            mTemporaryImage.setScaleY(scale);
+            mTemporaryImage.setTranslationX(translateX);
+            mTemporaryImage.setTranslationY(translateY);
 
-                Runnable endRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        PhotoViewController.this.onEnterAnimationComplete();
-                    }
-                };
-                ViewPropertyAnimator animator = mTemporaryImage.animate().scaleX(1f).scaleY(1f)
-                    .translationX(0).translationY(0).setDuration(ENTER_ANIMATION_DURATION_MS);
-                if (version >= Build.VERSION_CODES.JELLY_BEAN) {
-                    animator.withEndAction(endRunnable);
-                } else {
-                    mHandler.postDelayed(endRunnable, ENTER_ANIMATION_DURATION_MS);
+            Runnable endRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    PhotoViewController.this.onEnterAnimationComplete();
                 }
-                animator.start();
+            };
+            ViewPropertyAnimator animator = mTemporaryImage.animate().scaleX(1f).scaleY(1f)
+                .translationX(0).translationY(0).setDuration(ENTER_ANIMATION_DURATION_MS);
+            if (version >= Build.VERSION_CODES.JELLY_BEAN) {
+                animator.withEndAction(endRunnable);
+            } else {
+                mHandler.postDelayed(endRunnable, ENTER_ANIMATION_DURATION_MS);
             }
+            animator.start();
         } else {
-            if (hasBackground()) {
-                final Animation alphaAnimation = new AlphaAnimation(0f, 1f);
-                alphaAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
-                mBackground.startAnimation(alphaAnimation);
-                mBackground.setVisibility(View.VISIBLE);
-            }
+            final Animation alphaAnimation = new AlphaAnimation(0f, 1f);
+            alphaAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
+            mBackground.startAnimation(alphaAnimation);
+            mBackground.setVisibility(View.VISIBLE);
 
-            if (hasTemporaryImage()) {
-                final Animation translateAnimation = new TranslateAnimation(translateX,
-                        translateY, 0, 0);
-                translateAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
-                Animation scaleAnimation = new ScaleAnimation(scale, scale, 0, 0);
-                scaleAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
+            final Animation translateAnimation = new TranslateAnimation(translateX,
+                    translateY, 0, 0);
+            translateAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
+            Animation scaleAnimation = new ScaleAnimation(scale, scale, 0, 0);
+            scaleAnimation.setDuration(ENTER_ANIMATION_DURATION_MS);
 
-                AnimationSet animationSet = new AnimationSet(true);
-                animationSet.addAnimation(translateAnimation);
-                animationSet.addAnimation(scaleAnimation);
-                AnimationListener listener = new AnimationListener() {
-                    @Override
-                    public void onAnimationEnd(Animation arg0) {
-                        PhotoViewController.this.onEnterAnimationComplete();
-                    }
+            AnimationSet animationSet = new AnimationSet(true);
+            animationSet.addAnimation(translateAnimation);
+            animationSet.addAnimation(scaleAnimation);
+            AnimationListener listener = new AnimationListener() {
+                @Override
+                public void onAnimationEnd(Animation arg0) {
+                    PhotoViewController.this.onEnterAnimationComplete();
+                }
 
-                    @Override
-                    public void onAnimationRepeat(Animation arg0) {
-                    }
+                @Override
+                public void onAnimationRepeat(Animation arg0) {
+                }
 
-                    @Override
-                    public void onAnimationStart(Animation arg0) {
-                    }
-                };
-                animationSet.setAnimationListener(listener);
-                mTemporaryImage.startAnimation(animationSet);
-            }
+                @Override
+                public void onAnimationStart(Animation arg0) {
+                }
+            };
+            animationSet.setAnimationListener(listener);
+            mTemporaryImage.startAnimation(animationSet);
         }
     }
 
@@ -1099,10 +1012,8 @@ public class PhotoViewController implements
                 totalHeight, scale);
         final int version = android.os.Build.VERSION.SDK_INT;
         if (version >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            if (hasBackground()) {
-                mBackground.animate().alpha(0f).setDuration(EXIT_ANIMATION_DURATION_MS).start();
-                mBackground.setVisibility(View.VISIBLE);
-            }
+            mBackground.animate().alpha(0f).setDuration(EXIT_ANIMATION_DURATION_MS).start();
+            mBackground.setVisibility(View.VISIBLE);
 
             Runnable endRunnable = new Runnable() {
                 @Override
@@ -1114,7 +1025,7 @@ public class PhotoViewController implements
             // not yet loaded the fullres image, so we need to animate
             // the temporary image out.
             ViewPropertyAnimator animator = null;
-            if (hasTemporaryImage() && mTemporaryImage.getVisibility() == View.VISIBLE) {
+            if (mTemporaryImage.getVisibility() == View.VISIBLE) {
                 animator = mTemporaryImage.animate().scaleX(scale).scaleY(scale)
                     .translationX(translateX).translationY(translateY)
                     .setDuration(EXIT_ANIMATION_DURATION_MS);
@@ -1135,12 +1046,10 @@ public class PhotoViewController implements
             }
             animator.start();
         } else {
-            if (hasBackground()) {
-                final Animation alphaAnimation = new AlphaAnimation(1f, 0f);
-                alphaAnimation.setDuration(EXIT_ANIMATION_DURATION_MS);
-                mBackground.startAnimation(alphaAnimation);
-                mBackground.setVisibility(View.VISIBLE);
-            }
+            final Animation alphaAnimation = new AlphaAnimation(1f, 0f);
+            alphaAnimation.setDuration(EXIT_ANIMATION_DURATION_MS);
+            mBackground.startAnimation(alphaAnimation);
+            mBackground.setVisibility(View.VISIBLE);
 
             final Animation scaleAnimation = new ScaleAnimation(1f, 1f, scale, scale);
             scaleAnimation.setDuration(EXIT_ANIMATION_DURATION_MS);
@@ -1162,7 +1071,7 @@ public class PhotoViewController implements
             // If the temporary image is still visible it means that we have
             // not yet loaded the fullres image, so we need to animate
             // the temporary image out.
-            if (hasTemporaryImage() && mTemporaryImage.getVisibility() == View.VISIBLE) {
+            if (mTemporaryImage.getVisibility() == View.VISIBLE) {
                 mTemporaryImage.startAnimation(scaleAnimation);
             } else {
                 mViewPager.startAnimation(scaleAnimation);
@@ -1200,9 +1109,7 @@ public class PhotoViewController implements
             // Forget this, we've already run the animation.
             return;
         }
-        if (hasTemporaryImage()) {
-            mTemporaryImage.setImageDrawable(drawable);
-        }
+        mTemporaryImage.setImageDrawable(drawable);
         if (drawable != null) {
             // We have not yet run the enter animation. Start it now.
             int totalWidth = mRootView.getMeasuredWidth();

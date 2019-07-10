@@ -16,16 +16,9 @@
 
 package android.os;
 
-import android.annotation.NonNull;
 import android.app.IAlarmManager;
 import android.content.Context;
 import android.util.Slog;
-
-import dalvik.annotation.optimization.CriticalNative;
-
-import java.time.Clock;
-import java.time.DateTimeException;
-import java.time.ZoneOffset;
 
 /**
  * Core timekeeping facilities.
@@ -131,7 +124,7 @@ public final class SystemClock {
             }
             duration = start + ms - uptimeMillis();
         } while (duration > 0);
-
+        
         if (interrupted) {
             // Important: we don't want to quietly eat an interrupt() event,
             // so we make sure to re-interrupt the thread so that the next
@@ -139,7 +132,7 @@ public final class SystemClock {
             Thread.currentThread().interrupt();
         }
     }
-
+    
     /**
      * Sets the current wall time, in milliseconds.  Requires the calling
      * process to have appropriate permissions.
@@ -147,8 +140,8 @@ public final class SystemClock {
      * @return if the clock was successfully set to the specified time.
      */
     public static boolean setCurrentTimeMillis(long millis) {
-        final IAlarmManager mgr = IAlarmManager.Stub
-                .asInterface(ServiceManager.getService(Context.ALARM_SERVICE));
+        IBinder b = ServiceManager.getService(Context.ALARM_SERVICE);
+        IAlarmManager mgr = IAlarmManager.Stub.asInterface(b);
         if (mgr == null) {
             return false;
         }
@@ -169,148 +162,44 @@ public final class SystemClock {
      *
      * @return milliseconds of non-sleep uptime since boot.
      */
-    @CriticalNative
     native public static long uptimeMillis();
-
-    /**
-     * @removed
-     */
-    @Deprecated
-    public static @NonNull Clock uptimeMillisClock() {
-        return uptimeClock();
-    }
-
-    /**
-     * Return {@link Clock} that starts at system boot, not counting time spent
-     * in deep sleep.
-     *
-     * @removed
-     */
-    public static @NonNull Clock uptimeClock() {
-        return new SimpleClock(ZoneOffset.UTC) {
-            @Override
-            public long millis() {
-                return SystemClock.uptimeMillis();
-            }
-        };
-    }
 
     /**
      * Returns milliseconds since boot, including time spent in sleep.
      *
      * @return elapsed milliseconds since boot.
      */
-    @CriticalNative
     native public static long elapsedRealtime();
-
-    /**
-     * Return {@link Clock} that starts at system boot, including time spent in
-     * sleep.
-     *
-     * @removed
-     */
-    public static @NonNull Clock elapsedRealtimeClock() {
-        return new SimpleClock(ZoneOffset.UTC) {
-            @Override
-            public long millis() {
-                return SystemClock.elapsedRealtime();
-            }
-        };
-    }
 
     /**
      * Returns nanoseconds since boot, including time spent in sleep.
      *
      * @return elapsed nanoseconds since boot.
      */
-    @CriticalNative
     public static native long elapsedRealtimeNanos();
 
     /**
      * Returns milliseconds running in the current thread.
-     *
+     * 
      * @return elapsed milliseconds in the thread
      */
-    @CriticalNative
     public static native long currentThreadTimeMillis();
 
     /**
      * Returns microseconds running in the current thread.
-     *
+     * 
      * @return elapsed microseconds in the thread
-     *
+     * 
      * @hide
      */
-    @CriticalNative
     public static native long currentThreadTimeMicro();
 
     /**
      * Returns current wall time in  microseconds.
-     *
+     * 
      * @return elapsed microseconds in wall time
-     *
+     * 
      * @hide
      */
-    @CriticalNative
     public static native long currentTimeMicro();
-
-    /**
-     * Returns milliseconds since January 1, 1970 00:00:00.0 UTC, synchronized
-     * using a remote network source outside the device.
-     * <p>
-     * While the time returned by {@link System#currentTimeMillis()} can be
-     * adjusted by the user, the time returned by this method cannot be adjusted
-     * by the user. Note that synchronization may occur using an insecure
-     * network protocol, so the returned time should not be used for security
-     * purposes.
-     * <p>
-     * This performs no blocking network operations and returns values based on
-     * a recent successful synchronization event; it will either return a valid
-     * time or throw.
-     *
-     * @throws DateTimeException when no accurate network time can be provided.
-     * @hide
-     */
-    public static long currentNetworkTimeMillis() {
-        final IAlarmManager mgr = IAlarmManager.Stub
-                .asInterface(ServiceManager.getService(Context.ALARM_SERVICE));
-        if (mgr != null) {
-            try {
-                return mgr.currentNetworkTimeMillis();
-            } catch (ParcelableException e) {
-                e.maybeRethrow(DateTimeException.class);
-                throw new RuntimeException(e);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        } else {
-            throw new RuntimeException(new DeadSystemException());
-        }
-    }
-
-    /**
-     * Returns a {@link Clock} that starts at January 1, 1970 00:00:00.0 UTC,
-     * synchronized using a remote network source outside the device.
-     * <p>
-     * While the time returned by {@link System#currentTimeMillis()} can be
-     * adjusted by the user, the time returned by this method cannot be adjusted
-     * by the user. Note that synchronization may occur using an insecure
-     * network protocol, so the returned time should not be used for security
-     * purposes.
-     * <p>
-     * This performs no blocking network operations and returns values based on
-     * a recent successful synchronization event; it will either return a valid
-     * time or throw.
-     *
-     * @throws DateTimeException when no accurate network time can be provided.
-     * @hide
-     */
-    public static @NonNull Clock currentNetworkTimeClock() {
-        return new SimpleClock(ZoneOffset.UTC) {
-            @Override
-            public long millis() {
-                return SystemClock.currentNetworkTimeMillis();
-            }
-        };
-    }
 }

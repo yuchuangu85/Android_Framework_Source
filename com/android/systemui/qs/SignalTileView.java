@@ -24,24 +24,20 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.android.systemui.R;
-import com.android.systemui.plugins.qs.QSTile;
-import com.android.systemui.plugins.qs.QSTile.SignalState;
-import com.android.systemui.qs.tileimpl.QSIconViewImpl;
-import com.android.systemui.qs.tileimpl.SlashImageView;
+import com.android.systemui.qs.QSTile.SignalState;
 
 /** View that represents a custom quick settings tile for displaying signal info (wifi/cell). **/
-public class SignalTileView extends QSIconViewImpl {
+public final class SignalTileView extends QSTileView {
     private static final long DEFAULT_DURATION = new ValueAnimator().getDuration();
     private static final long SHORT_DURATION = DEFAULT_DURATION / 3;
 
-    protected FrameLayout mIconFrame;
-    protected ImageView mSignal;
+    private FrameLayout mIconFrame;
+    private ImageView mSignal;
     private ImageView mOverlay;
     private ImageView mIn;
     private ImageView mOut;
 
     private int mWideOverlayIconStartPadding;
-    private int mSignalIndicatorToIconFrameSpacing;
 
     public SignalTileView(Context context) {
         super(context);
@@ -49,13 +45,8 @@ public class SignalTileView extends QSIconViewImpl {
         mIn = addTrafficView(R.drawable.ic_qs_signal_in);
         mOut = addTrafficView(R.drawable.ic_qs_signal_out);
 
-        setClipChildren(false);
-        setClipToPadding(false);
-
         mWideOverlayIconStartPadding = context.getResources().getDimensionPixelSize(
                 R.dimen.wide_type_icon_start_padding_qs);
-        mSignalIndicatorToIconFrameSpacing = context.getResources().getDimensionPixelSize(
-                R.dimen.signal_indicator_to_icon_frame_spacing);
     }
 
     private ImageView addTrafficView(int icon) {
@@ -69,15 +60,11 @@ public class SignalTileView extends QSIconViewImpl {
     @Override
     protected View createIcon() {
         mIconFrame = new FrameLayout(mContext);
-        mSignal = createSlashImageView(mContext);
+        mSignal = new ImageView(mContext);
         mIconFrame.addView(mSignal);
         mOverlay = new ImageView(mContext);
         mIconFrame.addView(mOverlay, LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         return mIconFrame;
-    }
-
-    protected SlashImageView createSlashImageView(Context context) {
-        return new SlashImageView(context);
     }
 
     @Override
@@ -96,19 +83,14 @@ public class SignalTileView extends QSIconViewImpl {
         layoutIndicator(mOut);
     }
 
-    @Override
-    protected int getIconMeasureMode() {
-        return MeasureSpec.AT_MOST;
-    }
-
     private void layoutIndicator(View indicator) {
         boolean isRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
         int left, right;
         if (isRtl) {
-            right = getLeft() - mSignalIndicatorToIconFrameSpacing;
+            right = mIconFrame.getLeft();
             left = right - indicator.getMeasuredWidth();
         } else {
-            left = getRight() + mSignalIndicatorToIconFrameSpacing;
+            left = mIconFrame.getRight();
             right = left + indicator.getMeasuredWidth();
         }
         indicator.layout(
@@ -119,10 +101,10 @@ public class SignalTileView extends QSIconViewImpl {
     }
 
     @Override
-    public void setIcon(QSTile.State state) {
+    protected void handleStateChanged(QSTile.State state) {
+        super.handleStateChanged(state);
         final SignalState s = (SignalState) state;
         setIcon(mSignal, s);
-
         if (s.overlayIconId > 0) {
             mOverlay.setVisibility(VISIBLE);
             mOverlay.setImageResource(s.overlayIconId);
@@ -133,6 +115,10 @@ public class SignalTileView extends QSIconViewImpl {
             mSignal.setPaddingRelative(mWideOverlayIconStartPadding, 0, 0, 0);
         } else {
             mSignal.setPaddingRelative(0, 0, 0, 0);
+        }
+        Drawable drawable = mSignal.getDrawable();
+        if (state.autoMirrorDrawable && drawable != null) {
+            drawable.setAutoMirrored(true);
         }
         final boolean shown = isShown();
         setVisibility(mIn, shown, s.activityIn);

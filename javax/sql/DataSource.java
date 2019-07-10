@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
@@ -30,70 +22,61 @@ import java.sql.SQLException;
 import java.sql.Wrapper;
 
 /**
- * <p>A factory for connections to the physical data source that this
- * <code>DataSource</code> object represents.  An alternative to the
- * <code>DriverManager</code> facility, a <code>DataSource</code> object
- * is the preferred means of getting a connection. An object that implements
- * the <code>DataSource</code> interface will typically be
- * registered with a naming service based on the
- * Java<sup><font size=-2>TM</font></sup> Naming and Directory (JNDI) API.
- * <P>
- * The <code>DataSource</code> interface is implemented by a driver vendor.
- * There are three types of implementations:
- * <OL>
- *   <LI>Basic implementation -- produces a standard <code>Connection</code>
- *       object
- *   <LI>Connection pooling implementation -- produces a <code>Connection</code>
- *       object that will automatically participate in connection pooling.  This
- *       implementation works with a middle-tier connection pooling manager.
- *   <LI>Distributed transaction implementation -- produces a
- *       <code>Connection</code> object that may be used for distributed
- *       transactions and almost always participates in connection pooling.
- *       This implementation works with a middle-tier
- *       transaction manager and almost always with a connection
- *       pooling manager.
- * </OL>
- * <P>
- * A <code>DataSource</code> object has properties that can be modified
- * when necessary.  For example, if the data source is moved to a different
- * server, the property for the server can be changed.  The benefit is that
- * because the data source's properties can be changed, any code accessing
- * that data source does not need to be changed.
- * <P>
- * A driver that is accessed via a <code>DataSource</code> object does not
- * register itself with the <code>DriverManager</code>.  Rather, a
- * <code>DataSource</code> object is retrieved though a lookup operation
- * and then used to create a <code>Connection</code> object.  With a basic
- * implementation, the connection obtained through a <code>DataSource</code>
- * object is identical to a connection obtained through the
- * <code>DriverManager</code> facility.
- *
- * @since 1.4
+ * An interface for the creation of {@code Connection} objects which represent a
+ * connection to a database. This interface is an alternative to the {@code
+ * java.sql.DriverManager}.
+ * <p>
+ * A class which implements the {@code DataSource} interface is typically
+ * registered with a JNDI naming service directory and is retrieved from there
+ * by name.
+ * <p>
+ * The {@code DataSource} interface is typically implemented by the writer of a
+ * JDBC driver. There are three variants of the {@code DataSource} interface,
+ * which produce connections with different characteristics:
+ * <ol>
+ * <li><i>Standard {@code DataSource}</i>: produces standard {@code Connection}
+ * objects with no special features.</li>
+ * <li><i>Connection Pool {@code DataSource}</i>: produces {@code
+ * PooledConnection} objects which require a connection pool manager as an
+ * intermediary component.</li>
+ * <li><i>Distributed transaction {@code DataSource} ("XADataSource")</i>:
+ * produces {@code XAConnection} objects which can be used to handle distributed
+ * transactions which typically require an intermediary transaction manager
+ * component. {@code XAConnection} objects also provide connection pooling
+ * capabilities as well as distributed transaction capabilities.</li>
+ * </ol>
+ * <p>
+ * Note that a JDBC driver which is accessed via the {@code DataSource}
+ * interface is loaded via a JNDI lookup process. A driver loaded in this way
+ * does not register itself with the {@code DriverManager}.
  */
+public interface DataSource extends CommonDataSource, Wrapper {
 
-public interface DataSource  extends CommonDataSource,Wrapper {
+    /**
+     * Creates a connection to the database represented by this {@code
+     * DataSource}.
+     *
+     * @return a {@code Connection} object which is a connection to the
+     *         database.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Connection getConnection() throws SQLException;
 
-  /**
-   * <p>Attempts to establish a connection with the data source that
-   * this <code>DataSource</code> object represents.
-   *
-   * @return  a connection to the data source
-   * @exception SQLException if a database access error occurs
-   */
-  Connection getConnection() throws SQLException;
-
-  /**
-   * <p>Attempts to establish a connection with the data source that
-   * this <code>DataSource</code> object represents.
-   *
-   * @param username the database user on whose behalf the connection is
-   *  being made
-   * @param password the user's password
-   * @return  a connection to the data source
-   * @exception SQLException if a database access error occurs
-   * @since 1.4
-   */
-  Connection getConnection(String username, String password)
-    throws SQLException;
-
+    /**
+     * Creates a connection to the database represented by this {@code
+     * DataSource}, using the supplied user name and password.
+     *
+     * @param theUsername
+     *            the a user name for the database login.
+     * @param thePassword
+     *            the password associated with the user identified by {@code
+     *            theUsername}.
+     * @return the {@code Connection} object which is the connection to the
+     *         database.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Connection getConnection(String theUsername, String thePassword)
+            throws SQLException;
 }

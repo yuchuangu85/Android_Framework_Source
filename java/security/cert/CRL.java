@@ -1,61 +1,38 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
 
 /**
- * This class is an abstraction of certificate revocation lists (CRLs) that
- * have different formats but important common uses. For example, all CRLs
- * share the functionality of listing revoked certificates, and can be queried
- * on whether or not they list a given certificate.
- * <p>
- * Specialized CRL types can be defined by subclassing off of this abstract
- * class.
+ * This class represents Certificate Revocation Lists (CRLs) maintained by a
+ * certificate authority. They are used to indicate that a given Certificate has
+ * expired and consequently has become invalid.
  *
- * @author Hemma Prafullchandra
- *
- *
- * @see X509CRL
  * @see CertificateFactory
- *
- * @since 1.2
  */
-
 public abstract class CRL {
-
-    // the CRL type
-    private String type;
+    // The CRL type
+    private final String type;
 
     /**
-     * Creates a CRL of the specified type.
+     * Creates a new certificate revocation list of the specified type.
      *
-     * @param type the standard name of the CRL type.
-     * See Appendix A in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html#AppA">
-     * Java Cryptography Architecture API Specification &amp; Reference </a>
-     * for information about standard CRL types.
+     * @param type
+     *            the type for the CRL.
      */
     protected CRL(String type) {
         this.type = type;
@@ -67,22 +44,23 @@ public abstract class CRL {
      * @return the type of this CRL.
      */
     public final String getType() {
-        return this.type;
+        return type;
     }
 
     /**
-     * Returns a string representation of this CRL.
+     * Returns whether the specified certificate is revoked by this CRL.
      *
-     * @return a string representation of this CRL.
-     */
-    public abstract String toString();
-
-    /**
-     * Checks whether the given certificate is on this CRL.
-     *
-     * @param cert the certificate to check for.
-     * @return true if the given certificate is on this CRL,
-     * false otherwise.
+     * @param cert
+     *            the certificate to check.
+     * @return {@code true} if the certificate is revoked by this CRL, otherwise
+     *         {@code false}.
      */
     public abstract boolean isRevoked(Certificate cert);
+
+    /**
+     * Returns the string representation of this instance.
+     *
+     * @return the string representation of this instance.
+     */
+    public abstract String toString();
 }

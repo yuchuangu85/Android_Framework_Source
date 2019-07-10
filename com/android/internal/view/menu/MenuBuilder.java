@@ -17,7 +17,6 @@
 package com.android.internal.view.menu;
 
 
-import android.annotation.NonNull;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -37,7 +36,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
-import android.view.ViewConfiguration;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -157,12 +155,7 @@ public class MenuBuilder implements Menu {
      * Currently expanded menu item; must be collapsed when we clear.
      */
     private MenuItemImpl mExpandedItem;
-
-    /**
-     * Whether group dividers are enabled.
-     */
-    private boolean mGroupDividerEnabled = false;
-
+    
     /**
      * Called by menu to notify of close and selection changes.
      */
@@ -193,6 +186,7 @@ public class MenuBuilder implements Menu {
     public MenuBuilder(Context context) {
         mContext = context;
         mResources = context.getResources();
+        
         mItems = new ArrayList<MenuItemImpl>();
         
         mVisibleItems = new ArrayList<MenuItemImpl>();
@@ -468,15 +462,6 @@ public class MenuBuilder implements Menu {
         return addSubMenu(group, id, categoryOrder, mResources.getString(title));
     }
 
-    @Override
-    public void setGroupDividerEnabled(boolean groupDividerEnabled) {
-        mGroupDividerEnabled = groupDividerEnabled;
-    }
-
-    public boolean isGroupDividerEnabled() {
-        return mGroupDividerEnabled;
-    }
-
     public int addIntentOptions(int group, int id, int categoryOrder, ComponentName caller,
             Intent[] specifics, Intent intent, int flags, MenuItem[] outSpecificItems) {
         PackageManager pm = mContext.getPackageManager();
@@ -552,7 +537,6 @@ public class MenuBuilder implements Menu {
         mPreventDispatchingItemsChanged = true;
         clear();
         clearHeader();
-        mPresenters.clear();
         mPreventDispatchingItemsChanged = false;
         mItemsChangedWhileDispatchPrevented = false;
         onItemsChanged(true);
@@ -754,7 +738,8 @@ public class MenuBuilder implements Menu {
     private void setShortcutsVisibleInner(boolean shortcutsVisible) {
         mShortcutsVisible = shortcutsVisible
                 && mResources.getConfiguration().keyboard != Configuration.KEYBOARD_NOKEYS
-                && ViewConfiguration.get(mContext).shouldShowMenuShortcutsWhenKeyboardPresent();
+                && mResources.getBoolean(
+                        com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
     }
 
     /**
@@ -806,7 +791,7 @@ public class MenuBuilder implements Menu {
         }
         
         if ((flags & FLAG_ALWAYS_PERFORM_CLOSE) != 0) {
-            close(true /* closeAllMenus */);
+            close(true);
         }
         
         return handled;
@@ -820,7 +805,7 @@ public class MenuBuilder implements Menu {
      */
     void findItemsWithShortcutForKey(List<MenuItemImpl> items, int keyCode, KeyEvent event) {
         final boolean qwerty = isQwertyMode();
-        final int modifierState = event.getModifiers();
+        final int metaState = event.getMetaState();
         final KeyCharacterMap.KeyData possibleChars = new KeyCharacterMap.KeyData();
         // Get the chars associated with the keyCode (i.e using any chording combo)
         final boolean isKeyCodeMapped = event.getKeyData(possibleChars);
@@ -836,13 +821,9 @@ public class MenuBuilder implements Menu {
             if (item.hasSubMenu()) {
                 ((MenuBuilder)item.getSubMenu()).findItemsWithShortcutForKey(items, keyCode, event);
             }
-            final char shortcutChar =
-                    qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
-            final int shortcutModifiers =
-                    qwerty ? item.getAlphabeticModifiers() : item.getNumericModifiers();
-            final boolean isModifiersExactMatch = (modifierState & SUPPORTED_MODIFIERS_MASK)
-                    == (shortcutModifiers & SUPPORTED_MODIFIERS_MASK);
-            if (isModifiersExactMatch && (shortcutChar != 0) &&
+            final char shortcutChar = qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
+            if (((metaState & (KeyEvent.META_SHIFT_ON | KeyEvent.META_SYM_ON)) == 0) &&
+                  (shortcutChar != 0) &&
                   (shortcutChar == possibleChars.meta[0]
                       || shortcutChar == possibleChars.meta[2]
                       || (qwerty && shortcutChar == '\b' &&
@@ -926,10 +907,10 @@ public class MenuBuilder implements Menu {
         final boolean providerHasSubMenu = provider != null && provider.hasSubMenu();
         if (itemImpl.hasCollapsibleActionView()) {
             invoked |= itemImpl.expandActionView();
-            if (invoked) {
-                close(true /* closeAllMenus */);
-            }
+            if (invoked) close(true);
         } else if (itemImpl.hasSubMenu() || providerHasSubMenu) {
+            close(false);
+
             if (!itemImpl.hasSubMenu()) {
                 itemImpl.setSubMenu(new SubMenuBuilder(getContext(), this, itemImpl));
             }
@@ -939,12 +920,10 @@ public class MenuBuilder implements Menu {
                 provider.onPrepareSubMenu(subMenu);
             }
             invoked |= dispatchSubMenuSelected(subMenu, preferredPresenter);
-            if (!invoked) {
-                close(true /* closeAllMenus */);
-            }
+            if (!invoked) close(true);
         } else {
             if ((flags & FLAG_PERFORM_NO_CLOSE) == 0) {
-                close(true /* closeAllMenus */);
+                close(true);
             }
         }
         
@@ -952,14 +931,15 @@ public class MenuBuilder implements Menu {
     }
     
     /**
-     * Closes the menu.
-     *
-     * @param closeAllMenus {@code true} if all displayed menus and submenus
-     *                      should be completely closed (as when a menu item is
-     *                      selected) or {@code false} if only this menu should
-     *                      be closed
+     * Closes the visible menu.
+     * 
+     * @param allMenusAreClosing Whether the menus are completely closing (true),
+     *            or whether there is another menu coming in this menu's place
+     *            (false). For example, if the menu is closing because a
+     *            sub menu is about to be shown, <var>allMenusAreClosing</var>
+     *            is false.
      */
-    public final void close(boolean closeAllMenus) {
+    public final void close(boolean allMenusAreClosing) {
         if (mIsClosing) return;
 
         mIsClosing = true;
@@ -968,7 +948,7 @@ public class MenuBuilder implements Menu {
             if (presenter == null) {
                 mPresenters.remove(ref);
             } else {
-                presenter.onCloseMenu(this, closeAllMenus);
+                presenter.onCloseMenu(this, allMenusAreClosing);
             }
         }
         mIsClosing = false;
@@ -976,7 +956,7 @@ public class MenuBuilder implements Menu {
 
     /** {@inheritDoc} */
     public void close() {
-        close(true /* closeAllMenus */);
+        close(true);
     }
 
     /**
@@ -1039,24 +1019,23 @@ public class MenuBuilder implements Menu {
         mIsActionItemsStale = true;
         onItemsChanged(true);
     }
-
-    @NonNull
+    
     public ArrayList<MenuItemImpl> getVisibleItems() {
         if (!mIsVisibleItemsStale) return mVisibleItems;
-
+        
         // Refresh the visible items
         mVisibleItems.clear();
-
+        
         final int itemsSize = mItems.size(); 
         MenuItemImpl item;
         for (int i = 0; i < itemsSize; i++) {
             item = mItems.get(i);
             if (item.isVisible()) mVisibleItems.add(item);
         }
-
+        
         mIsVisibleItemsStale = false;
         mIsActionItemsStale = true;
-
+        
         return mVisibleItems;
     }
 

@@ -19,10 +19,8 @@ package android.content;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.res.AssetFileDescriptor;
-import android.database.CrossProcessCursorWrapper;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.DeadObjectException;
@@ -34,34 +32,27 @@ import android.os.RemoteException;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Preconditions;
 
 import dalvik.system.CloseGuard;
 
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * The public interface object used to interact with a specific
- * {@link ContentProvider}.
- * <p>
- * Instances can be obtained by calling
- * {@link ContentResolver#acquireContentProviderClient} or
- * {@link ContentResolver#acquireUnstableContentProviderClient}. Instances must
- * be released using {@link #close()} in order to indicate to the system that
- * the underlying {@link ContentProvider} is no longer needed and can be killed
- * to free up resources.
- * <p>
- * Note that you should generally create a new ContentProviderClient instance
- * for each thread that will be performing operations. Unlike
+ * The public interface object used to interact with a {@link ContentProvider}. This is obtained by
+ * calling {@link ContentResolver#acquireContentProviderClient}. This object must be released
+ * using {@link #release} in order to indicate to the system that the {@link ContentProvider} is
+ * no longer needed and can be killed to free up resources.
+ *
+ * <p>Note that you should generally create a new ContentProviderClient instance
+ * for each thread that will be performing operations.  Unlike
  * {@link ContentResolver}, the methods here such as {@link #query} and
- * {@link #openFile} are not thread safe -- you must not call {@link #close()}
- * on the ContentProviderClient those calls are made from until you are finished
- * with the data they have returned.
+ * {@link #openFile} are not thread safe -- you must not call
+ * {@link #release()} on the ContentProviderClient those calls are made from
+ * until you are finished with the data they have returned.
  */
-public class ContentProviderClient implements AutoCloseable {
+public class ContentProviderClient {
     private static final String TAG = "ContentProviderClient";
 
     @GuardedBy("ContentProviderClient.class")
@@ -72,23 +63,22 @@ public class ContentProviderClient implements AutoCloseable {
     private final String mPackageName;
     private final boolean mStable;
 
-    private final AtomicBoolean mClosed = new AtomicBoolean();
-    private final CloseGuard mCloseGuard = CloseGuard.get();
+    private final CloseGuard mGuard = CloseGuard.get();
 
     private long mAnrTimeout;
     private NotRespondingRunnable mAnrRunnable;
 
+    private boolean mReleased;
+
     /** {@hide} */
-    @VisibleForTesting
-    public ContentProviderClient(
+    ContentProviderClient(
             ContentResolver contentResolver, IContentProvider contentProvider, boolean stable) {
         mContentResolver = contentResolver;
         mContentProvider = contentProvider;
         mPackageName = contentResolver.mPackageName;
-
         mStable = stable;
 
-        mCloseGuard.open("close");
+        mGuard.open("release");
     }
 
     /** {@hide} */
@@ -103,16 +93,8 @@ public class ContentProviderClient implements AutoCloseable {
                 if (sAnrHandler == null) {
                     sAnrHandler = new Handler(Looper.getMainLooper(), null, true /* async */);
                 }
-
-                // If the remote process hangs, we're going to kill it, so we're
-                // technically okay doing blocking calls.
-                Binder.allowBlocking(mContentProvider.asBinder());
             } else {
                 mAnrRunnable = null;
-
-                // If we're no longer watching for hangs, revert back to default
-                // blocking behavior.
-                Binder.defaultBlocking(mContentProvider.asBinder());
             }
         }
     }
@@ -137,20 +119,11 @@ public class ContentProviderClient implements AutoCloseable {
     }
 
     /** See {@link ContentProvider#query ContentProvider.query} */
-    public @Nullable Cursor query(@NonNull Uri uri, @Nullable String[] projection,
+    public @Nullable Cursor query(@NonNull Uri url, @Nullable String[] projection,
             @Nullable String selection, @Nullable String[] selectionArgs,
             @Nullable String sortOrder, @Nullable CancellationSignal cancellationSignal)
                     throws RemoteException {
-        Bundle queryArgs =
-                ContentResolver.createSqlQueryBundle(selection, selectionArgs, sortOrder);
-        return query(uri, projection, queryArgs, cancellationSignal);
-    }
-
-    /** See {@link ContentProvider#query ContentProvider.query} */
-    public @Nullable Cursor query(@NonNull Uri uri, @Nullable String[] projection,
-            Bundle queryArgs, @Nullable CancellationSignal cancellationSignal)
-                    throws RemoteException {
-        Preconditions.checkNotNull(uri, "url");
+        Preconditions.checkNotNull(url, "url");
 
         beforeRemote();
         try {
@@ -160,12 +133,8 @@ public class ContentProviderClient implements AutoCloseable {
                 remoteCancellationSignal = mContentProvider.createCancellationSignal();
                 cancellationSignal.setRemote(remoteCancellationSignal);
             }
-            final Cursor cursor = mContentProvider.query(
-                    mPackageName, uri, projection, queryArgs, remoteCancellationSignal);
-            if (cursor == null) {
-                return null;
-            }
-            return new CursorWrapperInner(cursor);
+            return mContentProvider.query(mPackageName, url, projection, selection, selectionArgs,
+                    sortOrder, remoteCancellationSignal);
         } catch (DeadObjectException e) {
             if (!mStable) {
                 mContentResolver.unstableProviderDied(mContentProvider);
@@ -236,30 +205,6 @@ public class ContentProviderClient implements AutoCloseable {
         beforeRemote();
         try {
             return mContentProvider.uncanonicalize(mPackageName, url);
-        } catch (DeadObjectException e) {
-            if (!mStable) {
-                mContentResolver.unstableProviderDied(mContentProvider);
-            }
-            throw e;
-        } finally {
-            afterRemote();
-        }
-    }
-
-    /** See {@link ContentProvider#refresh} */
-    public boolean refresh(Uri url, @Nullable Bundle args,
-            @Nullable CancellationSignal cancellationSignal) throws RemoteException {
-        Preconditions.checkNotNull(url, "url");
-
-        beforeRemote();
-        try {
-            ICancellationSignal remoteCancellationSignal = null;
-            if (cancellationSignal != null) {
-                cancellationSignal.throwIfCanceled();
-                remoteCancellationSignal = mContentProvider.createCancellationSignal();
-                cancellationSignal.setRemote(remoteCancellationSignal);
-            }
-            return mContentProvider.refresh(mPackageName, url, args, remoteCancellationSignal);
         } catch (DeadObjectException e) {
             if (!mStable) {
                 mContentResolver.unstableProviderDied(mContentProvider);
@@ -501,49 +446,29 @@ public class ContentProviderClient implements AutoCloseable {
     }
 
     /**
-     * Closes this client connection, indicating to the system that the
-     * underlying {@link ContentProvider} is no longer needed.
+     * Call this to indicate to the system that the associated {@link ContentProvider} is no
+     * longer needed by this {@link ContentProviderClient}.
+     * @return true if this was release, false if it was already released
      */
-    @Override
-    public void close() {
-        closeInternal();
-    }
-
-    /**
-     * @deprecated replaced by {@link #close()}.
-     */
-    @Deprecated
     public boolean release() {
-        return closeInternal();
-    }
-
-    private boolean closeInternal() {
-        mCloseGuard.close();
-        if (mClosed.compareAndSet(false, true)) {
-            // We can't do ANR checks after we cease to exist! Reset any
-            // blocking behavior changes we might have made.
-            setDetectNotResponding(0);
-
+        synchronized (this) {
+            if (mReleased) {
+                throw new IllegalStateException("Already released");
+            }
+            mReleased = true;
+            mGuard.close();
             if (mStable) {
                 return mContentResolver.releaseProvider(mContentProvider);
             } else {
                 return mContentResolver.releaseUnstableProvider(mContentProvider);
             }
-        } else {
-            return false;
         }
     }
 
     @Override
     protected void finalize() throws Throwable {
-        try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
-            close();
-        } finally {
-            super.finalize();
+        if (mGuard != null) {
+            mGuard.warnIfOpen();
         }
     }
 
@@ -575,34 +500,6 @@ public class ContentProviderClient implements AutoCloseable {
         public void run() {
             Log.w(TAG, "Detected provider not responding: " + mContentProvider);
             mContentResolver.appNotRespondingViaProvider(mContentProvider);
-        }
-    }
-
-    private final class CursorWrapperInner extends CrossProcessCursorWrapper {
-        private final CloseGuard mCloseGuard = CloseGuard.get();
-
-        CursorWrapperInner(Cursor cursor) {
-            super(cursor);
-            mCloseGuard.open("close");
-        }
-
-        @Override
-        public void close() {
-            mCloseGuard.close();
-            super.close();
-        }
-
-        @Override
-        protected void finalize() throws Throwable {
-            try {
-                if (mCloseGuard != null) {
-                    mCloseGuard.warnIfOpen();
-                }
-
-                close();
-            } finally {
-                super.finalize();
-            }
         }
     }
 }

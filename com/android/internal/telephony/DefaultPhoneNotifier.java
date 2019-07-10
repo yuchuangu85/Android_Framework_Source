@@ -22,13 +22,20 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.telephony.CellInfo;
-import android.telephony.PhysicalChannelConfig;
-import android.telephony.PreciseCallState;
+import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.Rlog;
+import android.telephony.VoLteServiceState;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.telephony.VoLteServiceState;
+import android.telephony.PreciseCallState;
+import android.telephony.DisconnectCause;
+
+import com.android.internal.telephony.Call;
+import com.android.internal.telephony.CallManager;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.ITelephonyRegistry;
+import com.android.internal.telephony.PhoneConstants;
 
 import java.util.List;
 
@@ -41,7 +48,8 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
     protected ITelephonyRegistry mRegistry;
 
-    public DefaultPhoneNotifier() {
+    /*package*/
+    protected DefaultPhoneNotifier() {
         mRegistry = ITelephonyRegistry.Stub.asInterface(ServiceManager.getService(
                     "telephony.registry"));
     }
@@ -50,16 +58,14 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     public void notifyPhoneState(Phone sender) {
         Call ringingCall = sender.getRingingCall();
         int subId = sender.getSubId();
-        int phoneId = sender.getPhoneId();
         String incomingNumber = "";
-        if (ringingCall != null && ringingCall.getEarliestConnection() != null) {
+        if (ringingCall != null && ringingCall.getEarliestConnection() != null){
             incomingNumber = ringingCall.getEarliestConnection().getAddress();
         }
         try {
             if (mRegistry != null) {
-                  mRegistry.notifyCallStateForPhoneId(phoneId, subId,
-                        PhoneConstantConversions.convertCallState(
-                            sender.getState()), incomingNumber);
+                  mRegistry.notifyCallStateForSubscriber(subId,
+                        convertCallState(sender.getState()), incomingNumber);
             }
         } catch (RemoteException ex) {
             // system process is dead
@@ -89,17 +95,12 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
     @Override
     public void notifySignalStrength(Phone sender) {
-        int phoneId = sender.getPhoneId();
         int subId = sender.getSubId();
-        if (DBG) {
-            // too chatty to log constantly
-            Rlog.d(LOG_TAG, "notifySignalStrength: mRegistry=" + mRegistry
-                    + " ss=" + sender.getSignalStrength() + " sender=" + sender);
-        }
+        Rlog.d(LOG_TAG, "notifySignalStrength: mRegistry=" + mRegistry
+                + " ss=" + sender.getSignalStrength() + " sender=" + sender);
         try {
             if (mRegistry != null) {
-                mRegistry.notifySignalStrengthForPhoneId(phoneId, subId,
-                        sender.getSignalStrength());
+                mRegistry.notifySignalStrengthForSubscriber(subId, sender.getSignalStrength());
             }
         } catch (RemoteException ex) {
             // system process is dead
@@ -126,9 +127,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         int subId = sender.getSubId();
         try {
             if (mRegistry != null) {
-                Rlog.d(LOG_TAG, "notifyCallForwardingChanged: subId=" + subId + ", isCFActive="
-                        + sender.getCallForwardingIndicator());
-
                 mRegistry.notifyCallForwardingChangedForSubscriber(subId,
                         sender.getCallForwardingIndicator());
             }
@@ -159,7 +157,7 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     private void doNotifyDataConnection(Phone sender, String reason, String apnType,
             PhoneConstants.DataState state) {
         int subId = sender.getSubId();
-        long dds = SubscriptionManager.getDefaultDataSubscriptionId();
+        long dds = SubscriptionManager.getDefaultDataSubId();
         if (DBG) log("subId = " + subId + ", DDS = " + dds);
 
         // TODO
@@ -180,14 +178,15 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         try {
             if (mRegistry != null) {
                 mRegistry.notifyDataConnectionForSubscriber(subId,
-                    PhoneConstantConversions.convertDataState(state),
-                        sender.isDataAllowed(), reason,
-                        sender.getActiveApnHost(apnType),
-                        apnType,
-                        linkProperties,
-                        networkCapabilities,
-                        ((telephony != null) ? telephony.getDataNetworkType(subId) :
-                                TelephonyManager.NETWORK_TYPE_UNKNOWN), roaming);
+                    convertDataState(state),
+                    sender.isDataConnectivityPossible(apnType), reason,
+                    sender.getActiveApnHost(apnType),
+                    apnType,
+                    linkProperties,
+                    networkCapabilities,
+                    ((telephony!=null) ? telephony.getDataNetworkType(subId) :
+                    TelephonyManager.NETWORK_TYPE_UNKNOWN),
+                    roaming);
             }
         } catch (RemoteException ex) {
             // system process is dead
@@ -233,15 +232,12 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyPhysicalChannelConfiguration(Phone sender,
-            List<PhysicalChannelConfig> configs) {
-        int subId = sender.getSubId();
+    public void notifyDataConnectionRealTimeInfo(Phone sender,
+                                                 DataConnectionRealTimeInfo dcRtInfo) {
         try {
-            if (mRegistry != null) {
-                mRegistry.notifyPhysicalChannelConfigurationForSubscriber(subId, configs);
-            }
+            mRegistry.notifyDataConnectionRealTimeInfo(dcRtInfo);
         } catch (RemoteException ex) {
-            // system process is dead
+
         }
     }
 
@@ -304,41 +300,75 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyDataActivationStateChanged(Phone sender, int activationState) {
-        try {
-            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
-                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_DATA, activationState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
-    public void notifyVoiceActivationStateChanged(Phone sender, int activationState) {
-        try {
-            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
-                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_VOICE, activationState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
-    public void notifyUserMobileDataStateChanged(Phone sender, boolean state) {
-        try {
-            mRegistry.notifyUserMobileDataStateChangedForPhoneId(
-                    sender.getPhoneId(), sender.getSubId(), state);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
     public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData) {
         try {
             mRegistry.notifyOemHookRawEventForSubscriber(subId, rawData);
         } catch (RemoteException ex) {
             // system process is dead
+        }
+    }
+
+    /**
+     * Convert the {@link PhoneConstants.State} enum into the TelephonyManager.CALL_STATE_*
+     * constants for the public API.
+     */
+    public static int convertCallState(PhoneConstants.State state) {
+        switch (state) {
+            case RINGING:
+                return TelephonyManager.CALL_STATE_RINGING;
+            case OFFHOOK:
+                return TelephonyManager.CALL_STATE_OFFHOOK;
+            default:
+                return TelephonyManager.CALL_STATE_IDLE;
+        }
+    }
+
+    /**
+     * Convert the TelephonyManager.CALL_STATE_* constants into the
+     * {@link PhoneConstants.State} enum for the public API.
+     */
+    public static PhoneConstants.State convertCallState(int state) {
+        switch (state) {
+            case TelephonyManager.CALL_STATE_RINGING:
+                return PhoneConstants.State.RINGING;
+            case TelephonyManager.CALL_STATE_OFFHOOK:
+                return PhoneConstants.State.OFFHOOK;
+            default:
+                return PhoneConstants.State.IDLE;
+        }
+    }
+
+    /**
+     * Convert the {@link PhoneConstants.DataState} enum into the TelephonyManager.DATA_* constants
+     * for the public API.
+     */
+    public static int convertDataState(PhoneConstants.DataState state) {
+        switch (state) {
+            case CONNECTING:
+                return TelephonyManager.DATA_CONNECTING;
+            case CONNECTED:
+                return TelephonyManager.DATA_CONNECTED;
+            case SUSPENDED:
+                return TelephonyManager.DATA_SUSPENDED;
+            default:
+                return TelephonyManager.DATA_DISCONNECTED;
+        }
+    }
+
+    /**
+     * Convert the TelephonyManager.DATA_* constants into {@link PhoneConstants.DataState} enum
+     * for the public API.
+     */
+    public static PhoneConstants.DataState convertDataState(int state) {
+        switch (state) {
+            case TelephonyManager.DATA_CONNECTING:
+                return PhoneConstants.DataState.CONNECTING;
+            case TelephonyManager.DATA_CONNECTED:
+                return PhoneConstants.DataState.CONNECTED;
+            case TelephonyManager.DATA_SUSPENDED:
+                return PhoneConstants.DataState.SUSPENDED;
+            default:
+                return PhoneConstants.DataState.DISCONNECTED;
         }
     }
 
@@ -362,7 +392,26 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     /**
-     * Convert the {@link Call.State} enum into the PreciseCallState.PRECISE_CALL_STATE_* constants
+     * Convert the TelephonyManager.DATA_* constants into the {@link Phone.DataActivityState} enum
+     * for the public API.
+     */
+    public static Phone.DataActivityState convertDataActivityState(int state) {
+        switch (state) {
+            case TelephonyManager.DATA_ACTIVITY_IN:
+                return Phone.DataActivityState.DATAIN;
+            case TelephonyManager.DATA_ACTIVITY_OUT:
+                return Phone.DataActivityState.DATAOUT;
+            case TelephonyManager.DATA_ACTIVITY_INOUT:
+                return Phone.DataActivityState.DATAINANDOUT;
+            case TelephonyManager.DATA_ACTIVITY_DORMANT:
+                return Phone.DataActivityState.DORMANT;
+            default:
+                return Phone.DataActivityState.NONE;
+        }
+    }
+
+    /**
+     * Convert the {@link State} enum into the PreciseCallState.PRECISE_CALL_STATE_* constants
      * for the public API.
      */
     public static int convertPreciseCallState(Call.State state) {
@@ -386,6 +435,38 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
             default:
                 return PreciseCallState.PRECISE_CALL_STATE_IDLE;
         }
+    }
+
+    /**
+     * Convert the Call.State.* constants into the {@link State} enum
+     * for the public API.
+     */
+    public static Call.State convertPreciseCallState(int state) {
+        switch (state) {
+            case PreciseCallState.PRECISE_CALL_STATE_ACTIVE:
+                return Call.State.ACTIVE;
+            case PreciseCallState.PRECISE_CALL_STATE_HOLDING:
+                return Call.State.HOLDING;
+            case PreciseCallState.PRECISE_CALL_STATE_DIALING:
+                return Call.State.DIALING;
+            case PreciseCallState.PRECISE_CALL_STATE_ALERTING:
+                return Call.State.ALERTING;
+            case PreciseCallState.PRECISE_CALL_STATE_INCOMING:
+                return Call.State.INCOMING;
+            case PreciseCallState.PRECISE_CALL_STATE_WAITING:
+                return Call.State.WAITING;
+            case PreciseCallState.PRECISE_CALL_STATE_DISCONNECTED:
+                return Call.State.DISCONNECTED;
+            case PreciseCallState.PRECISE_CALL_STATE_DISCONNECTING:
+                return Call.State.DISCONNECTING;
+            default:
+                return Call.State.IDLE;
+        }
+    }
+
+    public interface IDataStateChangedCallback {
+        void onDataStateChanged(int subId, String state, String reason, String apnName,
+            String apnType, boolean unavailable);
     }
 
     private void log(String s) {

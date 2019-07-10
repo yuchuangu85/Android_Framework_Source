@@ -89,9 +89,8 @@ public class OverScroller {
      * means no bounce. This behavior is no longer supported and this coefficient has no effect.
      * @param bounceCoefficientY Same as bounceCoefficientX but for the vertical direction. This
      * behavior is no longer supported and this coefficient has no effect.
-     * @deprecated Use {@link #OverScroller(Context, Interpolator)} instead.
+     * !deprecated Use {!link #OverScroller(Context, Interpolator, boolean)} instead.
      */
-    @Deprecated
     public OverScroller(Context context, Interpolator interpolator,
             float bounceCoefficientX, float bounceCoefficientY) {
         this(context, interpolator, true);
@@ -108,9 +107,8 @@ public class OverScroller {
      * @param bounceCoefficientY Same as bounceCoefficientX but for the vertical direction. This
      * behavior is no longer supported and this coefficient has no effect.
      * @param flywheel If true, successive fling motions will keep on increasing scroll speed.
-     * @deprecated Use {@link #OverScroller(Context, Interpolator)} instead.
+     * !deprecated Use {!link OverScroller(Context, Interpolator, boolean)} instead.
      */
-    @Deprecated
     public OverScroller(Context context, Interpolator interpolator,
             float bounceCoefficientX, float bounceCoefficientY, boolean flywheel) {
         this(context, interpolator, flywheel);

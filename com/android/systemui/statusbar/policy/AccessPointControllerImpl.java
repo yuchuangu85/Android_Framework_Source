@@ -20,6 +20,7 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.wifi.WifiManager.ActionListener;
+import android.os.Looper;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
@@ -58,17 +59,11 @@ public class AccessPointControllerImpl
 
     private int mCurrentUser;
 
-    public AccessPointControllerImpl(Context context) {
+    public AccessPointControllerImpl(Context context, Looper bgLooper) {
         mContext = context;
         mUserManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-        mWifiTracker = new WifiTracker(context, this, false, true);
+        mWifiTracker = new WifiTracker(context, this, bgLooper, false, true);
         mCurrentUser = ActivityManager.getCurrentUser();
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        super.finalize();
-        mWifiTracker.onDestroy();
     }
 
     public boolean canConfigWifi() {
@@ -86,7 +81,7 @@ public class AccessPointControllerImpl
         if (DEBUG) Log.d(TAG, "addCallback " + callback);
         mCallbacks.add(callback);
         if (mCallbacks.size() == 1) {
-            mWifiTracker.onStart();
+            mWifiTracker.startTracking();
         }
     }
 
@@ -96,13 +91,14 @@ public class AccessPointControllerImpl
         if (DEBUG) Log.d(TAG, "removeCallback " + callback);
         mCallbacks.remove(callback);
         if (mCallbacks.isEmpty()) {
-            mWifiTracker.onStop();
+            mWifiTracker.stopTracking();
         }
     }
 
     @Override
     public void scanForAccessPoints() {
-        fireAcccessPointsCallback(mWifiTracker.getAccessPoints());
+        if (DEBUG) Log.d(TAG, "scan!");
+        mWifiTracker.forceScan();
     }
 
     @Override

@@ -1,188 +1,147 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
-import java.io.IOException;
-import java.io.EOFException;
-import java.io.InputStream;
 import java.io.FilterInputStream;
-import java.io.PrintStream;
-import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 /**
- * A transparent stream that updates the associated message digest using
- * the bits going through the stream.
- *
- * <p>To complete the message digest computation, call one of the
- * {@code digest} methods on the associated message
- * digest after your calls to one of this digest input stream's
- * {@link #read() read} methods.
- *
- * <p>It is possible to turn this stream on or off (see
- * {@link #on(boolean) on}). When it is on, a call to one of the
- * {@code read} methods
- * results in an update on the message digest.  But when it is off,
- * the message digest is not updated. The default is for the stream
- * to be on.
- *
- * <p>Note that digest objects can compute only one digest (see
- * {@link MessageDigest}),
- * so that in order to compute intermediate digests, a caller should
- * retain a handle onto the digest object, and clone it for each
- * digest to be computed, leaving the orginal digest untouched.
- *
- * @see MessageDigest
- *
- * @see DigestOutputStream
- *
- * @author Benjamin Renaud
+ * {@code DigestInputStream} is a {@code FilterInputStream} which maintains an
+ * associated message digest.
  */
-
 public class DigestInputStream extends FilterInputStream {
 
-    /* NOTE: This should be made a generic UpdaterInputStream */
-
-    /* Are we on or off? */
-    private boolean on = true;
-
     /**
-     * The message digest associated with this stream.
+     * The message digest for this stream.
      */
     protected MessageDigest digest;
 
+    // Indicates whether digest functionality is on or off
+    private boolean isOn = true;
+
     /**
-     * Creates a digest input stream, using the specified input stream
-     * and message digest.
+     * Constructs a new instance of this {@code DigestInputStream}, using the
+     * given {@code stream} and the {@code digest}.
      *
-     * @param stream the input stream.
+     * <p><strong>Warning:</strong> passing a null source creates an invalid
+     * {@code DigestInputStream}. All operations on such a stream will fail.
      *
-     * @param digest the message digest to associate with this stream.
+     * @param stream
+     *            the input stream.
+     * @param digest
+     *            the message digest.
      */
     public DigestInputStream(InputStream stream, MessageDigest digest) {
         super(stream);
-        setMessageDigest(digest);
+        this.digest = digest;
     }
 
     /**
-     * Returns the message digest associated with this stream.
+     * Returns the message digest for this stream.
      *
-     * @return the message digest associated with this stream.
-     * @see #setMessageDigest(java.security.MessageDigest)
+     * @return the message digest for this stream.
      */
     public MessageDigest getMessageDigest() {
         return digest;
     }
 
     /**
-     * Associates the specified message digest with this stream.
+     * Sets the message digest which this stream will use.
      *
-     * @param digest the message digest to be associated with this stream.
-     * @see #getMessageDigest()
+     * @param digest
+     *            the message digest which this stream will use.
      */
     public void setMessageDigest(MessageDigest digest) {
         this.digest = digest;
     }
 
     /**
-     * Reads a byte, and updates the message digest (if the digest
-     * function is on).  That is, this method reads a byte from the
-     * input stream, blocking until the byte is actually read. If the
-     * digest function is on (see {@link #on(boolean) on}), this method
-     * will then call {@code update} on the message digest associated
-     * with this stream, passing it the byte read.
+     * Reads the next byte and returns it as an {@code int}. Updates the digest
+     * for the byte if this function is {@link #on(boolean)}.
+     * <p>
+     * This operation is blocking.
      *
-     * @return the byte read.
-     *
-     * @exception IOException if an I/O error occurs.
-     *
-     * @see MessageDigest#update(byte)
+     * @return the byte which was read or -1 at end of stream.
+     * @throws IOException
+     *             if reading the source stream causes an {@code IOException}.
      */
+    @Override
     public int read() throws IOException {
-        int ch = in.read();
-        if (on && ch != -1) {
-            digest.update((byte)ch);
+        // read the next byte
+        int byteRead = in.read();
+        // update digest only if
+        // - digest functionality is on
+        // - eos has not been reached
+        if (isOn && (byteRead != -1)) {
+            digest.update((byte)byteRead);
         }
-        return ch;
+        // return byte read
+        return byteRead;
     }
 
     /**
-     * Reads into a byte array, and updates the message digest (if the
-     * digest function is on).  That is, this method reads up to
-     * {@code len} bytes from the input stream into the array
-     * {@code b}, starting at offset {@code off}. This method
-     * blocks until the data is actually
-     * read. If the digest function is on (see
-     * {@link #on(boolean) on}), this method will then call {@code update}
-     * on the message digest associated with this stream, passing it
-     * the data.
+     * Reads up to {@code byteCount} bytes into {@code buffer}, starting at
+     * {@code byteOffset}. Updates the digest if this function is
+     * {@link #on(boolean)}.
      *
-     * @param b the array into which the data is read.
+     * <p>This operation is blocking.
      *
-     * @param off the starting offset into {@code b} of where the
-     * data should be placed.
+     * <p>Returns the number of bytes actually read or -1 if the end of the
+     * filtered stream has been reached while reading.
      *
-     * @param len the maximum number of bytes to be read from the input
-     * stream into b, starting at offset {@code off}.
-     *
-     * @return  the actual number of bytes read. This is less than
-     * {@code len} if the end of the stream is reached prior to
-     * reading {@code len} bytes. -1 is returned if no bytes were
-     * read because the end of the stream had already been reached when
-     * the call was made.
-     *
-     * @exception IOException if an I/O error occurs.
-     *
-     * @see MessageDigest#update(byte[], int, int)
+     * @throws IOException
+     *             if reading the source stream causes an {@code IOException}
      */
-    public int read(byte[] b, int off, int len) throws IOException {
-        int result = in.read(b, off, len);
-        if (on && result != -1) {
-            digest.update(b, off, result);
+    @Override
+    public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        int bytesRead = in.read(buffer, byteOffset, byteCount);
+        // update digest only if
+        // - digest functionality is on
+        // - eos has not been reached
+        if (isOn && (bytesRead != -1)) {
+            digest.update(buffer, byteOffset, bytesRead);
         }
-        return result;
+        // return number of bytes read
+        return bytesRead;
     }
 
     /**
-     * Turns the digest function on or off. The default is on.  When
-     * it is on, a call to one of the {@code read} methods results in an
-     * update on the message digest.  But when it is off, the message
-     * digest is not updated.
+     * Enables or disables the digest function (default is on).
      *
-     * @param on true to turn the digest function on, false to turn
-     * it off.
+     * @param on
+     *            {@code true} if the digest should be computed, {@code false}
+     *            otherwise.
+     * @see MessageDigest
      */
     public void on(boolean on) {
-        this.on = on;
+        isOn = on;
     }
 
     /**
-     * Prints a string representation of this digest input stream and
-     * its associated message digest object.
+     * Returns a string containing a concise, human-readable description of this
+     * {@code DigestInputStream} including the digest.
+     *
+     * @return a printable representation for this {@code DigestInputStream}.
      */
-     public String toString() {
-         return "[Digest Input Stream] " + digest.toString();
-     }
+    @Override
+    public String toString() {
+        return super.toString() + ", " + digest.toString() +
+            (isOn ? ", is on" : ", is off");
+    }
 }

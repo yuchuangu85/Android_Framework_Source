@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.SubscriptionInfo;
-
 /**
  * See also RIL_CardStatus in include/telephony/ril.h
  *
@@ -29,12 +27,10 @@ public class IccCardStatus {
     public enum CardState {
         CARDSTATE_ABSENT,
         CARDSTATE_PRESENT,
-        CARDSTATE_ERROR,
-        CARDSTATE_RESTRICTED;
+        CARDSTATE_ERROR;
 
         boolean isCardPresent() {
-            return this == CARDSTATE_PRESENT ||
-                this == CARDSTATE_RESTRICTED;
+            return this == CARDSTATE_PRESENT;
         }
     }
 
@@ -64,9 +60,6 @@ public class IccCardStatus {
     public int        mGsmUmtsSubscriptionAppIndex;
     public int        mCdmaSubscriptionAppIndex;
     public int        mImsSubscriptionAppIndex;
-    public int        physicalSlotIndex = UiccController.INVALID_SLOT_ID;
-    public String     atr;
-    public String     iccid;
 
     public IccCardApplicationStatus[] mApplications;
 
@@ -80,9 +73,6 @@ public class IccCardStatus {
             break;
         case 2:
             mCardState = CardState.CARDSTATE_ERROR;
-            break;
-        case 3:
-            mCardState = CardState.CARDSTATE_RESTRICTED;
             break;
         default:
             throw new RuntimeException("Unrecognized RIL_CardState: " + state);
@@ -121,36 +111,30 @@ public class IccCardStatus {
         StringBuilder sb = new StringBuilder();
         sb.append("IccCardState {").append(mCardState).append(",")
         .append(mUniversalPinState)
-        .append(",num_apps=").append(mApplications.length);
-
-        sb.append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
-        if (mApplications != null
-                && mGsmUmtsSubscriptionAppIndex >= 0
-                && mGsmUmtsSubscriptionAppIndex < mApplications.length) {
+        .append(",num_apps=").append(mApplications.length)
+        .append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
+        if (mGsmUmtsSubscriptionAppIndex >=0
+                && mGsmUmtsSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mGsmUmtsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",cdma_id=").append(mCdmaSubscriptionAppIndex);
-        if (mApplications != null
-                && mCdmaSubscriptionAppIndex >= 0
-                && mCdmaSubscriptionAppIndex < mApplications.length) {
+        if (mCdmaSubscriptionAppIndex >=0
+                && mCdmaSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mCdmaSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",ims_id=").append(mImsSubscriptionAppIndex);
-        if (mApplications != null
-                && mImsSubscriptionAppIndex >= 0
-                && mImsSubscriptionAppIndex < mApplications.length) {
+        if (mImsSubscriptionAppIndex >=0
+                && mImsSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mImsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
-        sb.append(",physical_slot_id=").append(physicalSlotIndex).append(",atr=").append(atr);
-        sb.append(",iccid=").append(SubscriptionInfo.givePrintableIccid(iccid));
-
         sb.append("}");
+
         return sb.toString();
     }
 

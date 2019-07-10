@@ -25,7 +25,7 @@ public class LinkedListTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(LinkedListTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
@@ -91,7 +91,7 @@ public class LinkedListTest extends JSR166TestCase {
     public void testSize() {
         LinkedList q = populatedQueue(SIZE);
         for (int i = 0; i < SIZE; ++i) {
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             q.remove();
         }
         for (int i = 0; i < SIZE; ++i) {
@@ -106,8 +106,6 @@ public class LinkedListTest extends JSR166TestCase {
     public void testOfferNull() {
         LinkedList q = new LinkedList();
         q.offer(null);
-        assertNull(q.get(0));
-        assertTrue(q.contains(null));
     }
 
     /**
@@ -134,8 +132,8 @@ public class LinkedListTest extends JSR166TestCase {
      * addAll(null) throws NPE
      */
     public void testAddAll1() {
-        LinkedList q = new LinkedList();
         try {
+            LinkedList q = new LinkedList();
             q.addAll(null);
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -247,14 +245,14 @@ public class LinkedListTest extends JSR166TestCase {
             assertTrue(q.contains(i));
             assertTrue(q.remove((Integer)i));
             assertFalse(q.contains(i));
-            assertTrue(q.contains(i - 1));
+            assertTrue(q.contains(i-1));
         }
         for (int i = 0; i < SIZE; i += 2) {
             assertTrue(q.contains(i));
             assertTrue(q.remove((Integer)i));
             assertFalse(q.contains(i));
-            assertFalse(q.remove((Integer)(i + 1)));
-            assertFalse(q.contains(i + 1));
+            assertFalse(q.remove((Integer)(i+1)));
+            assertFalse(q.contains(i+1));
         }
         assertTrue(q.isEmpty());
     }
@@ -313,7 +311,7 @@ public class LinkedListTest extends JSR166TestCase {
                 assertTrue(changed);
 
             assertTrue(q.containsAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             p.remove();
         }
     }
@@ -326,7 +324,7 @@ public class LinkedListTest extends JSR166TestCase {
             LinkedList q = populatedQueue(SIZE);
             LinkedList p = populatedQueue(i);
             assertTrue(q.removeAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             for (int j = 0; j < i; ++j) {
                 Integer x = (Integer)(p.remove());
                 assertFalse(q.contains(x));
@@ -551,7 +549,7 @@ public class LinkedListTest extends JSR166TestCase {
      */
     public void testPollLast() {
         LinkedList q = populatedQueue(SIZE);
-        for (int i = SIZE - 1; i >= 0; --i) {
+        for (int i = SIZE-1; i >= 0; --i) {
             assertEquals(i, q.pollLast());
         }
         assertNull(q.pollLast());
@@ -576,7 +574,7 @@ public class LinkedListTest extends JSR166TestCase {
      */
     public void testPeekLast() {
         LinkedList q = populatedQueue(SIZE);
-        for (int i = SIZE - 1; i >= 0; --i) {
+        for (int i = SIZE-1; i >= 0; --i) {
             assertEquals(i, q.peekLast());
             assertEquals(i, q.pollLast());
             assertTrue(q.peekLast() == null ||
@@ -602,7 +600,7 @@ public class LinkedListTest extends JSR166TestCase {
      */
     public void testLastElement() {
         LinkedList q = populatedQueue(SIZE);
-        for (int i = SIZE - 1; i >= 0; --i) {
+        for (int i = SIZE-1; i >= 0; --i) {
             assertEquals(i, q.getLast());
             assertEquals(i, q.pollLast());
         }
@@ -623,7 +621,7 @@ public class LinkedListTest extends JSR166TestCase {
         }
         for (int i = 0; i < SIZE; i += 2) {
             assertTrue(q.removeFirstOccurrence(new Integer(i)));
-            assertFalse(q.removeFirstOccurrence(new Integer(i + 1)));
+            assertFalse(q.removeFirstOccurrence(new Integer(i+1)));
         }
         assertTrue(q.isEmpty());
     }
@@ -638,7 +636,7 @@ public class LinkedListTest extends JSR166TestCase {
         }
         for (int i = 0; i < SIZE; i += 2) {
             assertTrue(q.removeLastOccurrence(new Integer(i)));
-            assertFalse(q.removeLastOccurrence(new Integer(i + 1)));
+            assertFalse(q.removeLastOccurrence(new Integer(i+1)));
         }
         assertTrue(q.isEmpty());
     }

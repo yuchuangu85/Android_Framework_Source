@@ -139,14 +139,6 @@ public class KeyguardSecurityViewFlipper extends ViewFlipper implements Keyguard
     }
 
     @Override
-    public void showMessage(CharSequence message, int color) {
-        KeyguardSecurityView ksv = getSecurityView();
-        if (ksv != null) {
-            ksv.showMessage(message, color);
-        }
-    }
-
-    @Override
     public void showUsabilityHint() {
         KeyguardSecurityView ksv = getSecurityView();
         if (ksv != null) {
@@ -170,15 +162,6 @@ public class KeyguardSecurityViewFlipper extends ViewFlipper implements Keyguard
         } else {
             return false;
         }
-    }
-
-    @Override
-    public CharSequence getTitle() {
-        KeyguardSecurityView ksv = getSecurityView();
-        if (ksv != null) {
-            return ksv.getTitle();
-        }
-        return "";
     }
 
     @Override

@@ -1,150 +1,114 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * (C) Copyright Taligent, Inc. 1996, 1997 - All Rights Reserved
- * (C) Copyright IBM Corp. 1996 - 1998 - All Rights Reserved
- *
- *   The original version of this source code and documentation is copyrighted
- * and owned by Taligent, Inc., a wholly-owned subsidiary of IBM. These
- * materials are provided under terms of a License Agreement between Taligent
- * and Sun. This technology is protected by multiple US and International
- * patents. This notice and attribution to Taligent may not be removed.
- *   Taligent is a registered trademark of Taligent, Inc.
- *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.text;
 
-
 /**
- * <code>ParsePosition</code> is a simple class used by <code>Format</code>
- * and its subclasses to keep track of the current position during parsing.
- * The <code>parseObject</code> method in the various <code>Format</code>
- * classes requires a <code>ParsePosition</code> object as an argument.
- *
- * <p>
- * By design, as you parse through a string with different formats,
- * you can use the same <code>ParsePosition</code>, since the index parameter
- * records the current position.
- *
- * @author      Mark Davis
- * @see         java.text.Format
+ * Tracks the current position in a parsed string. In case of an error the error
+ * index can be set to the position where the error occurred without having to
+ * change the parse position.
  */
-
 public class ParsePosition {
 
-    /**
-     * Input: the place you start parsing.
-     * <br>Output: position where the parse stopped.
-     * This is designed to be used serially,
-     * with each call setting index up for the next one.
-     */
-    int index = 0;
-    int errorIndex = -1;
+    private int currentPosition, errorIndex = -1;
 
     /**
-     * Retrieve the current parse position.  On input to a parse method, this
-     * is the index of the character at which parsing will begin; on output, it
-     * is the index of the character following the last character parsed.
+     * Constructs a new {@code ParsePosition} with the specified index.
      *
-     * @return the current parse position
-     */
-    public int getIndex() {
-        return index;
-    }
-
-    /**
-     * Set the current parse position.
-     *
-     * @param index the current parse position
-     */
-    public void setIndex(int index) {
-        this.index = index;
-    }
-
-    /**
-     * Create a new ParsePosition with the given initial index.
-     *
-     * @param index initial index
+     * @param index
+     *            the index to begin parsing.
      */
     public ParsePosition(int index) {
-        this.index = index;
-    }
-    /**
-     * Set the index at which a parse error occurred.  Formatters
-     * should set this before returning an error code from their
-     * parseObject method.  The default value is -1 if this is not set.
-     *
-     * @param ei the index at which an error occurred
-     * @since 1.2
-     */
-    public void setErrorIndex(int ei)
-    {
-        errorIndex = ei;
+        currentPosition = index;
     }
 
     /**
-     * Retrieve the index at which an error occurred, or -1 if the
-     * error index has not been set.
+     * Compares the specified object to this {@code ParsePosition} and indicates
+     * if they are equal. In order to be equal, {@code object} must be an
+     * instance of {@code ParsePosition} and it must have the same index and
+     * error index.
      *
-     * @return the index at which an error occurred
-     * @since 1.2
+     * @param object
+     *            the object to compare with this object.
+     * @return {@code true} if the specified object is equal to this
+     *         {@code ParsePosition}; {@code false} otherwise.
+     * @see #hashCode
      */
-    public int getErrorIndex()
-    {
+    @Override
+    public boolean equals(Object object) {
+        if (!(object instanceof ParsePosition)) {
+            return false;
+        }
+        ParsePosition pos = (ParsePosition) object;
+        return currentPosition == pos.currentPosition
+                && errorIndex == pos.errorIndex;
+    }
+
+    /**
+     * Returns the index at which the parse could not continue.
+     *
+     * @return the index of the parse error or -1 if there is no error.
+     */
+    public int getErrorIndex() {
         return errorIndex;
     }
 
     /**
-     * Overrides equals
+     * Returns the current parse position.
+     *
+     * @return the current position.
      */
-    public boolean equals(Object obj)
-    {
-        if (obj == null) return false;
-        if (!(obj instanceof ParsePosition))
-            return false;
-        ParsePosition other = (ParsePosition) obj;
-        return (index == other.index && errorIndex == other.errorIndex);
+    public int getIndex() {
+        return currentPosition;
     }
 
-    /**
-     * Returns a hash code for this ParsePosition.
-     * @return a hash code value for this object
-     */
+    @Override
     public int hashCode() {
-        return (errorIndex << 16) | index;
+        return currentPosition + errorIndex;
     }
 
     /**
-     * Return a string representation of this ParsePosition.
-     * @return  a string representation of this object
+     * Sets the index at which the parse could not continue.
+     *
+     * @param index
+     *            the index of the parse error.
      */
+    public void setErrorIndex(int index) {
+        errorIndex = index;
+    }
+
+    /**
+     * Sets the current parse position.
+     *
+     * @param index
+     *            the current parse position.
+     */
+    public void setIndex(int index) {
+        currentPosition = index;
+    }
+
+    /**
+     * Returns the string representation of this parse position.
+     *
+     * @return the string representation of this parse position.
+     */
+    @Override
     public String toString() {
-        return getClass().getName() +
-            "[index=" + index +
-            ",errorIndex=" + errorIndex + ']';
+        return getClass().getName() + "[index=" + currentPosition
+                + ", errorIndex=" + errorIndex + "]";
     }
 }

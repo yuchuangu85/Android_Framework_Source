@@ -16,15 +16,14 @@
 
 package com.android.server.usb;
 
-import android.annotation.NonNull;
 import android.content.Context;
 import android.media.midi.MidiDeviceInfo;
 import android.media.midi.MidiDeviceServer;
 import android.media.midi.MidiDeviceStatus;
 import android.media.midi.MidiManager;
 import android.media.midi.MidiReceiver;
+import android.media.midi.MidiSender;
 import android.os.Bundle;
-import android.service.usb.UsbMidiDeviceProto;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -33,7 +32,6 @@ import android.util.Log;
 
 import com.android.internal.midi.MidiEventScheduler;
 import com.android.internal.midi.MidiEventScheduler.MidiEvent;
-import com.android.internal.util.dump.DualDumpOutputStream;
 
 import libcore.io.IoUtils;
 
@@ -53,7 +51,7 @@ public final class UsbMidiDevice implements Closeable {
 
     private MidiDeviceServer mServer;
 
-    // event schedulers for each input port of the physical device
+    // event schedulers for each output port
     private MidiEventScheduler[] mEventSchedulers;
 
     private static final int BUFFER_SIZE = 512;
@@ -129,14 +127,6 @@ public final class UsbMidiDevice implements Closeable {
         public void setReceiver(MidiReceiver receiver) {
             mReceiver = receiver;
         }
-
-        @Override
-        public void onFlush() throws IOException {
-            MidiReceiver receiver = mReceiver;
-            if (receiver != null) {
-                receiver.flush();
-            }
-        }
     }
 
     public static UsbMidiDevice create(Context context, Bundle properties, int card, int device) {
@@ -162,9 +152,9 @@ public final class UsbMidiDevice implements Closeable {
         mSubdeviceCount = subdeviceCount;
 
         // FIXME - support devices with different number of input and output ports
-        int inputPortCount = subdeviceCount;
-        mInputPortReceivers = new InputReceiverProxy[inputPortCount];
-        for (int port = 0; port < inputPortCount; port++) {
+        int inputCount = subdeviceCount;
+        mInputPortReceivers = new InputReceiverProxy[inputCount];
+        for (int port = 0; port < inputCount; port++) {
             mInputPortReceivers[port] = new InputReceiverProxy();
         }
     }
@@ -178,14 +168,14 @@ public final class UsbMidiDevice implements Closeable {
         }
 
         mFileDescriptors = fileDescriptors;
-        int inputStreamCount = fileDescriptors.length;
+        int inputCount = fileDescriptors.length;
         // last file descriptor returned from nativeOpen() is only used for unblocking Os.poll()
         // in our input thread
-        int outputStreamCount = fileDescriptors.length - 1;
+        int outputCount = fileDescriptors.length - 1;
 
-        mPollFDs = new StructPollfd[inputStreamCount];
-        mInputStreams = new FileInputStream[inputStreamCount];
-        for (int i = 0; i < inputStreamCount; i++) {
+        mPollFDs = new StructPollfd[inputCount];
+        mInputStreams = new FileInputStream[inputCount];
+        for (int i = 0; i < inputCount; i++) {
             FileDescriptor fd = fileDescriptors[i];
             StructPollfd pollfd = new StructPollfd();
             pollfd.fd = fd;
@@ -194,9 +184,9 @@ public final class UsbMidiDevice implements Closeable {
             mInputStreams[i] = new FileInputStream(fd);
         }
 
-        mOutputStreams = new FileOutputStream[outputStreamCount];
-        mEventSchedulers = new MidiEventScheduler[outputStreamCount];
-        for (int i = 0; i < outputStreamCount; i++) {
+        mOutputStreams = new FileOutputStream[outputCount];
+        mEventSchedulers = new MidiEventScheduler[outputCount];
+        for (int i = 0; i < outputCount; i++) {
             mOutputStreams[i] = new FileOutputStream(fileDescriptors[i]);
 
             MidiEventScheduler scheduler = new MidiEventScheduler();
@@ -206,7 +196,7 @@ public final class UsbMidiDevice implements Closeable {
 
         final MidiReceiver[] outputReceivers = mServer.getOutputPortReceivers();
 
-        // Create input thread which will read from all output ports of the physical device
+        // Create input thread which will read from all input ports
         new Thread("UsbMidiDevice input thread") {
             @Override
             public void run() {
@@ -251,8 +241,8 @@ public final class UsbMidiDevice implements Closeable {
             }
         }.start();
 
-        // Create output thread for each input port of the physical device
-        for (int port = 0; port < outputStreamCount; port++) {
+        // Create output thread for each output port
+        for (int port = 0; port < outputCount; port++) {
             final MidiEventScheduler eventSchedulerF = mEventSchedulers[port];
             final FileOutputStream outputStreamF = mOutputStreams[port];
             final int portF = port;
@@ -338,20 +328,6 @@ public final class UsbMidiDevice implements Closeable {
         mFileDescriptors = null;
 
         mIsOpen = false;
-    }
-
-    /**
-     * Write a description of the device to a dump stream.
-     */
-    public void dump(String deviceAddr, @NonNull DualDumpOutputStream dump, @NonNull String idName,
-            long id) {
-        long token = dump.start(idName, id);
-
-        dump.write("device_address", UsbMidiDeviceProto.DEVICE_ADDRESS, deviceAddr);
-        dump.write("card", UsbMidiDeviceProto.CARD, mAlsaCard);
-        dump.write("device", UsbMidiDeviceProto.DEVICE, mAlsaDevice);
-
-        dump.end(token);
     }
 
     private static native int nativeGetSubdeviceCount(int card, int device);

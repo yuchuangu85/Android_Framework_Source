@@ -16,7 +16,6 @@
 
 package android.telecom;
 
-import android.annotation.NonNull;
 import android.content.ComponentName;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -34,9 +33,6 @@ import java.util.Objects;
  *      component name.</li>
  * </ul>
  *
- * Note: This Class requires a non-null {@link ComponentName} and {@link UserHandle} to operate
- * properly. Passing in invalid parameters will generate a log warning.
- *
  * See {@link PhoneAccount}, {@link TelecomManager}.
  */
 public final class PhoneAccountHandle implements Parcelable {
@@ -45,16 +41,15 @@ public final class PhoneAccountHandle implements Parcelable {
     private final UserHandle mUserHandle;
 
     public PhoneAccountHandle(
-            @NonNull ComponentName componentName,
-            @NonNull String id) {
+            ComponentName componentName,
+            String id) {
         this(componentName, id, Process.myUserHandle());
     }
 
     public PhoneAccountHandle(
-            @NonNull ComponentName componentName,
-            @NonNull String id,
-            @NonNull UserHandle userHandle) {
-        checkParameters(componentName, userHandle);
+            ComponentName componentName,
+            String id,
+            UserHandle userHandle) {
         mComponentName = componentName;
         mId = id;
         mUserHandle = userHandle;
@@ -139,17 +134,6 @@ public final class PhoneAccountHandle implements Parcelable {
         mComponentName.writeToParcel(out, flags);
         out.writeString(mId);
         mUserHandle.writeToParcel(out, flags);
-    }
-
-    private void checkParameters(ComponentName componentName, UserHandle userHandle) {
-        if(componentName == null) {
-            android.util.Log.w("PhoneAccountHandle", new Exception("PhoneAccountHandle has " +
-                    "been created with null ComponentName!"));
-        }
-        if(userHandle == null) {
-            android.util.Log.w("PhoneAccountHandle", new Exception("PhoneAccountHandle has " +
-                    "been created with null UserHandle!"));
-        }
     }
 
     public static final Creator<PhoneAccountHandle> CREATOR = new Creator<PhoneAccountHandle>() {

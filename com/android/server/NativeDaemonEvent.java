@@ -19,7 +19,6 @@ package com.android.server;
 import android.util.Slog;
 import com.google.android.collect.Lists;
 
-import java.io.FileDescriptor;
 import java.util.ArrayList;
 
 /**
@@ -36,17 +35,15 @@ public class NativeDaemonEvent {
     private final String mRawEvent;
     private final String mLogMessage;
     private String[] mParsed;
-    private FileDescriptor[] mFdList;
 
     private NativeDaemonEvent(int cmdNumber, int code, String message,
-                              String rawEvent, String logMessage, FileDescriptor[] fdList) {
+                              String rawEvent, String logMessage) {
         mCmdNumber = cmdNumber;
         mCode = code;
         mMessage = message;
         mRawEvent = rawEvent;
         mLogMessage = logMessage;
         mParsed = null;
-        mFdList = fdList;
     }
 
     static public final String SENSITIVE_MARKER = "{{sensitive}}";
@@ -61,10 +58,6 @@ public class NativeDaemonEvent {
 
     public String getMessage() {
         return mMessage;
-    }
-
-    public FileDescriptor[] getFileDescriptors() {
-        return mFdList;
     }
 
     @Deprecated
@@ -134,7 +127,7 @@ public class NativeDaemonEvent {
      * @throws IllegalArgumentException when line doesn't match format expected
      *             from native side.
      */
-    public static NativeDaemonEvent parseRawEvent(String rawEvent, FileDescriptor[] fdList) {
+    public static NativeDaemonEvent parseRawEvent(String rawEvent) {
         final String[] parsed = rawEvent.split(" ");
         if (parsed.length < 2) {
             throw new IllegalArgumentException("Insufficient arguments");
@@ -171,7 +164,7 @@ public class NativeDaemonEvent {
 
         final String message = rawEvent.substring(skiplength);
 
-        return new NativeDaemonEvent(cmdNumber, code, message, rawEvent, logMessage, fdList);
+        return new NativeDaemonEvent(cmdNumber, code, message, rawEvent, logMessage);
     }
 
     /**

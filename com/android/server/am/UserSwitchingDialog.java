@@ -18,12 +18,9 @@ package com.android.server.am;
 
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.os.Handler;
 import android.os.Message;
-import android.os.UserHandle;
-import android.os.UserManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -39,7 +36,7 @@ import com.android.internal.annotations.GuardedBy;
  * in the background rather than just freeze the screen and not know if the user-switch affordance
  * was being handled.
  */
-class UserSwitchingDialog extends AlertDialog
+final class UserSwitchingDialog extends AlertDialog
         implements ViewTreeObserver.OnWindowShownListener {
     private static final String TAG = "ActivityManagerUserSwitchingDialog";
 
@@ -51,69 +48,30 @@ class UserSwitchingDialog extends AlertDialog
     private static final int MSG_START_USER = 1;
     @GuardedBy("this")
     private boolean mStartedUser;
-    final protected UserInfo mOldUser;
-    final protected UserInfo mNewUser;
-    final private String mSwitchingFromSystemUserMessage;
-    final private String mSwitchingToSystemUserMessage;
-    final protected Context mContext;
 
-    public UserSwitchingDialog(ActivityManagerService service, Context context, UserInfo oldUser,
-            UserInfo newUser, boolean aboveSystem, String switchingFromSystemUserMessage,
-            String switchingToSystemUserMessage) {
+    public UserSwitchingDialog(ActivityManagerService service, Context context,
+            int userId, String userName, boolean aboveSystem) {
         super(context);
 
-        mContext = context;
         mService = service;
-        mUserId = newUser.id;
-        mOldUser = oldUser;
-        mNewUser = newUser;
-        mSwitchingFromSystemUserMessage = switchingFromSystemUserMessage;
-        mSwitchingToSystemUserMessage = switchingToSystemUserMessage;
+        mUserId = userId;
 
-        inflateContent();
-
-        if (aboveSystem) {
-            getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ERROR);
-        }
-
-        WindowManager.LayoutParams attrs = getWindow().getAttributes();
-        attrs.privateFlags = WindowManager.LayoutParams.PRIVATE_FLAG_SYSTEM_ERROR |
-            WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
-        getWindow().setAttributes(attrs);
-    }
-
-    void inflateContent() {
         // Set up the dialog contents
         setCancelable(false);
         Resources res = getContext().getResources();
         // Custom view due to alignment and font size requirements
-        View view = LayoutInflater.from(getContext()).inflate(R.layout.user_switching_dialog,
-            null);
-
-        String viewMessage = null;
-        if (UserManager.isSplitSystemUser() && mNewUser.id == UserHandle.USER_SYSTEM) {
-            viewMessage = res.getString(R.string.user_logging_out_message, mOldUser.name);
-        } else if (UserManager.isDeviceInDemoMode(mContext)) {
-            if (mOldUser.isDemo()) {
-                viewMessage = res.getString(R.string.demo_restarting_message);
-            } else {
-                viewMessage = res.getString(R.string.demo_starting_message);
-            }
-        } else {
-            if (mOldUser.id == UserHandle.USER_SYSTEM) {
-                viewMessage = mSwitchingFromSystemUserMessage;
-            } else if (mNewUser.id == UserHandle.USER_SYSTEM) {
-                viewMessage = mSwitchingToSystemUserMessage;
-            }
-
-            // If switchingFromSystemUserMessage or switchingToSystemUserMessage is null, fallback
-            // to system message.
-            if (viewMessage == null) {
-                viewMessage = res.getString(R.string.user_switching_message, mNewUser.name);
-            }
-        }
-        ((TextView) view.findViewById(R.id.message)).setText(viewMessage);
+        View view = LayoutInflater.from(getContext()).inflate(R.layout.user_switching_dialog, null);
+        ((TextView) view.findViewById(R.id.message)).setText(
+                res.getString(com.android.internal.R.string.user_switching_message, userName));
         setView(view);
+
+        if (aboveSystem) {
+            getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ERROR);
+        }
+        WindowManager.LayoutParams attrs = getWindow().getAttributes();
+        attrs.privateFlags = WindowManager.LayoutParams.PRIVATE_FLAG_SYSTEM_ERROR |
+                WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
+        getWindow().setAttributes(attrs);
     }
 
     @Override
@@ -139,8 +97,7 @@ class UserSwitchingDialog extends AlertDialog
     void startUser() {
         synchronized (this) {
             if (!mStartedUser) {
-                mService.mUserController.startUserInForeground(mUserId);
-                dismiss();
+                mService.startUserInForeground(mUserId, this);
                 mStartedUser = true;
                 final View decorView = getWindow().getDecorView();
                 if (decorView != null) {

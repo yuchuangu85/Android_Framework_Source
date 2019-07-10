@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -52,10 +23,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * This <em>barrier action</em> is useful
  * for updating shared-state before any of the parties continue.
  *
- * <p><b>Sample usage:</b> Here is an example of using a barrier in a
- * parallel decomposition design:
+ * <p><b>Sample usage:</b> Here is an example of
+ *  using a barrier in a parallel decomposition design:
  *
- * <pre> {@code
+ *  <pre> {@code
  * class Solver {
  *   final int N;
  *   final float[][] data;
@@ -82,20 +53,16 @@ import java.util.concurrent.locks.ReentrantLock;
  *   public Solver(float[][] matrix) {
  *     data = matrix;
  *     N = matrix.length;
- *     Runnable barrierAction =
- *       new Runnable() { public void run() { mergeRows(...); }};
- *     barrier = new CyclicBarrier(N, barrierAction);
+ *     barrier = new CyclicBarrier(N,
+ *                                 new Runnable() {
+ *                                   public void run() {
+ *                                     mergeRows(...);
+ *                                   }
+ *                                 });
+ *     for (int i = 0; i < N; ++i)
+ *       new Thread(new Worker(i)).start();
  *
- *     List<Thread> threads = new ArrayList<>(N);
- *     for (int i = 0; i < N; i++) {
- *       Thread thread = new Thread(new Worker(i));
- *       threads.add(thread);
- *       thread.start();
- *     }
- *
- *     // wait until done
- *     for (Thread thread : threads)
- *       thread.join();
+ *     waitUntilDone();
  *   }
  * }}</pre>
  *
@@ -112,7 +79,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * {@link #await} returns the arrival index of that thread at the barrier.
  * You can then choose which thread should execute the barrier action, for
  * example:
- * <pre> {@code
+ *  <pre> {@code
  * if (barrier.await() == 0) {
  *   // log the completion of this iteration
  * }}</pre>
@@ -150,7 +117,7 @@ public class CyclicBarrier {
      * but no subsequent reset.
      */
     private static class Generation {
-        boolean broken;         // initially false
+        boolean broken = false;
     }
 
     /** The lock for guarding barrier entry */
@@ -421,8 +388,7 @@ public class CyclicBarrier {
      *         to arrive and zero indicates the last to arrive
      * @throws InterruptedException if the current thread was interrupted
      *         while waiting
-     * @throws TimeoutException if the specified timeout elapses.
-     *         In this case the barrier will be broken.
+     * @throws TimeoutException if the specified timeout elapses
      * @throws BrokenBarrierException if <em>another</em> thread was
      *         interrupted or timed out while the current thread was
      *         waiting, or the barrier was reset, or the barrier was broken

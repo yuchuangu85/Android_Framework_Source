@@ -1,291 +1,214 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * (C) Copyright Taligent, Inc. 1996, 1997 - All Rights Reserved
- * (C) Copyright IBM Corp. 1996-1998 - All Rights Reserved
- *
- *   The original version of this source code and documentation is copyrighted
- * and owned by Taligent, Inc., a wholly-owned subsidiary of IBM. These
- * materials are provided under terms of a License Agreement between Taligent
- * and Sun. This technology is protected by multiple US and International
- * patents. This notice and attribution to Taligent may not be removed.
- *   Taligent is a registered trademark of Taligent, Inc.
- *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.text;
 
+import libcore.icu.CollationElementIteratorICU;
+
 /**
- * The <code>CollationElementIterator</code> class is used as an iterator
- * to walk through each character of an international string. Use the iterator
- * to return the ordering priority of the positioned character. The ordering
- * priority of a character, which we refer to as a key, defines how a character
- * is collated in the given collation object.
- *
+ * Created by a {@code RuleBasedCollator} to iterate through a string. The
+ * result of each iteration is a 32-bit collation element that defines the
+ * ordering priority of the next character or sequence of characters in the
+ * source string.
  * <p>
- * For example, consider the following in Spanish:
- * <blockquote>
- * <pre>
- * "ca" &rarr; the first key is key('c') and second key is key('a').
- * "cha" &rarr; the first key is key('ch') and second key is key('a').
- * </pre>
- * </blockquote>
- * And in German,
- * <blockquote>
- * <pre>
- * "\u00e4b" &rarr; the first key is key('a'), the second key is key('e'), and
- * the third key is key('b').
- * </pre>
- * </blockquote>
- * The key of a character is an integer composed of primary order(short),
- * secondary order(byte), and tertiary order(byte). Java strictly defines
- * the size and signedness of its primitive data types. Therefore, the static
- * functions <code>primaryOrder</code>, <code>secondaryOrder</code>, and
- * <code>tertiaryOrder</code> return <code>int</code>, <code>short</code>,
- * and <code>short</code> respectively to ensure the correctness of the key
- * value.
- *
+ * For illustration, consider the following in Spanish:
  * <p>
- * Example of the iterator usage,
- * <blockquote>
- * <pre>
- *
- *  String testString = "This is a test";
- *  Collator col = Collator.getInstance();
- *  if (col instanceof RuleBasedCollator) {
- *      RuleBasedCollator ruleBasedCollator = (RuleBasedCollator)col;
- *      CollationElementIterator collationElementIterator = ruleBasedCollator.getCollationElementIterator(testString);
- *      int primaryOrder = CollationElementIterator.primaryOrder(collationElementIterator.next());
- *          :
- *  }
- * </pre>
- * </blockquote>
- *
+ * "ca": the first collation element is collation_element('c') and second
+ * collation element is collation_element('a').
  * <p>
- * <code>CollationElementIterator.next</code> returns the collation order
- * of the next character. A collation order consists of primary order,
- * secondary order and tertiary order. The data type of the collation
- * order is <strong>int</strong>. The first 16 bits of a collation order
- * is its primary order; the next 8 bits is the secondary order and the
- * last 8 bits is the tertiary order.
+ * Since "ch" in Spanish sorts as one entity, the example below returns one
+ * collation element for the two characters 'c' and 'h':
+ * <p>
+ * "cha": the first collation element is collation_element('ch') and the second
+ * one is collation_element('a').
+ * <p>
+ * In German, since the character '&#92;u0086' is a composed character of 'a'
+ * and 'e', the iterator returns two collation elements for the single character
+ * '&#92;u0086':
+ * <p>
+ * "&#92;u0086b": the first collation element is collation_element('a'), the
+ * second one is collation_element('e'), and the third collation element is
+ * collation_element('b').
  *
- * <p><b>Note:</b> <code>CollationElementIterator</code> is a part of
- * <code>RuleBasedCollator</code> implementation. It is only usable
- * with <code>RuleBasedCollator</code> instances.
- *
- * @see                Collator
- * @see                RuleBasedCollator
- * @author             Helena Shih, Laura Werner, Richard Gillam
+ * <p>Note that calls to {@code next} and {@code previous} can not be mixed.
+ * To change iteration direction, {@code reset}, {@code setOffset} or {@code setText}
+ * must be called to reset the iterator. If a change of direction is done without one
+ * of these calls, the result is undefined.
  */
-public final class CollationElementIterator
-{
+public final class CollationElementIterator {
+
     /**
-     * Null order which indicates the end of string is reached by the
-     * cursor.
+     * This constant is returned by the iterator in the methods
+     * {@code next()} and {@code previous()} when the end or the
+     * beginning of the source string has been reached, and there are no more
+     * valid collation elements to return.
      */
-    // Android-changed: use ICU CollationElementIterator constant.
-    public final static int NULLORDER = android.icu.text.CollationElementIterator.NULLORDER;
+    public static final int NULLORDER = -1;
 
-    // Android-removed: internal constructors.
+    private CollationElementIteratorICU icuIterator;
 
-    // Android-added: ICU iterator to delegate to.
-    private android.icu.text.CollationElementIterator icuIterator;
-
-   // Android-added: internal constructor taking an ICU CollationElementIterator.
-    CollationElementIterator(android.icu.text.CollationElementIterator iterator) {
-        icuIterator = iterator;
+    CollationElementIterator(CollationElementIteratorICU iterator) {
+        this.icuIterator = iterator;
     }
 
     /**
-     * Resets the cursor to the beginning of the string.  The next call
-     * to next() will return the first collation element in the string.
-     */
-    public void reset()
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        icuIterator.reset();
-    }
-
-    /**
-     * Get the next collation element in the string.  <p>This iterator iterates
-     * over a sequence of collation elements that were built from the string.
-     * Because there isn't necessarily a one-to-one mapping from characters to
-     * collation elements, this doesn't mean the same thing as "return the
-     * collation element [or ordering priority] of the next character in the
-     * string".</p>
-     * <p>This function returns the collation element that the iterator is currently
-     * pointing to and then updates the internal pointer to point to the next element.
-     * previous() updates the pointer first and then returns the element.  This
-     * means that when you change direction while iterating (i.e., call next() and
-     * then call previous(), or call previous() and then call next()), you'll get
-     * back the same element twice.</p>
+     * Returns the maximum length of any expansion sequence that ends with the
+     * specified collation element. Returns {@code 1} if there is no expansion
+     * with this collation element as the last element.
      *
-     * @return the next collation element
+     * @param order
+     *            a collation element that has been previously obtained from a
+     *            call to either the {@link #next()} or {@link #previous()}
+     *            method.
      */
-    public int next()
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return icuIterator.next();
+    public int getMaxExpansion(int order) {
+        return this.icuIterator.getMaxExpansion(order);
     }
 
     /**
-     * Get the previous collation element in the string.  <p>This iterator iterates
-     * over a sequence of collation elements that were built from the string.
-     * Because there isn't necessarily a one-to-one mapping from characters to
-     * collation elements, this doesn't mean the same thing as "return the
-     * collation element [or ordering priority] of the previous character in the
-     * string".</p>
-     * <p>This function updates the iterator's internal pointer to point to the
-     * collation element preceding the one it's currently pointing to and then
-     * returns that element, while next() returns the current element and then
-     * updates the pointer.  This means that when you change direction while
-     * iterating (i.e., call next() and then call previous(), or call previous()
-     * and then call next()), you'll get back the same element twice.</p>
+     * Returns the character offset in the source string corresponding to the
+     * next collation element. This value could be any of:
+     * <ul>
+     * <li>The index of the first character in the source string that matches
+     * the value of the next collation element. This means that if
+     * {@code setOffset(offset)} sets the index in the middle of a contraction,
+     * {@code getOffset()} returns the index of the first character in the
+     * contraction, which may not be equal to the original offset that was set.
+     * Hence calling {@code getOffset()} immediately after
+     * {@code setOffset(offset)} does not guarantee that the original offset set
+     * will be returned.</li>
+     * <li>If normalization is on, the index of the immediate subsequent
+     * character, or composite character with the first character, having a
+     * combining class of 0.</li>
+     * <li>The length of the source string, if iteration has reached the end.
+     * </li>
+     * </ul>
+     */
+    public int getOffset() {
+        return this.icuIterator.getOffset();
+    }
+
+    /**
+     * Returns the next collation element in the source string or {@code NULLORDER} if
+     * the end of the iteration has been reached.
+     */
+    public int next() {
+        return this.icuIterator.next();
+    }
+
+    /**
+     * Returns the previous collation element in the source string or {@code NULLORDER} if
+     * the start of the iteration has been reached.
+     */
+    public int previous() {
+        return this.icuIterator.previous();
+    }
+
+    /**
+     * Returns the primary order of the specified collation element, i.e. the
+     * first 16 bits. This value is unsigned.
      *
-     * @return the previous collation element
-     * @since 1.2
+     * @param order
+     *            the element of the collation.
      */
-    public int previous()
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return icuIterator.previous();
+    public static final int primaryOrder(int order) {
+        return CollationElementIteratorICU.primaryOrder(order);
     }
 
     /**
-     * Return the primary component of a collation element.
-     * @param order the collation element
-     * @return the element's primary component
+     * Repositions the cursor to point at the first element of the current
+     * string. The next call to {@link #next()} or {@link #previous()} will
+     * return the first and last collation element in the string, respectively.
+     * <p>
+     * If the {@code RuleBasedCollator} used by this iterator has had its
+     * attributes changed, calling {@code reset()} reinitializes the iterator to
+     * use the new attributes.
      */
-    public final static int primaryOrder(int order)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return android.icu.text.CollationElementIterator.primaryOrder(order);
-    }
-    /**
-     * Return the secondary component of a collation element.
-     * @param order the collation element
-     * @return the element's secondary component
-     */
-    public final static short secondaryOrder(int order)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-       return (short) android.icu.text.CollationElementIterator.secondaryOrder(order);
-    }
-    /**
-     * Return the tertiary component of a collation element.
-     * @param order the collation element
-     * @return the element's tertiary component
-     */
-    public final static short tertiaryOrder(int order)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return (short) android.icu.text.CollationElementIterator.tertiaryOrder(order);
+    public void reset() {
+        this.icuIterator.reset();
     }
 
     /**
-     * Sets the iterator to point to the collation element corresponding to
-     * the specified character (the parameter is a CHARACTER offset in the
-     * original string, not an offset into its corresponding sequence of
-     * collation elements).  The value returned by the next call to next()
-     * will be the collation element corresponding to the specified position
-     * in the text.  If that position is in the middle of a contracting
-     * character sequence, the result of the next call to next() is the
-     * collation element for that sequence.  This means that getOffset()
-     * is not guaranteed to return the same value as was passed to a preceding
-     * call to setOffset().
+     * Returns the secondary order of the specified collation element, i.e. the
+     * 16th to 23th bits, inclusive. This value is unsigned.
      *
-     * @param newOffset The new character offset into the original text.
-     * @since 1.2
+     * @param order
+     *            the element of the collator.
      */
-    @SuppressWarnings("deprecation") // getBeginIndex, getEndIndex and setIndex are deprecated
-    public void setOffset(int newOffset)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        icuIterator.setOffset(newOffset);
+    public static final short secondaryOrder(int order) {
+        return (short) CollationElementIteratorICU.secondaryOrder(order);
     }
 
     /**
-     * Returns the character offset in the original text corresponding to the next
-     * collation element.  (That is, getOffset() returns the position in the text
-     * corresponding to the collation element that will be returned by the next
-     * call to next().)  This value will always be the index of the FIRST character
-     * corresponding to the collation element (a contracting character sequence is
-     * when two or more characters all correspond to the same collation element).
-     * This means if you do setOffset(x) followed immediately by getOffset(), getOffset()
-     * won't necessarily return x.
+     * Points the iterator at the collation element associated with the
+     * character in the source string which is found at the supplied offset.
+     * After this call completes, an invocation of the {@link #next()} method
+     * will return this collation element.
+     * <p>
+     * If {@code newOffset} corresponds to a character which is part of a
+     * sequence that maps to a single collation element then the iterator is
+     * adjusted to the start of that sequence. As a result of this, any
+     * subsequent call made to {@code getOffset()} may not return the same value
+     * set by this method.
+     * <p>
+     * If the decomposition mode is on, and offset is in the middle of a
+     * decomposable range of source text, the iterator may not return a correct
+     * result for the next forwards or backwards iteration. The user must ensure
+     * that the offset is not in the middle of a decomposable range.
      *
-     * @return The character offset in the original text corresponding to the collation
-     * element that will be returned by the next call to next().
-     * @since 1.2
+     * @param newOffset
+     *            the character offset into the original source string to set.
+     *            Note that this is not an offset into the corresponding
+     *            sequence of collation elements.
      */
-    public int getOffset()
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return icuIterator.getOffset();
-    }
-
-
-    /**
-     * Return the maximum length of any expansion sequences that end
-     * with the specified comparison order.
-     * @param order a collation order returned by previous or next.
-     * @return the maximum length of any expansion sequences ending
-     *         with the specified order.
-     * @since 1.2
-     */
-    public int getMaxExpansion(int order)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        return icuIterator.getMaxExpansion(order);
+    public void setOffset(int newOffset) {
+        this.icuIterator.setOffset(newOffset);
     }
 
     /**
-     * Set a new string over which to iterate.
+     * Sets a new source string iterator for iteration, and resets the offset to
+     * the beginning of the text.
      *
-     * @param source  the new source text
-     * @since 1.2
+     * @param source
+     *            the new source string iterator for iteration.
      */
-    public void setText(String source)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        icuIterator.setText(source);
+    public void setText(CharacterIterator source) {
+        this.icuIterator.setText(source);
     }
 
     /**
-     * Set a new string over which to iterate.
+     * Sets a new source string for iteration, and resets the offset to the
+     * beginning of the text.
      *
-     * @param source  the new source text.
-     * @since 1.2
+     * @param source
+     *            the new source string for iteration.
      */
-    public void setText(CharacterIterator source)
-    {
-        // Android-changed: delegate to ICU CollationElementIterator.
-        icuIterator.setText(source);
+    public void setText(String source) {
+        this.icuIterator.setText(source);
     }
 
-    // Android-removed: private helper methods and fields.
+    /**
+     * Returns the tertiary order of the specified collation element, i.e. the
+     * last 8 bits. This value is unsigned.
+     *
+     * @param order
+     *            the element of the collation.
+     */
+    public static final short tertiaryOrder(int order) {
+        return (short) CollationElementIteratorICU.tertiaryOrder(order);
+    }
 }

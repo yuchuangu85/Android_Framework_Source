@@ -21,7 +21,6 @@ import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
-
 import com.android.printspooler.R;
 
 /**
@@ -127,7 +126,6 @@ public final class PrintOptionsLayout extends ViewGroup {
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         final int childCount = getChildCount();
         final int rowCount = childCount / mColumnCount + childCount % mColumnCount;
-        final boolean isLayoutRtl = isLayoutRtl();
 
         int cellStart = getPaddingStart();
         int cellTop = getPaddingTop();
@@ -136,13 +134,7 @@ public final class PrintOptionsLayout extends ViewGroup {
             int rowHeight = 0;
 
             for (int col = 0; col < mColumnCount; col++) {
-                final int childIndex;
-                if (isLayoutRtl) {
-                    // if RTL, layout the right most child first
-                    childIndex = row * mColumnCount + (mColumnCount - col - 1);
-                } else {
-                    childIndex = row * mColumnCount + col;
-                }
+                final int childIndex = row * mColumnCount + col;
 
                 if (childIndex >= childCount) {
                     break;
@@ -156,14 +148,14 @@ public final class PrintOptionsLayout extends ViewGroup {
 
                 MarginLayoutParams childParams = (MarginLayoutParams) child.getLayoutParams();
 
-                final int childStart = cellStart + childParams.getMarginStart();
+                final int childLeft = cellStart + childParams.getMarginStart();
                 final int childTop = cellTop + childParams.topMargin;
-                final int childEnd = childStart + child.getMeasuredWidth();
+                final int childRight = childLeft + child.getMeasuredWidth();
                 final int childBottom = childTop + child.getMeasuredHeight();
 
-                child.layout(childStart, childTop, childEnd, childBottom);
+                child.layout(childLeft, childTop, childRight, childBottom);
 
-                cellStart = childEnd + childParams.getMarginEnd();
+                cellStart = childRight + childParams.getMarginEnd();
 
                 rowHeight = Math.max(rowHeight, child.getMeasuredHeight()
                         + childParams.topMargin + childParams.bottomMargin);

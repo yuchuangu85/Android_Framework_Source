@@ -1,154 +1,118 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.acl;
 
-import java.util.Enumeration;
 import java.security.Principal;
+import java.util.Enumeration;
 
 /**
- * This is the interface used for representing one entry in an Access
- * Control List (ACL).<p>
- *
- * An ACL can be thought of as a data structure with multiple ACL entry
- * objects. Each ACL entry object contains a set of permissions associated
- * with a particular principal. (A principal represents an entity such as
- * an individual user or a group). Additionally, each ACL entry is specified
- * as being either positive or negative. If positive, the permissions are
- * to be granted to the associated principal. If negative, the permissions
- * are to be denied. Each principal can have at most one positive ACL entry
- * and one negative entry; that is, multiple positive or negative ACL
- * entries are not allowed for any principal.
- *
- * Note: ACL entries are by default positive. An entry becomes a
- * negative entry only if the
- * {@link #setNegativePermissions() setNegativePermissions}
- * method is called on it.
- *
- * @see java.security.acl.Acl
- *
- * @author      Satish Dharmaraj
+ * The <i>Access Control List Entry</i> interface definition.
+ * <p>
+ * An {@code AclEntry} is a list of the {@link Permission}s that are
+ *  granted (<i>positive</i>) or denied (<i>negative</i>) to a {@link Principal}.
  */
 public interface AclEntry extends Cloneable {
 
     /**
-     * Specifies the principal for which permissions are granted or denied
-     * by this ACL entry. If a principal was already set for this ACL entry,
-     * false is returned, otherwise true is returned.
+     * Set the principal for this ACL entry.
+     * <p>
+     * The principal for an ACL entry can only be set once.
      *
-     * @param user the principal to be set for this entry.
-     *
-     * @return true if the principal is set, false if there was
-     * already a principal set for this entry.
-     *
-     * @see #getPrincipal
+     * @param user
+     *            the principal for this ACL entry.
+     * @return {@code true} on success, {@code false} if there is a principal already set for
+     *         this entry.
      */
-    public boolean setPrincipal(Principal user);
+    boolean setPrincipal(Principal user);
 
     /**
-     * Returns the principal for which permissions are granted or denied by
-     * this ACL entry. Returns null if there is no principal set for this
-     * entry yet.
+     * Returns the principal of this ACL entry.
      *
-     * @return the principal associated with this entry.
-     *
-     * @see #setPrincipal
+     * @return the principal of this ACL entry, or null if none is set.
      */
-    public Principal getPrincipal();
+    Principal getPrincipal();
 
     /**
-     * Sets this ACL entry to be a negative one. That is, the associated
-     * principal (e.g., a user or a group) will be denied the permission set
-     * specified in the entry.
-     *
-     * Note: ACL entries are by default positive. An entry becomes a
-     * negative entry only if this {@code setNegativePermissions}
-     * method is called on it.
+     * Sets this ACL entry to be <i>negative</i>.
+     * <p>
+     * The permissions in this ACL entry will be denied to the principal
+     * associated with this entry.
+     * <p>
+     * Note: An ACL entry is <i>positive</i> by default and can only become
+     * <i>negative</i> by calling this method.
      */
-    public void setNegativePermissions();
+    void setNegativePermissions();
 
     /**
-     * Returns true if this is a negative ACL entry (one denying the
-     * associated principal the set of permissions in the entry), false
-     * otherwise.
+     * Returns whether this ACL entry is <i>negative</i>.
      *
-     * @return true if this is a negative ACL entry, false if it's not.
+     * @return {@code true} if this ACL entry is negative, {@code false} if it's positive.
      */
-    public boolean isNegative();
+    boolean isNegative();
 
     /**
-     * Adds the specified permission to this ACL entry. Note: An entry can
-     * have multiple permissions.
+     * Adds the specified permission to this ACL entry.
      *
-     * @param permission the permission to be associated with
-     * the principal in this entry.
-     *
-     * @return true if the permission was added, false if the
-     * permission was already part of this entry's permission set.
+     * @param permission
+     *            the permission to be added.
+     * @return {@code true} if the specified permission is added, {@code false} if the
+     *         permission was already in this entry.
      */
-    public boolean addPermission(Permission permission);
+    boolean addPermission(Permission permission);
 
     /**
      * Removes the specified permission from this ACL entry.
      *
-     * @param permission the permission to be removed from this entry.
-     *
-     * @return true if the permission is removed, false if the
-     * permission was not part of this entry's permission set.
+     * @param permission
+     *            the permission to be removed.
+     * @return {@code true} if the permission is removed, {@code false} if the permission was
+     *         not in this entry.
      */
-    public boolean removePermission(Permission permission);
+    boolean removePermission(Permission permission);
 
     /**
-     * Checks if the specified permission is part of the
-     * permission set in this entry.
+     * Checks whether the specified permission is in this ACL entry.
      *
-     * @param permission the permission to be checked for.
-     *
-     * @return true if the permission is part of the
-     * permission set in this entry, false otherwise.
+     * @param permission
+     *            the permission to check.
+     * @return {@code true} if the permission is in this entry, otherwise {@code false}.
      */
-    public boolean checkPermission(Permission permission);
+    boolean checkPermission(Permission permission);
 
     /**
-     * Returns an enumeration of the permissions in this ACL entry.
+     * Returns the list of permissions of this ACL entry.
      *
-     * @return an enumeration of the permissions in this ACL entry.
+     * @return the list of permissions of this ACL entry,
      */
-    public Enumeration<Permission> permissions();
+    Enumeration<Permission> permissions();
 
     /**
-     * Returns a string representation of the contents of this ACL entry.
+     * Returns the string representation of this ACL entry.
      *
-     * @return a string representation of the contents.
+     * @return the string representation of this ACL entry.
      */
-    public String toString();
+    String toString();
 
     /**
-     * Clones this ACL entry.
+     * Clones this ACL entry instance.
      *
-     * @return a clone of this ACL entry.
+     * @return a copy of this entry.
      */
-    public Object clone();
+    Object clone();
+
 }

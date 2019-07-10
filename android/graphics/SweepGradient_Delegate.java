@@ -21,10 +21,6 @@ import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
-import java.awt.image.DataBufferInt;
-import java.awt.image.Raster;
-import java.awt.image.SampleModel;
-
 /**
  * Delegate implementing the native methods of android.graphics.SweepGradient
  *
@@ -56,17 +52,14 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(long matrix, float x, float y, int colors[], float
-            positions[]) {
-        SweepGradient_Delegate newDelegate = new SweepGradient_Delegate(matrix, x, y, colors,
-                positions);
+    /*package*/ static long nativeCreate1(float x, float y, int colors[], float positions[]) {
+        SweepGradient_Delegate newDelegate = new SweepGradient_Delegate(x, y, colors, positions);
         return sManager.addNewDelegate(newDelegate);
     }
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(long matrix, float x, float y, int color0, int color1) {
-        return nativeCreate1(matrix, x, y, new int[] { color0, color1 },
-                null /*positions*/);
+    /*package*/ static long nativeCreate2(float x, float y, int color0, int color1) {
+        return nativeCreate1(x, y, new int[] { color0, color1 }, null /*positions*/);
     }
 
     // ---- Private delegate/helper methods ----
@@ -74,7 +67,6 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
     /**
      * A subclass of Shader that draws a sweep gradient around a center point.
      *
-     * @param nativeMatrix reference to the shader's native transformation matrix
      * @param cx       The x-coordinate of the center
      * @param cy       The y-coordinate of the center
      * @param colors   The colors to be distributed between around the center.
@@ -86,9 +78,9 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
      *                 If positions is NULL, then the colors are automatically
      *                 spaced evenly.
      */
-    private SweepGradient_Delegate(long nativeMatrix, float cx, float cy,
-            int colors[], float positions[]) {
-        super(nativeMatrix, colors, positions);
+    private SweepGradient_Delegate(float cx, float cy,
+                         int colors[], float positions[]) {
+        super(colors, positions);
         mJavaPaint = new SweepGradientPaint(cx, cy, mColors, mPositions);
     }
 
@@ -160,6 +152,9 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
 
             @Override
             public java.awt.image.Raster getRaster(int x, int y, int w, int h) {
+                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    mColorModel, mColorModel.createCompatibleWritableRaster(w, h),
+                    mColorModel.isAlphaPremultiplied(), null);
 
                 int[] data = new int[w*h];
 
@@ -204,9 +199,9 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
 
         }

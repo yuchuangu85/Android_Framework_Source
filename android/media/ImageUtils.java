@@ -57,12 +57,7 @@ class ImageUtils {
             case ImageFormat.Y8:
             case ImageFormat.Y16:
             case ImageFormat.RAW_SENSOR:
-            case ImageFormat.RAW_PRIVATE:
             case ImageFormat.RAW10:
-            case ImageFormat.RAW12:
-            case ImageFormat.DEPTH16:
-            case ImageFormat.DEPTH_POINT_CLOUD:
-            case ImageFormat.RAW_DEPTH:
                 return 1;
             case ImageFormat.PRIVATE:
                 return 0;
@@ -99,14 +94,6 @@ class ImageUtils {
         if (src.getFormat() == ImageFormat.PRIVATE ||
                 dst.getFormat() == ImageFormat.PRIVATE) {
             throw new IllegalArgumentException("PRIVATE format images are not copyable");
-        }
-        if (src.getFormat() == ImageFormat.RAW_PRIVATE) {
-            throw new IllegalArgumentException(
-                    "Copy of RAW_OPAQUE format has not been implemented");
-        }
-        if (src.getFormat() == ImageFormat.RAW_DEPTH) {
-            throw new IllegalArgumentException(
-                    "Copy of RAW_DEPTH format has not been implemented");
         }
         if (!(dst.getOwner() instanceof ImageWriter)) {
             throw new IllegalArgumentException("Destination image is not from ImageWriter. Only"
@@ -203,17 +190,14 @@ class ImageUtils {
             case ImageFormat.YV12:
             case ImageFormat.YUV_420_888:
             case ImageFormat.NV21:
-            case ImageFormat.RAW12:
-            case ImageFormat.PRIVATE: // A rough estimate because the real size is unknown.
+            case ImageFormat.PRIVATE: // A really rough estimate because the real size is unknown.
                 estimatedBytePerPixel = 1.5;
                 break;
             case ImageFormat.NV16:
             case PixelFormat.RGB_565:
             case ImageFormat.YUY2:
             case ImageFormat.Y16:
-            case ImageFormat.RAW_DEPTH:
             case ImageFormat.RAW_SENSOR:
-            case ImageFormat.RAW_PRIVATE: // round estimate, real size is unknown
             case ImageFormat.DEPTH16:
                 estimatedBytePerPixel = 2.0;
                 break;
@@ -258,8 +242,6 @@ class ImageUtils {
             case ImageFormat.Y16:
             case ImageFormat.RAW_SENSOR:
             case ImageFormat.RAW10:
-            case ImageFormat.RAW12:
-            case ImageFormat.RAW_DEPTH:
                 return new Size(image.getWidth(), image.getHeight());
             case ImageFormat.PRIVATE:
                 return new Size(0, 0);

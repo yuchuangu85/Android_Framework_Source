@@ -16,47 +16,26 @@
 
 package com.android.internal.telephony.gsm;
 
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_ASYNC;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_SYNC;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_FAX;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_MAX;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NONE;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PACKET;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PAD;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_SMS;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
-
 import android.content.Context;
 import android.content.res.Resources;
-import android.os.AsyncResult;
-import android.os.Handler;
-import android.os.Message;
-import android.os.PersistableBundle;
-import android.os.ResultReceiver;
-import android.telephony.CarrierConfigManager;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
-import android.text.BidiFormatter;
-import android.text.SpannableStringBuilder;
-import android.text.TextDirectionHeuristics;
-import android.text.TextUtils;
-
-import com.android.internal.telephony.CallForwardInfo;
-import com.android.internal.telephony.CallStateException;
-import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.GsmCdmaPhone;
-import com.android.internal.telephony.MmiCode;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.RILConstants;
-import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
+import com.android.internal.telephony.*;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.UiccCardApplication;
-import com.android.internal.util.ArrayUtils;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 
-import java.util.regex.Matcher;
+import android.os.*;
+import android.telephony.PhoneNumberUtils;
+import android.text.SpannableStringBuilder;
+import android.text.BidiFormatter;
+import android.text.TextDirectionHeuristics;
+import android.text.TextUtils;
+import android.telephony.Rlog;
+
+import static com.android.internal.telephony.CommandsInterface.*;
+import com.android.internal.telephony.gsm.SsData;
+
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 /**
  * The motto for this file is:
@@ -136,7 +115,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     //***** Instance Variables
 
-    GsmCdmaPhone mPhone;
+    GSMPhone mPhone;
     Context mContext;
     UiccCardApplication mUiccApplication;
     IccRecords mIccRecords;
@@ -145,7 +124,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     String mSc;                  // Service Code
     String mSia, mSib, mSic;       // Service Info a,b,c
     String mPoundString;         // Entire MMI string up to and including #
-    public String mDialingNumber;
+    String mDialingNumber;
     String mPwd;                 // For password registration
 
     /** Set to true in processCode, not at newFromDialString time */
@@ -157,7 +136,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     State mState = State.PENDING;
     CharSequence mMessage;
     private boolean mIsSsInfo = false;
-    private ResultReceiver mCallbackReceiver;
 
 
     //***** Class Variables
@@ -205,23 +183,11 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *
      * Please see flow chart in TS 22.030 6.5.3.2
      */
-    public static GsmMmiCode newFromDialString(String dialString, GsmCdmaPhone phone,
-            UiccCardApplication app) {
-        return newFromDialString(dialString, phone, app, null);
-    }
 
-    public static GsmMmiCode newFromDialString(String dialString, GsmCdmaPhone phone,
-            UiccCardApplication app, ResultReceiver wrappedCallback) {
+    static GsmMmiCode
+    newFromDialString(String dialString, GSMPhone phone, UiccCardApplication app) {
         Matcher m;
         GsmMmiCode ret = null;
-
-        if (phone.getServiceState().getVoiceRoaming()
-                && phone.supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming()) {
-            /* The CDMA MMI coded dialString will be converted to a 3GPP MMI Coded dialString
-               so that it can be processed by the matcher and code below
-             */
-            dialString = convertCdmaMmiCodesTo3gppMmiCodes(dialString);
-        }
 
         m = sPatternSuppService.matcher(dialString);
 
@@ -236,20 +202,16 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             ret.mSic = makeEmptyNull(m.group(MATCH_GROUP_SIC));
             ret.mPwd = makeEmptyNull(m.group(MATCH_GROUP_PWD_CONFIRM));
             ret.mDialingNumber = makeEmptyNull(m.group(MATCH_GROUP_DIALING_NUMBER));
-
+            // According to TS 22.030 6.5.2 "Structure of the MMI",
+            // the dialing number should not ending with #.
+            // The dialing number ending # is treated as unique USSD,
+            // eg, *400#16 digit number# to recharge the prepaid card
+            // in India operator(Mumbai MTNL)
             if(ret.mDialingNumber != null &&
                     ret.mDialingNumber.endsWith("#") &&
                     dialString.endsWith("#")){
-                // According to TS 22.030 6.5.2 "Structure of the MMI",
-                // the dialing number should not ending with #.
-                // The dialing number ending # is treated as unique USSD,
-                // eg, *400#16 digit number# to recharge the prepaid card
-                // in India operator(Mumbai MTNL)
                 ret = new GsmMmiCode(phone, app);
                 ret.mPoundString = dialString;
-            } else if (ret.isFacToDial()) {
-                // This is a FAC (feature access code) to dial as a normal call.
-                ret = null;
             }
         } else if (dialString.endsWith("#")) {
             // TS 22.030 sec 6.5.3.2
@@ -267,35 +229,12 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             ret.mDialingNumber = dialString;
         }
 
-        if (ret != null) {
-            ret.mCallbackReceiver = wrappedCallback;
-        }
-
         return ret;
     }
 
-    private static String convertCdmaMmiCodesTo3gppMmiCodes(String dialString) {
-        Matcher m;
-        m = sPatternCdmaMmiCodeWhileRoaming.matcher(dialString);
-        if (m.matches()) {
-            String serviceCode = makeEmptyNull(m.group(MATCH_GROUP_CDMA_MMI_CODE_SERVICE_CODE));
-            String prefix = m.group(MATCH_GROUP_CDMA_MMI_CODE_NUMBER_PREFIX);
-            String number = makeEmptyNull(m.group(MATCH_GROUP_CDMA_MMI_CODE_NUMBER));
-
-            if (serviceCode.equals("67") && number != null) {
-                // "#31#number" to invoke CLIR
-                dialString = ACTION_DEACTIVATE + SC_CLIR + ACTION_DEACTIVATE + prefix + number;
-            } else if (serviceCode.equals("82") && number != null) {
-                // "*31#number" to suppress CLIR
-                dialString = ACTION_ACTIVATE + SC_CLIR + ACTION_DEACTIVATE + prefix + number;
-            }
-        }
-        return dialString;
-    }
-
-    public static GsmMmiCode
-    newNetworkInitiatedUssd(String ussdMessage,
-                            boolean isUssdRequest, GsmCdmaPhone phone, UiccCardApplication app) {
+    static GsmMmiCode
+    newNetworkInitiatedUssd (String ussdMessage,
+                                boolean isUssdRequest, GSMPhone phone, UiccCardApplication app) {
         GsmMmiCode ret;
 
         ret = new GsmMmiCode(phone, app);
@@ -314,9 +253,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return ret;
     }
 
-    public static GsmMmiCode newFromUssdUserInput(String ussdMessge,
-                                                  GsmCdmaPhone phone,
-                                                  UiccCardApplication app) {
+    static GsmMmiCode newFromUssdUserInput(String ussdMessge,
+                                           GSMPhone phone,
+                                           UiccCardApplication app) {
         GsmMmiCode ret = new GsmMmiCode(phone, app);
 
         ret.mMessage = ussdMessge;
@@ -327,7 +266,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     }
 
     /** Process SS Data */
-    public void
+    void
     processSsData(AsyncResult data) {
         Rlog.d(LOG_TAG, "In processSsData");
 
@@ -368,7 +307,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
                     Rlog.d(LOG_TAG, "setVoiceCallForwardingFlag cffEnabled: " + cffEnabled);
                     if (mIccRecords != null) {
-                        mPhone.setVoiceCallForwardingFlag(1, cffEnabled, null);
+                        mIccRecords.setVoiceCallForwardingFlag(1, cffEnabled, null);
                         Rlog.d(LOG_TAG, "setVoiceCallForwardingFlag done from SS Info.");
                     } else {
                         Rlog.e(LOG_TAG, "setVoiceCallForwardingFlag aborted. sim records is null.");
@@ -600,7 +539,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     //***** Constructor
 
-    public GsmMmiCode(GsmCdmaPhone phone, UiccCardApplication app) {
+    GsmMmiCode (GSMPhone phone, UiccCardApplication app) {
         // The telephony unit-test cases may create GsmMmiCode's
         // in secondary threads
         super(phone.getHandler().getLooper());
@@ -685,11 +624,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     }
 
-    @Override
-    public String getDialString() {
-        return mPoundString;
-    }
-
     static private boolean
     isTwoDigitShortCode(Context context, String dialString) {
         Rlog.d(LOG_TAG, "isTwoDigitShortCode");
@@ -717,7 +651,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      * to be a short code AND conditions are correct for it to be treated as
      * such.
      */
-    static private boolean isShortCode(String dialString, GsmCdmaPhone phone) {
+    static private boolean isShortCode(String dialString, GSMPhone phone) {
         // Refer to TS 22.030 Figure 3.5.3.2:
         if (dialString == null) {
             return false;
@@ -753,7 +687,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *
      * The phone shall initiate a USSD/SS commands.
      */
-    static private boolean isShortCodeUSSD(String dialString, GsmCdmaPhone phone) {
+    static private boolean isShortCodeUSSD(String dialString, GSMPhone phone) {
         if (dialString != null && dialString.length() <= MAX_LENGTH_SHORT_CODE) {
             if (phone.isInCall()) {
                 return true;
@@ -770,7 +704,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     /**
      * @return true if the Service Code is PIN/PIN2/PUK/PUK2-related
      */
-    public boolean isPinPukCommand() {
+    boolean isPinPukCommand() {
         return mSc != null && (mSc.equals(SC_PIN) || mSc.equals(SC_PIN2)
                               || mSc.equals(SC_PUK) || mSc.equals(SC_PUK2));
      }
@@ -782,7 +716,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *  In temporary mode, to invoke CLIR for a single call enter:
      *       " # 31 # [called number] SEND "
      */
-    public boolean
+    boolean
     isTemporaryModeCLIR() {
         return mSc != null && mSc.equals(SC_CLIR) && mDialingNumber != null
                 && (isActivate() || isDeactivate());
@@ -792,7 +726,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      * returns CommandsInterface.CLIR_*
      * See also isTemporaryModeCLIR()
      */
-    public int
+    int
     getCLIRMode() {
         if (mSc != null && mSc.equals(SC_CLIR)) {
             if (isActivate()) {
@@ -803,30 +737,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         return CommandsInterface.CLIR_DEFAULT;
-    }
-
-    /**
-     * Returns true if the Service Code is FAC to dial as a normal call.
-     *
-     * FAC stands for feature access code and it is special patterns of characters
-     * to invoke certain features.
-     */
-    private boolean isFacToDial() {
-        CarrierConfigManager configManager = (CarrierConfigManager)
-                mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle b = configManager.getConfigForSubId(mPhone.getSubId());
-        if (b != null) {
-            String[] dialFacList = b.getStringArray(CarrierConfigManager
-                    .KEY_FEATURE_ACCESS_CODES_STRING_ARRAY);
-            if (!ArrayUtils.isEmpty(dialFacList)) {
-                for (String fac : dialFacList) {
-                    if (fac.equals(mSc)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     boolean isActivate() {
@@ -866,26 +776,19 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return mIsSsInfo;
     }
 
-    public static boolean isVoiceUnconditionalForwarding(int reason, int serviceClass) {
-        return (((reason == CommandsInterface.CF_REASON_UNCONDITIONAL)
-                || (reason == CommandsInterface.CF_REASON_ALL))
-                && (((serviceClass & CommandsInterface.SERVICE_CLASS_VOICE) != 0)
-                || (serviceClass == CommandsInterface.SERVICE_CLASS_NONE)));
-    }
-
     /** Process a MMI code or short code...anything that isn't a dialing number */
-    public void
-    processCode() throws CallStateException {
+    void
+    processCode () {
         try {
             if (isShortCode()) {
-                Rlog.d(LOG_TAG, "processCode: isShortCode");
+                Rlog.d(LOG_TAG, "isShortCode");
                 // These just get treated as USSD.
                 sendUssd(mDialingNumber);
             } else if (mDialingNumber != null) {
                 // We should have no dialing numbers here
                 throw new RuntimeException ("Invalid or Unsupported MMI Code");
             } else if (mSc != null && mSc.equals(SC_CLIP)) {
-                Rlog.d(LOG_TAG, "processCode: is CLIP");
+                Rlog.d(LOG_TAG, "is CLIP");
                 if (isInterrogate()) {
                     mPhone.mCi.queryCLIP(
                             obtainMessage(EVENT_QUERY_COMPLETE, this));
@@ -893,7 +796,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                     throw new RuntimeException ("Invalid or Unsupported MMI Code");
                 }
             } else if (mSc != null && mSc.equals(SC_CLIR)) {
-                Rlog.d(LOG_TAG, "processCode: is CLIR");
+                Rlog.d(LOG_TAG, "is CLIR");
                 if (isActivate()) {
                     mPhone.mCi.setCLIR(CommandsInterface.CLIR_INVOCATION,
                         obtainMessage(EVENT_SET_COMPLETE, this));
@@ -907,7 +810,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                     throw new RuntimeException ("Invalid or Unsupported MMI Code");
                 }
             } else if (isServiceCodeCallForwarding(mSc)) {
-                Rlog.d(LOG_TAG, "processCode: is CF");
+                Rlog.d(LOG_TAG, "is CF");
 
                 String dialingNumber = mSia;
                 int serviceClass = siToServiceClass(mSib);
@@ -943,15 +846,21 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                         throw new RuntimeException ("invalid action");
                     }
 
+                    int isSettingUnconditionalVoice =
+                        (((reason == CommandsInterface.CF_REASON_UNCONDITIONAL) ||
+                                (reason == CommandsInterface.CF_REASON_ALL)) &&
+                                (((serviceClass & CommandsInterface.SERVICE_CLASS_VOICE) != 0) ||
+                                 (serviceClass == CommandsInterface.SERVICE_CLASS_NONE))) ? 1 : 0;
+
                     int isEnableDesired =
                         ((cfAction == CommandsInterface.CF_ACTION_ENABLE) ||
                                 (cfAction == CommandsInterface.CF_ACTION_REGISTRATION)) ? 1 : 0;
 
-                    Rlog.d(LOG_TAG, "processCode: is CF setCallForward");
+                    Rlog.d(LOG_TAG, "is CF setCallForward");
                     mPhone.mCi.setCallForward(cfAction, reason, serviceClass,
                             dialingNumber, time, obtainMessage(
                                     EVENT_SET_CFF_COMPLETE,
-                                    isVoiceUnconditionalForwarding(reason, serviceClass) ? 1 : 0,
+                                    isSettingUnconditionalVoice,
                                     isEnableDesired, this));
                 }
             } else if (isServiceCodeCallBarring(mSc)) {
@@ -1038,8 +947,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                         // Sim is puk-locked
                         handlePasswordError(com.android.internal.R.string.needPuk);
                     } else if (mUiccApplication != null) {
-                        Rlog.d(LOG_TAG,
-                                "processCode: process mmi service code using UiccApp sc=" + mSc);
+                        Rlog.d(LOG_TAG, "process mmi service code using UiccApp sc=" + mSc);
 
                         // We have an app and the pre-checks are OK
                         if (mSc.equals(SC_PIN)) {
@@ -1066,13 +974,11 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             } else if (mPoundString != null) {
                 sendUssd(mPoundString);
             } else {
-                Rlog.d(LOG_TAG, "processCode: Invalid or Unsupported MMI Code");
                 throw new RuntimeException ("Invalid or Unsupported MMI Code");
             }
         } catch (RuntimeException exc) {
             mState = State.FAILED;
             mMessage = mContext.getText(com.android.internal.R.string.mmiError);
-            Rlog.d(LOG_TAG, "processCode: RuntimeException=" + exc);
             mPhone.onMMIDone(this);
         }
     }
@@ -1087,7 +993,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     }
 
     /**
-     * Called from GsmCdmaPhone
+     * Called from GSMPhone
      *
      * An unsolicited USSD NOTIFY or REQUEST has come in matching
      * up with this pending USSD request
@@ -1095,11 +1001,10 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      * Note: If REQUEST, this exchange is complete, but the session remains
      *       active (ie, the network expects user input).
      */
-    public void
+    void
     onUssdFinished(String ussdMessage, boolean isUssdRequest) {
         if (mState == State.PENDING) {
-            if (TextUtils.isEmpty(ussdMessage)) {
-                Rlog.d(LOG_TAG, "onUssdFinished: no network provided message; using default.");
+            if (ussdMessage == null) {
                 mMessage = mContext.getText(com.android.internal.R.string.mmiComplete);
             } else {
                 mMessage = ussdMessage;
@@ -1109,29 +1014,29 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             if (!isUssdRequest) {
                 mState = State.COMPLETE;
             }
-            Rlog.d(LOG_TAG, "onUssdFinished: ussdMessage=" + ussdMessage);
+
             mPhone.onMMIDone(this);
         }
     }
 
     /**
-     * Called from GsmCdmaPhone
+     * Called from GSMPhone
      *
      * The radio has reset, and this is still pending
      */
 
-    public void
+    void
     onUssdFinishedError() {
         if (mState == State.PENDING) {
             mState = State.FAILED;
             mMessage = mContext.getText(com.android.internal.R.string.mmiError);
-            Rlog.d(LOG_TAG, "onUssdFinishedError");
+
             mPhone.onMMIDone(this);
         }
     }
 
     /**
-     * Called from GsmCdmaPhone
+     * Called from GSMPhone
      *
      * An unsolicited USSD NOTIFY or REQUEST has come in matching
      * up with this pending USSD request
@@ -1139,29 +1044,30 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      * Note: If REQUEST, this exchange is complete, but the session remains
      *       active (ie, the network expects user input).
      */
-    public void
+    void
     onUssdRelease() {
         if (mState == State.PENDING) {
             mState = State.COMPLETE;
             mMessage = null;
-            Rlog.d(LOG_TAG, "onUssdRelease");
+
             mPhone.onMMIDone(this);
         }
     }
 
-    public void sendUssd(String ussdMessage) {
+    void sendUssd(String ussdMessage) {
         // Treat this as a USSD string
         mIsPendingUSSD = true;
 
         // Note that unlike most everything else, the USSD complete
         // response does not complete this MMI code...we wait for
         // an unsolicited USSD "Notify" or "Request".
-        // The matching up of this is done in GsmCdmaPhone.
+        // The matching up of this is done in GSMPhone.
+
         mPhone.mCi.sendUSSD(ussdMessage,
             obtainMessage(EVENT_USSD_COMPLETE, this));
     }
 
-    /** Called from GsmCdmaPhone.handleMessage; not a Handler subclass */
+    /** Called from GSMPhone.handleMessage; not a Handler subclass */
     @Override
     public void
     handleMessage (Message msg) {
@@ -1184,7 +1090,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 if ((ar.exception == null) && (msg.arg1 == 1)) {
                     boolean cffEnabled = (msg.arg2 == 1);
                     if (mIccRecords != null) {
-                        mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
+                        mIccRecords.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
                     }
                 }
 
@@ -1219,7 +1125,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 // Note that unlike most everything else, the USSD complete
                 // response does not complete this MMI code...we wait for
                 // an unsolicited USSD "Notify" or "Request".
-                // The matching up of this is done in GsmCdmaPhone.
+                // The matching up of this is done in GSMPhone.
 
             break;
 
@@ -1255,9 +1161,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             } else if (err == CommandException.Error.SS_MODIFIED_TO_SS) {
                 Rlog.i(LOG_TAG, "SS_MODIFIED_TO_SS");
                 return mContext.getText(com.android.internal.R.string.stk_cc_ss_to_ss);
-            } else if (err == CommandException.Error.OEM_ERROR_1) {
-                Rlog.i(LOG_TAG, "OEM_ERROR_1 USSD_MODIFIED_TO_DIAL_VIDEO");
-                return mContext.getText(com.android.internal.R.string.stk_cc_ussd_to_dial_video);
             }
         }
 
@@ -1335,17 +1238,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 } else if (err == CommandException.Error.FDN_CHECK_FAILURE) {
                     Rlog.i(LOG_TAG, "FDN_CHECK_FAILURE");
                     sb.append(mContext.getText(com.android.internal.R.string.mmiFdnError));
-                } else if (err == CommandException.Error.MODEM_ERR) {
-                    // Some carriers do not allow changing call forwarding settings while roaming
-                    // and will return an error from the modem.
-                    if (isServiceCodeCallForwarding(mSc)
-                            && mPhone.getServiceState().getVoiceRoaming()
-                            && !mPhone.supports3gppCallForwardingWhileRoaming()) {
-                        sb.append(mContext.getText(
-                                com.android.internal.R.string.mmiErrorWhileRoaming));
-                    } else {
-                        sb.append(getErrorMessage(ar));
-                    }
                 } else {
                     sb.append(getErrorMessage(ar));
                 }
@@ -1389,7 +1281,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         mMessage = sb;
-        Rlog.d(LOG_TAG, "onSetComplete mmi=" + this);
         mPhone.onMMIDone(this);
     }
 
@@ -1471,7 +1362,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         mMessage = sb;
-        Rlog.d(LOG_TAG, "onGetClirComplete: mmi=" + this);
         mPhone.onMMIDone(this);
     }
 
@@ -1559,7 +1449,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                         == CommandsInterface.SERVICE_CLASS_VOICE) {
             boolean cffEnabled = (info.status == 1);
             if (mIccRecords != null) {
-                mPhone.setVoiceCallForwardingFlag(1, cffEnabled, info.number);
+                mIccRecords.setVoiceCallForwardingFlag(1, cffEnabled, info.number);
             }
         }
 
@@ -1593,7 +1483,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
                 // Set unconditional CFF in SIM to false
                 if (mIccRecords != null) {
-                    mPhone.setVoiceCallForwardingFlag(1, false, null);
+                    mIccRecords.setVoiceCallForwardingFlag(1, false, null);
                 }
             } else {
 
@@ -1624,7 +1514,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         mMessage = sb;
-        Rlog.d(LOG_TAG, "onQueryCfComplete: mmi=" + this);
         mPhone.onMMIDone(this);
 
     }
@@ -1662,7 +1551,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         mMessage = sb;
-        Rlog.d(LOG_TAG, "onQueryComplete: mmi=" + this);
         mPhone.onMMIDone(this);
     }
 
@@ -1699,10 +1587,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return sb;
     }
 
-    public ResultReceiver getUssdCallbackReceiver() {
-        return this.mCallbackReceiver;
-    }
-
     /***
      * TODO: It would be nice to have a method here that can take in a dialstring and
      * figure out if there is an MMI code embedded within it.  This code would replace
@@ -1717,15 +1601,12 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         sb.append("State=" + getState());
         if (mAction != null) sb.append(" action=" + mAction);
         if (mSc != null) sb.append(" sc=" + mSc);
-        if (mSia != null) sb.append(" sia=" + Rlog.pii(LOG_TAG, mSia));
-        if (mSib != null) sb.append(" sib=" + Rlog.pii(LOG_TAG, mSib));
-        if (mSic != null) sb.append(" sic=" + Rlog.pii(LOG_TAG, mSic));
-        if (mPoundString != null) sb.append(" poundString=" + Rlog.pii(LOG_TAG, mPoundString));
-        if (mDialingNumber != null) {
-            sb.append(" dialingNumber=" + Rlog.pii(LOG_TAG, mDialingNumber));
-        }
-        if (mPwd != null) sb.append(" pwd=" + Rlog.pii(LOG_TAG, mPwd));
-        if (mCallbackReceiver != null) sb.append(" hasReceiver");
+        if (mSia != null) sb.append(" sia=" + mSia);
+        if (mSib != null) sb.append(" sib=" + mSib);
+        if (mSic != null) sb.append(" sic=" + mSic);
+        if (mPoundString != null) sb.append(" poundString=" + mPoundString);
+        if (mDialingNumber != null) sb.append(" dialingNumber=" + mDialingNumber);
+        if (mPwd != null) sb.append(" pwd=" + mPwd);
         sb.append("}");
         return sb.toString();
     }

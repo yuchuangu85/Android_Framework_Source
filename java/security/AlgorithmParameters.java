@@ -1,498 +1,307 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
-import java.io.*;
+import java.io.IOException;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.InvalidParameterSpecException;
+import org.apache.harmony.security.fortress.Engine;
 
-import sun.security.jca.Providers;
 
 /**
- * This class is used as an opaque representation of cryptographic parameters.
- *
- * <p>An {@code AlgorithmParameters} object for managing the parameters
- * for a particular algorithm can be obtained by
- * calling one of the {@code getInstance} factory methods
- * (static methods that return instances of a given class).
- *
- * <p>Once an {@code AlgorithmParameters} object is obtained, it must be
- * initialized via a call to {@code init}, using an appropriate parameter
- * specification or parameter encoding.
- *
- * <p>A transparent parameter specification is obtained from an
- * {@code AlgorithmParameters} object via a call to
- * {@code getParameterSpec}, and a byte encoding of the parameters is
- * obtained via a call to {@code getEncoded}.
- *
- * <p> Android provides the following <code>AlgorithmParameters</code> algorithms:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>AES</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>BLOWFISH</td>
- *       <td>10+</td>
- *     </tr>
- *     <tr>
- *       <td>ChaCha20</td>
- *       <td>28+</td>
- *     </tr>
- *     <tr>
- *       <td>DES</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>DESede</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>DH</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>DSA</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>EC</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>GCM</td>
- *       <td>22+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>IES</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr>
- *       <td>OAEP</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA1AndAES_128</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA1AndAES_256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA224AndAES_128</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA224AndAES_256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA256AndAES_128</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA256AndAES_256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA384AndAES_128</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA384AndAES_256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA512AndAES_128</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA512AndAES_256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PKCS12PBE</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>PSS</td>
- *       <td>1-8,24+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
- * AlgorithmParameters section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * @author Jan Luehe
- *
- *
- * @see java.security.spec.AlgorithmParameterSpec
- * @see java.security.spec.DSAParameterSpec
- * @see KeyPairGenerator
- *
- * @since 1.2
+ * {@code AlgorithmParameters} is an engine class which provides algorithm
+ * parameters.
  */
-
 public class AlgorithmParameters {
-
-    // The provider
-    private Provider provider;
-
-    // The provider implementation (delegate)
-    private AlgorithmParametersSpi paramSpi;
-
-    // The algorithm
-    private String algorithm;
-
-    // Has this object been initialized?
-    private boolean initialized = false;
+    /**
+     * The service name.
+     */
+    private static final String SEVICE = "AlgorithmParameters";
 
     /**
-     * Creates an AlgorithmParameters object.
-     *
-     * @param paramSpi the delegate
-     * @param provider the provider
-     * @param algorithm the algorithm
+     * Used to access common engine functionality.
      */
-    protected AlgorithmParameters(AlgorithmParametersSpi paramSpi,
-                                  Provider provider, String algorithm)
-    {
-        this.paramSpi = paramSpi;
+    private static final Engine ENGINE = new Engine(SEVICE);
+
+    /**
+     * The security provider.
+     */
+    private final Provider provider;
+
+    /**
+     * The SPI implementation.
+     */
+    private final AlgorithmParametersSpi spiImpl;
+
+    /**
+     * The security algorithm.
+     */
+    private final String algorithm;
+
+    /**
+     * The initialization state.
+     */
+    private boolean initialized;
+
+    /**
+     * Constructs a new instance of {@code AlgorithmParameters} with the given
+     * arguments.
+     *
+     * @param algPramSpi
+     *            the concrete implementation.
+     * @param provider
+     *            the security provider.
+     * @param algorithm
+     *            the name of the algorithm.
+     */
+    protected AlgorithmParameters(AlgorithmParametersSpi algPramSpi,
+            Provider provider, String algorithm) {
         this.provider = provider;
         this.algorithm = algorithm;
+        this.spiImpl = algPramSpi;
     }
 
     /**
-     * Returns the name of the algorithm associated with this parameter object.
+     * Returns a new instance of {@code AlgorithmParameters} for the specified
+     * algorithm.
      *
-     * @return the algorithm name.
-     */
-    public final String getAlgorithm() {
-        return this.algorithm;
-    }
-
-    /**
-     * Returns a parameter object for the specified algorithm.
-     *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new AlgorithmParameters object encapsulating the
-     * AlgorithmParametersSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * <p> The returned parameter object must be initialized via a call to
-     * {@code init}, using an appropriate parameter specification or
-     * parameter encoding.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @return the new parameter object.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports an
-     *          AlgorithmParametersSpi implementation for the
-     *          specified algorithm.
-     *
-     * @see Provider
+     * @param algorithm
+     *            the name of the algorithm to use.
+     * @return a new instance of {@code AlgorithmParameters} for the specified
+     *         algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}.
      */
     public static AlgorithmParameters getInstance(String algorithm)
-    throws NoSuchAlgorithmException {
-        try {
-            Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
-                                             (String)null);
-            return new AlgorithmParameters((AlgorithmParametersSpi)objs[0],
-                                           (Provider)objs[1],
-                                           algorithm);
-        } catch(NoSuchProviderException e) {
-            throw new NoSuchAlgorithmException(algorithm + " not found");
+            throws NoSuchAlgorithmException {
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
         }
+        Engine.SpiAndProvider sap = ENGINE.getInstance(algorithm, null);
+        return new AlgorithmParameters((AlgorithmParametersSpi) sap.spi, sap.provider, algorithm);
     }
 
     /**
-     * Returns a parameter object for the specified algorithm.
+     * Returns a new instance of {@code AlgorithmParameters} from the specified
+     * provider for the specified algorithm.
      *
-     * <p> A new AlgorithmParameters object encapsulating the
-     * AlgorithmParametersSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * <p>The returned parameter object must be initialized via a call to
-     * {@code init}, using an appropriate parameter specification or
-     * parameter encoding.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new parameter object.
-     *
-     * @exception NoSuchAlgorithmException if an AlgorithmParametersSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the provider name is null
-     *          or empty.
-     *
-     * @see Provider
+     * @param algorithm
+     *            the name of the algorithm to use.
+     * @param provider
+     *            name of the provider of the {@code AlgorithmParameters}.
+     * @return a new instance of {@code AlgorithmParameters} for the specified
+     *         algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available.
+     * @throws NoSuchProviderException
+     *             if the specified provider is not available.
+     * @throws IllegalArgumentException if {@code provider == null || provider.isEmpty()}
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}.
      */
     public static AlgorithmParameters getInstance(String algorithm,
-                                                  String provider)
-        throws NoSuchAlgorithmException, NoSuchProviderException
-    {
-        if (provider == null || provider.length() == 0)
-            throw new IllegalArgumentException("missing provider");
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "AlgorithmParameters", algorithm);
-        Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
-                                         provider);
-        return new AlgorithmParameters((AlgorithmParametersSpi)objs[0],
-                                       (Provider)objs[1],
-                                       algorithm);
+            String provider) throws NoSuchAlgorithmException,
+            NoSuchProviderException {
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("provider == null || provider.isEmpty()");
+        }
+        Provider p = Security.getProvider(provider);
+        if (p == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        return getInstance(algorithm, p);
     }
 
     /**
-     * Returns a parameter object for the specified algorithm.
+     * Returns a new instance of {@code AlgorithmParameters} from the specified
+     * provider for the specified algorithm. The {@code provider} supplied does
+     * not have to be registered.
      *
-     * <p> A new AlgorithmParameters object encapsulating the
-     * AlgorithmParametersSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * <p>The returned parameter object must be initialized via a call to
-     * {@code init}, using an appropriate parameter specification or
-     * parameter encoding.
-     *
-     * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new parameter object.
-     *
-     * @exception NoSuchAlgorithmException if an AlgorithmParameterGeneratorSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @exception IllegalArgumentException if the provider is null.
-     *
-     * @see Provider
-     *
-     * @since 1.4
+     * @param algorithm
+     *            the name of the algorithm to use.
+     * @param provider
+     *            the provider of the {@code AlgorithmParameters}.
+     * @return a new instance of {@code AlgorithmParameters} for the specified
+     *         algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null}.
+     * @throws IllegalArgumentException if {@code provider == null}
      */
     public static AlgorithmParameters getInstance(String algorithm,
-                                                  Provider provider)
-        throws NoSuchAlgorithmException
-    {
-        if (provider == null)
-            throw new IllegalArgumentException("missing provider");
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "AlgorithmParameters", algorithm);
-        Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
-                                         provider);
-        return new AlgorithmParameters((AlgorithmParametersSpi)objs[0],
-                                       (Provider)objs[1],
-                                       algorithm);
+            Provider provider) throws NoSuchAlgorithmException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        Object spi = ENGINE.getInstance(algorithm, provider, null);
+        return new AlgorithmParameters((AlgorithmParametersSpi) spi, provider, algorithm);
     }
 
     /**
-     * Returns the provider of this parameter object.
+     * Returns the provider associated with this {@code AlgorithmParameters}.
      *
-     * @return the provider of this parameter object
+     * @return the provider associated with this {@code AlgorithmParameters}.
      */
     public final Provider getProvider() {
-        return this.provider;
+        return provider;
     }
 
     /**
-     * Initializes this parameter object using the parameters
-     * specified in {@code paramSpec}.
+     * Returns the name of the algorithm.
      *
-     * @param paramSpec the parameter specification.
+     * @return the name of the algorithm.
+     */
+    public final String getAlgorithm() {
+        return algorithm;
+    }
+
+    /**
+     * Initializes this {@code AlgorithmParameters} with the specified {@code
+     * AlgorithmParameterSpec}.
      *
-     * @exception InvalidParameterSpecException if the given parameter
-     * specification is inappropriate for the initialization of this parameter
-     * object, or if this parameter object has already been initialized.
+     * @param paramSpec
+     *            the parameter specification.
+     * @throws InvalidParameterSpecException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized or the given {@code paramSpec} is not appropriate
+     *             for initializing this {@code AlgorithmParameters}.
      */
     public final void init(AlgorithmParameterSpec paramSpec)
-        throws InvalidParameterSpecException
-    {
-        if (this.initialized)
-            throw new InvalidParameterSpecException("already initialized");
-        paramSpi.engineInit(paramSpec);
-        this.initialized = true;
+            throws InvalidParameterSpecException {
+        if (initialized) {
+            throw new InvalidParameterSpecException("Parameter has already been initialized");
+        }
+        spiImpl.engineInit(paramSpec);
+        initialized = true;
     }
 
     /**
-     * Imports the specified parameters and decodes them according to the
-     * primary decoding format for parameters. The primary decoding
-     * format for parameters is ASN.1, if an ASN.1 specification for this type
-     * of parameters exists.
+     * Initializes this {@code AlgorithmParameters} with the specified {@code
+     * byte[]} using the default decoding format for parameters. The default
+     * encoding format is ASN.1.
      *
-     * @param params the encoded parameters.
-     *
-     * @exception IOException on decoding errors, or if this parameter object
-     * has already been initialized.
+     * @param params
+     *            the encoded parameters.
+     * @throws IOException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized, or the parameter could not be encoded.
      */
     public final void init(byte[] params) throws IOException {
-        if (this.initialized)
-            throw new IOException("already initialized");
-        paramSpi.engineInit(params);
-        this.initialized = true;
+        if (initialized) {
+            throw new IOException("Parameter has already been initialized");
+        }
+        spiImpl.engineInit(params);
+        initialized = true;
     }
 
     /**
-     * Imports the parameters from {@code params} and decodes them
-     * according to the specified decoding scheme.
-     * If {@code format} is null, the
-     * primary decoding format for parameters is used. The primary decoding
-     * format is ASN.1, if an ASN.1 specification for these parameters
-     * exists.
+     * Initializes this {@code AlgorithmParameters} with the specified {@code
+     * byte[]} using the specified decoding format.
      *
-     * @param params the encoded parameters.
-     *
-     * @param format the name of the decoding scheme.
-     *
-     * @exception IOException on decoding errors, or if this parameter object
-     * has already been initialized.
+     * @param params
+     *            the encoded parameters.
+     * @param format
+     *            the name of the decoding format.
+     * @throws IOException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized, or the parameter could not be encoded.
      */
     public final void init(byte[] params, String format) throws IOException {
-        if (this.initialized)
-            throw new IOException("already initialized");
-        paramSpi.engineInit(params, format);
-        this.initialized = true;
-    }
-
-    /**
-     * Returns a (transparent) specification of this parameter object.
-     * {@code paramSpec} identifies the specification class in which
-     * the parameters should be returned. It could, for example, be
-     * {@code DSAParameterSpec.class}, to indicate that the
-     * parameters should be returned in an instance of the
-     * {@code DSAParameterSpec} class.
-     *
-     * @param <T> the type of the parameter specification to be returrned
-     * @param paramSpec the specification class in which
-     * the parameters should be returned.
-     *
-     * @return the parameter specification.
-     *
-     * @exception InvalidParameterSpecException if the requested parameter
-     * specification is inappropriate for this parameter object, or if this
-     * parameter object has not been initialized.
-     */
-    public final <T extends AlgorithmParameterSpec>
-        T getParameterSpec(Class<T> paramSpec)
-        throws InvalidParameterSpecException
-    {
-        if (this.initialized == false) {
-            throw new InvalidParameterSpecException("not initialized");
+        if (initialized) {
+            throw new IOException("Parameter has already been initialized");
         }
-        return paramSpi.engineGetParameterSpec(paramSpec);
+        spiImpl.engineInit(params, format);
+        initialized = true;
     }
 
     /**
-     * Returns the parameters in their primary encoding format.
-     * The primary encoding format for parameters is ASN.1, if an ASN.1
-     * specification for this type of parameters exists.
+     * Returns the {@code AlgorithmParameterSpec} for this {@code
+     * AlgorithmParameters}.
      *
-     * @return the parameters encoded using their primary encoding format.
-     *
-     * @exception IOException on encoding errors, or if this parameter object
-     * has not been initialized.
+     * @param paramSpec
+     *            the type of the parameter specification in which this
+     *            parameters should be converted.
+     * @return the {@code AlgorithmParameterSpec} for this {@code
+     *         AlgorithmParameters}.
+     * @throws InvalidParameterSpecException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized, or if this parameters could not be converted to
+     *             the specified class.
      */
-    public final byte[] getEncoded() throws IOException
-    {
-        if (this.initialized == false) {
-            throw new IOException("not initialized");
+    public final <T extends AlgorithmParameterSpec> T getParameterSpec(Class<T> paramSpec)
+            throws InvalidParameterSpecException {
+        if (!initialized) {
+            throw new InvalidParameterSpecException("Parameter has not been initialized");
         }
-        return paramSpi.engineGetEncoded();
+        return spiImpl.engineGetParameterSpec(paramSpec);
     }
 
     /**
-     * Returns the parameters encoded in the specified scheme.
-     * If {@code format} is null, the
-     * primary encoding format for parameters is used. The primary encoding
-     * format is ASN.1, if an ASN.1 specification for these parameters
-     * exists.
+     * Returns this {@code AlgorithmParameters} in their default encoding
+     * format. The default encoding format is ASN.1.
      *
-     * @param format the name of the encoding format.
-     *
-     * @return the parameters encoded using the specified encoding scheme.
-     *
-     * @exception IOException on encoding errors, or if this parameter object
-     * has not been initialized.
+     * @return the encoded parameters.
+     * @throws IOException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized, or if this parameters could not be encoded.
      */
-    public final byte[] getEncoded(String format) throws IOException
-    {
-        if (this.initialized == false) {
-            throw new IOException("not initialized");
+    public final byte[] getEncoded() throws IOException {
+        if (!initialized) {
+            throw new IOException("Parameter has not been initialized");
         }
-        return paramSpi.engineGetEncoded(format);
+        return spiImpl.engineGetEncoded();
     }
 
     /**
-     * Returns a formatted string describing the parameters.
+     * Returns this {@code AlgorithmParameters} in the specified encoding
+     * format.
      *
-     * @return a formatted string describing the parameters, or null if this
-     * parameter object has not been initialized.
+     * @param format
+     *            the name of the encoding format.
+     * @return the encoded parameters.
+     * @throws IOException
+     *             if this {@code AlgorithmParameters} has already been
+     *             initialized, or if this parameters could not be encoded.
      */
+    public final byte[] getEncoded(String format) throws IOException {
+        if (!initialized) {
+            throw new IOException("Parameter has not been initialized");
+        }
+        return spiImpl.engineGetEncoded(format);
+    }
+
+    /**
+     * Returns a string containing a concise, human-readable description of this
+     * {@code AlgorithmParameters}.
+     *
+     * @return a printable representation for this {@code AlgorithmParameters}.
+     */
+    @Override
     public final String toString() {
-        if (this.initialized == false) {
+        if (!initialized) {
             return null;
         }
-        return paramSpi.engineToString();
+        return spiImpl.engineToString();
     }
 }

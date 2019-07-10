@@ -20,7 +20,7 @@ import android.app.ApplicationErrorReport.CrashInfo;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.StructTimeval;
-import android.system.UnixSocketAddress;
+import android.system.StructUcred;
 import android.util.Slog;
 
 import static android.system.OsConstants.*;
@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.FileDescriptor;
 import java.io.InterruptedIOException;
 import java.net.InetSocketAddress;
+import java.net.InetUnixAddress;
 
 /**
  * Set up a Unix domain socket that debuggerd will connect() to in
@@ -48,8 +49,8 @@ final class NativeCrashListener extends Thread {
     static final String DEBUGGERD_SOCKET_PATH = "/data/system/ndebugsocket";
 
     // Use a short timeout on socket operations and abandon the connection
-    // on hard errors, just in case debuggerd goes out to lunch.
-    static final long SOCKET_TIMEOUT_MILLIS = 10000;  // 10 seconds
+    // on hard errors
+    static final long SOCKET_TIMEOUT_MILLIS = 2000;  // 2 seconds
 
     final ActivityManagerService mAm;
 
@@ -104,9 +105,9 @@ final class NativeCrashListener extends Thread {
 
         if (DEBUG) Slog.i(TAG, "Starting up");
 
-        // The file system entity for this socket is created with 0777 perms, owned
-        // by system:system. selinux restricts things so that only crash_dump can
-        // access it.
+        // The file system entity for this socket is created with 0700 perms, owned
+        // by system:system.  debuggerd runs as root, so is capable of connecting to
+        // it, but 3rd party apps cannot.
         {
             File socketFile = new File(DEBUGGERD_SOCKET_PATH);
             if (socketFile.exists()) {
@@ -116,27 +117,31 @@ final class NativeCrashListener extends Thread {
 
         try {
             FileDescriptor serverFd = Os.socket(AF_UNIX, SOCK_STREAM, 0);
-            final UnixSocketAddress sockAddr = UnixSocketAddress.createFileSystem(
-                    DEBUGGERD_SOCKET_PATH);
-            Os.bind(serverFd, sockAddr);
+            final InetUnixAddress sockAddr = new InetUnixAddress(DEBUGGERD_SOCKET_PATH);
+            Os.bind(serverFd, sockAddr, 0);
             Os.listen(serverFd, 1);
-            Os.chmod(DEBUGGERD_SOCKET_PATH, 0777);
 
             while (true) {
+                InetSocketAddress peer = new InetSocketAddress();
                 FileDescriptor peerFd = null;
                 try {
                     if (MORE_DEBUG) Slog.v(TAG, "Waiting for debuggerd connection");
-                    peerFd = Os.accept(serverFd, null /* peerAddress */);
+                    peerFd = Os.accept(serverFd, peer);
                     if (MORE_DEBUG) Slog.v(TAG, "Got debuggerd socket " + peerFd);
                     if (peerFd != null) {
-                        // the reporting thread may take responsibility for
-                        // acking the debugger; make sure we play along.
-                        consumeNativeCrashData(peerFd);
+                        // Only the superuser is allowed to talk to us over this socket
+                        StructUcred credentials =
+                                Os.getsockoptUcred(peerFd, SOL_SOCKET, SO_PEERCRED);
+                        if (credentials.uid == 0) {
+                            // the reporting thread may take responsibility for
+                            // acking the debugger; make sure we play along.
+                            consumeNativeCrashData(peerFd);
+                        }
                     }
                 } catch (Exception e) {
                     Slog.w(TAG, "Error handling connection", e);
                 } finally {
-                    // Always ack crash_dump's connection to us.  The actual
+                    // Always ack debuggerd's connection to us.  The actual
                     // byte written is irrelevant.
                     if (peerFd != null) {
                         try {
@@ -189,7 +194,7 @@ final class NativeCrashListener extends Thread {
         return totalRead;
     }
 
-    // Read a crash report from the connection
+    // Read the crash report from the debuggerd connection
     void consumeNativeCrashData(FileDescriptor fd) {
         if (MORE_DEBUG) Slog.i(TAG, "debuggerd connected");
         final byte[] buf = new byte[4096];
@@ -199,10 +204,6 @@ final class NativeCrashListener extends Thread {
             StructTimeval timeout = StructTimeval.fromMillis(SOCKET_TIMEOUT_MILLIS);
             Os.setsockoptTimeval(fd, SOL_SOCKET, SO_RCVTIMEO, timeout);
             Os.setsockoptTimeval(fd, SOL_SOCKET, SO_SNDTIMEO, timeout);
-
-            // The socket is guarded by an selinux neverallow rule that only
-            // permits crash_dump to connect to it. This allows us to trust the
-            // received values.
 
             // first, the pid and signal number
             int headerBytes = readExactly(fd, buf, 0, 8);

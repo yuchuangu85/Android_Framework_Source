@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,90 +16,97 @@
 
 package com.android.server.twilight;
 
-import android.text.format.DateFormat;
-
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.TimeZone;
+import java.text.DateFormat;
+import java.util.Date;
 
 /**
- * The twilight state, consisting of the sunrise and sunset times (in millis) for the current
- * period.
- * <p/>
- * Note: This object is immutable.
+ * Describes whether it is day or night.
+ * This object is immutable.
  */
-public final class TwilightState {
+public class TwilightState {
+    private final boolean mIsNight;
+    private final long mYesterdaySunset;
+    private final long mTodaySunrise;
+    private final long mTodaySunset;
+    private final long mTomorrowSunrise;
 
-    private final long mSunriseTimeMillis;
-    private final long mSunsetTimeMillis;
-
-    public TwilightState(long sunriseTimeMillis, long sunsetTimeMillis) {
-        mSunriseTimeMillis = sunriseTimeMillis;
-        mSunsetTimeMillis = sunsetTimeMillis;
+    TwilightState(boolean isNight,
+            long yesterdaySunset,
+            long todaySunrise, long todaySunset,
+            long tomorrowSunrise) {
+        mIsNight = isNight;
+        mYesterdaySunset = yesterdaySunset;
+        mTodaySunrise = todaySunrise;
+        mTodaySunset = todaySunset;
+        mTomorrowSunrise = tomorrowSunrise;
     }
 
     /**
-     * Returns the time (in UTC milliseconds from epoch) of the upcoming or previous sunrise if
-     * it's night or day respectively.
-     */
-    public long sunriseTimeMillis() {
-        return mSunriseTimeMillis;
-    }
-
-    /**
-     * Returns a new {@link LocalDateTime} instance initialized to {@link #sunriseTimeMillis()}.
-     */
-    public LocalDateTime sunrise() {
-        final ZoneId zoneId = TimeZone.getDefault().toZoneId();
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(mSunriseTimeMillis), zoneId);
-    }
-
-    /**
-     * Returns the time (in UTC milliseconds from epoch) of the upcoming or previous sunset if
-     * it's day or night respectively.
-     */
-    public long sunsetTimeMillis() {
-        return mSunsetTimeMillis;
-    }
-
-    /**
-     * Returns a new {@link LocalDateTime} instance initialized to {@link #sunsetTimeMillis()}.
-     */
-    public LocalDateTime sunset() {
-        final ZoneId zoneId = TimeZone.getDefault().toZoneId();
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(mSunsetTimeMillis), zoneId);
-    }
-
-    /**
-     * Returns {@code true} if it is currently night time.
+     * Returns true if it is currently night time.
      */
     public boolean isNight() {
-        final long now = System.currentTimeMillis();
-        return now >= mSunsetTimeMillis && now < mSunriseTimeMillis;
+        return mIsNight;
+    }
+
+    /**
+     * Returns the time of yesterday's sunset in the System.currentTimeMillis() timebase,
+     * or -1 if the sun never sets.
+     */
+    public long getYesterdaySunset() {
+        return mYesterdaySunset;
+    }
+
+    /**
+     * Returns the time of today's sunrise in the System.currentTimeMillis() timebase,
+     * or -1 if the sun never rises.
+     */
+    public long getTodaySunrise() {
+        return mTodaySunrise;
+    }
+
+    /**
+     * Returns the time of today's sunset in the System.currentTimeMillis() timebase,
+     * or -1 if the sun never sets.
+     */
+    public long getTodaySunset() {
+        return mTodaySunset;
+    }
+
+    /**
+     * Returns the time of tomorrow's sunrise in the System.currentTimeMillis() timebase,
+     * or -1 if the sun never rises.
+     */
+    public long getTomorrowSunrise() {
+        return mTomorrowSunrise;
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof TwilightState && equals((TwilightState) o);
+        return o instanceof TwilightState && equals((TwilightState)o);
     }
 
     public boolean equals(TwilightState other) {
         return other != null
-                && mSunriseTimeMillis == other.mSunriseTimeMillis
-                && mSunsetTimeMillis == other.mSunsetTimeMillis;
+                && mIsNight == other.mIsNight
+                && mYesterdaySunset == other.mYesterdaySunset
+                && mTodaySunrise == other.mTodaySunrise
+                && mTodaySunset == other.mTodaySunset
+                && mTomorrowSunrise == other.mTomorrowSunrise;
     }
 
     @Override
     public int hashCode() {
-        return Long.hashCode(mSunriseTimeMillis) ^ Long.hashCode(mSunsetTimeMillis);
+        return 0; // don't care
     }
 
     @Override
     public String toString() {
-        return "TwilightState {"
-                + " sunrise=" + DateFormat.format("MM-dd HH:mm", mSunriseTimeMillis)
-                + " sunset="+ DateFormat.format("MM-dd HH:mm", mSunsetTimeMillis)
-                + " }";
+        DateFormat f = DateFormat.getDateTimeInstance();
+        return "{TwilightState: isNight=" + mIsNight
+                + ", mYesterdaySunset=" + f.format(new Date(mYesterdaySunset))
+                + ", mTodaySunrise=" + f.format(new Date(mTodaySunrise))
+                + ", mTodaySunset=" + f.format(new Date(mTodaySunset))
+                + ", mTomorrowSunrise=" + f.format(new Date(mTomorrowSunrise))
+                + "}";
     }
 }

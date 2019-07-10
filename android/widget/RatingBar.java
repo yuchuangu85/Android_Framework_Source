@@ -21,8 +21,6 @@ import android.content.res.TypedArray;
 import android.graphics.drawable.shapes.RectShape;
 import android.graphics.drawable.shapes.Shape;
 import android.util.AttributeSet;
-import android.view.accessibility.AccessibilityNodeInfo;
-
 import com.android.internal.R;
 
 /**
@@ -111,8 +109,8 @@ public class RatingBar extends AbsSeekBar {
         }
 
         // A touch inside a star fill up to that fractional area (slightly more
-        // than 0.5 so boundaries round up).
-        mTouchProgressOffset = 0.6f;
+        // than 1 so boundaries round up).
+        mTouchProgressOffset = 1.1f;
     }
 
     public RatingBar(Context context, AttributeSet attrs) {
@@ -150,11 +148,7 @@ public class RatingBar extends AbsSeekBar {
      */
     public void setIsIndicator(boolean isIndicator) {
         mIsUserSeekable = !isIndicator;
-        if (isIndicator) {
-            setFocusable(FOCUSABLE_AUTO);
-        } else {
-            setFocusable(FOCUSABLE);
-        }
+        setFocusable(!isIndicator);
     }
 
     /**
@@ -286,8 +280,10 @@ public class RatingBar extends AbsSeekBar {
     protected synchronized void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
-        if (mSampleWidth > 0) {
-            final int width = mSampleWidth * mNumStars;
+        if (mSampleTile != null) {
+            // TODO: Once ProgressBar's TODOs are gone, this can be done more
+            // cleanly than mSampleTile
+            final int width = mSampleTile.getWidth() * mNumStars;
             setMeasuredDimension(resolveSizeAndState(width, widthMeasureSpec, 0),
                     getMeasuredHeight());
         }
@@ -335,20 +331,5 @@ public class RatingBar extends AbsSeekBar {
     @Override
     public CharSequence getAccessibilityClassName() {
         return RatingBar.class.getName();
-    }
-
-    /** @hide */
-    @Override
-    public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfoInternal(info);
-
-        if (canUserSetProgress()) {
-            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS);
-        }
-    }
-
-    @Override
-    boolean canUserSetProgress() {
-        return super.canUserSetProgress() && !isIndicator();
     }
 }

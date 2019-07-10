@@ -16,10 +16,13 @@
 
 package benchmarks.regression;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 
-public class DoPrivilegedBenchmark {
+public class DoPrivilegedBenchmark extends SimpleBenchmark {
     public void timeDirect(int reps) throws Exception {
         for (int i = 0; i < reps; ++i) {
             String lineSeparator = System.getProperty("line.separator");

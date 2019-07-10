@@ -175,8 +175,7 @@ public class LegacyMetadataMapper {
          * colorCorrection.*
          */
         m.set(COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES,
-                new int[] { COLOR_CORRECTION_ABERRATION_MODE_FAST,
-                            COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY });
+                new int[] { COLOR_CORRECTION_ABERRATION_MODE_FAST });
         /*
          * control.ae*
          */
@@ -211,8 +210,7 @@ public class LegacyMetadataMapper {
          * noiseReduction.*
          */
         m.set(NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES,
-                new int[] { NOISE_REDUCTION_MODE_FAST,
-                            NOISE_REDUCTION_MODE_HIGH_QUALITY});
+                new int[] { NOISE_REDUCTION_MODE_FAST });
 
         /*
          * scaler.*
@@ -646,7 +644,7 @@ public class LegacyMetadataMapper {
 
         // Special case where the only scene mode listed is AUTO => no scene mode
         if (sceneModes != null && sceneModes.size() == 1 &&
-                sceneModes.get(0).equals(Parameters.SCENE_MODE_AUTO)) {
+                sceneModes.get(0) == Parameters.SCENE_MODE_AUTO) {
             supportedSceneModes = null;
         }
 
@@ -1391,22 +1389,7 @@ public class LegacyMetadataMapper {
         /*
          * noiseReduction.*
          */
-        if (templateId == CameraDevice.TEMPLATE_STILL_CAPTURE) {
-            m.set(CaptureRequest.NOISE_REDUCTION_MODE, NOISE_REDUCTION_MODE_HIGH_QUALITY);
-        } else {
-            m.set(CaptureRequest.NOISE_REDUCTION_MODE, NOISE_REDUCTION_MODE_FAST);
-        }
-
-        /*
-        * colorCorrection.*
-        */
-        if (templateId == CameraDevice.TEMPLATE_STILL_CAPTURE) {
-            m.set(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
-                    COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY);
-        } else {
-            m.set(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
-                    COLOR_CORRECTION_ABERRATION_MODE_FAST);
-        }
+        m.set(CaptureRequest.NOISE_REDUCTION_MODE, NOISE_REDUCTION_MODE_FAST);
 
         /*
          * lens.*

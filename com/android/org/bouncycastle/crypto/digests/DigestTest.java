@@ -19,7 +19,6 @@ package com.android.org.bouncycastle.crypto.digests;
 import junit.framework.TestCase;
 import com.android.org.bouncycastle.crypto.Digest;
 import com.android.org.bouncycastle.crypto.ExtendedDigest;
-import tests.util.SummaryStatistics;
 
 /**
  * Implements unit tests for our JNI wrapper around OpenSSL. We use the
@@ -37,7 +36,6 @@ public class DigestTest extends TestCase {
      * @param newDigest The new digest implementation, provided by OpenSSL
      */
     public void doTestMessageDigest(Digest oldDigest, Digest newDigest) {
-        final int WARMUP = 10;
         final int ITERATIONS = 100;
 
         byte[] data = new byte[1024];
@@ -56,31 +54,27 @@ public class DigestTest extends TestCase {
             data[i] = (byte)i;
         }
 
-        SummaryStatistics oldTime = new SummaryStatistics();
-        SummaryStatistics newTime = new SummaryStatistics();
+        long oldTime = 0;
+        long newTime = 0;
 
-        for (int j = 0; j < ITERATIONS + WARMUP; j++) {
-            long t0 = System.nanoTime();
+        for (int j = 0; j < ITERATIONS; j++) {
+            long t0 = System.currentTimeMillis();
             for (int i = 0; i < 4; i++) {
                 oldDigest.update(data, 0, data.length);
             }
             int oldLength = oldDigest.doFinal(oldHash, 0);
-            long t1 = System.nanoTime();
+            long t1 = System.currentTimeMillis();
 
-            if (j >= WARMUP) {
-                oldTime.add(t1 - t0);
-            }
+            oldTime = oldTime + (t1 - t0);
 
-            long t2 = System.nanoTime();
+            long t2 = System.currentTimeMillis();
             for (int i = 0; i < 4; i++) {
                 newDigest.update(data, 0, data.length);
             }
             int newLength = newDigest.doFinal(newHash, 0);
-            long t3 = System.nanoTime();
+            long t3 = System.currentTimeMillis();
 
-            if (j >= WARMUP) {
-              newTime.add(t3 - t2);
-            }
+            newTime = newTime + (t3 - t2);
 
             assertEquals("Hash sizes must be equal", oldLength, newLength);
 
@@ -89,10 +83,10 @@ public class DigestTest extends TestCase {
             }
         }
 
-        System.out.println("Time for " + ITERATIONS + " x old hash processing: "
-                + oldTime.toString());
-        System.out.println("Time for " + ITERATIONS + " x new hash processing: "
-                + newTime.toString());
+        System.out.println("Time for " + ITERATIONS + " x old hash processing: " + oldTime + " ms");
+        System.out.println("Time for " + ITERATIONS + " x new hash processing: " + newTime + " ms");
+
+        assertTrue("New hash should be faster", newTime < oldTime);
     }
 
     /**

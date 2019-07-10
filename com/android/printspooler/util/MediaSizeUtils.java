@@ -16,16 +16,13 @@
 
 package com.android.printspooler.util;
 
-import android.annotation.NonNull;
 import android.content.Context;
-import android.content.pm.ActivityInfo;
-import android.content.res.Configuration;
 import android.print.PrintAttributes.MediaSize;
+import android.util.ArrayMap;
 
 import com.android.printspooler.R;
 
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -33,10 +30,7 @@ import java.util.Map;
  */
 public final class MediaSizeUtils {
 
-    private static Map<MediaSize, Integer> sMediaSizeToStandardMap;
-
-    /** The media size standard for all media sizes no standard is defined for */
-    private static int sMediaSizeStandardIso;
+    private static Map<MediaSize, String> sMediaSizeToStandardMap;
 
     private MediaSizeUtils() {
         /* do nothing - hide constructor */
@@ -53,32 +47,22 @@ public final class MediaSizeUtils {
         return MediaSize.getStandardMediaSizeById(mediaSizeId);
     }
 
-    /**
-     * Get the standard the {@link MediaSize} belongs to.
-     *
-     * @param context   The context of the caller
-     * @param mediaSize The {@link MediaSize} to be resolved
-     *
-     * @return The standard the {@link MediaSize} belongs to
-     */
-    private static int getStandardForMediaSize(Context context, MediaSize mediaSize) {
+    private static String getStandardForMediaSize(Context context, MediaSize mediaSize) {
         if (sMediaSizeToStandardMap == null) {
-            sMediaSizeStandardIso = Integer.parseInt(context.getString(
-                    R.string.mediasize_standard_iso));
-
-            sMediaSizeToStandardMap = new HashMap<>();
+            sMediaSizeToStandardMap = new ArrayMap<MediaSize, String>();
             String[] mediaSizeToStandardMapValues = context.getResources()
                     .getStringArray(R.array.mediasize_to_standard_map);
             final int mediaSizeToStandardCount = mediaSizeToStandardMapValues.length;
             for (int i = 0; i < mediaSizeToStandardCount; i += 2) {
                 String mediaSizeId = mediaSizeToStandardMapValues[i];
                 MediaSize key = MediaSize.getStandardMediaSizeById(mediaSizeId);
-                int value = Integer.parseInt(mediaSizeToStandardMapValues[i + 1]);
+                String value = mediaSizeToStandardMapValues[i + 1];
                 sMediaSizeToStandardMap.put(key, value);
             }
         }
-        Integer standard = sMediaSizeToStandardMap.get(mediaSize);
-        return (standard != null) ? standard : sMediaSizeStandardIso;
+        String standard = sMediaSizeToStandardMap.get(mediaSize);
+        return (standard != null) ? standard : context.getString(
+                R.string.mediasize_standard_iso);
     }
 
     /**
@@ -89,76 +73,32 @@ public final class MediaSizeUtils {
     public static final class MediaSizeComparator implements Comparator<MediaSize> {
         private final Context mContext;
 
-        /** Current configuration */
-        private Configuration mCurrentConfig;
-
-        /** The standard to use for the current locale */
-        private int mCurrentStandard;
-
-        /** Mapping from media size to label */
-        private final @NonNull Map<MediaSize, String> mMediaSizeToLabel;
-
         public MediaSizeComparator(Context context) {
             mContext = context;
-            mMediaSizeToLabel = new HashMap<>();
-            mCurrentStandard = Integer.parseInt(mContext.getString(R.string.mediasize_standard));
-        }
-
-        /**
-         * Handle a configuration change by reloading all resources.
-         *
-         * @param newConfig The new configuration that will be applied.
-         */
-        public void onConfigurationChanged(@NonNull Configuration newConfig) {
-            if (mCurrentConfig == null ||
-                    (newConfig.diff(mCurrentConfig) & ActivityInfo.CONFIG_LOCALE) != 0) {
-                mCurrentStandard = Integer
-                        .parseInt(mContext.getString(R.string.mediasize_standard));
-                mMediaSizeToLabel.clear();
-
-                mCurrentConfig = newConfig;
-            }
-        }
-
-        /**
-         * Get the label for a {@link MediaSize}.
-         *
-         * @param context   The context the label should be loaded for
-         * @param mediaSize The {@link MediaSize} to resolve
-         *
-         * @return The label for the media size
-         */
-        public @NonNull String getLabel(@NonNull Context context, @NonNull MediaSize mediaSize) {
-            String label = mMediaSizeToLabel.get(mediaSize);
-
-            if (label == null) {
-                label = mediaSize.getLabel(context.getPackageManager());
-                mMediaSizeToLabel.put(mediaSize, label);
-            }
-
-            return label;
         }
 
         @Override
         public int compare(MediaSize lhs, MediaSize rhs) {
-            int lhsStandard = getStandardForMediaSize(mContext, lhs);
-            int rhsStandard = getStandardForMediaSize(mContext, rhs);
+            String currentStandard = mContext.getString(R.string.mediasize_standard);
+            String lhsStandard = getStandardForMediaSize(mContext, lhs);
+            String rhsStandard = getStandardForMediaSize(mContext, rhs);
 
             // The current standard always wins.
-            if (lhsStandard == mCurrentStandard) {
-                if (rhsStandard != mCurrentStandard) {
+            if (lhsStandard.equals(currentStandard)) {
+                if (!rhsStandard.equals(currentStandard)) {
                     return -1;
                 }
-            } else if (rhsStandard == mCurrentStandard) {
+            } else if (rhsStandard.equals(currentStandard)) {
                 return 1;
             }
 
-            if (lhsStandard != rhsStandard) {
+            if (!lhsStandard.equals(rhsStandard)) {
                 // Different standards - use the standard ordering.
-                return Integer.valueOf(lhsStandard).compareTo(rhsStandard);
+                return lhsStandard.compareTo(rhsStandard);
             } else {
                 // Same standard - sort alphabetically by label.
-                return getLabel(mContext, lhs).compareTo(getLabel(mContext, rhs));
+                return lhs.getLabel(mContext.getPackageManager()).
+                        compareTo(rhs.getLabel(mContext.getPackageManager()));
             }
         }
     }

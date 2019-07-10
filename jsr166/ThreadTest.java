@@ -19,7 +19,7 @@ public class ThreadTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ThreadTest.class);
+    //     return new TestSuite(...);
     // }
 
     static class MyHandler implements Thread.UncaughtExceptionHandler {
@@ -57,7 +57,8 @@ public class ThreadTest extends JSR166TestCase {
         // default uncaught exception handler installed by the framework.
         //
         // assertEquals(null, Thread.getDefaultUncaughtExceptionHandler());
-        // failure due to SecurityException is OK.
+
+        // failure due to securityException is OK.
         // Would be nice to explicitly test both ways, but cannot yet.
         Thread.UncaughtExceptionHandler defaultHandler
             = Thread.getDefaultUncaughtExceptionHandler();

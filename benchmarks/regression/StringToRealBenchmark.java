@@ -17,8 +17,10 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 
-public class StringToRealBenchmark {
+public class StringToRealBenchmark extends SimpleBenchmark {
 
     @Param({
         "NaN",

@@ -150,7 +150,6 @@ public class Font extends BaseObj {
 
     Font(long id, RenderScript rs) {
         super(id, rs);
-        guard.open("destroy");
     }
 
     /**

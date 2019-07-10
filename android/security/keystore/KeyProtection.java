@@ -19,10 +19,8 @@ package android.security.keystore;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.TestApi;
 import android.app.KeyguardManager;
 import android.hardware.fingerprint.FingerprintManager;
-import android.security.GateKeeper;
 
 import java.security.Key;
 import java.security.Signature;
@@ -38,7 +36,7 @@ import javax.crypto.Mac;
  * <a href="{@docRoot}training/articles/keystore.html">Android Keystore system</a>. This class
  * specifies authorized uses of the imported key, such as whether user authentication is required
  * for using the key, what operations the key is authorized for (e.g., decryption, but not signing)
- * with what parameters (e.g., only with a particular padding scheme or digest), and the key's
+ * and with what parameters (e.g., only with a particular padding scheme or digest), the key's and
  * validity start and end dates. Key use authorizations expressed in this class apply only to secret
  * keys and private keys -- public keys can be used for any supported operations.
  *
@@ -62,16 +60,6 @@ import javax.crypto.Mac;
  * <p>NOTE: The key material of keys stored in the Android Keystore is not accessible.
  *
  * <p>Instances of this class are immutable.
- *
- * <p><h3>Known issues</h3>
- * A known bug in Android 6.0 (API Level 23) causes user authentication-related authorizations to be
- * enforced even for public keys. To work around this issue extract the public key material to use
- * outside of Android Keystore. For example:
- * <pre> {@code
- * PublicKey unrestrictedPublicKey =
- *         KeyFactory.getInstance(publicKey.getAlgorithm()).generatePublic(
- *                 new X509EncodedKeySpec(publicKey.getEncoded()));
- * }</pre>
  *
  * <p><h3>Example: AES key for encryption/decryption in GCM mode</h3>
  * This example illustrates how to import an AES key into the Android KeyStore under alias
@@ -123,9 +111,9 @@ import javax.crypto.Mac;
  * <p><h3>Example: EC key pair for signing/verification using ECDSA</h3>
  * This example illustrates how to import an EC key pair into the Android KeyStore under alias
  * {@code key2} with the private key authorized to be used only for signing with SHA-256 or SHA-512
- * digests. The use of the public key is unrestricted. Both the private and the public key must
- * export their key material via {@link Key#getEncoded()} in {@code PKCS#8} and {@code X.509} format
- * respectively.
+ * digests. The use of public key is unrestricted, thus permitting signature verification using any
+ * digests. Both the private and the public key must export their key material via
+ * {@link Key#getEncoded()} in {@code PKCS#8} and {@code X.509} format respectively.
  * <pre> {@code
  * PrivateKey privateKey = ...;   // EC private key
  * Certificate[] certChain = ...; // Certificate chain with the first certificate
@@ -153,7 +141,8 @@ import javax.crypto.Mac;
  * This example illustrates how to import an RSA key pair into the Android KeyStore under alias
  * {@code key2} with the private key authorized to be used only for signing using the PKCS#1
  * signature padding scheme with SHA-256 digest and only if the user has been authenticated within
- * the last ten minutes. The use of the public key is unrestricted (see Known Issues). Both the
+ * the last ten minutes. The use of public key is unrestricted, thus permitting signature
+ * verification using any padding schemes and digests, and without user authentication. Both the
  * private and the public key must export their key material via {@link Key#getEncoded()} in
  * {@code PKCS#8} and {@code X.509} format respectively.
  * <pre> {@code
@@ -213,7 +202,7 @@ import javax.crypto.Mac;
  * ...
  * }</pre>
  */
-public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
+public final class KeyProtection implements ProtectionParameter {
     private final Date mKeyValidityStart;
     private final Date mKeyValidityForOriginationEnd;
     private final Date mKeyValidityForConsumptionEnd;
@@ -225,14 +214,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
     private final boolean mRandomizedEncryptionRequired;
     private final boolean mUserAuthenticationRequired;
     private final int mUserAuthenticationValidityDurationSeconds;
-    private final boolean mUserPresenceRequred;
-    private final boolean mUserAuthenticationValidWhileOnBody;
-    private final boolean mInvalidatedByBiometricEnrollment;
-    private final long mBoundToSecureUserId;
-    private final boolean mCriticalToDeviceEncryption;
-    private final boolean mUserConfirmationRequired;
-    private final boolean mUnlockedDeviceRequired;
-    private final boolean mIsStrongBoxBacked;
 
     private KeyProtection(
             Date keyValidityStart,
@@ -245,15 +226,7 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
             @KeyProperties.BlockModeEnum String[] blockModes,
             boolean randomizedEncryptionRequired,
             boolean userAuthenticationRequired,
-            int userAuthenticationValidityDurationSeconds,
-            boolean userPresenceRequred,
-            boolean userAuthenticationValidWhileOnBody,
-            boolean invalidatedByBiometricEnrollment,
-            long boundToSecureUserId,
-            boolean criticalToDeviceEncryption,
-            boolean userConfirmationRequired,
-            boolean unlockedDeviceRequired,
-            boolean isStrongBoxBacked) {
+            int userAuthenticationValidityDurationSeconds) {
         mKeyValidityStart = Utils.cloneIfNotNull(keyValidityStart);
         mKeyValidityForOriginationEnd = Utils.cloneIfNotNull(keyValidityForOriginationEnd);
         mKeyValidityForConsumptionEnd = Utils.cloneIfNotNull(keyValidityForConsumptionEnd);
@@ -267,14 +240,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
         mRandomizedEncryptionRequired = randomizedEncryptionRequired;
         mUserAuthenticationRequired = userAuthenticationRequired;
         mUserAuthenticationValidityDurationSeconds = userAuthenticationValidityDurationSeconds;
-        mUserPresenceRequred = userPresenceRequred;
-        mUserAuthenticationValidWhileOnBody = userAuthenticationValidWhileOnBody;
-        mInvalidatedByBiometricEnrollment = invalidatedByBiometricEnrollment;
-        mBoundToSecureUserId = boundToSecureUserId;
-        mCriticalToDeviceEncryption = criticalToDeviceEncryption;
-        mUserConfirmationRequired = userConfirmationRequired;
-        mUnlockedDeviceRequired = unlockedDeviceRequired;
-        mIsStrongBoxBacked = isStrongBoxBacked;
     }
 
     /**
@@ -409,26 +374,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
     }
 
     /**
-     * Returns {@code true} if the key is authorized to be used only for messages confirmed by the
-     * user.
-     *
-     * Confirmation is separate from user authentication (see
-     * {@link #isUserAuthenticationRequired()}). Keys can be created that require confirmation but
-     * not user authentication, or user authentication but not confirmation, or both. Confirmation
-     * verifies that some user with physical possession of the device has approved a displayed
-     * message. User authentication verifies that the correct user is present and has
-     * authenticated.
-     *
-     * <p>This authorization applies only to secret key and private key operations. Public key
-     * operations are not restricted.
-     *
-     * @see Builder#setUserConfirmationRequired(boolean)
-     */
-    public boolean isUserConfirmationRequired() {
-        return mUserConfirmationRequired;
-    }
-
-    /**
      * Gets the duration of time (seconds) for which this key is authorized to be used after the
      * user is successfully authenticated. This has effect only if user authentication is required
      * (see {@link #isUserAuthenticationRequired()}).
@@ -447,99 +392,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
     }
 
     /**
-     * Returns {@code true} if the key is authorized to be used only if a test of user presence has
-     * been performed between the {@code Signature.initSign()} and {@code Signature.sign()} calls.
-     * It requires that the KeyStore implementation have a direct way to validate the user presence
-     * for example a KeyStore hardware backed strongbox can use a button press that is observable
-     * in hardware. A test for user presence is tangential to authentication. The test can be part
-     * of an authentication step as long as this step can be validated by the hardware protecting
-     * the key and cannot be spoofed. For example, a physical button press can be used as a test of
-     * user presence if the other pins connected to the button are not able to simulate a button
-     * press. There must be no way for the primary processor to fake a button press, or that
-     * button must not be used as a test of user presence.
-     */
-    public boolean isUserPresenceRequired() {
-        return mUserPresenceRequred;
-    }
-
-    /**
-     * Returns {@code true} if the key will be de-authorized when the device is removed from the
-     * user's body.  This option has no effect on keys that don't have an authentication validity
-     * duration, and has no effect if the device lacks an on-body sensor.
-     *
-     * <p>Authorization applies only to secret key and private key operations. Public key operations
-     * are not restricted.
-     *
-     * @see #isUserAuthenticationRequired()
-     * @see #getUserAuthenticationValidityDurationSeconds()
-     * @see Builder#setUserAuthenticationValidWhileOnBody(boolean)
-     */
-    public boolean isUserAuthenticationValidWhileOnBody() {
-        return mUserAuthenticationValidWhileOnBody;
-    }
-
-    /**
-     * Returns {@code true} if the key is irreversibly invalidated when a new fingerprint is
-     * enrolled or all enrolled fingerprints are removed. This has effect only for keys that
-     * require fingerprint user authentication for every use.
-     *
-     * @see #isUserAuthenticationRequired()
-     * @see #getUserAuthenticationValidityDurationSeconds()
-     * @see Builder#setInvalidatedByBiometricEnrollment(boolean)
-     */
-    public boolean isInvalidatedByBiometricEnrollment() {
-        return mInvalidatedByBiometricEnrollment;
-    }
-
-    /**
-     * Return the secure user id that this key should be bound to.
-     *
-     * Normally an authentication-bound key is tied to the secure user id of the current user
-     * (either the root SID from GateKeeper for auth-bound keys with a timeout, or the authenticator
-     * id of the current fingerprint set for keys requiring explicit fingerprint authorization).
-     * If this parameter is set (this method returning non-zero value), the key should be tied to
-     * the specified secure user id, overriding the logic above.
-     *
-     * This is only applicable when {@link #isUserAuthenticationRequired} is {@code true}
-     *
-     * @see KeymasterUtils#addUserAuthArgs
-     * @hide
-     */
-    @TestApi
-    public long getBoundToSpecificSecureUserId() {
-        return mBoundToSecureUserId;
-    }
-
-    /**
-     * Return whether this key is critical to the device encryption flow.
-     *
-     * @see android.security.KeyStore#FLAG_CRITICAL_TO_DEVICE_ENCRYPTION
-     * @hide
-     */
-    public boolean isCriticalToDeviceEncryption() {
-        return mCriticalToDeviceEncryption;
-    }
-
-    /**
-     * Returns {@code true} if the screen must be unlocked for this key to be used for decryption or
-     * signing. Encryption and signature verification will still be available when the screen is
-     * locked.
-     *
-     * @see Builder#setUnlockedDeviceRequired(boolean)
-     */
-    public boolean isUnlockedDeviceRequired() {
-        return mUnlockedDeviceRequired;
-    }
-
-    /**
-     * Returns {@code true} if the key is protected by a Strongbox security chip.
-     * @hide
-     */
-    public boolean isStrongBoxBacked() {
-        return mIsStrongBoxBacked;
-    }
-
-    /**
      * Builder of {@link KeyProtection} instances.
      */
     public final static class Builder {
@@ -555,15 +407,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
         private boolean mRandomizedEncryptionRequired = true;
         private boolean mUserAuthenticationRequired;
         private int mUserAuthenticationValidityDurationSeconds = -1;
-        private boolean mUserPresenceRequired = false;
-        private boolean mUserAuthenticationValidWhileOnBody;
-        private boolean mInvalidatedByBiometricEnrollment = true;
-        private boolean mUserConfirmationRequired;
-        private boolean mUnlockedDeviceRequired = false;
-
-        private long mBoundToSecureUserId = GateKeeper.INVALID_SECURE_USER_ID;
-        private boolean mCriticalToDeviceEncryption = false;
-        private boolean mIsStrongBoxBacked = false;
 
         /**
          * Creates a new instance of the {@code Builder}.
@@ -774,10 +617,9 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
          * or when the secure lock screen is forcibly reset (e.g., by a Device Administrator).
          * Additionally, if the key requires that user authentication takes place for every use of
          * the key, it is also irreversibly invalidated once a new fingerprint is enrolled or once\
-         * no more fingerprints are enrolled, unless {@link
-         * #setInvalidatedByBiometricEnrollment(boolean)} is used to allow validity after
-         * enrollment. Attempts to initialize cryptographic operations using such keys will throw
-         * {@link KeyPermanentlyInvalidatedException}.</li> </ul>
+         * no more fingerprints are enrolled. Attempts to initialize cryptographic operations using
+         * such keys will throw {@link KeyPermanentlyInvalidatedException}.</li>
+         * </ul>
          *
          * <p>This authorization applies only to secret key and private key operations. Public key
          * operations are not restricted.
@@ -789,29 +631,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
         @NonNull
         public Builder setUserAuthenticationRequired(boolean required) {
             mUserAuthenticationRequired = required;
-            return this;
-        }
-
-        /**
-         * Sets whether this key is authorized to be used only for messages confirmed by the
-         * user.
-         *
-         * Confirmation is separate from user authentication (see
-         * {@link #setUserAuthenticationRequired(boolean)}). Keys can be created that require
-         * confirmation but not user authentication, or user authentication but not confirmation,
-         * or both. Confirmation verifies that some user with physical possession of the device has
-         * approved a displayed message. User authentication verifies that the correct user is
-         * present and has authenticated.
-         *
-         * <p>This authorization applies only to secret key and private key operations. Public key
-         * operations are not restricted.
-         *
-         * @see {@link android.security.ConfirmationPrompter ConfirmationPrompter} class for
-         * more details about user confirmations.
-         */
-        @NonNull
-        public Builder setUserConfirmationRequired(boolean required) {
-            mUserConfirmationRequired = required;
             return this;
         }
 
@@ -861,129 +680,6 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
         }
 
         /**
-         * Sets whether a test of user presence is required to be performed between the
-         * {@code Signature.initSign()} and {@code Signature.sign()} method calls. It requires that
-         * the KeyStore implementation have a direct way to validate the user presence for example
-         * a KeyStore hardware backed strongbox can use a button press that is observable in
-         * hardware. A test for user presence is tangential to authentication. The test can be part
-         * of an authentication step as long as this step can be validated by the hardware
-         * protecting the key and cannot be spoofed. For example, a physical button press can be
-         * used as a test of user presence if the other pins connected to the button are not able
-         * to simulate a button press. There must be no way for the primary processor to fake a
-         * button press, or that button must not be used as a test of user presence.
-         */
-        @NonNull
-        public Builder setUserPresenceRequired(boolean required) {
-            mUserPresenceRequired = required;
-            return this;
-        }
-
-        /**
-         * Sets whether the key will remain authorized only until the device is removed from the
-         * user's body up to the limit of the authentication validity period (see
-         * {@link #setUserAuthenticationValidityDurationSeconds} and
-         * {@link #setUserAuthenticationRequired}). Once the device has been removed from the
-         * user's body, the key will be considered unauthorized and the user will need to
-         * re-authenticate to use it. For keys without an authentication validity period this
-         * parameter has no effect.
-         *
-         * <p>Similarly, on devices that do not have an on-body sensor, this parameter will have no
-         * effect; the device will always be considered to be "on-body" and the key will therefore
-         * remain authorized until the validity period ends.
-         *
-         * @param remainsValid if {@code true}, and if the device supports on-body detection, key
-         * will be invalidated when the device is removed from the user's body or when the
-         * authentication validity expires, whichever occurs first.
-         */
-        @NonNull
-        public Builder setUserAuthenticationValidWhileOnBody(boolean remainsValid) {
-            mUserAuthenticationValidWhileOnBody = remainsValid;
-            return this;
-        }
-
-        /**
-         * Sets whether this key should be invalidated on fingerprint enrollment.  This
-         * applies only to keys which require user authentication (see {@link
-         * #setUserAuthenticationRequired(boolean)}) and if no positive validity duration has been
-         * set (see {@link #setUserAuthenticationValidityDurationSeconds(int)}, meaning the key is
-         * valid for fingerprint authentication only.
-         *
-         * <p>By default, {@code invalidateKey} is {@code true}, so keys that are valid for
-         * fingerprint authentication only are <em>irreversibly invalidated</em> when a new
-         * fingerprint is enrolled, or when all existing fingerprints are deleted.  That may be
-         * changed by calling this method with {@code invalidateKey} set to {@code false}.
-         *
-         * <p>Invalidating keys on enrollment of a new finger or unenrollment of all fingers
-         * improves security by ensuring that an unauthorized person who obtains the password can't
-         * gain the use of fingerprint-authenticated keys by enrolling their own finger.  However,
-         * invalidating keys makes key-dependent operations impossible, requiring some fallback
-         * procedure to authenticate the user and set up a new key.
-         */
-        @NonNull
-        public Builder setInvalidatedByBiometricEnrollment(boolean invalidateKey) {
-            mInvalidatedByBiometricEnrollment = invalidateKey;
-            return this;
-        }
-
-        /**
-         * Set the secure user id that this key should be bound to.
-         *
-         * Normally an authentication-bound key is tied to the secure user id of the current user
-         * (either the root SID from GateKeeper for auth-bound keys with a timeout, or the
-         * authenticator id of the current fingerprint set for keys requiring explicit fingerprint
-         * authorization). If this parameter is set (this method returning non-zero value), the key
-         * should be tied to the specified secure user id, overriding the logic above.
-         *
-         * This is only applicable when {@link #setUserAuthenticationRequired} is set to
-         * {@code true}
-         *
-         * @see KeyProtection#getBoundToSpecificSecureUserId()
-         * @hide
-         */
-        @TestApi
-        public Builder setBoundToSpecificSecureUserId(long secureUserId) {
-            mBoundToSecureUserId = secureUserId;
-            return this;
-        }
-
-        /**
-         * Set whether this key is critical to the device encryption flow
-         *
-         * This is a special flag only available to system servers to indicate the current key
-         * is part of the device encryption flow.
-         *
-         * @see android.security.KeyStore#FLAG_CRITICAL_TO_DEVICE_ENCRYPTION
-         * @hide
-         */
-        public Builder setCriticalToDeviceEncryption(boolean critical) {
-            mCriticalToDeviceEncryption = critical;
-            return this;
-        }
-
-        /**
-         * Sets whether the keystore requires the screen to be unlocked before allowing decryption
-         * using this key. If this is set to {@code true}, any attempt to decrypt or sign using this
-         * key while the screen is locked will fail. A locked device requires a PIN, password,
-         * fingerprint, or other trusted factor to access. While the screen is locked, the key can
-         * still be used for encryption or signature verification.
-         */
-        @NonNull
-        public Builder setUnlockedDeviceRequired(boolean unlockedDeviceRequired) {
-            mUnlockedDeviceRequired = unlockedDeviceRequired;
-            return this;
-        }
-
-        /**
-         * Sets whether this key should be protected by a StrongBox security chip.
-         * @hide
-         */
-        @NonNull
-        public Builder setIsStrongBoxBacked(boolean isStrongBoxBacked) {
-            mIsStrongBoxBacked = isStrongBoxBacked;
-            return this;
-        }
-
-        /**
          * Builds an instance of {@link KeyProtection}.
          *
          * @throws IllegalArgumentException if a required field is missing
@@ -1001,15 +697,7 @@ public final class KeyProtection implements ProtectionParameter, UserAuthArgs {
                     mBlockModes,
                     mRandomizedEncryptionRequired,
                     mUserAuthenticationRequired,
-                    mUserAuthenticationValidityDurationSeconds,
-                    mUserPresenceRequired,
-                    mUserAuthenticationValidWhileOnBody,
-                    mInvalidatedByBiometricEnrollment,
-                    mBoundToSecureUserId,
-                    mCriticalToDeviceEncryption,
-                    mUserConfirmationRequired,
-                    mUnlockedDeviceRequired,
-                    mIsStrongBoxBacked);
+                    mUserAuthenticationValidityDurationSeconds);
         }
     }
 }

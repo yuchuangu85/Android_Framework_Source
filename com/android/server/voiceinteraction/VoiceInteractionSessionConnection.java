@@ -16,17 +16,8 @@
 
 package com.android.server.voiceinteraction;
 
-import static android.app.ActivityManagerInternal.ASSIST_KEY_CONTENT;
-import static android.app.ActivityManagerInternal.ASSIST_KEY_DATA;
-import static android.app.ActivityManagerInternal.ASSIST_KEY_STRUCTURE;
-import static android.app.AppOpsManager.OP_ASSIST_SCREENSHOT;
-import static android.app.AppOpsManager.OP_ASSIST_STRUCTURE;
-import static android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION;
-import static android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
-import static android.view.Display.DEFAULT_DISPLAY;
-import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION;
-
 import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.AppOpsManager;
 import android.app.IActivityManager;
 import android.app.assist.AssistContent;
@@ -53,22 +44,19 @@ import android.service.voice.VoiceInteractionService;
 import android.service.voice.VoiceInteractionSession;
 import android.util.Slog;
 import android.view.IWindowManager;
-
-import com.android.internal.app.AssistUtils;
+import android.view.WindowManager;
+import com.android.internal.app.IAssistScreenshotReceiver;
 import com.android.internal.app.IVoiceInteractionSessionShowCallback;
 import com.android.internal.app.IVoiceInteractor;
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.os.IResultReceiver;
 import com.android.server.LocalServices;
-import com.android.server.am.AssistDataRequester;
-import com.android.server.am.AssistDataRequester.AssistDataRequesterCallbacks;
 import com.android.server.statusbar.StatusBarManagerInternal;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.List;
 
-final class VoiceInteractionSessionConnection implements ServiceConnection,
-        AssistDataRequesterCallbacks {
-
+final class VoiceInteractionSessionConnection implements ServiceConnection {
     final static String TAG = "VoiceInteractionServiceManager";
 
     final IBinder mToken = new Binder();
@@ -93,8 +81,11 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
     IVoiceInteractionSessionService mService;
     IVoiceInteractionSession mSession;
     IVoiceInteractor mInteractor;
+    boolean mHaveAssistData;
+    Bundle mAssistData;
+    boolean mHaveScreenshot;
+    Bitmap mScreenshot;
     ArrayList<IVoiceInteractionSessionShowCallback> mPendingShowCallbacks = new ArrayList<>();
-    AssistDataRequester mAssistDataRequester;
 
     IVoiceInteractionSessionShowCallback mShowCallback =
             new IVoiceInteractionSessionShowCallback.Stub() {
@@ -117,8 +108,6 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
 
     public interface Callback {
         public void sessionConnectionGone(VoiceInteractionSessionConnection connection);
-        public void onSessionShown(VoiceInteractionSessionConnection connection);
-        public void onSessionHidden(VoiceInteractionSessionConnection connection);
     }
 
     final ServiceConnection mFullConnection = new ServiceConnection() {
@@ -127,6 +116,32 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
         }
         @Override
         public void onServiceDisconnected(ComponentName name) {
+        }
+    };
+
+    final IResultReceiver mAssistReceiver = new IResultReceiver.Stub() {
+        @Override
+        public void send(int resultCode, Bundle resultData) throws RemoteException {
+            synchronized (mLock) {
+                if (mShown) {
+                    mHaveAssistData = true;
+                    mAssistData = resultData;
+                    deliverSessionDataLocked();
+                }
+            }
+        }
+    };
+
+    final IAssistScreenshotReceiver mScreenshotReceiver = new IAssistScreenshotReceiver.Stub() {
+        @Override
+        public void send(Bitmap screenshot) throws RemoteException {
+            synchronized (mLock) {
+                if (mShown) {
+                    mHaveScreenshot = true;
+                    mScreenshot = screenshot;
+                    deliverSessionDataLocked();
+                }
+            }
         }
     };
 
@@ -139,13 +154,10 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
         mCallback = callback;
         mCallingUid = callingUid;
         mHandler = handler;
-        mAm = ActivityManager.getService();
+        mAm = ActivityManagerNative.getDefault();
         mIWindowManager = IWindowManager.Stub.asInterface(
                 ServiceManager.getService(Context.WINDOW_SERVICE));
         mAppOps = context.getSystemService(AppOpsManager.class);
-        mAssistDataRequester = new AssistDataRequester(mContext, mAm, mIWindowManager,
-                (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE),
-                this, mLock, OP_ASSIST_STRUCTURE, OP_ASSIST_SCREENSHOT);
         IBinder permOwner = null;
         try {
             permOwner = mAm.newUriPermissionOwner("voicesession:"
@@ -161,7 +173,8 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                         | Context.BIND_ALLOW_OOM_MANAGEMENT, new UserHandle(mUser));
         if (mBound) {
             try {
-                mIWindowManager.addWindowToken(mToken, TYPE_VOICE_INTERACTION, DEFAULT_DISPLAY);
+                mIWindowManager.addWindowToken(mToken,
+                        WindowManager.LayoutParams.TYPE_VOICE_INTERACTION);
             } catch (RemoteException e) {
                 Slog.w(TAG, "Failed adding window token", e);
             }
@@ -185,7 +198,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
     }
 
     public boolean showLocked(Bundle args, int flags, int disabledContext,
-            IVoiceInteractionSessionShowCallback showCallback, List<IBinder> topActivities) {
+            IVoiceInteractionSessionShowCallback showCallback, IBinder activityToken) {
         if (mBound) {
             if (!mFullyBound) {
                 mFullyBound = mContext.bindServiceAsUser(mBindIntent, mFullConnection,
@@ -193,22 +206,64 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                                 | Context.BIND_FOREGROUND_SERVICE,
                         new UserHandle(mUser));
             }
-
             mShown = true;
+            boolean isAssistDataAllowed = true;
+            try {
+                isAssistDataAllowed = mAm.isAssistDataAllowedOnCurrentActivity();
+            } catch (RemoteException e) {
+            }
+            disabledContext |= getUserDisabledShowContextLocked();
+            boolean structureEnabled = isAssistDataAllowed
+                    && (disabledContext&VoiceInteractionSession.SHOW_WITH_ASSIST) == 0;
+            boolean screenshotEnabled = isAssistDataAllowed && structureEnabled
+                    && (disabledContext&VoiceInteractionSession.SHOW_WITH_SCREENSHOT) == 0;
             mShowArgs = args;
             mShowFlags = flags;
-
-            disabledContext |= getUserDisabledShowContextLocked();
-            mAssistDataRequester.requestAssistData(topActivities,
-                    (flags & VoiceInteractionSession.SHOW_WITH_ASSIST) != 0,
-                    (flags & VoiceInteractionSession.SHOW_WITH_SCREENSHOT) != 0,
-                    (disabledContext & VoiceInteractionSession.SHOW_WITH_ASSIST) == 0,
-                    (disabledContext & VoiceInteractionSession.SHOW_WITH_SCREENSHOT) == 0,
-                    mCallingUid, mSessionComponentName.getPackageName());
-
-            boolean needDisclosure = mAssistDataRequester.getPendingDataCount() > 0
-                    || mAssistDataRequester.getPendingScreenshotCount() > 0;
-            if (needDisclosure && AssistUtils.shouldDisclose(mContext, mSessionComponentName)) {
+            mHaveAssistData = false;
+            boolean needDisclosure = false;
+            if ((flags&VoiceInteractionSession.SHOW_WITH_ASSIST) != 0) {
+                if (mAppOps.noteOpNoThrow(AppOpsManager.OP_ASSIST_STRUCTURE, mCallingUid,
+                        mSessionComponentName.getPackageName()) == AppOpsManager.MODE_ALLOWED
+                        && structureEnabled) {
+                    try {
+                        MetricsLogger.count(mContext, "assist_with_context", 1);
+                        if (mAm.requestAssistContextExtras(ActivityManager.ASSIST_CONTEXT_FULL,
+                                mAssistReceiver, activityToken)) {
+                            needDisclosure = true;
+                        } else {
+                            // Wasn't allowed...  given that, let's not do the screenshot either.
+                            mHaveAssistData = true;
+                            mAssistData = null;
+                            screenshotEnabled = false;
+                        }
+                    } catch (RemoteException e) {
+                    }
+                } else {
+                    mHaveAssistData = true;
+                    mAssistData = null;
+                }
+            } else {
+                mAssistData = null;
+            }
+            mHaveScreenshot = false;
+            if ((flags&VoiceInteractionSession.SHOW_WITH_SCREENSHOT) != 0) {
+                if (mAppOps.noteOpNoThrow(AppOpsManager.OP_ASSIST_SCREENSHOT, mCallingUid,
+                        mSessionComponentName.getPackageName()) == AppOpsManager.MODE_ALLOWED
+                        && screenshotEnabled) {
+                    try {
+                        MetricsLogger.count(mContext, "assist_with_screen", 1);
+                        needDisclosure = true;
+                        mIWindowManager.requestAssistScreenshot(mScreenshotReceiver);
+                    } catch (RemoteException e) {
+                    }
+                } else {
+                    mHaveScreenshot = true;
+                    mScreenshot = null;
+                }
+            } else {
+                mScreenshot = null;
+            }
+            if (needDisclosure) {
                 mHandler.post(mShowAssistDisclosureRunnable);
             }
             if (mSession != null) {
@@ -218,11 +273,10 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                     mShowFlags = 0;
                 } catch (RemoteException e) {
                 }
-                mAssistDataRequester.processPendingAssistData();
+                deliverSessionDataLocked();
             } else if (showCallback != null) {
                 mPendingShowCallbacks.add(showCallback);
             }
-            mCallback.onSessionShown(this);
             return true;
         }
         if (showCallback != null) {
@@ -232,67 +286,6 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
             }
         }
         return false;
-    }
-
-    @Override
-    public boolean canHandleReceivedAssistDataLocked() {
-        return mSession != null;
-    }
-
-    @Override
-    public void onAssistDataReceivedLocked(Bundle data, int activityIndex, int activityCount) {
-        // Return early if we have no session
-        if (mSession == null) {
-            return;
-        }
-
-        if (data == null) {
-            try {
-                mSession.handleAssist(null, null, null, 0, 0);
-            } catch (RemoteException e) {
-                // Ignore
-            }
-        } else {
-            final Bundle assistData = data.getBundle(ASSIST_KEY_DATA);
-            final AssistStructure structure = data.getParcelable(ASSIST_KEY_STRUCTURE);
-            final AssistContent content = data.getParcelable(ASSIST_KEY_CONTENT);
-            final int uid = data.getInt(Intent.EXTRA_ASSIST_UID, -1);
-            if (uid >= 0 && content != null) {
-                Intent intent = content.getIntent();
-                if (intent != null) {
-                    ClipData clipData = intent.getClipData();
-                    if (clipData != null && Intent.isAccessUriMode(intent.getFlags())) {
-                        grantClipDataPermissions(clipData, intent.getFlags(), uid,
-                                mCallingUid, mSessionComponentName.getPackageName());
-                    }
-                }
-                ClipData clipData = content.getClipData();
-                if (clipData != null) {
-                    grantClipDataPermissions(clipData, FLAG_GRANT_READ_URI_PERMISSION,
-                            uid, mCallingUid, mSessionComponentName.getPackageName());
-                }
-            }
-            try {
-                mSession.handleAssist(assistData, structure, content, activityIndex,
-                        activityCount);
-            } catch (RemoteException e) {
-                // Ignore
-            }
-        }
-    }
-
-    @Override
-    public void onAssistScreenshotReceivedLocked(Bitmap screenshot) {
-        // Return early if we have no session
-        if (mSession == null) {
-            return;
-        }
-
-        try {
-            mSession.handleScreenshot(screenshot);
-        } catch (RemoteException e) {
-            // Ignore
-        }
     }
 
     void grantUriPermission(Uri uri, int mode, int srcUid, int destUid, String destPkg) {
@@ -308,7 +301,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
             int sourceUserId = ContentProvider.getUserIdFromUri(uri, mUser);
             uri = ContentProvider.getUriWithoutUserId(uri);
             mAm.grantUriPermissionFromOwner(mPermissionOwner, srcUid, destPkg,
-                    uri, FLAG_GRANT_READ_URI_PERMISSION, sourceUserId, mUser);
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION, sourceUserId, mUser);
         } catch (RemoteException e) {
         } catch (SecurityException e) {
             Slog.w(TAG, "Can't propagate permission", e);
@@ -337,14 +330,65 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
         }
     }
 
+    void deliverSessionDataLocked() {
+        if (mSession == null) {
+            return;
+        }
+        if (mHaveAssistData) {
+            Bundle assistData;
+            AssistStructure structure;
+            AssistContent content;
+            if (mAssistData != null) {
+                assistData = mAssistData.getBundle("data");
+                structure = mAssistData.getParcelable("structure");
+                content = mAssistData.getParcelable("content");
+                int uid = mAssistData.getInt(Intent.EXTRA_ASSIST_UID, -1);
+                if (uid >= 0 && content != null) {
+                    Intent intent = content.getIntent();
+                    if (intent != null) {
+                        ClipData data = intent.getClipData();
+                        if (data != null && Intent.isAccessUriMode(intent.getFlags())) {
+                            grantClipDataPermissions(data, intent.getFlags(), uid,
+                                    mCallingUid, mSessionComponentName.getPackageName());
+                        }
+                    }
+                    ClipData data = content.getClipData();
+                    if (data != null) {
+                        grantClipDataPermissions(data,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                                uid, mCallingUid, mSessionComponentName.getPackageName());
+                    }
+                }
+            } else {
+                assistData = null;
+                structure = null;
+                content = null;
+            }
+            try {
+                mSession.handleAssist(assistData, structure, content);
+            } catch (RemoteException e) {
+            }
+            mAssistData = null;
+            mHaveAssistData = false;
+        }
+        if (mHaveScreenshot) {
+            try {
+                mSession.handleScreenshot(mScreenshot);
+            } catch (RemoteException e) {
+            }
+            mScreenshot = null;
+            mHaveScreenshot = false;
+        }
+    }
+
     public boolean hideLocked() {
         if (mBound) {
             if (mShown) {
                 mShown = false;
                 mShowArgs = null;
                 mShowFlags = 0;
-                mAssistDataRequester.cancel();
-                mPendingShowCallbacks.clear();
+                mHaveAssistData = false;
+                mAssistData = null;
                 if (mSession != null) {
                     try {
                         mSession.hide();
@@ -353,7 +397,8 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                 }
                 try {
                     mAm.revokeUriPermissionFromOwner(mPermissionOwner, null,
-                            FLAG_GRANT_READ_URI_PERMISSION | FLAG_GRANT_WRITE_URI_PERMISSION,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                             mUser);
                 } catch (RemoteException e) {
                 }
@@ -363,7 +408,6 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                     } catch (RemoteException e) {
                     }
                 }
-                mCallback.onSessionHidden(this);
             }
             if (mFullyBound) {
                 mContext.unbindService(mFullConnection);
@@ -374,7 +418,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
         return false;
     }
 
-    public void cancelLocked(boolean finishTask) {
+    public void cancelLocked() {
         hideLocked();
         mCanceled = true;
         if (mBound) {
@@ -385,7 +429,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                     Slog.w(TAG, "Voice interation session already dead");
                 }
             }
-            if (finishTask && mSession != null) {
+            if (mSession != null) {
                 try {
                     mAm.finishVoiceTask(mSession);
                 } catch (RemoteException e) {
@@ -393,7 +437,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
             }
             mContext.unbindService(this);
             try {
-                mIWindowManager.removeWindowToken(mToken, DEFAULT_DISPLAY);
+                mIWindowManager.removeWindowToken(mToken);
             } catch (RemoteException e) {
                 Slog.w(TAG, "Failed removing window token", e);
             }
@@ -419,7 +463,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
                 mShowFlags = 0;
             } catch (RemoteException e) {
             }
-            mAssistDataRequester.processPendingAssistData();
+            deliverSessionDataLocked();
         }
         return true;
     }
@@ -461,9 +505,7 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
     @Override
     public void onServiceDisconnected(ComponentName name) {
         mCallback.sessionConnectionGone(this);
-        synchronized (mLock) {
-            mService = null;
-        }
+        mService = null;
     }
 
     public void dump(String prefix, PrintWriter pw) {
@@ -477,7 +519,10 @@ final class VoiceInteractionSessionConnection implements ServiceConnection,
             pw.print(prefix); pw.print("mSession="); pw.println(mSession);
             pw.print(prefix); pw.print("mInteractor="); pw.println(mInteractor);
         }
-        mAssistDataRequester.dump(prefix, pw);
+        pw.print(prefix); pw.print("mHaveAssistData="); pw.println(mHaveAssistData);
+        if (mHaveAssistData) {
+            pw.print(prefix); pw.print("mAssistData="); pw.println(mAssistData);
+        }
     }
 
     private Runnable mShowAssistDisclosureRunnable = new Runnable() {

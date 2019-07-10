@@ -1,120 +1,115 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+
 package java.security.spec;
 
 import java.math.BigInteger;
 
 /**
- * This immutable class specifies the set of domain parameters
- * used with elliptic curve cryptography (ECC).
- *
- * @see AlgorithmParameterSpec
- *
- * @author Valerie Peng
- *
- * @since 1.5
+ * The parameter specification used with Elliptic Curve Cryptography (ECC).
  */
 public class ECParameterSpec implements AlgorithmParameterSpec {
-
+    // Elliptic curve for which this is parameter
     private final EllipticCurve curve;
-    private final ECPoint g;
-    private final BigInteger n;
-    private final int h;
+    // Distinguished point on the elliptic curve called generator or base point
+    private final ECPoint generator;
+    // Order of the generator
+    private final BigInteger order;
+    // Cofactor
+    private final int cofactor;
+    // Name of curve if available.
+    private String curveName;
 
     /**
-     * Creates elliptic curve domain parameters based on the
-     * specified values.
-     * @param curve the elliptic curve which this parameter
-     * defines.
-     * @param g the generator which is also known as the base point.
-     * @param n the order of the generator {@code g}.
-     * @param h the cofactor.
-     * @exception NullPointerException if {@code curve},
-     * {@code g}, or {@code n} is null.
-     * @exception IllegalArgumentException if {@code n}
-     * or {@code h} is not positive.
+     * Creates a new {@code ECParameterSpec} with the specified elliptic curve,
+     * the base point, the order of the generator (or base point) and the
+     * co-factor.
+     *
+     * @param curve
+     *            the elliptic curve.
+     * @param generator
+     *            the generator (or base point).
+     * @param order
+     *            the order of the generator.
+     * @param cofactor
+     *            the co-factor.
+     * @throws IllegalArgumentException
+     *             if {@code order <= zero} or {@code cofactor <= zero}.
      */
-    public ECParameterSpec(EllipticCurve curve, ECPoint g,
-                           BigInteger n, int h) {
-        if (curve == null) {
-            throw new NullPointerException("curve is null");
-        }
-        if (g == null) {
-            throw new NullPointerException("g is null");
-        }
-        if (n == null) {
-            throw new NullPointerException("n is null");
-        }
-        if (n.signum() != 1) {
-            throw new IllegalArgumentException("n is not positive");
-        }
-        if (h <= 0) {
-            throw new IllegalArgumentException("h is not positive");
-        }
+    public ECParameterSpec(EllipticCurve curve, ECPoint generator,
+            BigInteger order, int cofactor) {
         this.curve = curve;
-        this.g = g;
-        this.n = n;
-        this.h = h;
+        this.generator = generator;
+        this.order = order;
+        this.cofactor = cofactor;
+        // throw NullPointerException if curve, generator or order is null
+        if (this.curve == null) {
+            throw new NullPointerException("curve == null");
+        }
+        if (this.generator == null) {
+            throw new NullPointerException("generator == null");
+        }
+        if (this.order == null) {
+            throw new NullPointerException("order == null");
+        }
+        // throw IllegalArgumentException if order or cofactor is not positive
+        if (!(this.order.compareTo(BigInteger.ZERO) > 0)) {
+            throw new IllegalArgumentException("order <= 0");
+        }
+        if (!(this.cofactor > 0)) {
+            throw new IllegalArgumentException("cofactor <= 0");
+        }
     }
 
     /**
-     * Returns the elliptic curve that this parameter defines.
-     * @return the elliptic curve that this parameter defines.
+     * Returns the {@code cofactor}.
+     *
+     * @return the {@code cofactor}.
+     */
+    public int getCofactor() {
+        return cofactor;
+    }
+
+    /**
+     * Returns the elliptic curve.
+     *
+     * @return the elliptic curve.
      */
     public EllipticCurve getCurve() {
         return curve;
     }
 
     /**
-     * Returns the generator which is also known as the base point.
-     * @return the generator which is also known as the base point.
+     * Returns the generator (or base point).
+     *
+     * @return the generator (or base point).
      */
     public ECPoint getGenerator() {
-        return g;
+        return generator;
     }
 
     /**
      * Returns the order of the generator.
+     *
      * @return the order of the generator.
      */
     public BigInteger getOrder() {
-        return n;
+        return order;
     }
-
-    /**
-     * Returns the cofactor.
-     * @return the cofactor.
-     */
-    public int getCofactor() {
-        return h;
-    }
-    // BEGIN Android-added: Store the curve name as part of the parameters
-    // Knowing the name of the curve sometimes allows implementations to operate
-    // more efficiently.
-    private String curveName;
 
     /**
      * Used to set the curve name if available.
@@ -134,5 +129,4 @@ public class ECParameterSpec implements AlgorithmParameterSpec {
     public String getCurveName() {
         return curveName;
     }
-    // END Android-added: Store the curve name as part of the parameters
 }

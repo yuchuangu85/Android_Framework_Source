@@ -36,7 +36,6 @@ import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
 import android.view.Window;
 import android.widget.SpinnerAdapter;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -95,11 +94,7 @@ import java.lang.annotation.RetentionPolicy;
 public abstract class ActionBar {
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "NAVIGATION_MODE_" }, value = {
-            NAVIGATION_MODE_STANDARD,
-            NAVIGATION_MODE_LIST,
-            NAVIGATION_MODE_TABS
-    })
+    @IntDef({NAVIGATION_MODE_STANDARD, NAVIGATION_MODE_LIST, NAVIGATION_MODE_TABS})
     public @interface NavigationMode {}
 
     /**
@@ -113,7 +108,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public static final int NAVIGATION_MODE_STANDARD = 0;
     
     /**
@@ -126,7 +120,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public static final int NAVIGATION_MODE_LIST = 1;
     
     /**
@@ -138,19 +131,19 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public static final int NAVIGATION_MODE_TABS = 2;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag = true, prefix = { "DISPLAY_" }, value = {
-            DISPLAY_USE_LOGO,
-            DISPLAY_SHOW_HOME,
-            DISPLAY_HOME_AS_UP,
-            DISPLAY_SHOW_TITLE,
-            DISPLAY_SHOW_CUSTOM,
-            DISPLAY_TITLE_MULTIPLE_LINES
-    })
+    @IntDef(flag = true,
+            value = {
+                    DISPLAY_USE_LOGO,
+                    DISPLAY_SHOW_HOME,
+                    DISPLAY_HOME_AS_UP,
+                    DISPLAY_SHOW_TITLE,
+                    DISPLAY_SHOW_CUSTOM,
+                    DISPLAY_TITLE_MULTIPLE_LINES
+            })
     public @interface DisplayOptions {}
 
     /**
@@ -345,7 +338,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void setListNavigationCallbacks(SpinnerAdapter adapter,
             OnNavigationListener callback);
 
@@ -359,7 +351,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void setSelectedNavigationItem(int position);
 
     /**
@@ -372,7 +363,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract int getSelectedNavigationIndex();
 
     /**
@@ -385,7 +375,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract int getNavigationItemCount();
 
     /**
@@ -588,7 +577,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     @NavigationMode
     public abstract int getNavigationMode();
 
@@ -605,7 +593,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void setNavigationMode(@NavigationMode int mode);
 
     /**
@@ -632,7 +619,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract Tab newTab();
 
     /**
@@ -646,7 +632,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void addTab(Tab tab);
 
     /**
@@ -660,7 +645,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void addTab(Tab tab, boolean setSelected);
 
     /**
@@ -676,7 +660,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void addTab(Tab tab, int position);
 
     /**
@@ -692,7 +675,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void addTab(Tab tab, int position, boolean setSelected);
 
     /**
@@ -706,7 +688,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void removeTab(Tab tab);
 
     /**
@@ -720,7 +701,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void removeTabAt(int position);
 
     /**
@@ -731,7 +711,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void removeAllTabs();
 
     /**
@@ -746,7 +725,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract void selectTab(Tab tab);
 
     /**
@@ -760,7 +738,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract Tab getSelectedTab();
 
     /**
@@ -774,7 +751,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract Tab getTabAt(int index);
 
     /**
@@ -786,7 +762,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public abstract int getTabCount();
 
     /**
@@ -1072,11 +1047,6 @@ public abstract class ActionBar {
     }
 
     /** @hide */
-    public boolean closeOptionsMenu() {
-        return false;
-    }
-
-    /** @hide */
     public boolean invalidateOptionsMenu() {
         return false;
     }
@@ -1100,10 +1070,6 @@ public abstract class ActionBar {
     public void setWindowTitle(CharSequence title) {
     }
 
-    /** @hide */
-    public void onDestroy() {
-    }
-
     /**
      * Listener interface for ActionBar navigation events.
      *
@@ -1112,7 +1078,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public interface OnNavigationListener {
         /**
          * This method is called whenever a navigation item in your action bar
@@ -1150,7 +1115,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public static abstract class Tab {
         /**
          * An invalid position for a tab.
@@ -1307,7 +1271,6 @@ public abstract class ActionBar {
      * <a href="http://developer.android.com/design/patterns/navigation.html">common
      * navigation patterns</a> instead.
      */
-    @Deprecated
     public interface TabListener {
         /**
          * Called when a tab enters the selected state.

@@ -16,21 +16,25 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.spec.AlgorithmParameterSpec;
-import java.util.HashMap;
-import java.util.Map;
-import javax.crypto.Cipher;
+
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 
 /**
  * Cipher benchmarks. Only runs on AES currently because of the combinatorial
  * explosion of the test as it stands.
  */
-public class CipherBenchmark {
+public class CipherBenchmark extends SimpleBenchmark {
 
     private static final int DATA_SIZE = 8192;
     private static final byte[] DATA = new byte[DATA_SIZE];
@@ -95,8 +99,7 @@ public class CipherBenchmark {
 
     private AlgorithmParameterSpec spec;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         cipherAlgorithm = algorithm.toString() + "/" + mode.toString() + "/"
                 + padding.toString();
 

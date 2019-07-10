@@ -160,9 +160,6 @@ public class SparseArray<E> implements Cloneable {
 
     /**
      * Removes the mapping at the specified index.
-     *
-     * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
      */
     public void removeAt(int index) {
         if (mValues[index] != DELETED) {
@@ -176,9 +173,6 @@ public class SparseArray<E> implements Cloneable {
      *
      * @param index Index to begin at
      * @param size Number of mappings to remove
-     *
-     * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
      */
     public void removeAtRange(int index, int size) {
         final int end = Math.min(mSize, index + size);
@@ -268,9 +262,6 @@ public class SparseArray<E> implements Cloneable {
      * be in ascending order, e.g., <code>keyAt(0)</code> will return the
      * smallest key and <code>keyAt(size()-1)</code> will return the largest
      * key.</p>
-     *
-     * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
      */
     public int keyAt(int index) {
         if (mGarbage) {
@@ -290,9 +281,6 @@ public class SparseArray<E> implements Cloneable {
      * <code>valueAt(0)</code> will return the value associated with the
      * smallest key and <code>valueAt(size()-1)</code> will return the value
      * associated with the largest key.</p>
-     *
-     * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
      */
     @SuppressWarnings("unchecked")
     public E valueAt(int index) {
@@ -307,8 +295,6 @@ public class SparseArray<E> implements Cloneable {
      * Given an index in the range <code>0...size()-1</code>, sets a new
      * value for the <code>index</code>th key-value mapping that this
      * SparseArray stores.
-     *
-     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined.</p>
      */
     public void setValueAt(int index, E value) {
         if (mGarbage) {
@@ -346,41 +332,10 @@ public class SparseArray<E> implements Cloneable {
             gc();
         }
 
-        for (int i = 0; i < mSize; i++) {
-            if (mValues[i] == value) {
+        for (int i = 0; i < mSize; i++)
+            if (mValues[i] == value)
                 return i;
-            }
-        }
 
-        return -1;
-    }
-
-    /**
-     * Returns an index for which {@link #valueAt} would return the
-     * specified key, or a negative number if no keys map to the
-     * specified value.
-     * <p>Beware that this is a linear search, unlike lookups by key,
-     * and that multiple keys can map to the same value and this will
-     * find only one of them.
-     * <p>Note also that this method uses {@code equals} unlike {@code indexOfValue}.
-     * @hide
-     */
-    public int indexOfValueByValue(E value) {
-        if (mGarbage) {
-            gc();
-        }
-
-        for (int i = 0; i < mSize; i++) {
-            if (value == null) {
-                if (mValues[i] == null) {
-                    return i;
-                }
-            } else {
-                if (value.equals(mValues[i])) {
-                    return i;
-                }
-            }
-        }
         return -1;
     }
 

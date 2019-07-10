@@ -23,8 +23,7 @@ import android.provider.Settings.Global;
 import android.util.Log;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.plugins.VolumeDialogController.State;
+import com.android.systemui.volume.VolumeDialogController.State;
 
 import java.util.Arrays;
 
@@ -51,29 +50,25 @@ public class Events {
     public static final int EVENT_SUPPRESSOR_CHANGED = 14;  // (component|string) (name|string)
     public static final int EVENT_MUTE_CHANGED = 15;  // (stream|int) (muted|bool)
     public static final int EVENT_TOUCH_LEVEL_DONE = 16;  // (stream|int) (level|bool)
-    public static final int EVENT_ZEN_CONFIG_CHANGED = 17; // (allow/disallow|string)
-    public static final int EVENT_RINGER_TOGGLE = 18; // (ringer_mode)
 
     private static final String[] EVENT_TAGS = {
-            "show_dialog",
-            "dismiss_dialog",
-            "active_stream_changed",
-            "expand",
-            "key",
-            "collection_started",
-            "collection_stopped",
-            "icon_click",
-            "settings_click",
-            "touch_level_changed",
-            "level_changed",
-            "internal_ringer_mode_changed",
-            "external_ringer_mode_changed",
-            "zen_mode_changed",
-            "suppressor_changed",
-            "mute_changed",
-            "touch_level_done",
-            "zen_mode_config_changed",
-            "ringer_toggle"
+        "show_dialog",
+        "dismiss_dialog",
+        "active_stream_changed",
+        "expand",
+        "key",
+        "collection_started",
+        "collection_stopped",
+        "icon_click",
+        "settings_click",
+        "touch_level_changed",
+        "level_changed",
+        "internal_ringer_mode_changed",
+        "external_ringer_mode_changed",
+        "zen_mode_changed",
+        "suppressor_changed",
+        "mute_changed",
+        "touch_level_done",
     };
 
     public static final int DISMISS_REASON_UNKNOWN = 0;
@@ -83,18 +78,14 @@ public class Events {
     public static final int DISMISS_REASON_SCREEN_OFF = 4;
     public static final int DISMISS_REASON_SETTINGS_CLICKED = 5;
     public static final int DISMISS_REASON_DONE_CLICKED = 6;
-    public static final int DISMISS_STREAM_GONE = 7;
-    public static final int DISMISS_REASON_OUTPUT_CHOOSER = 8;
     public static final String[] DISMISS_REASONS = {
-            "unknown",
-            "touch_outside",
-            "volume_controller",
-            "timeout",
-            "screen_off",
-            "settings_clicked",
-            "done_clicked",
-            "a11y_stream_changed",
-            "output_chooser"
+        "unknown",
+        "touch_outside",
+        "volume_controller",
+        "timeout",
+        "screen_off",
+        "settings_clicked",
+        "done_clicked",
     };
 
     public static final int SHOW_REASON_UNKNOWN = 0;
@@ -114,40 +105,39 @@ public class Events {
     public static Callback sCallback;
 
     public static void writeEvent(Context context, int tag, Object... list) {
-        MetricsLogger logger = new MetricsLogger();
         final long time = System.currentTimeMillis();
         final StringBuilder sb = new StringBuilder("writeEvent ").append(EVENT_TAGS[tag]);
         if (list != null && list.length > 0) {
             sb.append(" ");
             switch (tag) {
                 case EVENT_SHOW_DIALOG:
-                    MetricsLogger.visible(context, MetricsEvent.VOLUME_DIALOG);
+                    MetricsLogger.visible(context, MetricsLogger.VOLUME_DIALOG);
                     MetricsLogger.histogram(context, "volume_from_keyguard",
                             (Boolean) list[1] ? 1 : 0);
                     sb.append(SHOW_REASONS[(Integer) list[0]]).append(" keyguard=").append(list[1]);
                     break;
                 case EVENT_EXPAND:
-                    MetricsLogger.visibility(context, MetricsEvent.VOLUME_DIALOG_DETAILS,
+                    MetricsLogger.visibility(context, MetricsLogger.VOLUME_DIALOG_DETAILS,
                             (Boolean) list[0]);
                     sb.append(list[0]);
                     break;
                 case EVENT_DISMISS_DIALOG:
-                    MetricsLogger.hidden(context, MetricsEvent.VOLUME_DIALOG);
+                    MetricsLogger.hidden(context, MetricsLogger.VOLUME_DIALOG);
                     sb.append(DISMISS_REASONS[(Integer) list[0]]);
                     break;
                 case EVENT_ACTIVE_STREAM_CHANGED:
-                    MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_STREAM,
+                    MetricsLogger.action(context, MetricsLogger.ACTION_VOLUME_STREAM,
                             (Integer) list[0]);
                     sb.append(AudioSystem.streamToString((Integer) list[0]));
                     break;
                 case EVENT_ICON_CLICK:
-                    MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_ICON,
-                            (Integer) list[0]);
+                    MetricsLogger.action(context, MetricsLogger.ACTION_VOLUME_ICON,
+                            (Integer) list[1]);
                     sb.append(AudioSystem.streamToString((Integer) list[0])).append(' ')
                             .append(iconStateToString((Integer) list[1]));
                     break;
                 case EVENT_TOUCH_LEVEL_DONE:
-                    MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_SLIDER,
+                    MetricsLogger.action(context, MetricsLogger.ACTION_VOLUME_SLIDER,
                             (Integer) list[1]);
                     // fall through
                 case EVENT_TOUCH_LEVEL_CHANGED:
@@ -157,19 +147,13 @@ public class Events {
                             .append(list[1]);
                     break;
                 case EVENT_KEY:
-                    MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_KEY,
-                            (Integer) list[0]);
+                    MetricsLogger.action(context, MetricsLogger.ACTION_VOLUME_KEY,
+                            (Integer) list[1]);
                     sb.append(AudioSystem.streamToString((Integer) list[0])).append(' ')
                             .append(list[1]);
                     break;
-                case EVENT_RINGER_TOGGLE:
-                    logger.action(MetricsEvent.ACTION_VOLUME_RINGER_TOGGLE, (Integer) list[0]);
-                    break;
-                case EVENT_SETTINGS_CLICK:
-                    logger.action(MetricsEvent.ACTION_VOLUME_SETTINGS);
-                    break;
                 case EVENT_EXTERNAL_RINGER_MODE_CHANGED:
-                    MetricsLogger.action(context, MetricsEvent.ACTION_RINGER_MODE,
+                    MetricsLogger.action(context, MetricsLogger.ACTION_RINGER_MODE,
                             (Integer) list[0]);
                     // fall through
                 case EVENT_INTERNAL_RINGER_MODE_CHANGED:

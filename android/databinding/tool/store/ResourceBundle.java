@@ -13,6 +13,8 @@
 
 package android.databinding.tool.store;
 
+import org.apache.commons.lang3.ArrayUtils;
+
 import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.processing.ScopedException;
@@ -23,9 +25,7 @@ import android.databinding.tool.util.ParserHelper;
 import android.databinding.tool.util.Preconditions;
 
 import java.io.File;
-import java.io.InputStream;
 import java.io.Serializable;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,10 +34,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Marshaller;
-import javax.xml.bind.Unmarshaller;
 import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlAttribute;
@@ -55,8 +51,6 @@ public class ResourceBundle implements Serializable {
 
     private HashMap<String, List<LayoutFileBundle>> mLayoutBundles
             = new HashMap<String, List<LayoutFileBundle>>();
-
-    private List<File> mRemovedFiles = new ArrayList<File>();
 
     public ResourceBundle(String appPackage) {
         mAppPackage = appPackage;
@@ -92,28 +86,18 @@ public class ResourceBundle implements Serializable {
     public void validateMultiResLayouts() {
         for (List<LayoutFileBundle> layoutFileBundles : mLayoutBundles.values()) {
             for (LayoutFileBundle layoutFileBundle : layoutFileBundles) {
-                List<BindingTargetBundle> unboundIncludes = new ArrayList<BindingTargetBundle>();
                 for (BindingTargetBundle target : layoutFileBundle.getBindingTargetBundles()) {
                     if (target.isBinder()) {
                         List<LayoutFileBundle> boundTo =
                                 mLayoutBundles.get(target.getIncludedLayout());
                         if (boundTo == null || boundTo.isEmpty()) {
-                            L.d("There is no binding for %s, reverting to plain layout",
-                                    target.getIncludedLayout());
-                            if (target.getId() == null) {
-                                unboundIncludes.add(target);
-                            } else {
-                                target.setIncludedLayout(null);
-                                target.setInterfaceType("android.view.View");
-                                target.mViewName = "android.view.View";
-                            }
+                            L.e("There is no binding for %s", target.getIncludedLayout());
                         } else {
                             String binding = boundTo.get(0).getFullBindingClass();
                             target.setInterfaceType(binding);
                         }
                     }
                 }
-                layoutFileBundle.getBindingTargetBundles().removeAll(unboundIncludes);
             }
         }
 
@@ -132,7 +116,7 @@ public class ResourceBundle implements Serializable {
                     bundles.getValue(), ErrorMessages.MULTI_CONFIG_VARIABLE_TYPE_MISMATCH,
                     new ValidateAndFilterCallback() {
                         @Override
-                        public List<? extends NameTypeLocation> get(LayoutFileBundle bundle) {
+                        public List<NameTypeLocation> get(LayoutFileBundle bundle) {
                             return bundle.mVariables;
                         }
                     });
@@ -152,8 +136,7 @@ public class ResourceBundle implements Serializable {
                         bundle.mConfigName);
                 for (Map.Entry<String, NameTypeLocation> variable : variableTypes.entrySet()) {
                     if (!NameTypeLocation.contains(bundle.mVariables, variable.getKey())) {
-                        NameTypeLocation orig = variable.getValue();
-                        bundle.addVariable(orig.name, orig.type, orig.location, false);
+                        bundle.mVariables.add(variable.getValue());
                         L.d("adding missing variable %s to %s / %s", variable.getKey(),
                                 bundle.mFileName, bundle.mConfigName);
                     }
@@ -172,7 +155,7 @@ public class ResourceBundle implements Serializable {
             Map<String, String> viewTypes = new HashMap<String, String>();
             Map<String, String> includes = new HashMap<String, String>();
             L.d("validating ids for %s", bundles.getKey());
-            Set<String> conflictingIds = new HashSet<String>();
+            Set<String> conflictingIds = new HashSet<>();
             for (LayoutFileBundle bundle : bundles.getValue()) {
                 try {
                     Scope.enter(bundle);
@@ -301,8 +284,8 @@ public class ResourceBundle implements Serializable {
     private Map<String, NameTypeLocation> validateAndMergeNameTypeLocations(
             List<LayoutFileBundle> bundles, String errorMessage,
             ValidateAndFilterCallback callback) {
-        Map<String, NameTypeLocation> result = new HashMap<String, NameTypeLocation>();
-        Set<String> mismatched = new HashSet<String>();
+        Map<String, NameTypeLocation> result = new HashMap<>();
+        Set<String> mismatched = new HashSet<>();
         for (LayoutFileBundle bundle : bundles) {
             for (NameTypeLocation item : callback.get(bundle)) {
                 NameTypeLocation existing = result.get(item.name);
@@ -371,14 +354,6 @@ public class ResourceBundle implements Serializable {
         return sharedClassName;
     }
 
-    public void addRemovedFile(File file) {
-        mRemovedFiles.add(file);
-    }
-
-    public List<File> getRemovedFiles() {
-        return mRemovedFiles;
-    }
-
     @XmlAccessorType(XmlAccessType.NONE)
     @XmlRootElement(name="Layout")
     public static class LayoutFileBundle implements Serializable, FileScopeProvider {
@@ -411,10 +386,10 @@ public class ResourceBundle implements Serializable {
         public boolean mHasVariations;
 
         @XmlElement(name="Variables")
-        public List<VariableDeclaration> mVariables = new ArrayList<VariableDeclaration>();
+        public List<NameTypeLocation> mVariables = new ArrayList<>();
 
         @XmlElement(name="Imports")
-        public List<NameTypeLocation> mImports = new ArrayList<NameTypeLocation>();
+        public List<NameTypeLocation> mImports = new ArrayList<>();
 
         @XmlElementWrapper(name="Targets")
         @XmlElement(name="Target")
@@ -427,21 +402,6 @@ public class ResourceBundle implements Serializable {
 
         // for XML binding
         public LayoutFileBundle() {
-        }
-
-        /**
-         * Updates configuration fields from the given bundle but does not change variables,
-         * binding expressions etc.
-         */
-        public void inheritConfigurationFrom(LayoutFileBundle other) {
-            mFileName = other.mFileName;
-            mModulePackage = other.mModulePackage;
-            mBindingClass = other.mBindingClass;
-            mFullBindingClass = other.mFullBindingClass;
-            mBindingClassName = other.mBindingClassName;
-            mBindingPackage = other.mBindingPackage;
-            mHasVariations = other.mHasVariations;
-            mIsMerge = other.mIsMerge;
         }
 
         public LayoutFileBundle(File file, String fileName, String directory,
@@ -461,10 +421,10 @@ public class ResourceBundle implements Serializable {
             return mClassNameLocationProvider;
         }
 
-        public void addVariable(String name, String type, Location location, boolean declared) {
+        public void addVariable(String name, String type, Location location) {
             Preconditions.check(!NameTypeLocation.contains(mVariables, name),
                     "Cannot use same variable name twice. %s in %s", name, location);
-            mVariables.add(new VariableDeclaration(name, type, location, declared));
+            mVariables.add(new NameTypeLocation(name, type, location));
         }
 
         public void addImport(String alias, String type, Location location) {
@@ -510,7 +470,7 @@ public class ResourceBundle implements Serializable {
             return mHasVariations;
         }
 
-        public List<VariableDeclaration> getVariables() {
+        public List<NameTypeLocation> getVariables() {
             return mVariables;
         }
 
@@ -584,9 +544,12 @@ public class ResourceBundle implements Serializable {
                     : bundle.mDirectory != null) {
                 return false;
             }
-            return !(mFileName != null ? !mFileName.equals(bundle.mFileName)
-                    : bundle.mFileName != null);
+            if (mFileName != null ? !mFileName.equals(bundle.mFileName)
+                    : bundle.mFileName != null) {
+                return false;
+            }
 
+            return true;
         }
 
         @Override
@@ -619,37 +582,6 @@ public class ResourceBundle implements Serializable {
         @Override
         public String provideScopeFilePath() {
             return mAbsoluteFilePath;
-        }
-
-        private static Marshaller sMarshaller;
-        private static Unmarshaller sUmarshaller;
-
-        public String toXML() throws JAXBException {
-            StringWriter writer = new StringWriter();
-            getMarshaller().marshal(this, writer);
-            return writer.getBuffer().toString();
-        }
-
-        public static LayoutFileBundle fromXML(InputStream inputStream) throws JAXBException {
-            return (LayoutFileBundle) getUnmarshaller().unmarshal(inputStream);
-        }
-
-        private static Marshaller getMarshaller() throws JAXBException {
-            if (sMarshaller == null) {
-                JAXBContext context = JAXBContext
-                        .newInstance(ResourceBundle.LayoutFileBundle.class);
-                sMarshaller = context.createMarshaller();
-            }
-            return sMarshaller;
-        }
-
-        private static Unmarshaller getUnmarshaller() throws JAXBException {
-            if (sUmarshaller == null) {
-                JAXBContext context = JAXBContext
-                        .newInstance(ResourceBundle.LayoutFileBundle.class);
-                sUmarshaller = context.createUnmarshaller();
-            }
-            return sUmarshaller;
         }
     }
 
@@ -699,8 +631,11 @@ public class ResourceBundle implements Serializable {
             if (!name.equals(that.name)) {
                 return false;
             }
-            return type.equals(that.type);
+            if (!type.equals(that.type)) {
+                return false;
+            }
 
+            return true;
         }
 
         @Override
@@ -711,28 +646,13 @@ public class ResourceBundle implements Serializable {
             return result;
         }
 
-        public static boolean contains(List<? extends NameTypeLocation> list, String name) {
+        public static boolean contains(List<NameTypeLocation> list, String name) {
             for (NameTypeLocation ntl : list) {
                 if (name.equals(ntl.name)) {
                     return true;
                 }
             }
             return false;
-        }
-    }
-
-    @XmlAccessorType(XmlAccessType.NONE)
-    public static class VariableDeclaration extends NameTypeLocation {
-        @XmlAttribute(name="declared", required = false)
-        public boolean declared;
-
-        public VariableDeclaration() {
-
-        }
-
-        public VariableDeclaration(String name, String type, Location location, boolean declared) {
-            super(name, type, location);
-            this.declared = declared;
         }
     }
 
@@ -776,9 +696,8 @@ public class ResourceBundle implements Serializable {
             mLocation = location;
         }
 
-        public void addBinding(String name, String expr, boolean isTwoWay, Location location,
-                Location valueLocation) {
-            mBindingBundleList.add(new BindingBundle(name, expr, isTwoWay, location, valueLocation));
+        public void addBinding(String name, String expr, Location location, Location valueLocation) {
+            mBindingBundleList.add(new BindingBundle(name, expr, location, valueLocation));
         }
 
         public void setIncludedLayout(String includedLayout) {
@@ -822,7 +741,7 @@ public class ResourceBundle implements Serializable {
                 if (isBinder()) {
                     mFullClassName = mInterfaceType;
                 } else if (mViewName.indexOf('.') == -1) {
-                    if (Arrays.asList(ANDROID_VIEW_PACKAGE_VIEWS).contains(mViewName)) {
+                    if (ArrayUtils.contains(ANDROID_VIEW_PACKAGE_VIEWS, mViewName)) {
                         mFullClassName = "android.view." + mViewName;
                     } else if("WebView".equals(mViewName)) {
                         mFullClassName = "android.webkit." + mViewName;
@@ -864,16 +783,14 @@ public class ResourceBundle implements Serializable {
             private String mExpr;
             private Location mLocation;
             private Location mValueLocation;
-            private boolean mIsTwoWay;
 
             public BindingBundle() {}
 
-            public BindingBundle(String name, String expr, boolean isTwoWay, Location location,
+            public BindingBundle(String name, String expr, Location location,
                     Location valueLocation) {
                 mName = name;
                 mExpr = expr;
                 mLocation = location;
-                mIsTwoWay = isTwoWay;
                 mValueLocation = valueLocation;
             }
 
@@ -895,10 +812,6 @@ public class ResourceBundle implements Serializable {
                 mExpr = expr;
             }
 
-            public void setTwoWay(boolean isTwoWay) {
-                mIsTwoWay = isTwoWay;
-            }
-
             @XmlElement(name="Location")
             public Location getLocation() {
                 return mLocation;
@@ -913,11 +826,6 @@ public class ResourceBundle implements Serializable {
                 return mValueLocation;
             }
 
-            @XmlElement(name="TwoWay")
-            public boolean isTwoWay() {
-                return mIsTwoWay;
-            }
-
             public void setValueLocation(Location valueLocation) {
                 mValueLocation = valueLocation;
             }
@@ -928,6 +836,6 @@ public class ResourceBundle implements Serializable {
      * Just an inner callback class to process imports and variables w/ the same code.
      */
     private interface ValidateAndFilterCallback {
-        List<? extends NameTypeLocation> get(LayoutFileBundle bundle);
+        List<NameTypeLocation> get(LayoutFileBundle bundle);
     }
 }

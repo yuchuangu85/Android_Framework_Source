@@ -16,39 +16,17 @@
 
 package android.app;
 
-import static android.Manifest.permission.CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS;
-import static android.app.ActivityManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
-import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
-import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
-import static android.view.Display.INVALID_DISPLAY;
-
-import android.annotation.Nullable;
-import android.annotation.RequiresPermission;
-import android.annotation.TestApi;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Bitmap.Config;
-import android.graphics.GraphicBuffer;
-import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IRemoteCallback;
-import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
-import android.os.UserHandle;
-import android.transition.Transition;
-import android.transition.TransitionListenerAdapter;
-import android.transition.TransitionManager;
 import android.util.Pair;
 import android.util.Slog;
-import android.view.AppTransitionAnimationSpec;
-import android.view.IAppTransitionAnimationSpecsFuture;
-import android.view.RemoteAnimationAdapter;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 
 import java.util.ArrayList;
@@ -79,16 +57,6 @@ public class ActivityOptions {
      * @hide
      */
     public static final String KEY_PACKAGE_NAME = "android:activity.packageName";
-
-    /**
-     * The bounds (window size) that the activity should be launched in. Set to null explicitly for
-     * full screen. If the key is not found, previous bounds will be preserved.
-     * NOTE: This value is ignored on devices that don't have
-     * {@link android.content.pm.PackageManager#FEATURE_FREEFORM_WINDOW_MANAGEMENT} or
-     * {@link android.content.pm.PackageManager#FEATURE_PICTURE_IN_PICTURE} enabled.
-     * @hide
-     */
-    public static final String KEY_LAUNCH_BOUNDS = "android:activity.launchBounds";
 
     /**
      * Type of animation that arguments specify.
@@ -151,83 +119,6 @@ public class ActivityOptions {
     public static final String KEY_ANIM_START_LISTENER = "android:activity.animStartListener";
 
     /**
-     * Callback for when the last frame of the animation is played.
-     * @hide
-     */
-    private static final String KEY_ANIMATION_FINISHED_LISTENER =
-            "android:activity.animationFinishedListener";
-
-    /**
-     * Descriptions of app transition animations to be played during the activity launch.
-     */
-    private static final String KEY_ANIM_SPECS = "android:activity.animSpecs";
-
-    /**
-     * Whether the activity should be launched into LockTask mode.
-     * @see #setLockTaskEnabled(boolean)
-     */
-    private static final String KEY_LOCK_TASK_MODE = "android:activity.lockTaskMode";
-
-    /**
-     * The display id the activity should be launched into.
-     * @see #setLaunchDisplayId(int)
-     * @hide
-     */
-    private static final String KEY_LAUNCH_DISPLAY_ID = "android.activity.launchDisplayId";
-
-    /**
-     * The windowing mode the activity should be launched into.
-     * @hide
-     */
-    private static final String KEY_LAUNCH_WINDOWING_MODE = "android.activity.windowingMode";
-
-    /**
-     * The activity type the activity should be launched as.
-     * @hide
-     */
-    private static final String KEY_LAUNCH_ACTIVITY_TYPE = "android.activity.activityType";
-
-    /**
-     * The task id the activity should be launched into.
-     * @hide
-     */
-    private static final String KEY_LAUNCH_TASK_ID = "android.activity.launchTaskId";
-
-    /**
-     * See {@link #setTaskOverlay}.
-     * @hide
-     */
-    private static final String KEY_TASK_OVERLAY = "android.activity.taskOverlay";
-
-    /**
-     * See {@link #setTaskOverlay}.
-     * @hide
-     */
-    private static final String KEY_TASK_OVERLAY_CAN_RESUME =
-            "android.activity.taskOverlayCanResume";
-
-    /**
-     * See {@link #setAvoidMoveToFront()}.
-     * @hide
-     */
-    private static final String KEY_AVOID_MOVE_TO_FRONT = "android.activity.avoidMoveToFront";
-
-    /**
-     * Where the split-screen-primary stack should be positioned.
-     * @hide
-     */
-    private static final String KEY_SPLIT_SCREEN_CREATE_MODE =
-            "android:activity.splitScreenCreateMode";
-
-    /**
-     * Determines whether to disallow the outgoing activity from entering picture-in-picture as the
-     * result of a new activity being launched.
-     * @hide
-     */
-    private static final String KEY_DISALLOW_ENTER_PICTURE_IN_PICTURE_WHILE_LAUNCHING =
-            "android:activity.disallowEnterPictureInPictureWhileLaunching";
-
-    /**
      * For Activity transitions, the calling Activity's TransitionListener used to
      * notify the called Activity when the shared element and the exit transitions
      * complete.
@@ -245,13 +136,6 @@ public class ActivityOptions {
             = "android:activity.exitCoordinatorIndex";
 
     private static final String KEY_USAGE_TIME_REPORT = "android:activity.usageTimeReport";
-    private static final String KEY_ROTATION_ANIMATION_HINT = "android:activity.rotationAnimationHint";
-
-    private static final String KEY_INSTANT_APP_VERIFICATION_BUNDLE
-            = "android:instantapps.installerbundle";
-    private static final String KEY_SPECS_FUTURE = "android:activity.specsFuture";
-    private static final String KEY_REMOTE_ANIMATION_ADAPTER
-            = "android:activity.remoteAnimationAdapter";
 
     /** @hide */
     public static final int ANIM_NONE = 0;
@@ -277,13 +161,8 @@ public class ActivityOptions {
     public static final int ANIM_CUSTOM_IN_PLACE = 10;
     /** @hide */
     public static final int ANIM_CLIP_REVEAL = 11;
-    /** @hide */
-    public static final int ANIM_OPEN_CROSS_PROFILE_APPS = 12;
-    /** @hide */
-    public static final int ANIM_REMOTE_ANIMATION = 13;
 
     private String mPackageName;
-    private Rect mLaunchBounds;
     private int mAnimationType = ANIM_NONE;
     private int mCustomEnterResId;
     private int mCustomExitResId;
@@ -294,7 +173,6 @@ public class ActivityOptions {
     private int mWidth;
     private int mHeight;
     private IRemoteCallback mAnimationStartedListener;
-    private IRemoteCallback mAnimationFinishedListener;
     private ResultReceiver mTransitionReceiver;
     private boolean mIsReturning;
     private ArrayList<String> mSharedElementNames;
@@ -302,23 +180,6 @@ public class ActivityOptions {
     private int mResultCode;
     private int mExitCoordinatorIndex;
     private PendingIntent mUsageTimeReport;
-    private boolean mLockTaskMode = false;
-    private int mLaunchDisplayId = INVALID_DISPLAY;
-    @WindowConfiguration.WindowingMode
-    private int mLaunchWindowingMode = WINDOWING_MODE_UNDEFINED;
-    @WindowConfiguration.ActivityType
-    private int mLaunchActivityType = ACTIVITY_TYPE_UNDEFINED;
-    private int mLaunchTaskId = -1;
-    private int mSplitScreenCreateMode = SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
-    private boolean mDisallowEnterPictureInPictureWhileLaunching;
-    private boolean mTaskOverlay;
-    private boolean mTaskOverlayCanResume;
-    private boolean mAvoidMoveToFront;
-    private AppTransitionAnimationSpec mAnimSpecs[];
-    private int mRotationAnimationHint = -1;
-    private Bundle mAppVerificationBundle;
-    private IAppTransitionAnimationSpecsFuture mSpecsFuture;
-    private RemoteAnimationAdapter mRemoteAnimationAdapter;
 
     /**
      * Create an ActivityOptions specifying a custom animation to run when
@@ -392,15 +253,16 @@ public class ActivityOptions {
         return opts;
     }
 
-    private void setOnAnimationStartedListener(final Handler handler,
-            final OnAnimationStartedListener listener) {
+    private void setOnAnimationStartedListener(Handler handler,
+            OnAnimationStartedListener listener) {
         if (listener != null) {
+            final Handler h = handler;
+            final OnAnimationStartedListener finalListener = listener;
             mAnimationStartedListener = new IRemoteCallback.Stub() {
-                @Override
-                public void sendResult(Bundle data) throws RemoteException {
-                    handler.post(new Runnable() {
+                @Override public void sendResult(Bundle data) throws RemoteException {
+                    h.post(new Runnable() {
                         @Override public void run() {
-                            listener.onAnimationStarted();
+                            finalListener.onAnimationStarted();
                         }
                     });
                 }
@@ -415,32 +277,6 @@ public class ActivityOptions {
      */
     public interface OnAnimationStartedListener {
         void onAnimationStarted();
-    }
-
-    private void setOnAnimationFinishedListener(final Handler handler,
-            final OnAnimationFinishedListener listener) {
-        if (listener != null) {
-            mAnimationFinishedListener = new IRemoteCallback.Stub() {
-                @Override
-                public void sendResult(Bundle data) throws RemoteException {
-                    handler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            listener.onAnimationFinished();
-                        }
-                    });
-                }
-            };
-        }
-    }
-
-    /**
-     * Callback for use with {@link ActivityOptions#makeThumbnailAspectScaleDownAnimation}
-     * to find out when the given animation has drawn its last frame.
-     * @hide
-     */
-    public interface OnAnimationFinishedListener {
-        void onAnimationFinished();
     }
 
     /**
@@ -504,19 +340,6 @@ public class ActivityOptions {
     }
 
     /**
-     * Creates an {@link ActivityOptions} object specifying an animation where the new activity
-     * is started in another user profile by calling {@link
-     * android.content.pm.crossprofile.CrossProfileApps#startMainActivity(ComponentName, UserHandle)
-     * }.
-     * @hide
-     */
-    public static ActivityOptions makeOpenCrossProfileAppsAnimation() {
-        ActivityOptions options = new ActivityOptions();
-        options.mAnimationType = ANIM_OPEN_CROSS_PROFILE_APPS;
-        return options;
-    }
-
-    /**
      * Create an ActivityOptions specifying an animation where a thumbnail
      * is scaled from a given position to the new activity window that is
      * being started.
@@ -556,10 +379,33 @@ public class ActivityOptions {
      * is not executed, the callback will happen immediately.
      * @return Returns a new ActivityOptions object that you can use to
      * supply these options as the options Bundle when starting an activity.
+     * @hide
      */
-    private static ActivityOptions makeThumbnailScaleUpAnimation(View source,
+    public static ActivityOptions makeThumbnailScaleUpAnimation(View source,
             Bitmap thumbnail, int startX, int startY, OnAnimationStartedListener listener) {
         return makeThumbnailAnimation(source, thumbnail, startX, startY, listener, true);
+    }
+
+    /**
+     * Create an ActivityOptions specifying an animation where an activity window
+     * is scaled from a given position to a thumbnail at a specified location.
+     *
+     * @param source The View that this thumbnail is animating to.  This
+     * defines the coordinate space for <var>startX</var> and <var>startY</var>.
+     * @param thumbnail The bitmap that will be shown as the final thumbnail
+     * of the animation.
+     * @param startX The x end location of the bitmap, relative to <var>source</var>.
+     * @param startY The y end location of the bitmap, relative to <var>source</var>.
+     * @param listener Optional OnAnimationStartedListener to find out when the
+     * requested animation has started running.  If for some reason the animation
+     * is not executed, the callback will happen immediately.
+     * @return Returns a new ActivityOptions object that you can use to
+     * supply these options as the options Bundle when starting an activity.
+     * @hide
+     */
+    public static ActivityOptions makeThumbnailScaleDownAnimation(View source,
+            Bitmap thumbnail, int startX, int startY, OnAnimationStartedListener listener) {
+        return makeThumbnailAnimation(source, thumbnail, startX, startY, listener, false);
     }
 
     private static ActivityOptions makeThumbnailAnimation(View source,
@@ -578,21 +424,29 @@ public class ActivityOptions {
     }
 
     /**
-     * Create an ActivityOptions specifying an animation where a list of activity windows and
-     * thumbnails are aspect scaled to/from a new location.
+     * Create an ActivityOptions specifying an animation where the new activity
+     * window and a thumbnail is aspect-scaled to a new location.
+     *
+     * @param source The View that this thumbnail is animating from.  This
+     * defines the coordinate space for <var>startX</var> and <var>startY</var>.
+     * @param thumbnail The bitmap that will be shown as the initial thumbnail
+     * of the animation.
+     * @param startX The x starting location of the bitmap, relative to <var>source</var>.
+     * @param startY The y starting location of the bitmap, relative to <var>source</var>.
+     * @param handler If <var>listener</var> is non-null this must be a valid
+     * Handler on which to dispatch the callback; otherwise it should be null.
+     * @param listener Optional OnAnimationStartedListener to find out when the
+     * requested animation has started running.  If for some reason the animation
+     * is not executed, the callback will happen immediately.
+     * @return Returns a new ActivityOptions object that you can use to
+     * supply these options as the options Bundle when starting an activity.
      * @hide
      */
-    public static ActivityOptions makeMultiThumbFutureAspectScaleAnimation(Context context,
-            Handler handler, IAppTransitionAnimationSpecsFuture specsFuture,
-            OnAnimationStartedListener listener, boolean scaleUp) {
-        ActivityOptions opts = new ActivityOptions();
-        opts.mPackageName = context.getPackageName();
-        opts.mAnimationType = scaleUp
-                ? ANIM_THUMBNAIL_ASPECT_SCALE_UP
-                : ANIM_THUMBNAIL_ASPECT_SCALE_DOWN;
-        opts.mSpecsFuture = specsFuture;
-        opts.setOnAnimationStartedListener(handler, listener);
-        return opts;
+    public static ActivityOptions makeThumbnailAspectScaleUpAnimation(View source,
+            Bitmap thumbnail, int startX, int startY, int targetWidth, int targetHeight,
+            Handler handler, OnAnimationStartedListener listener) {
+        return makeAspectScaledThumbnailAnimation(source, thumbnail, startX, startY,
+                targetWidth, targetHeight, handler, listener, true);
     }
 
     /**
@@ -639,20 +493,6 @@ public class ActivityOptions {
         return opts;
     }
 
-    /** @hide */
-    public static ActivityOptions makeThumbnailAspectScaleDownAnimation(View source,
-            AppTransitionAnimationSpec[] specs, Handler handler,
-            OnAnimationStartedListener onAnimationStartedListener,
-            OnAnimationFinishedListener onAnimationFinishedListener) {
-        ActivityOptions opts = new ActivityOptions();
-        opts.mPackageName = source.getContext().getPackageName();
-        opts.mAnimationType = ANIM_THUMBNAIL_ASPECT_SCALE_DOWN;
-        opts.mAnimSpecs = specs;
-        opts.setOnAnimationStartedListener(handler, onAnimationStartedListener);
-        opts.setOnAnimationFinishedListener(handler, onAnimationFinishedListener);
-        return opts;
-    }
-
     /**
      * Create an ActivityOptions to transition between Activities using cross-Activity scene
      * animations. This method carries the position of one shared element to the started Activity.
@@ -696,74 +536,12 @@ public class ActivityOptions {
      * @see android.transition.Transition#setEpicenterCallback(
      *          android.transition.Transition.EpicenterCallback)
      */
-    @SafeVarargs
     public static ActivityOptions makeSceneTransitionAnimation(Activity activity,
             Pair<View, String>... sharedElements) {
         ActivityOptions opts = new ActivityOptions();
-        makeSceneTransitionAnimation(activity, activity.getWindow(), opts,
-                activity.mExitTransitionListener, sharedElements);
-        return opts;
-    }
-
-    /**
-     * Call this immediately prior to startActivity to begin a shared element transition
-     * from a non-Activity. The window must support Window.FEATURE_ACTIVITY_TRANSITIONS.
-     * The exit transition will start immediately and the shared element transition will
-     * start once the launched Activity's shared element is ready.
-     * <p>
-     * When all transitions have completed and the shared element has been transfered,
-     * the window's decor View will have its visibility set to View.GONE.
-     *
-     * @hide
-     */
-    @SafeVarargs
-    public static ActivityOptions startSharedElementAnimation(Window window,
-            Pair<View, String>... sharedElements) {
-        ActivityOptions opts = new ActivityOptions();
-        final View decorView = window.getDecorView();
-        if (decorView == null) {
-            return opts;
-        }
-        final ExitTransitionCoordinator exit =
-                makeSceneTransitionAnimation(null, window, opts, null, sharedElements);
-        if (exit != null) {
-            HideWindowListener listener = new HideWindowListener(window, exit);
-            exit.setHideSharedElementsCallback(listener);
-            exit.startExit();
-        }
-        return opts;
-    }
-
-    /**
-     * This method should be called when the {@link #startSharedElementAnimation(Window, Pair[])}
-     * animation must be stopped and the Views reset. This can happen if there was an error
-     * from startActivity or a springboard activity and the animation should stop and reset.
-     *
-     * @hide
-     */
-    public static void stopSharedElementAnimation(Window window) {
-        final View decorView = window.getDecorView();
-        if (decorView == null) {
-            return;
-        }
-        final ExitTransitionCoordinator exit = (ExitTransitionCoordinator)
-                decorView.getTag(com.android.internal.R.id.cross_task_transition);
-        if (exit != null) {
-            exit.cancelPendingTransitions();
-            decorView.setTagInternal(com.android.internal.R.id.cross_task_transition, null);
-            TransitionManager.endTransitions((ViewGroup) decorView);
-            exit.resetViews();
-            exit.clearState();
-            decorView.setVisibility(View.VISIBLE);
-        }
-    }
-
-    static ExitTransitionCoordinator makeSceneTransitionAnimation(Activity activity, Window window,
-            ActivityOptions opts, SharedElementCallback callback,
-            Pair<View, String>[] sharedElements) {
-        if (!window.hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)) {
+        if (!activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)) {
             opts.mAnimationType = ANIM_DEFAULT;
-            return null;
+            return opts;
         }
         opts.mAnimationType = ANIM_SCENE_TRANSITION;
 
@@ -786,22 +564,18 @@ public class ActivityOptions {
             }
         }
 
-        ExitTransitionCoordinator exit = new ExitTransitionCoordinator(activity, window,
-                callback, names, names, views, false);
+        ExitTransitionCoordinator exit = new ExitTransitionCoordinator(activity, names, names,
+                views, false);
         opts.mTransitionReceiver = exit;
         opts.mSharedElementNames = names;
-        opts.mIsReturning = (activity == null);
-        if (activity == null) {
-            opts.mExitCoordinatorIndex = -1;
-        } else {
-            opts.mExitCoordinatorIndex =
-                    activity.mActivityTransitionState.addExitTransitionCoordinator(exit);
-        }
-        return exit;
+        opts.mIsReturning = false;
+        opts.mExitCoordinatorIndex =
+                activity.mActivityTransitionState.addExitTransitionCoordinator(exit);
+        return opts;
     }
 
     /** @hide */
-    static ActivityOptions makeSceneTransitionAnimation(Activity activity,
+    public static ActivityOptions makeSceneTransitionAnimation(Activity activity,
             ExitTransitionCoordinator exitCoordinator, ArrayList<String> sharedElementNames,
             int resultCode, Intent resultData) {
         ActivityOptions opts = new ActivityOptions();
@@ -841,20 +615,6 @@ public class ActivityOptions {
         return opts;
     }
 
-    /**
-     * Create an {@link ActivityOptions} instance that lets the application control the entire
-     * animation using a {@link RemoteAnimationAdapter}.
-     * @hide
-     */
-    @RequiresPermission(CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS)
-    public static ActivityOptions makeRemoteAnimation(
-            RemoteAnimationAdapter remoteAnimationAdapter) {
-        final ActivityOptions opts = new ActivityOptions();
-        opts.mRemoteAnimationAdapter = remoteAnimationAdapter;
-        opts.mAnimationType = ANIM_REMOTE_ANIMATION;
-        return opts;
-    }
-
     /** @hide */
     public boolean getLaunchTaskBehind() {
         return mAnimationType == ANIM_LAUNCH_TASK_BEHIND;
@@ -865,17 +625,12 @@ public class ActivityOptions {
 
     /** @hide */
     public ActivityOptions(Bundle opts) {
-        // If the remote side sent us bad parcelables, they won't get the
-        // results they want, which is their loss.
-        opts.setDefusable(true);
-
         mPackageName = opts.getString(KEY_PACKAGE_NAME);
         try {
             mUsageTimeReport = opts.getParcelable(KEY_USAGE_TIME_REPORT);
         } catch (RuntimeException e) {
             Slog.w(TAG, e);
         }
-        mLaunchBounds = opts.getParcelable(KEY_LAUNCH_BOUNDS);
         mAnimationType = opts.getInt(KEY_ANIM_TYPE);
         switch (mAnimationType) {
             case ANIM_CUSTOM:
@@ -901,11 +656,7 @@ public class ActivityOptions {
             case ANIM_THUMBNAIL_SCALE_DOWN:
             case ANIM_THUMBNAIL_ASPECT_SCALE_UP:
             case ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
-                // Unpackage the GraphicBuffer from the parceled thumbnail
-                final GraphicBuffer buffer = opts.getParcelable(KEY_ANIM_THUMBNAIL);
-                if (buffer != null) {
-                    mThumbnail = Bitmap.createHardwareBitmap(buffer);
-                }
+                mThumbnail = (Bitmap) opts.getParcelable(KEY_ANIM_THUMBNAIL);
                 mStartX = opts.getInt(KEY_ANIM_START_X, 0);
                 mStartY = opts.getInt(KEY_ANIM_START_Y, 0);
                 mWidth = opts.getInt(KEY_ANIM_WIDTH, 0);
@@ -923,66 +674,11 @@ public class ActivityOptions {
                 mExitCoordinatorIndex = opts.getInt(KEY_EXIT_COORDINATOR_INDEX);
                 break;
         }
-        mLockTaskMode = opts.getBoolean(KEY_LOCK_TASK_MODE, false);
-        mLaunchDisplayId = opts.getInt(KEY_LAUNCH_DISPLAY_ID, INVALID_DISPLAY);
-        mLaunchWindowingMode = opts.getInt(KEY_LAUNCH_WINDOWING_MODE, WINDOWING_MODE_UNDEFINED);
-        mLaunchActivityType = opts.getInt(KEY_LAUNCH_ACTIVITY_TYPE, ACTIVITY_TYPE_UNDEFINED);
-        mLaunchTaskId = opts.getInt(KEY_LAUNCH_TASK_ID, -1);
-        mTaskOverlay = opts.getBoolean(KEY_TASK_OVERLAY, false);
-        mTaskOverlayCanResume = opts.getBoolean(KEY_TASK_OVERLAY_CAN_RESUME, false);
-        mAvoidMoveToFront = opts.getBoolean(KEY_AVOID_MOVE_TO_FRONT, false);
-        mSplitScreenCreateMode = opts.getInt(KEY_SPLIT_SCREEN_CREATE_MODE,
-                SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT);
-        mDisallowEnterPictureInPictureWhileLaunching = opts.getBoolean(
-                KEY_DISALLOW_ENTER_PICTURE_IN_PICTURE_WHILE_LAUNCHING, false);
-        if (opts.containsKey(KEY_ANIM_SPECS)) {
-            Parcelable[] specs = opts.getParcelableArray(KEY_ANIM_SPECS);
-            mAnimSpecs = new AppTransitionAnimationSpec[specs.length];
-            for (int i = specs.length - 1; i >= 0; i--) {
-                mAnimSpecs[i] = (AppTransitionAnimationSpec) specs[i];
-            }
-        }
-        if (opts.containsKey(KEY_ANIMATION_FINISHED_LISTENER)) {
-            mAnimationFinishedListener = IRemoteCallback.Stub.asInterface(
-                    opts.getBinder(KEY_ANIMATION_FINISHED_LISTENER));
-        }
-        mRotationAnimationHint = opts.getInt(KEY_ROTATION_ANIMATION_HINT);
-        mAppVerificationBundle = opts.getBundle(KEY_INSTANT_APP_VERIFICATION_BUNDLE);
-        if (opts.containsKey(KEY_SPECS_FUTURE)) {
-            mSpecsFuture = IAppTransitionAnimationSpecsFuture.Stub.asInterface(opts.getBinder(
-                    KEY_SPECS_FUTURE));
-        }
-        mRemoteAnimationAdapter = opts.getParcelable(KEY_REMOTE_ANIMATION_ADAPTER);
-    }
-
-    /**
-     * Sets the bounds (window size) that the activity should be launched in.
-     * Rect position should be provided in pixels and in screen coordinates.
-     * Set to null explicitly for fullscreen.
-     * <p>
-     * <strong>NOTE:<strong/> This value is ignored on devices that don't have
-     * {@link android.content.pm.PackageManager#FEATURE_FREEFORM_WINDOW_MANAGEMENT} or
-     * {@link android.content.pm.PackageManager#FEATURE_PICTURE_IN_PICTURE} enabled.
-     * @param screenSpacePixelRect Launch bounds to use for the activity or null for fullscreen.
-     */
-    public ActivityOptions setLaunchBounds(@Nullable Rect screenSpacePixelRect) {
-        mLaunchBounds = screenSpacePixelRect != null ? new Rect(screenSpacePixelRect) : null;
-        return this;
     }
 
     /** @hide */
     public String getPackageName() {
         return mPackageName;
-    }
-
-    /**
-     * Returns the bounds that should be used to launch the activity.
-     * @see #setLaunchBounds(Rect)
-     * @return Bounds used to launch the activity.
-     */
-    @Nullable
-    public Rect getLaunchBounds() {
-        return mLaunchBounds;
     }
 
     /** @hide */
@@ -1005,14 +701,9 @@ public class ActivityOptions {
         return mCustomInPlaceResId;
     }
 
-    /**
-     * The thumbnail is copied into a hardware bitmap when it is bundled and sent to the system, so
-     * it should always be backed by a GraphicBuffer on the other end.
-     *
-     * @hide
-     */
-    public GraphicBuffer getThumbnail() {
-        return mThumbnail != null ? mThumbnail.createGraphicBufferHandle() : null;
+    /** @hide */
+    public Bitmap getThumbnail() {
+        return mThumbnail;
     }
 
     /** @hide */
@@ -1041,11 +732,6 @@ public class ActivityOptions {
     }
 
     /** @hide */
-    public IRemoteCallback getAnimationFinishedListener() {
-        return mAnimationFinishedListener;
-    }
-
-    /** @hide */
     public int getExitCoordinatorKey() { return mExitCoordinatorIndex; }
 
     /** @hide */
@@ -1061,16 +747,6 @@ public class ActivityOptions {
     /** @hide */
     public boolean isReturning() {
         return mIsReturning;
-    }
-
-    /**
-     * Returns whether or not the ActivityOptions was created with
-     * {@link #startSharedElementAnimation(Window, Pair[])}.
-     *
-     * @hide
-     */
-    boolean isCrossTask() {
-        return mExitCoordinatorIndex < 0;
     }
 
     /** @hide */
@@ -1093,203 +769,10 @@ public class ActivityOptions {
     }
 
     /** @hide */
-    public AppTransitionAnimationSpec[] getAnimSpecs() { return mAnimSpecs; }
-
-    /** @hide */
-    public IAppTransitionAnimationSpecsFuture getSpecsFuture() {
-        return mSpecsFuture;
-    }
-
-    /** @hide */
-    public RemoteAnimationAdapter getRemoteAnimationAdapter() {
-        return mRemoteAnimationAdapter;
-    }
-
-    /** @hide */
-    public void setRemoteAnimationAdapter(RemoteAnimationAdapter remoteAnimationAdapter) {
-        mRemoteAnimationAdapter = remoteAnimationAdapter;
-    }
-
-    /** @hide */
-    public static ActivityOptions fromBundle(Bundle bOptions) {
-        return bOptions != null ? new ActivityOptions(bOptions) : null;
-    }
-
-    /** @hide */
-    public static void abort(ActivityOptions options) {
+    public static void abort(Bundle options) {
         if (options != null) {
-            options.abort();
+            (new ActivityOptions(options)).abort();
         }
-    }
-
-    /**
-     * Gets whether the activity is to be launched into LockTask mode.
-     * @return {@code true} if the activity is to be launched into LockTask mode.
-     * @see Activity#startLockTask()
-     * @see android.app.admin.DevicePolicyManager#setLockTaskPackages(ComponentName, String[])
-     */
-    public boolean getLockTaskMode() {
-        return mLockTaskMode;
-    }
-
-    /**
-     * Sets whether the activity is to be launched into LockTask mode.
-     *
-     * Use this option to start an activity in LockTask mode. Note that only apps permitted by
-     * {@link android.app.admin.DevicePolicyManager} can run in LockTask mode. Therefore, if
-     * {@link android.app.admin.DevicePolicyManager#isLockTaskPermitted(String)} returns
-     * {@code false} for the package of the target activity, a {@link SecurityException} will be
-     * thrown during {@link Context#startActivity(Intent, Bundle)}. This method doesn't affect
-     * activities that are already running — relaunch the activity to run in lock task mode.
-     *
-     * Defaults to {@code false} if not set.
-     *
-     * @param lockTaskMode {@code true} if the activity is to be launched into LockTask mode.
-     * @return {@code this} {@link ActivityOptions} instance.
-     * @see Activity#startLockTask()
-     * @see android.app.admin.DevicePolicyManager#setLockTaskPackages(ComponentName, String[])
-     */
-    public ActivityOptions setLockTaskEnabled(boolean lockTaskMode) {
-        mLockTaskMode = lockTaskMode;
-        return this;
-    }
-
-    /**
-     * Gets the id of the display where activity should be launched.
-     * @return The id of the display where activity should be launched,
-     *         {@link android.view.Display#INVALID_DISPLAY} if not set.
-     * @see #setLaunchDisplayId(int)
-     */
-    public int getLaunchDisplayId() {
-        return mLaunchDisplayId;
-    }
-
-    /**
-     * Sets the id of the display where activity should be launched.
-     * An app can launch activities on public displays or private displays that are owned by the app
-     * or where an app already has activities. Otherwise, trying to launch on a private display
-     * or providing an invalid display id will result in an exception.
-     * <p>
-     * Setting launch display id will be ignored on devices that don't have
-     * {@link android.content.pm.PackageManager#FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS}.
-     * @param launchDisplayId The id of the display where the activity should be launched.
-     * @return {@code this} {@link ActivityOptions} instance.
-     */
-    public ActivityOptions setLaunchDisplayId(int launchDisplayId) {
-        mLaunchDisplayId = launchDisplayId;
-        return this;
-    }
-
-    /** @hide */
-    public int getLaunchWindowingMode() {
-        return mLaunchWindowingMode;
-    }
-
-    /**
-     * Sets the windowing mode the activity should launch into. If the input windowing mode is
-     * {@link android.app.WindowConfiguration#WINDOWING_MODE_SPLIT_SCREEN_SECONDARY} and the device
-     * isn't currently in split-screen windowing mode, then the activity will be launched in
-     * {@link android.app.WindowConfiguration#WINDOWING_MODE_FULLSCREEN} windowing mode. For clarity
-     * on this you can use
-     * {@link android.app.WindowConfiguration#WINDOWING_MODE_FULLSCREEN_OR_SPLIT_SCREEN_SECONDARY}
-     *
-     * @hide
-     */
-    @TestApi
-    public void setLaunchWindowingMode(int windowingMode) {
-        mLaunchWindowingMode = windowingMode;
-    }
-
-    /** @hide */
-    public int getLaunchActivityType() {
-        return mLaunchActivityType;
-    }
-
-    /** @hide */
-    @TestApi
-    public void setLaunchActivityType(int activityType) {
-        mLaunchActivityType = activityType;
-    }
-
-    /**
-     * Sets the task the activity will be launched in.
-     * @hide
-     */
-    @TestApi
-    public void setLaunchTaskId(int taskId) {
-        mLaunchTaskId = taskId;
-    }
-
-    /**
-     * @hide
-     */
-    public int getLaunchTaskId() {
-        return mLaunchTaskId;
-    }
-
-    /**
-     * Set's whether the activity launched with this option should be a task overlay. That is the
-     * activity will always be the top activity of the task.  If {@param canResume} is true, then
-     * the task will also not be moved to the front of the stack.
-     * @hide
-     */
-    @TestApi
-    public void setTaskOverlay(boolean taskOverlay, boolean canResume) {
-        mTaskOverlay = taskOverlay;
-        mTaskOverlayCanResume = canResume;
-    }
-
-    /**
-     * @hide
-     */
-    public boolean getTaskOverlay() {
-        return mTaskOverlay;
-    }
-
-    /**
-     * @hide
-     */
-    public boolean canTaskOverlayResume() {
-        return mTaskOverlayCanResume;
-    }
-
-    /**
-     * Sets whether the activity launched should not cause the activity stack it is contained in to
-     * be moved to the front as a part of launching.
-     *
-     * @hide
-     */
-    public void setAvoidMoveToFront() {
-        mAvoidMoveToFront = true;
-    }
-
-    /**
-     * @return whether the activity launch should prevent moving the associated activity stack to
-     *         the front.
-     * @hide
-     */
-    public boolean getAvoidMoveToFront() {
-        return mAvoidMoveToFront;
-    }
-
-    /** @hide */
-    public int getSplitScreenCreateMode() {
-        return mSplitScreenCreateMode;
-    }
-
-    /** @hide */
-    public void setSplitScreenCreateMode(int splitScreenCreateMode) {
-        mSplitScreenCreateMode = splitScreenCreateMode;
-    }
-
-    /** @hide */
-    public void setDisallowEnterPictureInPictureWhileLaunching(boolean disallow) {
-        mDisallowEnterPictureInPictureWhileLaunching = disallow;
-    }
-
-    /** @hide */
-    public boolean disallowEnterPictureInPictureWhileLaunching() {
-        return mDisallowEnterPictureInPictureWhileLaunching;
     }
 
     /**
@@ -1366,11 +849,6 @@ public class ActivityOptions {
                 mExitCoordinatorIndex = otherOptions.mExitCoordinatorIndex;
                 break;
         }
-        mLockTaskMode = otherOptions.mLockTaskMode;
-        mAnimSpecs = otherOptions.mAnimSpecs;
-        mAnimationFinishedListener = otherOptions.mAnimationFinishedListener;
-        mSpecsFuture = otherOptions.mSpecsFuture;
-        mRemoteAnimationAdapter = otherOptions.mRemoteAnimationAdapter;
     }
 
     /**
@@ -1382,12 +860,12 @@ public class ActivityOptions {
      * methods that take an options Bundle.
      */
     public Bundle toBundle() {
+        if (mAnimationType == ANIM_DEFAULT) {
+            return null;
+        }
         Bundle b = new Bundle();
         if (mPackageName != null) {
             b.putString(KEY_PACKAGE_NAME, mPackageName);
-        }
-        if (mLaunchBounds != null) {
-            b.putParcelable(KEY_LAUNCH_BOUNDS, mLaunchBounds);
         }
         b.putInt(KEY_ANIM_TYPE, mAnimationType);
         if (mUsageTimeReport != null) {
@@ -1414,16 +892,7 @@ public class ActivityOptions {
             case ANIM_THUMBNAIL_SCALE_DOWN:
             case ANIM_THUMBNAIL_ASPECT_SCALE_UP:
             case ANIM_THUMBNAIL_ASPECT_SCALE_DOWN:
-                // Once we parcel the thumbnail for transfering over to the system, create a copy of
-                // the bitmap to a hardware bitmap and pass through the GraphicBuffer
-                if (mThumbnail != null) {
-                    final Bitmap hwBitmap = mThumbnail.copy(Config.HARDWARE, false /* isMutable */);
-                    if (hwBitmap != null) {
-                        b.putParcelable(KEY_ANIM_THUMBNAIL, hwBitmap.createGraphicBufferHandle());
-                    } else {
-                        Slog.w(TAG, "Failed to copy thumbnail");
-                    }
-                }
+                b.putParcelable(KEY_ANIM_THUMBNAIL, mThumbnail);
                 b.putInt(KEY_ANIM_START_X, mStartX);
                 b.putInt(KEY_ANIM_START_Y, mStartY);
                 b.putInt(KEY_ANIM_WIDTH, mWidth);
@@ -1442,33 +911,7 @@ public class ActivityOptions {
                 b.putInt(KEY_EXIT_COORDINATOR_INDEX, mExitCoordinatorIndex);
                 break;
         }
-        b.putBoolean(KEY_LOCK_TASK_MODE, mLockTaskMode);
-        b.putInt(KEY_LAUNCH_DISPLAY_ID, mLaunchDisplayId);
-        b.putInt(KEY_LAUNCH_WINDOWING_MODE, mLaunchWindowingMode);
-        b.putInt(KEY_LAUNCH_ACTIVITY_TYPE, mLaunchActivityType);
-        b.putInt(KEY_LAUNCH_TASK_ID, mLaunchTaskId);
-        b.putBoolean(KEY_TASK_OVERLAY, mTaskOverlay);
-        b.putBoolean(KEY_TASK_OVERLAY_CAN_RESUME, mTaskOverlayCanResume);
-        b.putBoolean(KEY_AVOID_MOVE_TO_FRONT, mAvoidMoveToFront);
-        b.putInt(KEY_SPLIT_SCREEN_CREATE_MODE, mSplitScreenCreateMode);
-        b.putBoolean(KEY_DISALLOW_ENTER_PICTURE_IN_PICTURE_WHILE_LAUNCHING,
-                mDisallowEnterPictureInPictureWhileLaunching);
-        if (mAnimSpecs != null) {
-            b.putParcelableArray(KEY_ANIM_SPECS, mAnimSpecs);
-        }
-        if (mAnimationFinishedListener != null) {
-            b.putBinder(KEY_ANIMATION_FINISHED_LISTENER, mAnimationFinishedListener.asBinder());
-        }
-        if (mSpecsFuture != null) {
-            b.putBinder(KEY_SPECS_FUTURE, mSpecsFuture.asBinder());
-        }
-        b.putInt(KEY_ROTATION_ANIMATION_HINT, mRotationAnimationHint);
-        if (mAppVerificationBundle != null) {
-            b.putBundle(KEY_INSTANT_APP_VERIFICATION_BUNDLE, mAppVerificationBundle);
-        }
-        if (mRemoteAnimationAdapter != null) {
-            b.putParcelable(KEY_REMOTE_ANIMATION_ADAPTER, mRemoteAnimationAdapter);
-        }
+
         return b;
     }
 
@@ -1514,117 +957,4 @@ public class ActivityOptions {
         return null;
     }
 
-    /**
-     * Returns the rotation animation set by {@link setRotationAnimationHint} or -1
-     * if unspecified.
-     * @hide
-     */
-    public int getRotationAnimationHint() {
-        return mRotationAnimationHint;
-    }
-
-
-    /**
-     * Set a rotation animation to be used if launching the activity
-     * triggers an orientation change, or -1 to clear. See
-     * {@link android.view.WindowManager.LayoutParams} for rotation
-     * animation values.
-     * @hide
-     */
-    public void setRotationAnimationHint(int hint) {
-        mRotationAnimationHint = hint;
-    }
-
-    /**
-     * Pop the extra verification bundle for the installer.
-     * This removes the bundle from the ActivityOptions to make sure the installer bundle
-     * is only available once.
-     * @hide
-     */
-    public Bundle popAppVerificationBundle() {
-        Bundle out = mAppVerificationBundle;
-        mAppVerificationBundle = null;
-        return out;
-    }
-
-    /**
-     * Set the {@link Bundle} that is provided to the app installer for additional verification
-     * if the call to {@link Context#startActivity} results in an app being installed.
-     *
-     * This Bundle is not provided to any other app besides the installer.
-     */
-    public ActivityOptions setAppVerificationBundle(Bundle bundle) {
-        mAppVerificationBundle = bundle;
-        return this;
-
-    }
-
-    /** @hide */
-    @Override
-    public String toString() {
-        return "ActivityOptions(" + hashCode() + "), mPackageName=" + mPackageName
-                + ", mAnimationType=" + mAnimationType + ", mStartX=" + mStartX + ", mStartY="
-                + mStartY + ", mWidth=" + mWidth + ", mHeight=" + mHeight;
-    }
-
-    private static class HideWindowListener extends TransitionListenerAdapter
-        implements ExitTransitionCoordinator.HideSharedElementsCallback {
-        private final Window mWindow;
-        private final ExitTransitionCoordinator mExit;
-        private final boolean mWaitingForTransition;
-        private boolean mTransitionEnded;
-        private boolean mSharedElementHidden;
-        private ArrayList<View> mSharedElements;
-
-        public HideWindowListener(Window window, ExitTransitionCoordinator exit) {
-            mWindow = window;
-            mExit = exit;
-            mSharedElements = new ArrayList<>(exit.mSharedElements);
-            Transition transition = mWindow.getExitTransition();
-            if (transition != null) {
-                transition.addListener(this);
-                mWaitingForTransition = true;
-            } else {
-                mWaitingForTransition = false;
-            }
-            View decorView = mWindow.getDecorView();
-            if (decorView != null) {
-                if (decorView.getTag(com.android.internal.R.id.cross_task_transition) != null) {
-                    throw new IllegalStateException(
-                            "Cannot start a transition while one is running");
-                }
-                decorView.setTagInternal(com.android.internal.R.id.cross_task_transition, exit);
-            }
-        }
-
-        @Override
-        public void onTransitionEnd(Transition transition) {
-            mTransitionEnded = true;
-            hideWhenDone();
-            transition.removeListener(this);
-        }
-
-        @Override
-        public void hideSharedElements() {
-            mSharedElementHidden = true;
-            hideWhenDone();
-        }
-
-        private void hideWhenDone() {
-            if (mSharedElementHidden && (!mWaitingForTransition || mTransitionEnded)) {
-                mExit.resetViews();
-                int numSharedElements = mSharedElements.size();
-                for (int i = 0; i < numSharedElements; i++) {
-                    View view = mSharedElements.get(i);
-                    view.requestLayout();
-                }
-                View decorView = mWindow.getDecorView();
-                if (decorView != null) {
-                    decorView.setTagInternal(
-                            com.android.internal.R.id.cross_task_transition, null);
-                    decorView.setVisibility(View.GONE);
-                }
-            }
-        }
-    }
 }

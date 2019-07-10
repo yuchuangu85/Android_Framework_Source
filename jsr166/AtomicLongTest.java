@@ -21,7 +21,7 @@ public class AtomicLongTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(AtomicLongTest.class);
+    //     return new TestSuite(...);
     // }
 
     final long[] VALUES = {

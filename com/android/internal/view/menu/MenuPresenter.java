@@ -16,8 +16,6 @@
 
 package com.android.internal.view.menu;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
 import android.os.Parcelable;
 import android.view.ViewGroup;
@@ -51,16 +49,14 @@ public interface MenuPresenter {
     }
 
     /**
-     * Initializes this presenter for the given context and menu.
-     * <p>
-     * This method is called by MenuBuilder when a presenter is added. See
-     * {@link MenuBuilder#addMenuPresenter(MenuPresenter)}.
+     * Initialize this presenter for the given context and menu.
+     * This method is called by MenuBuilder when a presenter is
+     * added. See {@link MenuBuilder#addMenuPresenter(MenuPresenter)}
      *
-     * @param context the context for this presenter; used for view creation
-     *                and resource management, must be non-{@code null}
-     * @param menu the menu to host, or {@code null} to clear the hosted menu
+     * @param context Context for this presenter; used for view creation and resource management
+     * @param menu Menu to host
      */
-    public void initForMenu(@NonNull Context context, @Nullable MenuBuilder menu);
+    public void initForMenu(Context context, MenuBuilder menu);
 
     /**
      * Retrieve a MenuView to display the menu specified in
@@ -101,10 +97,8 @@ public interface MenuPresenter {
      * closing. Presenter implementations should close the representation
      * of the menu indicated as necessary and notify a registered callback.
      *
-     * @param menu the menu or submenu that is closing
-     * @param allMenusAreClosing {@code true} if all displayed menus and
-     *                           submenus are closing, {@code false} if only
-     *                           the specified menu is closing
+     * @param menu Menu or submenu that is closing.
+     * @param allMenusAreClosing True if all associated menus are closing.
      */
     public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing);
 

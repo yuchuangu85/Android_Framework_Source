@@ -1,126 +1,122 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto.spec;
 
 import java.security.InvalidKeyException;
+import java.security.spec.KeySpec;
 
 /**
- * This class specifies a DES-EDE ("triple-DES") key.
- *
- * @author Jan Luehe
- *
- * @since 1.4
+ * The key specification for a triple-DES (DES-EDE) key.
  */
-public class DESedeKeySpec implements java.security.spec.KeySpec {
+public class DESedeKeySpec implements KeySpec {
 
     /**
-     * The constant which defines the length of a DESede key in bytes.
+     * The length of a DES-EDE key in bytes.
      */
     public static final int DES_EDE_KEY_LEN = 24;
 
-    private byte[] key;
+    private final byte[] key;
 
     /**
-     * Creates a DESedeKeySpec object using the first 24 bytes in
-     * <code>key</code> as the key material for the DES-EDE key.
+     * Creates a new <code>DESedeKeySpec</code> instance from the first 24 (
+     * {@link #DES_EDE_KEY_LEN}) bytes of the specified key data.
      *
-     * <p> The bytes that constitute the DES-EDE key are those between
-     * <code>key[0]</code> and <code>key[23]</code> inclusive
-     *
-     * @param key the buffer with the DES-EDE key material. The first
-     * 24 bytes of the buffer are copied to protect against subsequent
-     * modification.
-     *
-     * @exception NullPointerException if <code>key</code> is null.
-     * @exception InvalidKeyException if the given key material is shorter
-     * than 24 bytes.
+     * @param key
+     *            the key data.
+     * @throws InvalidKeyException
+     *             if the length of the key data is less than 24.
+     * @throws NullPointerException
+     *             if the key data is null.
      */
     public DESedeKeySpec(byte[] key) throws InvalidKeyException {
-        this(key, 0);
+        if (key == null) {
+            throw new NullPointerException("key == null");
+        }
+        if (key.length < DES_EDE_KEY_LEN) {
+            throw new InvalidKeyException();
+        }
+        this.key = new byte[DES_EDE_KEY_LEN];
+        System.arraycopy(key, 0, this.key, 0, DES_EDE_KEY_LEN);
     }
 
     /**
-     * Creates a DESedeKeySpec object using the first 24 bytes in
-     * <code>key</code>, beginning at <code>offset</code> inclusive,
-     * as the key material for the DES-EDE key.
+     * Creates a new <code>DESedeKeySpec</code> instance from the first 24 (
+     * {@link #DES_EDE_KEY_LEN} ) bytes of the specified key data starting at
+     * <code>offset</code>.
      *
-     * <p> The bytes that constitute the DES-EDE key are those between
-     * <code>key[offset]</code> and <code>key[offset+23]</code> inclusive.
-     *
-     * @param key the buffer with the DES-EDE key material. The first
-     * 24 bytes of the buffer beginning at <code>offset</code> inclusive
-     * are copied to protect against subsequent modification.
-     * @param offset the offset in <code>key</code>, where the DES-EDE key
-     * material starts.
-     *
-     * @exception NullPointerException if <code>key</code> is null.
-     * @exception InvalidKeyException if the given key material, starting at
-     * <code>offset</code> inclusive, is shorter than 24 bytes
+     * @param key
+     *            the key data
+     * @param offset
+     *            the offset to start at.
+     * @throws InvalidKeyException
+     *             if the length of the key data starting at offset is less than
+     *             24.
+     * @throws NullPointerException
+     *             if the key data is null.
      */
     public DESedeKeySpec(byte[] key, int offset) throws InvalidKeyException {
-        if (key.length - offset < 24) {
-            throw new InvalidKeyException("Wrong key size");
+        if (key == null) {
+            throw new NullPointerException("key == null");
         }
-        this.key = new byte[24];
-        System.arraycopy(key, offset, this.key, 0, 24);
+        if (key.length - offset < DES_EDE_KEY_LEN) {
+            throw new InvalidKeyException();
+        }
+        this.key = new byte[DES_EDE_KEY_LEN];
+        System.arraycopy(key, offset, this.key, 0, DES_EDE_KEY_LEN);
     }
 
     /**
-     * Returns the DES-EDE key.
+     * Returns a copy of the key.
      *
-     * @return the DES-EDE key. Returns a new array
-     * each time this method is called.
+     * @return a copy of the key.
      */
     public byte[] getKey() {
-        return this.key.clone();
+        byte[] result = new byte [DES_EDE_KEY_LEN];
+        System.arraycopy(this.key, 0, result, 0, DES_EDE_KEY_LEN);
+        return result;
     }
 
     /**
-     * Checks if the given DES-EDE key, starting at <code>offset</code>
-     * inclusive, is parity-adjusted.
+     * Returns whether the specified key data starting at <code>offset</code> is
+     * <i>parity-adjusted</i>.
      *
-     * @param key    a byte array which holds the key value
-     * @param offset the offset into the byte array
-     * @return true if the given DES-EDE key is parity-adjusted, false
-     * otherwise
-     *
-     * @exception NullPointerException if <code>key</code> is null.
-     * @exception InvalidKeyException if the given key material, starting at
-     * <code>offset</code> inclusive, is shorter than 24 bytes
+     * @param key
+     *            the key data.
+     * @param offset
+     *            the offset to start checking at.
+     * @return {@code true} if the specified key data is parity-adjusted,
+     *            {@code false} otherwise.
+     * @throws InvalidKeyException
+     *             if the length of the key data starting at offset is less than
+     *             24.
      */
-    public static boolean isParityAdjusted(byte[] key, int offset)
-        throws InvalidKeyException {
-            if (key.length - offset < 24) {
-                throw new InvalidKeyException("Wrong key size");
-            }
-            if (DESKeySpec.isParityAdjusted(key, offset) == false
-                || DESKeySpec.isParityAdjusted(key, offset + 8) == false
-                || DESKeySpec.isParityAdjusted(key, offset + 16) == false) {
+    public static boolean isParityAdjusted(byte[] key, int offset) throws InvalidKeyException {
+        if (key.length - offset < DES_EDE_KEY_LEN) {
+            throw new InvalidKeyException();
+        }
+        for (int i=offset; i<DES_EDE_KEY_LEN+offset; i++) {
+            int b = key[i];
+            if ((((b & 1) + ((b & 2) >> 1) + ((b & 4) >> 2)
+                + ((b & 8) >> 3) + ((b & 16) >> 4) + ((b & 32) >> 5)
+                + ((b & 64) >> 6)) & 1) == ((b & 128) >> 7)) {
                 return false;
             }
-            return true;
+        }
+        return true;
     }
 }

@@ -1,217 +1,152 @@
 /*
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
+import java.io.Serializable;
+
 /**
- * <P>An exception that provides information on  database access
- * warnings. Warnings are silently chained to the object whose method
- * caused it to be reported.
- * <P>
- * Warnings may be retrieved from <code>Connection</code>, <code>Statement</code>,
- * and <code>ResultSet</code> objects.  Trying to retrieve a warning on a
- * connection after it has been closed will cause an exception to be thrown.
- * Similarly, trying to retrieve a warning on a statement after it has been
- * closed or on a result set after it has been closed will cause
- * an exception to be thrown. Note that closing a statement also
- * closes a result set that it might have produced.
- *
- * @see Connection#getWarnings
- * @see Statement#getWarnings
- * @see ResultSet#getWarnings
+ * An exception class that holds information about Database access warnings.
  */
-public class SQLWarning extends SQLException {
+public class SQLWarning extends SQLException implements Serializable {
+
+    private static final long serialVersionUID = 3917336774604784856L;
 
     /**
-     * Constructs a  <code>SQLWarning</code> object
-     *  with a given <code>reason</code>, <code>SQLState</code>  and
-     * <code>vendorCode</code>.
-     *
-     * The <code>cause</code> is not initialized, and may subsequently be
-     * initialized by a call to the
-     * {@link Throwable#initCause(java.lang.Throwable)} method.
-     * <p>
-     * @param reason a description of the warning
-     * @param SQLState an XOPEN or SQL:2003 code identifying the warning
-     * @param vendorCode a database vendor-specific warning code
-     */
-     public SQLWarning(String reason, String SQLState, int vendorCode) {
-        super(reason, SQLState, vendorCode);
-        DriverManager.println("SQLWarning: reason(" + reason +
-                              ") SQLState(" + SQLState +
-                              ") vendor code(" + vendorCode + ")");
-    }
-
-
-    /**
-     * Constructs a <code>SQLWarning</code> object
-     * with a given <code>reason</code> and <code>SQLState</code>.
-     *
-     * The <code>cause</code> is not initialized, and may subsequently be
-     * initialized by a call to the
-     * {@link Throwable#initCause(java.lang.Throwable)} method. The vendor code
-     * is initialized to 0.
-     * <p>
-     * @param reason a description of the warning
-     * @param SQLState an XOPEN or SQL:2003 code identifying the warning
-     */
-    public SQLWarning(String reason, String SQLState) {
-        super(reason, SQLState);
-        DriverManager.println("SQLWarning: reason(" + reason +
-                                  ") SQLState(" + SQLState + ")");
-    }
-
-    /**
-     * Constructs a <code>SQLWarning</code> object
-     * with a given <code>reason</code>. The <code>SQLState</code>
-     * is initialized to <code>null</code> and the vender code is initialized
-     * to 0.
-     *
-     * The <code>cause</code> is not initialized, and may subsequently be
-     * initialized by a call to the
-     * {@link Throwable#initCause(java.lang.Throwable)} method.
-     * <p>
-     * @param reason a description of the warning
-     */
-    public SQLWarning(String reason) {
-        super(reason);
-        DriverManager.println("SQLWarning: reason(" + reason + ")");
-    }
-
-    /**
-     * Constructs a  <code>SQLWarning</code> object.
-     * The <code>reason</code>, <code>SQLState</code> are initialized
-     * to <code>null</code> and the vendor code is initialized to 0.
-     *
-     * The <code>cause</code> is not initialized, and may subsequently be
-     * initialized by a call to the
-     * {@link Throwable#initCause(java.lang.Throwable)} method.
-     * <p>
+     * Creates an {@code SQLWarning} object. The reason string is set to {@code
+     * null}, the {@code SQLState} string is set to {@code null} and the error
+     * code is set to 0.
      */
     public SQLWarning() {
-        super();
-        DriverManager.println("SQLWarning: ");
     }
 
     /**
-     * Constructs a <code>SQLWarning</code> object
-     * with a given  <code>cause</code>.
-     * The <code>SQLState</code> is initialized
-     * to <code>null</code> and the vendor code is initialized to 0.
-     * The <code>reason</code>  is initialized to <code>null</code> if
-     * <code>cause==null</code> or to <code>cause.toString()</code> if
-     * <code>cause!=null</code>.
-     * <p>
-     * @param cause the underlying reason for this <code>SQLWarning</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
+     * Creates an {@code SQLWarning} object. The reason string is set to the
+     * given reason string, the {@code SQLState} string is set to {@code null}
+     * and the error code is set to 0.
+     *
+     * @param theReason
+     *            the reason why this warning is issued.
+     */
+    public SQLWarning(String theReason) {
+        super(theReason);
+    }
+
+    /**
+     * Creates an {@code SQLWarning} object. The reason string is set to the
+     * given reason string, the {@code SQLState} string is set to the given
+     * {@code SQLState} string and the error code is set to 0.
+     *
+     * @param theReason
+     *            the reason why this warning is issued.
+     * @param theSQLState
+     *            the string to use as the {@code SQLState} string.
+     */
+    public SQLWarning(String theReason, String theSQLState) {
+        super(theReason, theSQLState);
+    }
+
+    /**
+     * Creates an {@code SQLWarning} object. The reason string is set to the
+     * given reason string, the {@code SQLState} string is set to the given
+     * {@code SQLState} string and the error code is set to the given error code
+     * value.
+     *
+     * @param theReason
+     *            the reason why this warning is issued.
+     * @param theSQLState
+     *            the X/Open standard specifc error code.
+     * @param theErrorCode
+     *            a vendor specific error code.
+     */
+    public SQLWarning(String theReason, String theSQLState, int theErrorCode) {
+        super(theReason, theSQLState, theErrorCode);
+    }
+
+    /**
+     * Creates an SQLWarning object. The Reason string is set to null, the
+     * SQLState string is set to null and the Error Code is set to 0, cause is
+     * set to cause.
+     *
+     * @since 1.6
      */
     public SQLWarning(Throwable cause) {
         super(cause);
-        DriverManager.println("SQLWarning");
     }
 
     /**
-     * Constructs a <code>SQLWarning</code> object
-     * with a given
-     * <code>reason</code> and  <code>cause</code>.
-     * The <code>SQLState</code> is  initialized to <code>null</code>
-     * and the vendor code is initialized to 0.
-     * <p>
-     * @param reason a description of the warning
-     * @param cause  the underlying reason for this <code>SQLWarning</code>
-     * (which is saved for later retrieval by the <code>getCause()</code> method);
-     * may be null indicating the cause is non-existent or unknown.
+     * Creates an SQLWarning object. The Reason string is set to reason, the
+     * SQLState string is set to null and the Error Code is set to 0, cause is
+     * set to the given cause
+     *
+     * @since 1.6
      */
     public SQLWarning(String reason, Throwable cause) {
-        super(reason,cause);
-        DriverManager.println("SQLWarning : reason("+ reason + ")");
+        super(reason, cause);
     }
 
     /**
-     * Constructs a <code>SQLWarning</code> object
-     * with a given
-     * <code>reason</code>, <code>SQLState</code> and  <code>cause</code>.
-     * The vendor code is initialized to 0.
-     * <p>
-     * @param reason a description of the warning
-     * @param SQLState an XOPEN or SQL:2003 code identifying the warning
-     * @param cause the underlying reason for this <code>SQLWarning</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
+     * Creates an SQLWarning object. The Reason string is set to reason, the
+     * SQLState string is set to given SQLState and the Error Code is set to 0,
+     * cause is set to the given cause
+     *
+     * @since 1.6
      */
     public SQLWarning(String reason, String SQLState, Throwable cause) {
-        super(reason,SQLState,cause);
-        DriverManager.println("SQLWarning: reason(" + reason +
-                                  ") SQLState(" + SQLState + ")");
+        super(reason, SQLState, cause);
     }
 
     /**
-     * Constructs a<code>SQLWarning</code> object
-     * with a given
-     * <code>reason</code>, <code>SQLState</code>, <code>vendorCode</code>
-     * and  <code>cause</code>.
-     * <p>
-     * @param reason a description of the warning
-     * @param SQLState an XOPEN or SQL:2003 code identifying the warning
-     * @param vendorCode a database vendor-specific warning code
-     * @param cause the underlying reason for this <code>SQLWarning</code> (which is saved for later retrieval by the <code>getCause()</code> method); may be null indicating
-     *     the cause is non-existent or unknown.
-     */
-    public SQLWarning(String reason, String SQLState, int vendorCode, Throwable cause) {
-        super(reason,SQLState,vendorCode,cause);
-        DriverManager.println("SQLWarning: reason(" + reason +
-                              ") SQLState(" + SQLState +
-                              ") vendor code(" + vendorCode + ")");
-
-    }
-    /**
-     * Retrieves the warning chained to this <code>SQLWarning</code> object by
-     * <code>setNextWarning</code>.
+     * Creates an SQLWarning object. The Reason string is set to reason, the
+     * SQLState string is set to given SQLState and the Error Code is set to
+     * vendorCode, cause is set to the given cause
      *
-     * @return the next <code>SQLException</code> in the chain; <code>null</code> if none
-     * @see #setNextWarning
+     * @since 1.6
+     */
+    public SQLWarning(String reason, String SQLState, int vendorCode,
+            Throwable cause) {
+        super(reason, SQLState, vendorCode, cause);
+    }
+
+    /**
+     * Gets the next {@code SQLWarning} chained to this {@code SQLWarning} object.
+     *
+     * @return the {@code SQLWarning} chained to this {@code SQLWarning}.
+     *         {@code null} if no {@code SQLWarning} is chained to this {@code
+     *         SQLWarning}.
      */
     public SQLWarning getNextWarning() {
-        try {
-            return ((SQLWarning)getNextException());
-        } catch (ClassCastException ex) {
-            // The chained value isn't a SQLWarning.
-            // This is a programming error by whoever added it to
-            // the SQLWarning chain.  We throw a Java "Error".
-            throw new Error("SQLWarning chain holds value that is not a SQLWarning");
+        SQLException next = super.getNextException();
+        if (next == null) {
+            return null;
         }
+        if (next instanceof SQLWarning) {
+            return (SQLWarning) next;
+        }
+        throw new Error("SQLWarning chain holds value that is not a SQLWarning");
     }
 
     /**
-     * Adds a <code>SQLWarning</code> object to the end of the chain.
+     * Chains a supplied {@code SQLWarning} to this {@code SQLWarning}.
      *
-     * @param w the new end of the <code>SQLException</code> chain
-     * @see #getNextWarning
+     * @param w
+     *            the {@code SQLWarning} linked to this {@code SQLWarning}.
      */
     public void setNextWarning(SQLWarning w) {
-        setNextException(w);
+        super.setNextException(w);
     }
-
-    private static final long serialVersionUID = 3917336774604784856L;
 }

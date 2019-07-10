@@ -1,77 +1,67 @@
 /*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
 
+import java.util.EventListener;
+
 /**
- * An interface that must be implemented by a
- * component that wants to be notified when a significant
- * event happens in the life of a <code>RowSet</code> object.
- * A component becomes a listener by being registered with a
- * <code>RowSet</code> object via the method <code>RowSet.addRowSetListener</code>.
- * How a registered component implements this interface determines what it does
- * when it is notified of an event.
- *
- * @since 1.4
+ * An interface used to send notification of events occurring in the context of
+ * a {@link RowSet}. To receive the notification events, an object must
+ * implement the {@code RowSetListener} interface and then register itself with
+ * the {@code RowSet} of interest using the
+ * {@link RowSet#addRowSetListener(RowSetListener)} method.
  */
+public interface RowSetListener extends EventListener {
 
-public interface RowSetListener extends java.util.EventListener {
+    /**
+     * Notifies the listener that the {@code RowSet}'s cursor in {@code
+     * theEvent.getSource} has moved.
+     *
+     * @param theEvent
+     *            a {@code RowSetEvent} that contains information about the
+     *            {@code RowSet} involved. This information can be used to
+     *            retrieve information about the change, such as the updated
+     *            data values.
+     */
+    public void cursorMoved(RowSetEvent theEvent);
 
-  /**
-   * Notifies registered listeners that a <code>RowSet</code> object
-   * in the given <code>RowSetEvent</code> object has changed its entire contents.
-   * <P>
-   * The source of the event can be retrieved with the method
-   * <code>event.getSource</code>.
-   *
-   * @param event a <code>RowSetEvent</code> object that contains
-   *         the <code>RowSet</code> object that is the source of the event
-   */
-  void rowSetChanged(RowSetEvent event);
+    /**
+     * Notifies the listener that one of the {@code RowSet}'s rows in {@code
+     * theEvent.getSource} has changed.
+     *
+     * @param theEvent
+     *            a {@code RowSetEvent} that contains information about the
+     *            {@code RowSet} involved. This information can be used to
+     *            retrieve information about the change, such as the new cursor
+     *            position.
+     */
+    public void rowChanged(RowSetEvent theEvent);
 
-  /**
-   * Notifies registered listeners that a <code>RowSet</code> object
-   * has had a change in one of its rows.
-   * <P>
-   * The source of the event can be retrieved with the method
-   * <code>event.getSource</code>.
-   *
-   * @param event a <code>RowSetEvent</code> object that contains
-   *         the <code>RowSet</code> object that is the source of the event
-   */
-  void rowChanged(RowSetEvent event);
-
-  /**
-   * Notifies registered listeners that a <code>RowSet</code> object's
-   * cursor has moved.
-   * <P>
-   * The source of the event can be retrieved with the method
-   * <code>event.getSource</code>.
-   *
-   * @param event a <code>RowSetEvent</code> object that contains
-   *         the <code>RowSet</code> object that is the source of the event
-   */
-  void cursorMoved(RowSetEvent event);
+    /**
+     * Notifies the listener that the {@code RowSet}'s entire contents in
+     * {@code theEvent.getSource} have been updated (an example is the execution
+     * of a command which retrieves new data from the database).
+     *
+     * @param theEvent
+     *            a {@code RowSetEvent} that contains information about the
+     *            {@code RowSet} involved. This information can be used to
+     *            retrieve information about the change, such as the updated
+     *            rows of data.
+     */
+    public void rowSetChanged(RowSetEvent theEvent);
 }

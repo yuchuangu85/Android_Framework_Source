@@ -20,14 +20,18 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.View;
+import android.view.animation.AnimationUtils;
+import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
 
-import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 
 public class AssistOrbContainer extends FrameLayout {
 
     private static final long EXIT_START_DELAY = 150;
+
+    private final Interpolator mLinearOutSlowInInterpolator;
+    private final Interpolator mFastOutLinearInInterpolator;
 
     private View mScrim;
     private View mNavbarScrim;
@@ -45,6 +49,10 @@ public class AssistOrbContainer extends FrameLayout {
 
     public AssistOrbContainer(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        mLinearOutSlowInInterpolator = AnimationUtils.loadInterpolator(context,
+                android.R.interpolator.linear_out_slow_in);
+        mFastOutLinearInInterpolator = AnimationUtils.loadInterpolator(context,
+                android.R.interpolator.fast_out_slow_in);
     }
 
     @Override
@@ -101,12 +109,12 @@ public class AssistOrbContainer extends FrameLayout {
                         .alpha(1f)
                         .setDuration(300)
                         .setStartDelay(0)
-                        .setInterpolator(Interpolators.LINEAR_OUT_SLOW_IN);
+                        .setInterpolator(mLinearOutSlowInInterpolator);
                 mNavbarScrim.animate()
                         .alpha(1f)
                         .setDuration(300)
                         .setStartDelay(0)
-                        .setInterpolator(Interpolators.LINEAR_OUT_SLOW_IN);
+                        .setInterpolator(mLinearOutSlowInInterpolator);
             }
         });
     }
@@ -124,12 +132,12 @@ public class AssistOrbContainer extends FrameLayout {
                 .alpha(0f)
                 .setDuration(250)
                 .setStartDelay(EXIT_START_DELAY)
-                .setInterpolator(Interpolators.FAST_OUT_SLOW_IN);
+                .setInterpolator(mFastOutLinearInInterpolator);
         mNavbarScrim.animate()
                 .alpha(0f)
                 .setDuration(250)
                 .setStartDelay(EXIT_START_DELAY)
-                .setInterpolator(Interpolators.FAST_OUT_SLOW_IN)
+                .setInterpolator(mFastOutLinearInInterpolator)
                 .withEndAction(endRunnable);
     }
 

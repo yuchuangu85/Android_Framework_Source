@@ -20,6 +20,7 @@ import android.os.ParcelFileDescriptor;
 import android.util.ArrayMap;
 import android.util.Log;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -41,7 +42,7 @@ import java.util.zip.InflaterInputStream;
  */
 public abstract class BlobBackupHelper implements BackupHelper {
     private static final String TAG = "BlobBackupHelper";
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     private final int mCurrentBlobVersion;
     private final String[] mKeys;
@@ -91,21 +92,16 @@ public abstract class BlobBackupHelper implements BackupHelper {
         final ArrayMap<String, Long> state = new ArrayMap<String, Long>();
 
         FileInputStream fis = new FileInputStream(oldStateFd.getFileDescriptor());
-        DataInputStream in = new DataInputStream(fis);
+        BufferedInputStream bis = new BufferedInputStream(fis);
+        DataInputStream in = new DataInputStream(bis);
 
         try {
             int version = in.readInt();
             if (version <= mCurrentBlobVersion) {
                 final int numKeys = in.readInt();
-                if (DEBUG) {
-                    Log.i(TAG, "  " + numKeys + " keys in state record");
-                }
                 for (int i = 0; i < numKeys; i++) {
                     String key = in.readUTF();
                     long checksum = in.readLong();
-                    if (DEBUG) {
-                        Log.i(TAG, "  key '" + key + "' checksum is " + checksum);
-                    }
                     state.put(key, checksum);
                 }
             } else {
@@ -114,9 +110,6 @@ public abstract class BlobBackupHelper implements BackupHelper {
         } catch (EOFException e) {
             // Empty file is expected on first backup,  so carry on. If the state
             // is truncated we just treat it the same way.
-            if (DEBUG) {
-                Log.i(TAG, "Hit EOF reading prior state");
-            }
             state.clear();
         } catch (Exception e) {
             Log.e(TAG, "Error examining prior backup state " + e.getMessage());
@@ -143,13 +136,8 @@ public abstract class BlobBackupHelper implements BackupHelper {
             final int N = (state != null) ? state.size() : 0;
             out.writeInt(N);
             for (int i = 0; i < N; i++) {
-                final String key = state.keyAt(i);
-                final long checksum = state.valueAt(i).longValue();
-                if (DEBUG) {
-                    Log.i(TAG, "  writing key " + key + " checksum = " + checksum);
-                }
-                out.writeUTF(key);
-                out.writeLong(checksum);
+                out.writeUTF(state.keyAt(i));
+                out.writeLong(state.valueAt(i).longValue());
             }
         } catch (IOException e) {
             Log.e(TAG, "Unable to write updated state", e);
@@ -238,9 +226,6 @@ public abstract class BlobBackupHelper implements BackupHelper {
     @Override
     public void performBackup(ParcelFileDescriptor oldStateFd, BackupDataOutput data,
             ParcelFileDescriptor newStateFd) {
-        if (DEBUG) {
-            Log.i(TAG, "Performing backup for " + this.getClass().getName());
-        }
 
         final ArrayMap<String, Long> oldState = readOldState(oldStateFd);
         final ArrayMap<String, Long> newState = new ArrayMap<String, Long>();
@@ -249,16 +234,12 @@ public abstract class BlobBackupHelper implements BackupHelper {
             for (String key : mKeys) {
                 final byte[] payload = deflate(getBackupPayload(key));
                 final long checksum = checksum(payload);
-                if (DEBUG) {
-                    Log.i(TAG, "Key " + key + " backup checksum is " + checksum);
-                }
                 newState.put(key, checksum);
 
                 Long oldChecksum = oldState.get(key);
-                if (oldChecksum == null || checksum != oldChecksum.longValue()) {
+                if (oldChecksum == null || checksum != oldChecksum) {
                     if (DEBUG) {
-                        Log.i(TAG, "Checksum has changed from " + oldChecksum + " to " + checksum
-                                + " for key " + key + ", writing");
+                        Log.i(TAG, "State has changed for key " + key + ", writing");
                     }
                     if (payload != null) {
                         data.writeEntityHeader(key, payload.length);
@@ -277,7 +258,7 @@ public abstract class BlobBackupHelper implements BackupHelper {
             Log.w(TAG,  "Unable to record notification state: " + e.getMessage());
             newState.clear();
         } finally {
-            // Always rewrite the state even if nothing changed
+            // Always recommit the state even if nothing changed
             writeBackupState(newState, newStateFd);
         }
     }
@@ -310,9 +291,6 @@ public abstract class BlobBackupHelper implements BackupHelper {
     @Override
     public void writeNewStateDescription(ParcelFileDescriptor newState) {
         // Just ensure that we do a full backup the first time after a restore
-        if (DEBUG) {
-            Log.i(TAG, "Writing state description after restore");
-        }
         writeBackupState(null, newState);
     }
 }

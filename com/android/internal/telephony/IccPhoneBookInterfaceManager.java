@@ -21,14 +21,14 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.telephony.Rlog;
+import android.os.ServiceManager;
 
 import com.android.internal.telephony.uicc.AdnRecord;
 import com.android.internal.telephony.uicc.AdnRecordCache;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccConstants;
-import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccRecords;
+import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 
 import java.util.List;
@@ -38,11 +38,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * SimPhoneBookInterfaceManager to provide an inter-process communication to
  * access ADN-like SIM records.
  */
-public class IccPhoneBookInterfaceManager {
-    static final String LOG_TAG = "IccPhoneBookIM";
+public abstract class IccPhoneBookInterfaceManager {
     protected static final boolean DBG = true;
 
-    protected Phone mPhone;
+    protected PhoneBase mPhone;
     private   UiccCardApplication mCurrentApp = null;
     protected AdnRecordCache mAdnCache;
     protected final Object mLock = new Object();
@@ -93,7 +92,9 @@ public class IccPhoneBookInterfaceManager {
                             mRecords = (List<AdnRecord>) ar.result;
                         } else {
                             if(DBG) logd("Cannot load ADN records");
-                            mRecords = null;
+                            if (mRecords != null) {
+                                mRecords.clear();
+                            }
                         }
                         notifyPending(ar);
                     }
@@ -110,9 +111,9 @@ public class IccPhoneBookInterfaceManager {
         }
     };
 
-    public IccPhoneBookInterfaceManager(Phone phone) {
+    public IccPhoneBookInterfaceManager(PhoneBase phone) {
         this.mPhone = phone;
-        IccRecords r = phone.getIccRecords();
+        IccRecords r = phone.mIccRecords.get();
         if (r != null) {
             mAdnCache = r.getAdnCache();
         }
@@ -129,13 +130,9 @@ public class IccPhoneBookInterfaceManager {
         }
     }
 
-    protected void logd(String msg) {
-        Rlog.d(LOG_TAG, "[IccPbInterfaceManager] " + msg);
-    }
+    protected abstract void logd(String msg);
 
-    protected void loge(String msg) {
-        Rlog.e(LOG_TAG, "[IccPbInterfaceManager] " + msg);
-    }
+    protected abstract void loge(String msg);
 
     /**
      * Replace oldAdn with newAdn in ADN-like record in EF
@@ -171,10 +168,9 @@ public class IccPhoneBookInterfaceManager {
         }
 
 
-        if (DBG) logd("updateAdnRecordsInEfBySearch: efid=0x" +
-                Integer.toHexString(efid).toUpperCase() + " ("+ Rlog.pii(LOG_TAG, oldTag) + "," +
-                Rlog.pii(LOG_TAG, oldPhoneNumber) + ")" + "==>" + " ("+ Rlog.pii(LOG_TAG, newTag) +
-                "," + Rlog.pii(LOG_TAG, newPhoneNumber) + ")"+ " pin2=" + Rlog.pii(LOG_TAG, pin2));
+        if (DBG) logd("updateAdnRecordsInEfBySearch: efid=" + efid +
+                " ("+ oldTag + "," + oldPhoneNumber + ")"+ "==>" +
+                " ("+ newTag + "," + newPhoneNumber + ")"+ " pin2=" + pin2);
 
         efid = updateEfForIccType(efid);
 
@@ -223,10 +219,9 @@ public class IccPhoneBookInterfaceManager {
                     "Requires android.permission.WRITE_CONTACTS permission");
         }
 
-        if (DBG) logd("updateAdnRecordsInEfByIndex: efid=0x" +
-                Integer.toHexString(efid).toUpperCase() + " Index=" + index + " ==> " + "(" +
-                Rlog.pii(LOG_TAG, newTag) + "," + Rlog.pii(LOG_TAG, newPhoneNumber) + ")" +
-                " pin2=" + Rlog.pii(LOG_TAG, pin2));
+        if (DBG) logd("updateAdnRecordsInEfByIndex: efid=" + efid +
+                " Index=" + index + " ==> " +
+                "("+ newTag + "," + newPhoneNumber + ")"+ " pin2=" + pin2);
         synchronized(mLock) {
             checkThread();
             mSuccess = false;
@@ -252,26 +247,7 @@ public class IccPhoneBookInterfaceManager {
      *            recordSizes[1]  is the total length of the EF file
      *            recordSizes[2]  is the number of records in the EF file
      */
-    public int[] getAdnRecordsSize(int efid) {
-        if (DBG) logd("getAdnRecordsSize: efid=" + efid);
-        synchronized(mLock) {
-            checkThread();
-            mRecordSize = new int[3];
-
-            //Using mBaseHandler, no difference in EVENT_GET_SIZE_DONE handling
-            AtomicBoolean status = new AtomicBoolean(false);
-            Message response = mBaseHandler.obtainMessage(EVENT_GET_SIZE_DONE, status);
-
-            IccFileHandler fh = mPhone.getIccFileHandler();
-            if (fh != null) {
-                fh.getEFLinearRecordSize(efid, response);
-                waitForResult(status);
-            }
-        }
-
-        return mRecordSize;
-    }
-
+    public abstract int[] getAdnRecordsSize(int efid);
 
     /**
      * Loads the AdnRecords in efid and returns them as a
@@ -292,7 +268,7 @@ public class IccPhoneBookInterfaceManager {
         }
 
         efid = updateEfForIccType(efid);
-        if (DBG) logd("getAdnRecordsInEF: efid=0x" + Integer.toHexString(efid).toUpperCase());
+        if (DBG) logd("getAdnRecordsInEF: efid=" + efid);
 
         synchronized(mLock) {
             checkThread();

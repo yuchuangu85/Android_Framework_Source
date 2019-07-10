@@ -35,80 +35,46 @@ import android.text.style.ParagraphStyle;
  *  Canvas.drawText()} directly.</p>
  */
 public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback {
-
-    /**
-     * Utility function to construct a BoringLayout instance.
-     *
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerWidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingMult this value is no longer used by BoringLayout
-     * @param spacingAdd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
-     */
-    public static BoringLayout make(CharSequence source, TextPaint paint, int outerWidth,
-            Alignment align, float spacingMult, float spacingAdd, BoringLayout.Metrics metrics,
-            boolean includePad) {
-        return new BoringLayout(source, paint, outerWidth, align, spacingMult, spacingAdd, metrics,
-                includePad);
+    public static BoringLayout make(CharSequence source,
+                        TextPaint paint, int outerwidth,
+                        Alignment align,
+                        float spacingmult, float spacingadd,
+                        BoringLayout.Metrics metrics, boolean includepad) {
+        return new BoringLayout(source, paint, outerwidth, align,
+                                spacingmult, spacingadd, metrics,
+                                includepad);
     }
 
-    /**
-     * Utility function to construct a BoringLayout instance.
-     *
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerWidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingmult this value is no longer used by BoringLayout
-     * @param spacingadd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
-     * @param ellipsize whether to ellipsize the text if width of the text is longer than the
-     *                  requested width
-     * @param ellipsizedWidth the width to which this Layout is ellipsizing. If {@code ellipsize} is
-     *                        {@code null}, or is {@link TextUtils.TruncateAt#MARQUEE} this value is
-     *                        not used, {@code outerWidth} is used instead
-     */
-    public static BoringLayout make(CharSequence source, TextPaint paint, int outerWidth,
-            Alignment align, float spacingmult, float spacingadd, BoringLayout.Metrics metrics,
-            boolean includePad, TextUtils.TruncateAt ellipsize, int ellipsizedWidth) {
-        return new BoringLayout(source, paint, outerWidth, align, spacingmult, spacingadd, metrics,
-                includePad, ellipsize, ellipsizedWidth);
+    public static BoringLayout make(CharSequence source,
+                        TextPaint paint, int outerwidth,
+                        Alignment align,
+                        float spacingmult, float spacingadd,
+                        BoringLayout.Metrics metrics, boolean includepad,
+                        TextUtils.TruncateAt ellipsize, int ellipsizedWidth) {
+        return new BoringLayout(source, paint, outerwidth, align,
+                                spacingmult, spacingadd, metrics,
+                                includepad, ellipsize, ellipsizedWidth);
     }
 
     /**
      * Returns a BoringLayout for the specified text, potentially reusing
      * this one if it is already suitable.  The caller must make sure that
      * no one is still using this Layout.
-     *
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerwidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingMult this value is no longer used by BoringLayout
-     * @param spacingAdd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
      */
-    public BoringLayout replaceOrMake(CharSequence source, TextPaint paint, int outerwidth,
-            Alignment align, float spacingMult, float spacingAdd, BoringLayout.Metrics metrics,
-            boolean includePad) {
-        replaceWith(source, paint, outerwidth, align, spacingMult, spacingAdd);
+    public BoringLayout replaceOrMake(CharSequence source, TextPaint paint,
+                                      int outerwidth, Alignment align,
+                                      float spacingmult, float spacingadd,
+                                      BoringLayout.Metrics metrics,
+                                      boolean includepad) {
+        replaceWith(source, paint, outerwidth, align, spacingmult,
+                    spacingadd);
 
         mEllipsizedWidth = outerwidth;
         mEllipsizedStart = 0;
         mEllipsizedCount = 0;
 
-        init(source, paint, align, metrics, includePad, true);
+        init(source, paint, outerwidth, align, spacingmult, spacingadd,
+             metrics, includepad, true);
         return this;
     }
 
@@ -116,118 +82,95 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
      * Returns a BoringLayout for the specified text, potentially reusing
      * this one if it is already suitable.  The caller must make sure that
      * no one is still using this Layout.
-     *
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerWidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingMult this value is no longer used by BoringLayout
-     * @param spacingAdd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
-     * @param ellipsize whether to ellipsize the text if width of the text is longer than the
-     *                  requested width
-     * @param ellipsizedWidth the width to which this Layout is ellipsizing. If {@code ellipsize} is
-     *                        {@code null}, or is {@link TextUtils.TruncateAt#MARQUEE} this value is
-     *                        not used, {@code outerwidth} is used instead
      */
-    public BoringLayout replaceOrMake(CharSequence source, TextPaint paint, int outerWidth,
-            Alignment align, float spacingMult, float spacingAdd, BoringLayout.Metrics metrics,
-            boolean includePad, TextUtils.TruncateAt ellipsize, int ellipsizedWidth) {
+    public BoringLayout replaceOrMake(CharSequence source, TextPaint paint,
+                                      int outerwidth, Alignment align,
+                                      float spacingmult, float spacingadd,
+                                      BoringLayout.Metrics metrics,
+                                      boolean includepad,
+                                      TextUtils.TruncateAt ellipsize,
+                                      int ellipsizedWidth) {
         boolean trust;
 
         if (ellipsize == null || ellipsize == TextUtils.TruncateAt.MARQUEE) {
-            replaceWith(source, paint, outerWidth, align, spacingMult, spacingAdd);
+            replaceWith(source, paint, outerwidth, align, spacingmult,
+                        spacingadd);
 
-            mEllipsizedWidth = outerWidth;
+            mEllipsizedWidth = outerwidth;
             mEllipsizedStart = 0;
             mEllipsizedCount = 0;
             trust = true;
         } else {
-            replaceWith(TextUtils.ellipsize(source, paint, ellipsizedWidth, ellipsize, true, this),
-                    paint, outerWidth, align, spacingMult, spacingAdd);
+            replaceWith(TextUtils.ellipsize(source, paint, ellipsizedWidth,
+                                           ellipsize, true, this),
+                        paint, outerwidth, align, spacingmult,
+                        spacingadd);
 
             mEllipsizedWidth = ellipsizedWidth;
             trust = false;
         }
 
-        init(getText(), paint, align, metrics, includePad, trust);
+        init(getText(), paint, outerwidth, align, spacingmult, spacingadd,
+             metrics, includepad, trust);
         return this;
     }
 
-    /**
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerwidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingMult this value is no longer used by BoringLayout
-     * @param spacingAdd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
-     */
-    public BoringLayout(CharSequence source, TextPaint paint, int outerwidth, Alignment align,
-            float spacingMult, float spacingAdd, BoringLayout.Metrics metrics, boolean includePad) {
-        super(source, paint, outerwidth, align, spacingMult, spacingAdd);
+    public BoringLayout(CharSequence source,
+                        TextPaint paint, int outerwidth,
+                        Alignment align,
+                        float spacingmult, float spacingadd,
+                        BoringLayout.Metrics metrics, boolean includepad) {
+        super(source, paint, outerwidth, align, spacingmult, spacingadd);
 
         mEllipsizedWidth = outerwidth;
         mEllipsizedStart = 0;
         mEllipsizedCount = 0;
 
-        init(source, paint, align, metrics, includePad, true);
+        init(source, paint, outerwidth, align, spacingmult, spacingadd,
+             metrics, includepad, true);
     }
 
-    /**
-     *
-     * @param source the text to render
-     * @param paint the default paint for the layout
-     * @param outerWidth the wrapping width for the text
-     * @param align whether to left, right, or center the text
-     * @param spacingMult this value is no longer used by BoringLayout
-     * @param spacingAdd this value is no longer used by BoringLayout
-     * @param metrics {@code #Metrics} instance that contains information about FontMetrics and
-     *                line width
-     * @param includePad set whether to include extra space beyond font ascent and descent which is
-     *                   needed to avoid clipping in some scripts
-     * @param ellipsize whether to ellipsize the text if width of the text is longer than the
-     *                  requested {@code outerwidth}
-     * @param ellipsizedWidth the width to which this Layout is ellipsizing. If {@code ellipsize} is
-     *                        {@code null}, or is {@link TextUtils.TruncateAt#MARQUEE} this value is
-     *                        not used, {@code outerwidth} is used instead
-     */
-    public BoringLayout(CharSequence source, TextPaint paint, int outerWidth, Alignment align,
-            float spacingMult, float spacingAdd, BoringLayout.Metrics metrics, boolean includePad,
-            TextUtils.TruncateAt ellipsize, int ellipsizedWidth) {
+    public BoringLayout(CharSequence source,
+                        TextPaint paint, int outerwidth,
+                        Alignment align,
+                        float spacingmult, float spacingadd,
+                        BoringLayout.Metrics metrics, boolean includepad,
+                        TextUtils.TruncateAt ellipsize, int ellipsizedWidth) {
         /*
          * It is silly to have to call super() and then replaceWith(),
          * but we can't use "this" for the callback until the call to
          * super() finishes.
          */
-        super(source, paint, outerWidth, align, spacingMult, spacingAdd);
+        super(source, paint, outerwidth, align, spacingmult, spacingadd);
 
         boolean trust;
 
         if (ellipsize == null || ellipsize == TextUtils.TruncateAt.MARQUEE) {
-            mEllipsizedWidth = outerWidth;
+            mEllipsizedWidth = outerwidth;
             mEllipsizedStart = 0;
             mEllipsizedCount = 0;
             trust = true;
         } else {
-            replaceWith(TextUtils.ellipsize(source, paint, ellipsizedWidth, ellipsize, true, this),
-                        paint, outerWidth, align, spacingMult, spacingAdd);
+            replaceWith(TextUtils.ellipsize(source, paint, ellipsizedWidth,
+                                           ellipsize, true, this),
+                        paint, outerwidth, align, spacingmult,
+                        spacingadd);
+
 
             mEllipsizedWidth = ellipsizedWidth;
             trust = false;
         }
 
-        init(getText(), paint, align, metrics, includePad, trust);
+        init(getText(), paint, outerwidth, align, spacingmult, spacingadd,
+             metrics, includepad, trust);
     }
 
-    /* package */ void init(CharSequence source, TextPaint paint, Alignment align,
-            BoringLayout.Metrics metrics, boolean includePad, boolean trustWidth) {
+    /* package */ void init(CharSequence source,
+                            TextPaint paint, int outerwidth,
+                            Alignment align,
+                            float spacingmult, float spacingadd,
+                            BoringLayout.Metrics metrics, boolean includepad,
+                            boolean trustWidth) {
         int spacing;
 
         if (source instanceof String && align == Layout.Alignment.ALIGN_NORMAL) {
@@ -238,15 +181,19 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
 
         mPaint = paint;
 
-        if (includePad) {
+        if (includepad) {
             spacing = metrics.bottom - metrics.top;
-            mDesc = metrics.bottom;
         } else {
             spacing = metrics.descent - metrics.ascent;
-            mDesc = metrics.descent;
         }
 
         mBottom = spacing;
+
+        if (includepad) {
+            mDesc = spacing + metrics.top;
+        } else {
+            mDesc = spacing + metrics.ascent;
+        }
 
         if (trustWidth) {
             mMax = metrics.width;
@@ -263,7 +210,7 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
             TextLine.recycle(line);
         }
 
-        if (includePad) {
+        if (includepad) {
             mTopPadding = metrics.top - metrics.ascent;
             mBottomPadding = metrics.bottom - metrics.descent;
         }
@@ -272,8 +219,19 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
     /**
      * Returns null if not boring; the width, ascent, and descent if boring.
      */
-    public static Metrics isBoring(CharSequence text, TextPaint paint) {
+    public static Metrics isBoring(CharSequence text,
+                                   TextPaint paint) {
         return isBoring(text, paint, TextDirectionHeuristics.FIRSTSTRONG_LTR, null);
+    }
+
+    /**
+     * Returns null if not boring; the width, ascent, and descent if boring.
+     * @hide
+     */
+    public static Metrics isBoring(CharSequence text,
+                                   TextPaint paint,
+                                   TextDirectionHeuristic textDir) {
+        return isBoring(text, paint, textDir, null);
     }
 
     /**
@@ -286,35 +244,6 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
     }
 
     /**
-     * Returns true if the text contains any RTL characters, bidi format characters, or surrogate
-     * code units.
-     */
-    private static boolean hasAnyInterestingChars(CharSequence text, int textLength) {
-        final int MAX_BUF_LEN = 500;
-        final char[] buffer = TextUtils.obtain(MAX_BUF_LEN);
-        try {
-            for (int start = 0; start < textLength; start += MAX_BUF_LEN) {
-                final int end = Math.min(start + MAX_BUF_LEN, textLength);
-
-                // No need to worry about getting half codepoints, since we consider surrogate code
-                // units "interesting" as soon we see one.
-                TextUtils.getChars(text, start, end, buffer, 0);
-
-                final int len = end - start;
-                for (int i = 0; i < len; i++) {
-                    final char c = buffer[i];
-                    if (c == '\n' || c == '\t' || TextUtils.couldAffectRtl(c)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        } finally {
-            TextUtils.recycle(buffer);
-        }
-    }
-
-    /**
      * Returns null if not boring; the width, ascent, and descent in the
      * provided Metrics object (or a new one if the provided one was null)
      * if boring.
@@ -322,35 +251,70 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
      */
     public static Metrics isBoring(CharSequence text, TextPaint paint,
             TextDirectionHeuristic textDir, Metrics metrics) {
-        final int textLength = text.length();
-        if (hasAnyInterestingChars(text, textLength)) {
-           return null;  // There are some interesting characters. Not boring.
-        }
-        if (textDir != null && textDir.isRtl(text, 0, textLength)) {
-           return null;  // The heuristic considers the whole text RTL. Not boring.
-        }
-        if (text instanceof Spanned) {
-            Spanned sp = (Spanned) text;
-            Object[] styles = sp.getSpans(0, textLength, ParagraphStyle.class);
-            if (styles.length > 0) {
-                return null;  // There are some PargraphStyle spans. Not boring.
+        char[] temp = TextUtils.obtain(500);
+        int length = text.length();
+        boolean boring = true;
+
+        outer:
+        for (int i = 0; i < length; i += 500) {
+            int j = i + 500;
+
+            if (j > length)
+                j = length;
+
+            TextUtils.getChars(text, i, j, temp, 0);
+
+            int n = j - i;
+
+            for (int a = 0; a < n; a++) {
+                char c = temp[a];
+
+                if (c == '\n' || c == '\t' ||
+                        (c >= 0x0590 && c <= 0x08FF) ||  // RTL scripts
+                        c == 0x200F ||  // Bidi format character
+                        (c >= 0x202A && c <= 0x202E) ||  // Bidi format characters
+                        (c >= 0x2066 && c <= 0x2069) ||  // Bidi format characters
+                        (c >= 0xD800 && c <= 0xDFFF) ||  // surrogate pairs
+                        (c >= 0xFB1D && c <= 0xFDFF) ||  // Hebrew and Arabic presentation forms
+                        (c >= 0xFE70 && c <= 0xFEFE) // Arabic presentation forms
+                   ) {
+                    boring = false;
+                    break outer;
+                }
+            }
+
+            if (textDir != null && textDir.isRtl(temp, 0, n)) {
+               boring = false;
+               break outer;
             }
         }
 
-        Metrics fm = metrics;
-        if (fm == null) {
-            fm = new Metrics();
-        } else {
-            fm.reset();
+        TextUtils.recycle(temp);
+
+        if (boring && text instanceof Spanned) {
+            Spanned sp = (Spanned) text;
+            Object[] styles = sp.getSpans(0, length, ParagraphStyle.class);
+            if (styles.length > 0) {
+                boring = false;
+            }
         }
 
-        TextLine line = TextLine.obtain();
-        line.set(paint, text, 0, textLength, Layout.DIR_LEFT_TO_RIGHT,
-                Layout.DIRS_ALL_LEFT_TO_RIGHT, false, null);
-        fm.width = (int) Math.ceil(line.metrics(fm));
-        TextLine.recycle(line);
+        if (boring) {
+            Metrics fm = metrics;
+            if (fm == null) {
+                fm = new Metrics();
+            }
 
-        return fm;
+            TextLine line = TextLine.obtain();
+            line.set(paint, text, 0, length, Layout.DIR_LEFT_TO_RIGHT,
+                    Layout.DIRS_ALL_LEFT_TO_RIGHT, false, null);
+            fm.width = (int) Math.ceil(line.metrics(fm));
+            TextLine.recycle(line);
+
+            return fm;
+        } else {
+            return null;
+        }
     }
 
     @Override
@@ -397,11 +361,6 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
     @Override
     public float getLineMax(int line) {
         return mMax;
-    }
-
-    @Override
-    public float getLineWidth(int line) {
-        return (line == 0 ? mMax : 0);
     }
 
     @Override
@@ -453,6 +412,8 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
         mEllipsizedCount = end - start;
     }
 
+    private static final char FIRST_RIGHT_TO_LEFT = '\u0590';
+
     private String mDirect;
     private Paint mPaint;
 
@@ -461,20 +422,14 @@ public class BoringLayout extends Layout implements TextUtils.EllipsizeCallback 
     private float mMax;
     private int mEllipsizedWidth, mEllipsizedStart, mEllipsizedCount;
 
+    private static final TextPaint sTemp =
+                                new TextPaint();
+
     public static class Metrics extends Paint.FontMetricsInt {
         public int width;
 
         @Override public String toString() {
             return super.toString() + " width=" + width;
-        }
-
-        private void reset() {
-            top = 0;
-            bottom = 0;
-            ascent = 0;
-            descent = 0;
-            width = 0;
-            leading = 0;
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,299 +16,456 @@
 
 package com.android.server.twilight;
 
-import android.annotation.NonNull;
+import com.android.server.SystemService;
+import com.android.server.TwilightCalculator;
+
 import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.icu.impl.CalendarAstronomer;
-import android.icu.util.Calendar;
+import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.Message;
-import android.util.ArrayMap;
+import android.os.SystemClock;
+import android.text.format.DateUtils;
+import android.text.format.Time;
 import android.util.Slog;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.server.SystemService;
+import java.util.ArrayList;
+import java.util.Iterator;
 
-import java.util.Objects;
+import libcore.util.Objects;
 
 /**
  * Figures out whether it's twilight time based on the user's location.
- * <p>
+ *
  * Used by the UI mode manager and other components to adjust night mode
  * effects based on sunrise and sunset.
  */
-public final class TwilightService extends SystemService
-        implements AlarmManager.OnAlarmListener, Handler.Callback, LocationListener {
+public final class TwilightService extends SystemService {
+    static final String TAG = "TwilightService";
+    static final boolean DEBUG = false;
+    static final String ACTION_UPDATE_TWILIGHT_STATE =
+            "com.android.server.action.UPDATE_TWILIGHT_STATE";
 
-    private static final String TAG = "TwilightService";
-    private static final boolean DEBUG = false;
+    final Object mLock = new Object();
 
-    private static final int MSG_START_LISTENING = 1;
-    private static final int MSG_STOP_LISTENING = 2;
+    AlarmManager mAlarmManager;
+    LocationManager mLocationManager;
+    LocationHandler mLocationHandler;
 
-    @GuardedBy("mListeners")
-    private final ArrayMap<TwilightListener, Handler> mListeners = new ArrayMap<>();
+    final ArrayList<TwilightListenerRecord> mListeners =
+            new ArrayList<TwilightListenerRecord>();
 
-    private final Handler mHandler;
-
-    protected AlarmManager mAlarmManager;
-    private LocationManager mLocationManager;
-
-    private boolean mBootCompleted;
-    private boolean mHasListeners;
-
-    private BroadcastReceiver mTimeChangedReceiver;
-    protected Location mLastLocation;
-
-    @GuardedBy("mListeners")
-    protected TwilightState mLastTwilightState;
+    TwilightState mTwilightState;
 
     public TwilightService(Context context) {
         super(context);
-        mHandler = new Handler(Looper.getMainLooper(), this);
     }
 
     @Override
     public void onStart() {
-        publishLocalService(TwilightManager.class, new TwilightManager() {
-            @Override
-            public void registerListener(@NonNull TwilightListener listener,
-                    @NonNull Handler handler) {
-                synchronized (mListeners) {
-                    final boolean wasEmpty = mListeners.isEmpty();
-                    mListeners.put(listener, handler);
+        mAlarmManager = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+        mLocationManager = (LocationManager) getContext().getSystemService(
+                Context.LOCATION_SERVICE);
+        mLocationHandler = new LocationHandler();
 
-                    if (wasEmpty && !mListeners.isEmpty()) {
-                        mHandler.sendEmptyMessage(MSG_START_LISTENING);
+        IntentFilter filter = new IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+        filter.addAction(Intent.ACTION_TIME_CHANGED);
+        filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        filter.addAction(ACTION_UPDATE_TWILIGHT_STATE);
+        getContext().registerReceiver(mUpdateLocationReceiver, filter);
+
+        publishLocalService(TwilightManager.class, mService);
+    }
+
+    private static class TwilightListenerRecord implements Runnable {
+        private final TwilightListener mListener;
+        private final Handler mHandler;
+
+        public TwilightListenerRecord(TwilightListener listener, Handler handler) {
+            mListener = listener;
+            mHandler = handler;
+        }
+
+        public void postUpdate() {
+            mHandler.post(this);
+        }
+
+        @Override
+        public void run() {
+            mListener.onTwilightStateChanged();
+        }
+
+    }
+
+    private final TwilightManager mService = new TwilightManager() {
+        /**
+         * Gets the current twilight state.
+         *
+         * @return The current twilight state, or null if no information is available.
+         */
+        @Override
+        public TwilightState getCurrentState() {
+            synchronized (mLock) {
+                return mTwilightState;
+            }
+        }
+
+        /**
+         * Listens for twilight time.
+         *
+         * @param listener The listener.
+         */
+        @Override
+        public void registerListener(TwilightListener listener, Handler handler) {
+            synchronized (mLock) {
+                mListeners.add(new TwilightListenerRecord(listener, handler));
+
+                if (mListeners.size() == 1) {
+                    mLocationHandler.enableLocationUpdates();
+                }
+            }
+        }
+    };
+
+    private void setTwilightState(TwilightState state) {
+        synchronized (mLock) {
+            if (!Objects.equal(mTwilightState, state)) {
+                if (DEBUG) {
+                    Slog.d(TAG, "Twilight state changed: " + state);
+                }
+
+                mTwilightState = state;
+
+                final int listenerLen = mListeners.size();
+                for (int i = 0; i < listenerLen; i++) {
+                    mListeners.get(i).postUpdate();
+                }
+            }
+        }
+    }
+
+    // The user has moved if the accuracy circles of the two locations don't overlap.
+    private static boolean hasMoved(Location from, Location to) {
+        if (to == null) {
+            return false;
+        }
+
+        if (from == null) {
+            return true;
+        }
+
+        // if new location is older than the current one, the device hasn't moved.
+        if (to.getElapsedRealtimeNanos() < from.getElapsedRealtimeNanos()) {
+            return false;
+        }
+
+        // Get the distance between the two points.
+        float distance = from.distanceTo(to);
+
+        // Get the total accuracy radius for both locations.
+        float totalAccuracy = from.getAccuracy() + to.getAccuracy();
+
+        // If the distance is greater than the combined accuracy of the two
+        // points then they can't overlap and hence the user has moved.
+        return distance >= totalAccuracy;
+    }
+
+    private final class LocationHandler extends Handler {
+        private static final int MSG_ENABLE_LOCATION_UPDATES = 1;
+        private static final int MSG_GET_NEW_LOCATION_UPDATE = 2;
+        private static final int MSG_PROCESS_NEW_LOCATION = 3;
+        private static final int MSG_DO_TWILIGHT_UPDATE = 4;
+
+        private static final long LOCATION_UPDATE_MS = 24 * DateUtils.HOUR_IN_MILLIS;
+        private static final long MIN_LOCATION_UPDATE_MS = 30 * DateUtils.MINUTE_IN_MILLIS;
+        private static final float LOCATION_UPDATE_DISTANCE_METER = 1000 * 20;
+        private static final long LOCATION_UPDATE_ENABLE_INTERVAL_MIN = 5000;
+        private static final long LOCATION_UPDATE_ENABLE_INTERVAL_MAX =
+                15 * DateUtils.MINUTE_IN_MILLIS;
+        private static final double FACTOR_GMT_OFFSET_LONGITUDE =
+                1000.0 * 360.0 / DateUtils.DAY_IN_MILLIS;
+
+        private boolean mPassiveListenerEnabled;
+        private boolean mNetworkListenerEnabled;
+        private boolean mDidFirstInit;
+        private long mLastNetworkRegisterTime = -MIN_LOCATION_UPDATE_MS;
+        private long mLastUpdateInterval;
+        private Location mLocation;
+        private final TwilightCalculator mTwilightCalculator = new TwilightCalculator();
+
+        public void processNewLocation(Location location) {
+            Message msg = obtainMessage(MSG_PROCESS_NEW_LOCATION, location);
+            sendMessage(msg);
+        }
+
+        public void enableLocationUpdates() {
+            sendEmptyMessage(MSG_ENABLE_LOCATION_UPDATES);
+        }
+
+        public void requestLocationUpdate() {
+            sendEmptyMessage(MSG_GET_NEW_LOCATION_UPDATE);
+        }
+
+        public void requestTwilightUpdate() {
+            sendEmptyMessage(MSG_DO_TWILIGHT_UPDATE);
+        }
+
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_PROCESS_NEW_LOCATION: {
+                    final Location location = (Location)msg.obj;
+                    final boolean hasMoved = hasMoved(mLocation, location);
+                    final boolean hasBetterAccuracy = mLocation == null
+                            || location.getAccuracy() < mLocation.getAccuracy();
+                    if (DEBUG) {
+                        Slog.d(TAG, "Processing new location: " + location
+                               + ", hasMoved=" + hasMoved
+                               + ", hasBetterAccuracy=" + hasBetterAccuracy);
                     }
-                }
-            }
-
-            @Override
-            public void unregisterListener(@NonNull TwilightListener listener) {
-                synchronized (mListeners) {
-                    final boolean wasEmpty = mListeners.isEmpty();
-                    mListeners.remove(listener);
-
-                    if (!wasEmpty && mListeners.isEmpty()) {
-                        mHandler.sendEmptyMessage(MSG_STOP_LISTENING);
+                    if (hasMoved || hasBetterAccuracy) {
+                        setLocation(location);
                     }
+                    break;
                 }
-            }
 
-            @Override
-            public TwilightState getLastTwilightState() {
-                synchronized (mListeners) {
-                    return mLastTwilightState;
-                }
-            }
-        });
-    }
-
-    @Override
-    public void onBootPhase(int phase) {
-        if (phase == PHASE_BOOT_COMPLETED) {
-            final Context c = getContext();
-            mAlarmManager = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
-            mLocationManager = (LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
-
-            mBootCompleted = true;
-            if (mHasListeners) {
-                startListening();
-            }
-        }
-    }
-
-    @Override
-    public boolean handleMessage(Message msg) {
-        switch (msg.what) {
-            case MSG_START_LISTENING:
-                if (!mHasListeners) {
-                    mHasListeners = true;
-                    if (mBootCompleted) {
-                        startListening();
+                case MSG_GET_NEW_LOCATION_UPDATE:
+                    if (!mNetworkListenerEnabled) {
+                        // Don't do anything -- we are still trying to get a
+                        // location.
+                        return;
                     }
-                }
-                return true;
-            case MSG_STOP_LISTENING:
-                if (mHasListeners) {
-                    mHasListeners = false;
-                    if (mBootCompleted) {
-                        stopListening();
+                    if ((mLastNetworkRegisterTime + MIN_LOCATION_UPDATE_MS) >=
+                            SystemClock.elapsedRealtime()) {
+                        // Don't do anything -- it hasn't been long enough
+                        // since we last requested an update.
+                        return;
                     }
-                }
-                return true;
-        }
-        return false;
-    }
 
-    private void startListening() {
-        Slog.d(TAG, "startListening");
+                    // Unregister the current location monitor, so we can
+                    // register a new one for it to get an immediate update.
+                    mNetworkListenerEnabled = false;
+                    mLocationManager.removeUpdates(mEmptyLocationListener);
 
-        // Start listening for location updates (default: low power, max 1h, min 10m).
-        mLocationManager.requestLocationUpdates(
-                null /* default */, this, Looper.getMainLooper());
+                    // Fall through to re-register listener.
+                case MSG_ENABLE_LOCATION_UPDATES:
+                    // enable network provider to receive at least location updates for a given
+                    // distance.
+                    boolean networkLocationEnabled;
+                    try {
+                        networkLocationEnabled =
+                            mLocationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+                    } catch (Exception e) {
+                        // we may get IllegalArgumentException if network location provider
+                        // does not exist or is not yet installed.
+                        networkLocationEnabled = false;
+                    }
+                    if (!mNetworkListenerEnabled && networkLocationEnabled) {
+                        mNetworkListenerEnabled = true;
+                        mLastNetworkRegisterTime = SystemClock.elapsedRealtime();
+                        mLocationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,
+                                LOCATION_UPDATE_MS, 0, mEmptyLocationListener);
 
-        // Request the device's location immediately if a previous location isn't available.
-        if (mLocationManager.getLastLocation() == null) {
-            if (mLocationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                mLocationManager.requestSingleUpdate(
-                        LocationManager.NETWORK_PROVIDER, this, Looper.getMainLooper());
-            } else if (mLocationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                mLocationManager.requestSingleUpdate(
-                        LocationManager.GPS_PROVIDER, this, Looper.getMainLooper());
-            }
-        }
-
-        // Update whenever the system clock is changed.
-        if (mTimeChangedReceiver == null) {
-            mTimeChangedReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    Slog.d(TAG, "onReceive: " + intent);
-                    updateTwilightState();
-                }
-            };
-
-            final IntentFilter intentFilter = new IntentFilter(Intent.ACTION_TIME_CHANGED);
-            intentFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
-            getContext().registerReceiver(mTimeChangedReceiver, intentFilter);
-        }
-
-        // Force an update now that we have listeners registered.
-        updateTwilightState();
-    }
-
-    private void stopListening() {
-        Slog.d(TAG, "stopListening");
-
-        if (mTimeChangedReceiver != null) {
-            getContext().unregisterReceiver(mTimeChangedReceiver);
-            mTimeChangedReceiver = null;
-        }
-
-        if (mLastTwilightState != null) {
-            mAlarmManager.cancel(this);
-        }
-
-        mLocationManager.removeUpdates(this);
-        mLastLocation = null;
-    }
-
-    private void updateTwilightState() {
-        // Calculate the twilight state based on the current time and location.
-        final long currentTimeMillis = System.currentTimeMillis();
-        final Location location = mLastLocation != null ? mLastLocation
-                : mLocationManager.getLastLocation();
-        final TwilightState state = calculateTwilightState(location, currentTimeMillis);
-        if (DEBUG) {
-            Slog.d(TAG, "updateTwilightState: " + state);
-        }
-
-        // Notify listeners if the state has changed.
-        synchronized (mListeners) {
-            if (!Objects.equals(mLastTwilightState, state)) {
-                mLastTwilightState = state;
-
-                for (int i = mListeners.size() - 1; i >= 0; --i) {
-                    final TwilightListener listener = mListeners.keyAt(i);
-                    final Handler handler = mListeners.valueAt(i);
-                    handler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            listener.onTwilightStateChanged(state);
+                        if (!mDidFirstInit) {
+                            mDidFirstInit = true;
+                            if (mLocation == null) {
+                                retrieveLocation();
+                            }
                         }
-                    });
-                }
+                    }
+
+                    // enable passive provider to receive updates from location fixes (gps
+                    // and network).
+                    boolean passiveLocationEnabled;
+                    try {
+                        passiveLocationEnabled =
+                            mLocationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER);
+                    } catch (Exception e) {
+                        // we may get IllegalArgumentException if passive location provider
+                        // does not exist or is not yet installed.
+                        passiveLocationEnabled = false;
+                    }
+
+                    if (!mPassiveListenerEnabled && passiveLocationEnabled) {
+                        mPassiveListenerEnabled = true;
+                        mLocationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER,
+                                0, LOCATION_UPDATE_DISTANCE_METER , mLocationListener);
+                    }
+
+                    if (!(mNetworkListenerEnabled && mPassiveListenerEnabled)) {
+                        mLastUpdateInterval *= 1.5;
+                        if (mLastUpdateInterval == 0) {
+                            mLastUpdateInterval = LOCATION_UPDATE_ENABLE_INTERVAL_MIN;
+                        } else if (mLastUpdateInterval > LOCATION_UPDATE_ENABLE_INTERVAL_MAX) {
+                            mLastUpdateInterval = LOCATION_UPDATE_ENABLE_INTERVAL_MAX;
+                        }
+                        sendEmptyMessageDelayed(MSG_ENABLE_LOCATION_UPDATES, mLastUpdateInterval);
+                    }
+                    break;
+
+                case MSG_DO_TWILIGHT_UPDATE:
+                    updateTwilightState();
+                    break;
             }
         }
 
-        // Schedule an alarm to update the state at the next sunrise or sunset.
-        if (state != null) {
-            final long triggerAtMillis = state.isNight()
-                    ? state.sunriseTimeMillis() : state.sunsetTimeMillis();
-            mAlarmManager.setExact(AlarmManager.RTC, triggerAtMillis, TAG, this, mHandler);
+        private void retrieveLocation() {
+            Location location = null;
+            final Iterator<String> providers =
+                    mLocationManager.getProviders(new Criteria(), true).iterator();
+            while (providers.hasNext()) {
+                final Location lastKnownLocation =
+                        mLocationManager.getLastKnownLocation(providers.next());
+                // pick the most recent location
+                if (location == null || (lastKnownLocation != null &&
+                        location.getElapsedRealtimeNanos() <
+                        lastKnownLocation.getElapsedRealtimeNanos())) {
+                    location = lastKnownLocation;
+                }
+            }
+
+            // In the case there is no location available (e.g. GPS fix or network location
+            // is not available yet), the longitude of the location is estimated using the timezone,
+            // latitude and accuracy are set to get a good average.
+            if (location == null) {
+                Time currentTime = new Time();
+                currentTime.set(System.currentTimeMillis());
+                double lngOffset = FACTOR_GMT_OFFSET_LONGITUDE *
+                        (currentTime.gmtoff - (currentTime.isDst > 0 ? 3600 : 0));
+                location = new Location("fake");
+                location.setLongitude(lngOffset);
+                location.setLatitude(0);
+                location.setAccuracy(417000.0f);
+                location.setTime(System.currentTimeMillis());
+                location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+
+                if (DEBUG) {
+                    Slog.d(TAG, "Estimated location from timezone: " + location);
+                }
+            }
+
+            setLocation(location);
         }
-    }
 
-    @Override
-    public void onAlarm() {
-        Slog.d(TAG, "onAlarm");
-        updateTwilightState();
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-        // Location providers may erroneously return (0.0, 0.0) when they fail to determine the
-        // device's location. These location updates can be safely ignored since the chance of a
-        // user actually being at these coordinates is quite low.
-        if (location != null
-                && !(location.getLongitude() == 0.0 && location.getLatitude() == 0.0)) {
-            Slog.d(TAG, "onLocationChanged:"
-                    + " provider=" + location.getProvider()
-                    + " accuracy=" + location.getAccuracy()
-                    + " time=" + location.getTime());
-            mLastLocation = location;
+        private void setLocation(Location location) {
+            mLocation = location;
             updateTwilightState();
         }
+
+        private void updateTwilightState() {
+            if (mLocation == null) {
+                setTwilightState(null);
+                return;
+            }
+
+            final long now = System.currentTimeMillis();
+
+            // calculate yesterday's twilight
+            mTwilightCalculator.calculateTwilight(now - DateUtils.DAY_IN_MILLIS,
+                    mLocation.getLatitude(), mLocation.getLongitude());
+            final long yesterdaySunset = mTwilightCalculator.mSunset;
+
+            // calculate today's twilight
+            mTwilightCalculator.calculateTwilight(now,
+                    mLocation.getLatitude(), mLocation.getLongitude());
+            final boolean isNight = (mTwilightCalculator.mState == TwilightCalculator.NIGHT);
+            final long todaySunrise = mTwilightCalculator.mSunrise;
+            final long todaySunset = mTwilightCalculator.mSunset;
+
+            // calculate tomorrow's twilight
+            mTwilightCalculator.calculateTwilight(now + DateUtils.DAY_IN_MILLIS,
+                    mLocation.getLatitude(), mLocation.getLongitude());
+            final long tomorrowSunrise = mTwilightCalculator.mSunrise;
+
+            // set twilight state
+            TwilightState state = new TwilightState(isNight, yesterdaySunset,
+                    todaySunrise, todaySunset, tomorrowSunrise);
+            if (DEBUG) {
+                Slog.d(TAG, "Updating twilight state: " + state);
+            }
+            setTwilightState(state);
+
+            // schedule next update
+            long nextUpdate = 0;
+            if (todaySunrise == -1 || todaySunset == -1) {
+                // In the case the day or night never ends the update is scheduled 12 hours later.
+                nextUpdate = now + 12 * DateUtils.HOUR_IN_MILLIS;
+            } else {
+                // add some extra time to be on the safe side.
+                nextUpdate += DateUtils.MINUTE_IN_MILLIS;
+
+                if (now > todaySunset) {
+                    nextUpdate += tomorrowSunrise;
+                } else if (now > todaySunrise) {
+                    nextUpdate += todaySunset;
+                } else {
+                    nextUpdate += todaySunrise;
+                }
+            }
+
+            if (DEBUG) {
+                Slog.d(TAG, "Next update in " + (nextUpdate - now) + " ms");
+            }
+
+            Intent updateIntent = new Intent(ACTION_UPDATE_TWILIGHT_STATE);
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                    getContext(), 0, updateIntent, 0);
+            mAlarmManager.cancel(pendingIntent);
+            mAlarmManager.setExact(AlarmManager.RTC, nextUpdate, pendingIntent);
+        }
     }
 
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-    }
+    private final BroadcastReceiver mUpdateLocationReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_AIRPLANE_MODE_CHANGED.equals(intent.getAction())
+                    && !intent.getBooleanExtra("state", false)) {
+                // Airplane mode is now off!
+                mLocationHandler.requestLocationUpdate();
+                return;
+            }
 
-    @Override
-    public void onProviderEnabled(String provider) {
-    }
+            // Time zone has changed or alarm expired.
+            mLocationHandler.requestTwilightUpdate();
+        }
+    };
 
-    @Override
-    public void onProviderDisabled(String provider) {
-    }
-
-    /**
-     * Calculates the twilight state for a specific location and time.
-     *
-     * @param location the location to use
-     * @param timeMillis the reference time to use
-     * @return the calculated {@link TwilightState}, or {@code null} if location is {@code null}
-     */
-    private static TwilightState calculateTwilightState(Location location, long timeMillis) {
-        if (location == null) {
-            return null;
+    // A LocationListener to initialize the network location provider. The location updates
+    // are handled through the passive location provider.
+    private final LocationListener mEmptyLocationListener =  new LocationListener() {
+        public void onLocationChanged(Location location) {
         }
 
-        final CalendarAstronomer ca = new CalendarAstronomer(
-                location.getLongitude(), location.getLatitude());
-
-        final Calendar noon = Calendar.getInstance();
-        noon.setTimeInMillis(timeMillis);
-        noon.set(Calendar.HOUR_OF_DAY, 12);
-        noon.set(Calendar.MINUTE, 0);
-        noon.set(Calendar.SECOND, 0);
-        noon.set(Calendar.MILLISECOND, 0);
-        ca.setTime(noon.getTimeInMillis());
-
-        long sunriseTimeMillis = ca.getSunRiseSet(true /* rise */);
-        long sunsetTimeMillis = ca.getSunRiseSet(false /* rise */);
-
-        if (sunsetTimeMillis < timeMillis) {
-            noon.add(Calendar.DATE, 1);
-            ca.setTime(noon.getTimeInMillis());
-            sunriseTimeMillis = ca.getSunRiseSet(true /* rise */);
-        } else if (sunriseTimeMillis > timeMillis) {
-            noon.add(Calendar.DATE, -1);
-            ca.setTime(noon.getTimeInMillis());
-            sunsetTimeMillis = ca.getSunRiseSet(false /* rise */);
+        public void onProviderDisabled(String provider) {
         }
 
-        return new TwilightState(sunriseTimeMillis, sunsetTimeMillis);
-    }
+        public void onProviderEnabled(String provider) {
+        }
+
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+        }
+    };
+
+    private final LocationListener mLocationListener = new LocationListener() {
+        public void onLocationChanged(Location location) {
+            mLocationHandler.processNewLocation(location);
+        }
+
+        public void onProviderDisabled(String provider) {
+        }
+
+        public void onProviderEnabled(String provider) {
+        }
+
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+        }
+    };
 }

@@ -108,65 +108,62 @@ public final class PdfManipulationService extends Service {
                 try {
                     throwIfNotOpened();
 
-                    try (PdfRenderer.Page page = mRenderer.openPage(pageIndex)) {
-                        final int srcWidthPts = page.getWidth();
-                        final int srcHeightPts = page.getHeight();
+                    PdfRenderer.Page page = mRenderer.openPage(pageIndex);
 
-                        final int dstWidthPts = pointsFromMils(
-                                attributes.getMediaSize().getWidthMils());
-                        final int dstHeightPts = pointsFromMils(
-                                attributes.getMediaSize().getHeightMils());
+                    final int srcWidthPts = page.getWidth();
+                    final int srcHeightPts = page.getHeight();
 
-                        final boolean scaleContent = mRenderer.shouldScaleForPrinting();
-                        final boolean contentLandscape = !attributes.getMediaSize().isPortrait();
+                    final int dstWidthPts = pointsFromMils(
+                            attributes.getMediaSize().getWidthMils());
+                    final int dstHeightPts = pointsFromMils(
+                            attributes.getMediaSize().getHeightMils());
 
-                        final float displayScale;
-                        Matrix matrix = new Matrix();
+                    final boolean scaleContent = mRenderer.shouldScaleForPrinting();
+                    final boolean contentLandscape = !attributes.getMediaSize().isPortrait();
 
-                        if (scaleContent) {
-                            displayScale = Math.min((float) bitmapWidth / srcWidthPts,
-                                    (float) bitmapHeight / srcHeightPts);
+                    final float displayScale;
+                    Matrix matrix = new Matrix();
+
+                    if (scaleContent) {
+                        displayScale = Math.min((float) bitmapWidth / srcWidthPts,
+                                (float) bitmapHeight / srcHeightPts);
+                    } else {
+                        if (contentLandscape) {
+                            displayScale = (float) bitmapHeight / dstHeightPts;
                         } else {
-                            if (contentLandscape) {
-                                displayScale = (float) bitmapHeight / dstHeightPts;
-                            } else {
-                                displayScale = (float) bitmapWidth / dstWidthPts;
-                            }
+                            displayScale = (float) bitmapWidth / dstWidthPts;
                         }
-                        matrix.postScale(displayScale, displayScale);
-
-                        Configuration configuration = PdfManipulationService.this.getResources()
-                                .getConfiguration();
-                        if (configuration.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) {
-                            matrix.postTranslate(bitmapWidth - srcWidthPts * displayScale, 0);
-                        }
-
-                        Margins minMargins = attributes.getMinMargins();
-                        final int paddingLeftPts = pointsFromMils(minMargins.getLeftMils());
-                        final int paddingTopPts = pointsFromMils(minMargins.getTopMils());
-                        final int paddingRightPts = pointsFromMils(minMargins.getRightMils());
-                        final int paddingBottomPts = pointsFromMils(minMargins.getBottomMils());
-
-                        Rect clip = new Rect();
-                        clip.left = (int) (paddingLeftPts * displayScale);
-                        clip.top = (int) (paddingTopPts * displayScale);
-                        clip.right = (int) (bitmapWidth - paddingRightPts * displayScale);
-                        clip.bottom = (int) (bitmapHeight - paddingBottomPts * displayScale);
-
-                        if (DEBUG) {
-                            Log.i(LOG_TAG, "Rendering page:" + pageIndex);
-                        }
-
-                        Bitmap bitmap = getBitmapForSize(bitmapWidth, bitmapHeight);
-                        page.render(bitmap, clip, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
-
-                        BitmapSerializeUtils.writeBitmapPixels(bitmap, destination);
                     }
-                } catch (Throwable e) {
-                    Log.e(LOG_TAG, "Cannot render page", e);
+                    matrix.postScale(displayScale, displayScale);
 
-                    // The error is propagated to the caller when it tries to read the bitmap and
-                    // the pipe is closed prematurely
+                    Configuration configuration = PdfManipulationService.this.getResources()
+                            .getConfiguration();
+                    if (configuration.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) {
+                        matrix.postTranslate(bitmapWidth - srcWidthPts * displayScale, 0);
+                    }
+
+                    Margins minMargins = attributes.getMinMargins();
+                    final int paddingLeftPts = pointsFromMils(minMargins.getLeftMils());
+                    final int paddingTopPts = pointsFromMils(minMargins.getTopMils());
+                    final int paddingRightPts = pointsFromMils(minMargins.getRightMils());
+                    final int paddingBottomPts = pointsFromMils(minMargins.getBottomMils());
+
+                    Rect clip = new Rect();
+                    clip.left = (int) (paddingLeftPts * displayScale);
+                    clip.top = (int) (paddingTopPts * displayScale);
+                    clip.right = (int) (bitmapWidth - paddingRightPts * displayScale);
+                    clip.bottom = (int) (bitmapHeight - paddingBottomPts * displayScale);
+
+                    if (DEBUG) {
+                        Log.i(LOG_TAG, "Rendering page:" + pageIndex);
+                    }
+
+                    Bitmap bitmap = getBitmapForSize(bitmapWidth, bitmapHeight);
+                    page.render(bitmap, clip, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+
+                    page.close();
+
+                    BitmapSerializeUtils.writeBitmapPixels(bitmap, destination);
                 } finally {
                     IoUtils.closeQuietly(destination);
                 }
@@ -244,20 +241,9 @@ public final class PdfManipulationService extends Service {
 
                 ranges = PageRangeUtils.normalize(ranges);
 
-                int lastPageIdx = mEditor.getPageCount() - 1;
-
                 final int rangeCount = ranges.length;
                 for (int i = rangeCount - 1; i >= 0; i--) {
                     PageRange range = ranges[i];
-
-                    // Ignore removal of pages that are outside the document
-                    if (range.getEnd() > lastPageIdx) {
-                        if (range.getStart() > lastPageIdx) {
-                            continue;
-                        }
-                        range = new PageRange(range.getStart(), lastPageIdx);
-                    }
-
                     for (int j = range.getEnd(); j >= range.getStart(); j--) {
                         mEditor.removePage(j);
                     }
@@ -277,12 +263,18 @@ public final class PdfManipulationService extends Service {
                 Rect cropBox = new Rect();
                 Matrix transform = new Matrix();
 
+                final boolean contentPortrait = attributes.getMediaSize().isPortrait();
+
                 final boolean layoutDirectionRtl = getResources().getConfiguration()
                         .getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
 
                 // We do not want to rotate the media box, so take into account orientation.
-                final int dstWidthPts = pointsFromMils(attributes.getMediaSize().getWidthMils());
-                final int dstHeightPts = pointsFromMils(attributes.getMediaSize().getHeightMils());
+                final int dstWidthPts = contentPortrait
+                        ? pointsFromMils(attributes.getMediaSize().getWidthMils())
+                        : pointsFromMils(attributes.getMediaSize().getHeightMils());
+                final int dstHeightPts = contentPortrait
+                        ? pointsFromMils(attributes.getMediaSize().getHeightMils())
+                        : pointsFromMils(attributes.getMediaSize().getWidthMils());
 
                 final boolean scaleForPrinting = mEditor.shouldScaleForPrinting();
 
@@ -304,12 +296,24 @@ public final class PdfManipulationService extends Service {
                     // Make sure content is top-left after media box resize.
                     transform.setTranslate(0, srcHeightPts - dstHeightPts);
 
+                    // Rotate the content if in landscape.
+                    if (!contentPortrait) {
+                        transform.postRotate(270);
+                        transform.postTranslate(0, dstHeightPts);
+                    }
+
                     // Scale the content if document allows it.
                     final float scale;
                     if (scaleForPrinting) {
-                        scale = Math.min((float) dstWidthPts / srcWidthPts,
-                                (float) dstHeightPts / srcHeightPts);
-                        transform.postScale(scale, scale);
+                        if (contentPortrait) {
+                            scale = Math.min((float) dstWidthPts / srcWidthPts,
+                                    (float) dstHeightPts / srcHeightPts);
+                            transform.postScale(scale, scale);
+                        } else {
+                            scale = Math.min((float) dstWidthPts / srcHeightPts,
+                                    (float) dstHeightPts / srcWidthPts);
+                            transform.postScale(scale, scale, mediaBox.left, mediaBox.bottom);
+                        }
                     } else {
                         scale = 1.0f;
                     }
@@ -326,8 +330,10 @@ public final class PdfManipulationService extends Service {
 
                     // If in RTL mode put the content in the logical top-right corner.
                     if (layoutDirectionRtl) {
-                        final float dx = dstWidthPts - (int) (srcWidthPts * scale + 0.5f);
-                        final float dy = 0;
+                        final float dx = contentPortrait
+                                ? dstWidthPts - (int) (srcWidthPts * scale + 0.5f) : 0;
+                        final float dy = contentPortrait
+                                ? 0 : - (dstHeightPts - (int) (srcWidthPts * scale + 0.5f));
                         transform.postTranslate(dx, dy);
                     }
 

@@ -1,70 +1,37 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea and Josh Bloch with assistance from members of JCP
  * JSR-166 Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+package java.util;
+
 // BEGIN android-note
 // removed link to collections framework docs
 // END android-note
 
-package java.util;
-
 /**
  * A {@link SortedSet} extended with navigation methods reporting
- * closest matches for given search targets. Methods {@link #lower},
- * {@link #floor}, {@link #ceiling}, and {@link #higher} return elements
+ * closest matches for given search targets. Methods {@code lower},
+ * {@code floor}, {@code ceiling}, and {@code higher} return elements
  * respectively less than, less than or equal, greater than or equal,
  * and greater than a given element, returning {@code null} if there
- * is no such element.
+ * is no such element.  A {@code NavigableSet} may be accessed and
+ * traversed in either ascending or descending order.  The {@code
+ * descendingSet} method returns a view of the set with the senses of
+ * all relational and directional methods inverted. The performance of
+ * ascending operations and views is likely to be faster than that of
+ * descending ones.  This interface additionally defines methods
+ * {@code pollFirst} and {@code pollLast} that return and remove the
+ * lowest and highest element, if one exists, else returning {@code
+ * null}.  Methods {@code subSet}, {@code headSet},
+ * and {@code tailSet} differ from the like-named {@code
+ * SortedSet} methods in accepting additional arguments describing
+ * whether lower and upper bounds are inclusive versus exclusive.
+ * Subsets of any {@code NavigableSet} must implement the {@code
+ * NavigableSet} interface.
  *
- * <p>A {@code NavigableSet} may be accessed and traversed in either
- * ascending or descending order.  The {@link #descendingSet} method
- * returns a view of the set with the senses of all relational and
- * directional methods inverted. The performance of ascending
- * operations and views is likely to be faster than that of descending
- * ones.  This interface additionally defines methods {@link
- * #pollFirst} and {@link #pollLast} that return and remove the lowest
- * and highest element, if one exists, else returning {@code null}.
- * Methods
- * {@link #subSet(Object, boolean, Object, boolean) subSet(E, boolean, E, boolean)},
- * {@link #headSet(Object, boolean) headSet(E, boolean)}, and
- * {@link #tailSet(Object, boolean) tailSet(E, boolean)}
- * differ from the like-named {@code SortedSet} methods in accepting
- * additional arguments describing whether lower and upper bounds are
- * inclusive versus exclusive.  Subsets of any {@code NavigableSet}
- * must implement the {@code NavigableSet} interface.
- *
- * <p>The return values of navigation methods may be ambiguous in
+ * <p> The return values of navigation methods may be ambiguous in
  * implementations that permit {@code null} elements. However, even
  * in this case the result can be disambiguated by checking
  * {@code contains(null)}. To avoid such issues, implementations of
@@ -176,7 +143,7 @@ public interface NavigableSet<E> extends SortedSet<E> {
      * the iteration are undefined.
      *
      * <p>The returned set has an ordering equivalent to
-     * {@link Collections#reverseOrder(Comparator) Collections.reverseOrder}{@code (comparator())}.
+     * <tt>{@link Collections#reverseOrder(Comparator) Collections.reverseOrder}(comparator())</tt>.
      * The expression {@code s.descendingSet().descendingSet()} returns a
      * view of {@code s} essentially equivalent to {@code s}.
      *
@@ -196,7 +163,7 @@ public interface NavigableSet<E> extends SortedSet<E> {
      * Returns a view of the portion of this set whose elements range from
      * {@code fromElement} to {@code toElement}.  If {@code fromElement} and
      * {@code toElement} are equal, the returned set is empty unless {@code
-     * fromInclusive} and {@code toInclusive} are both true.  The returned set
+     * fromExclusive} and {@code toExclusive} are both true.  The returned set
      * is backed by this set, so changes in the returned set are reflected in
      * this set, and vice-versa.  The returned set supports all optional set
      * operations that this set supports.
@@ -307,7 +274,7 @@ public interface NavigableSet<E> extends SortedSet<E> {
      * @throws ClassCastException       {@inheritDoc}
      * @throws NullPointerException     {@inheritDoc}
      * @throws IllegalArgumentException {@inheritDoc}
-     */
+na     */
     SortedSet<E> headSet(E toElement);
 
     /**

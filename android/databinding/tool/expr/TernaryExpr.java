@@ -18,15 +18,12 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.solver.ExecutionPath;
-import android.databinding.tool.writer.KCode;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 
 public class TernaryExpr extends Expr {
-
     TernaryExpr(Expr pred, Expr ifTrue, Expr ifFalse) {
         super(pred, ifTrue, ifFalse);
     }
@@ -49,46 +46,20 @@ public class TernaryExpr extends Expr {
     }
 
     @Override
-    public String getInvertibleError() {
-        if (getPred().isDynamic()) {
-            return "The condition of a ternary operator must be constant: " +
-                    getPred().toFullCode();
-        }
-        final String trueInvertible = getIfTrue().getInvertibleError();
-        if (trueInvertible != null) {
-            return trueInvertible;
-        } else {
-            return getIfFalse().getInvertibleError();
-        }
-    }
-
-    @Override
     protected ModelClass resolveType(ModelAnalyzer modelAnalyzer) {
-        final Expr ifTrue = getIfTrue();
-        final Expr ifFalse = getIfFalse();
-        if (isNullLiteral(ifTrue)) {
-            return ifFalse.getResolvedType();
-        } else if (isNullLiteral(ifFalse)) {
-            return ifTrue.getResolvedType();
-        }
         return modelAnalyzer.findCommonParentOf(getIfTrue().getResolvedType(),
                 getIfFalse().getResolvedType());
     }
 
-    private static boolean isNullLiteral(Expr expr) {
-        final ModelClass type = expr.getResolvedType();
-        return (type.isObject() && (expr instanceof SymbolExpr) &&
-                "null".equals(((SymbolExpr) expr).getText()));
-    }
-
     @Override
     protected List<Dependency> constructDependencies() {
-        List<Dependency> deps = new ArrayList<Dependency>();
+        List<Dependency> deps = new ArrayList<>();
         Expr predExpr = getPred();
-        final Dependency pred = new Dependency(this, predExpr);
-        pred.setMandatory(true);
-        deps.add(pred);
-
+        if (predExpr.isDynamic()) {
+            final Dependency pred = new Dependency(this, predExpr);
+            pred.setMandatory(true);
+            deps.add(pred);
+        }
         Expr ifTrueExpr = getIfTrue();
         if (ifTrueExpr.isDynamic()) {
             deps.add(new Dependency(this, ifTrueExpr, predExpr, true));
@@ -101,58 +72,12 @@ public class TernaryExpr extends Expr {
     }
 
     @Override
-    public List<ExecutionPath> toExecutionPath(List<ExecutionPath> paths) {
-        List<ExecutionPath> executionPaths = getPred().toExecutionPath(paths);
-        // now optionally add others
-        List<ExecutionPath> result = new ArrayList<ExecutionPath>();
-        for (ExecutionPath path : executionPaths) {
-            ExecutionPath ifTrue = path.addBranch(getPred(), true);
-            if (ifTrue != null) {
-                result.addAll(getIfTrue().toExecutionPath(ifTrue));
-            }
-            ExecutionPath ifFalse = path.addBranch(getPred(), false);
-            if (ifFalse != null) {
-                result.addAll(getIfFalse().toExecutionPath(ifFalse));
-            }
-        }
-        return addJustMeToExecutionPath(result);
-    }
-
-    @Override
     protected BitSet getPredicateInvalidFlags() {
         return getPred().getInvalidFlags();
     }
 
     @Override
-    protected KCode generateCode() {
-        return new KCode()
-                .app("(", getPred().toCode())
-                .app(") ? (", getIfTrue().toCode())
-                .app(") : (", getIfFalse().toCode())
-                .app(")");
-    }
-
-    @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        final Expr pred = getPred().cloneToModel(model);
-        final Expr ifTrue = getIfTrue().generateInverse(model, value, bindingClassName);
-        final Expr ifFalse = getIfFalse().generateInverse(model, value, bindingClassName);
-        return model.ternary(pred, ifTrue, ifFalse);
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.ternary(getPred().cloneToModel(model), getIfTrue().cloneToModel(model),
-                getIfFalse().cloneToModel(model));
-    }
-
-    @Override
     public boolean isConditional() {
         return true;
-    }
-
-    @Override
-    public String toString() {
-        return getPred().toString() + " ? " + getIfTrue() + " : " + getIfFalse();
     }
 }

@@ -23,7 +23,6 @@ import java.util.List;
 
 /**
  * A class representing an event for Activity changes.
- * @hide
  */
 public class ActivityChangedEvent {
     private final List<ActivityRecognitionEvent> mActivityRecognitionEvents;

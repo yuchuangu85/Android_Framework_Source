@@ -16,14 +16,14 @@
 
 package com.android.server.location;
 
+import com.android.internal.util.Preconditions;
+
 import android.annotation.NonNull;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.IInterface;
 import android.os.RemoteException;
 import android.util.Log;
-
-import com.android.internal.util.Preconditions;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,15 +39,13 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
     protected static final int RESULT_GPS_LOCATION_DISABLED = 3;
     protected static final int RESULT_INTERNAL_ERROR = 4;
     protected static final int RESULT_UNKNOWN = 5;
-    protected static final int RESULT_NOT_ALLOWED = 6;
 
     private final Handler mHandler;
     private final String mTag;
 
     private final Map<IBinder, LinkedListener> mListenerMap = new HashMap<>();
 
-    private volatile boolean mIsRegistered;  // must access only on handler thread, or read-only
-
+    private boolean mIsRegistered;
     private boolean mHasIsSupported;
     private boolean mIsSupported;
 
@@ -57,11 +55,6 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
         Preconditions.checkNotNull(name);
         mHandler = handler;
         mTag = name;
-    }
-
-    // read-only access for a dump() thread assured via volatile
-    public boolean isRegistered() {
-        return mIsRegistered;
     }
 
     public boolean addListener(@NonNull TListener listener) {
@@ -90,12 +83,12 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
             } else if (mHasIsSupported && !mIsSupported) {
                 result = RESULT_NOT_SUPPORTED;
             } else if (!isGpsEnabled()) {
+                result = RESULT_GPS_LOCATION_DISABLED;
+            } else if (!tryRegister()) {
                 // only attempt to register if GPS is enabled, otherwise we will register once GPS
                 // becomes available
-                result = RESULT_GPS_LOCATION_DISABLED;
+                result = RESULT_INTERNAL_ERROR;
             } else if (mHasIsSupported && mIsSupported) {
-                tryRegister();
-                // initially presume success, possible internal error could follow asynchornously
                 result = RESULT_SUCCESS;
             } else {
                 // at this point if the supported flag is not set, the notification will be sent
@@ -124,9 +117,8 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
 
     protected abstract boolean isAvailableInPlatform();
     protected abstract boolean isGpsEnabled();
-    // must access only on handler thread
-    protected abstract int registerWithService();
-    protected abstract void unregisterFromService(); // must access only on handler thread
+    protected abstract boolean registerWithService();
+    protected abstract void unregisterFromService();
     protected abstract ListenerOperation<TListener> getHandlerOperation(int result);
 
     protected interface ListenerOperation<TListener extends IInterface> {
@@ -146,16 +138,22 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
         }
     }
 
-    protected void tryUpdateRegistrationWithService() {
+    protected boolean tryUpdateRegistrationWithService() {
         synchronized (mListenerMap) {
             if (!isGpsEnabled()) {
                 tryUnregister();
-                return;
+                return true;
             }
             if (mListenerMap.isEmpty()) {
-                return;
+                return true;
             }
-            tryRegister();
+            if (tryRegister()) {
+                // registration was successful, there is no need to update the state
+                return true;
+            }
+            ListenerOperation<TListener> operation = getHandlerOperation(RESULT_INTERNAL_ERROR);
+            foreachUnsafe(operation);
+            return false;
         }
     }
 
@@ -182,42 +180,19 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
         }
     }
 
-    private void tryRegister() {
-        mHandler.post(new Runnable() {
-            int registrationState = RESULT_INTERNAL_ERROR;
-            @Override
-            public void run() {
-                if (!mIsRegistered) {
-                    registrationState = registerWithService();
-                    mIsRegistered = registrationState == RESULT_SUCCESS;
-                }
-                if (!mIsRegistered) {
-                    // post back a failure
-                    mHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            synchronized (mListenerMap) {
-                                ListenerOperation<TListener> operation = getHandlerOperation(registrationState);
-                                foreachUnsafe(operation);
-                            }
-                        }
-                    });
-                }
-            }
-        });
+    private boolean tryRegister() {
+        if (!mIsRegistered) {
+            mIsRegistered = registerWithService();
+        }
+        return mIsRegistered;
     }
 
     private void tryUnregister() {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (!mIsRegistered) {
-                    return;
-                }
-                unregisterFromService();
-                mIsRegistered = false;
-            }
-        });
+        if (!mIsRegistered) {
+            return;
+        }
+        unregisterFromService();
+        mIsRegistered = false;
     }
 
     private int calculateCurrentResultUnsafe() {

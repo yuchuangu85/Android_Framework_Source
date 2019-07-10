@@ -24,7 +24,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.telephony.Rlog;
 
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 
 /**
  * A package level call that causes all DataConnection bringUp calls to fail a specific
@@ -41,7 +41,7 @@ public class DcTesterFailBringUpAll {
     private static final String LOG_TAG = "DcTesterFailBrinupAll";
     private static final boolean DBG = true;
 
-    private Phone mPhone;
+    private PhoneBase mPhone;
 
     private String mActionFailBringUp = DcFailBringUp.INTENT_BASE + "."
             + DcFailBringUp.ACTION_FAIL_BRINGUP;
@@ -74,7 +74,7 @@ public class DcTesterFailBringUpAll {
         }
     };
 
-    DcTesterFailBringUpAll(Phone phone, Handler handler) {
+    DcTesterFailBringUpAll(PhoneBase phone, Handler handler) {
         mPhone = phone;
         if (Build.IS_DEBUGGABLE) {
             IntentFilter filter = new IntentFilter();
@@ -98,7 +98,7 @@ public class DcTesterFailBringUpAll {
         }
     }
 
-    public DcFailBringUp getDcFailBringUp() {
+    DcFailBringUp getDcFailBringUp() {
         return mFailBringUp;
     }
 

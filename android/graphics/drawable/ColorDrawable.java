@@ -18,9 +18,6 @@ package android.graphics.drawable;
 
 import android.annotation.ColorInt;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.annotation.TestApi;
-import android.content.pm.ActivityInfo.Config;
 import android.graphics.*;
 import android.graphics.PorterDuff.Mode;
 import android.content.res.ColorStateList;
@@ -73,7 +70,7 @@ public class ColorDrawable extends Drawable {
     }
 
     @Override
-    public @Config int getChangingConfigurations() {
+    public int getChangingConfigurations() {
         return super.getChangingConfigurations() | mColorState.getChangingConfigurations();
     }
 
@@ -209,31 +206,6 @@ public class ColorDrawable extends Drawable {
         return mColorState.mTint != null && mColorState.mTint.isStateful();
     }
 
-    /** @hide */
-    @Override
-    public boolean hasFocusStateSpecified() {
-        return mColorState.mTint != null && mColorState.mTint.hasFocusStateSpecified();
-    }
-
-    /**
-     * @hide
-     * @param mode new transfer mode
-     */
-    @Override
-    public void setXfermode(@Nullable Xfermode mode) {
-        mPaint.setXfermode(mode);
-        invalidateSelf();
-    }
-
-    /**
-     * @hide
-     * @return current transfer mode
-     */
-    @TestApi
-    public Xfermode getXfermode() {
-        return mPaint.getXfermode();
-    }
-
     @Override
     public int getOpacity() {
         if (mTintFilter != null || mPaint.getColorFilter() != null) {
@@ -320,7 +292,7 @@ public class ColorDrawable extends Drawable {
         int mBaseColor; // base color, independent of setAlpha()
         @ViewDebug.ExportedProperty
         int mUseColor;  // basecolor modulated by setAlpha()
-        @Config int mChangingConfigurations;
+        int mChangingConfigurations;
         ColorStateList mTint = null;
         Mode mTintMode = DEFAULT_TINT_MODE;
 
@@ -354,7 +326,7 @@ public class ColorDrawable extends Drawable {
         }
 
         @Override
-        public @Config int getChangingConfigurations() {
+        public int getChangingConfigurations() {
             return mChangingConfigurations
                     | (mTint != null ? mTint.getChangingConfigurations() : 0);
         }

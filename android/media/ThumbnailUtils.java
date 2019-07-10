@@ -92,14 +92,9 @@ public class ThumbnailUtils {
         SizedThumbnailBitmap sizedThumbnailBitmap = new SizedThumbnailBitmap();
         Bitmap bitmap = null;
         MediaFileType fileType = MediaFile.getFileType(filePath);
-        if (fileType != null) {
-            if (fileType.fileType == MediaFile.FILE_TYPE_JPEG
-                    || MediaFile.isRawImageFileType(fileType.fileType)) {
-                createThumbnailFromEXIF(filePath, targetSize, maxPixels, sizedThumbnailBitmap);
-                bitmap = sizedThumbnailBitmap.mBitmap;
-            } else if (fileType.fileType == MediaFile.FILE_TYPE_HEIF) {
-                bitmap = createThumbnailFromMetadataRetriever(filePath, targetSize, maxPixels);
-            }
+        if (fileType != null && fileType.fileType == MediaFile.FILE_TYPE_JPEG) {
+            createThumbnailFromEXIF(filePath, targetSize, maxPixels, sizedThumbnailBitmap);
+            bitmap = sizedThumbnailBitmap.mBitmap;
         }
 
         if (bitmap == null) {
@@ -522,27 +517,5 @@ public class ThumbnailUtils {
             fullOptions.inJustDecodeBounds = false;
             sizedThumbBitmap.mBitmap = BitmapFactory.decodeFile(filePath, fullOptions);
         }
-    }
-
-    private static Bitmap createThumbnailFromMetadataRetriever(
-            String filePath, int targetSize, int maxPixels) {
-        if (filePath == null) {
-            return null;
-        }
-        Bitmap thumbnail = null;
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try {
-            retriever.setDataSource(filePath);
-            MediaMetadataRetriever.BitmapParams params = new MediaMetadataRetriever.BitmapParams();
-            params.setPreferredConfig(Bitmap.Config.ARGB_8888);
-            thumbnail = retriever.getThumbnailImageAtIndex(-1, params, targetSize, maxPixels);
-        } catch (RuntimeException ex) {
-            // Assume this is a corrupt video file.
-        } finally {
-            if (retriever != null) {
-                retriever.release();
-            }
-        }
-        return thumbnail;
     }
 }

@@ -1,401 +1,218 @@
-/*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio.channels;
 
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.io.IOException;
-
-
 /**
- * A token representing the registration of a {@link SelectableChannel} with a
- * {@link Selector}.
- *
- * <p> A selection key is created each time a channel is registered with a
- * selector.  A key remains valid until it is <i>cancelled</i> by invoking its
- * {@link #cancel cancel} method, by closing its channel, or by closing its
- * selector.  Cancelling a key does not immediately remove it from its
- * selector; it is instead added to the selector's <a
- * href="Selector.html#ks"><i>cancelled-key set</i></a> for removal during the
- * next selection operation.  The validity of a key may be tested by invoking
- * its {@link #isValid isValid} method.
- *
- * <a name="opsets"></a>
- *
- * <p> A selection key contains two <i>operation sets</i> represented as
- * integer values.  Each bit of an operation set denotes a category of
- * selectable operations that are supported by the key's channel.
- *
- * <ul>
- *
- *   <li><p> The <i>interest set</i> determines which operation categories will
- *   be tested for readiness the next time one of the selector's selection
- *   methods is invoked.  The interest set is initialized with the value given
- *   when the key is created; it may later be changed via the {@link
- *   #interestOps(int)} method. </p></li>
- *
- *   <li><p> The <i>ready set</i> identifies the operation categories for which
- *   the key's channel has been detected to be ready by the key's selector.
- *   The ready set is initialized to zero when the key is created; it may later
- *   be updated by the selector during a selection operation, but it cannot be
- *   updated directly. </p></li>
- *
- * </ul>
- *
- * <p> That a selection key's ready set indicates that its channel is ready for
- * some operation category is a hint, but not a guarantee, that an operation in
- * such a category may be performed by a thread without causing the thread to
- * block.  A ready set is most likely to be accurate immediately after the
- * completion of a selection operation.  It is likely to be made inaccurate by
- * external events and by I/O operations that are invoked upon the
- * corresponding channel.
- *
- * <p> This class defines all known operation-set bits, but precisely which
- * bits are supported by a given channel depends upon the type of the channel.
- * Each subclass of {@link SelectableChannel} defines an {@link
- * SelectableChannel#validOps() validOps()} method which returns a set
- * identifying just those operations that are supported by the channel.  An
- * attempt to set or test an operation-set bit that is not supported by a key's
- * channel will result in an appropriate run-time exception.
- *
- * <p> It is often necessary to associate some application-specific data with a
- * selection key, for example an object that represents the state of a
- * higher-level protocol and handles readiness notifications in order to
- * implement that protocol.  Selection keys therefore support the
- * <i>attachment</i> of a single arbitrary object to a key.  An object can be
- * attached via the {@link #attach attach} method and then later retrieved via
- * the {@link #attachment() attachment} method.
- *
- * <p> Selection keys are safe for use by multiple concurrent threads.  The
- * operations of reading and writing the interest set will, in general, be
- * synchronized with certain operations of the selector.  Exactly how this
- * synchronization is performed is implementation-dependent: In a naive
- * implementation, reading or writing the interest set may block indefinitely
- * if a selection operation is already in progress; in a high-performance
- * implementation, reading or writing the interest set may block briefly, if at
- * all.  In any case, a selection operation will always use the interest-set
- * value that was current at the moment that the operation began.  </p>
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
- *
- * @see SelectableChannel
- * @see Selector
+ * A {@code SelectionKey} represents the relationship between a channel and a
+ * selector for which the channel is registered.
+ * <h3>Operation set</h3>
+ * An operation set is represented by an integer value. The bits of an operation
+ * set represent categories of operations for a key's channel: Accepting socket
+ * connections ({@code OP_ACCEPT}), connecting with a socket ({@code OP_CONNECT}),
+ * reading ({@code OP_READ}) and writing ({@code OP_WRITE}).
+ * <h4>Interest set</h4>
+ * The interest set is an operation set that defines the operations that a
+ * {@link SelectableChannel channel} is interested in performing.
+ * <h4>Ready set</h4>
+ * The ready set is an operation set that shows the operations that a
+ * {@code channel} is ready to execute.
  */
-
 public abstract class SelectionKey {
 
     /**
-     * Constructs an instance of this class.
+     * Interest set mask bit for socket-accept operations.
      */
-    protected SelectionKey() { }
-
-
-    // -- Channel and selector operations --
+    public static final int OP_ACCEPT = 16;
 
     /**
-     * Returns the channel for which this key was created.  This method will
-     * continue to return the channel even after the key is cancelled.
-     *
-     * @return  This key's channel
+     * Interest set mask bit for socket-connect operations.
      */
-    public abstract SelectableChannel channel();
+    public static final int OP_CONNECT = 8;
 
     /**
-     * Returns the selector for which this key was created.  This method will
-     * continue to return the selector even after the key is cancelled.
-     *
-     * @return  This key's selector
+     * Interesting operation mask bit for read operations.
      */
-    public abstract Selector selector();
+    public static final int OP_READ = 1;
 
     /**
-     * Tells whether or not this key is valid.
-     *
-     * <p> A key is valid upon creation and remains so until it is cancelled,
-     * its channel is closed, or its selector is closed.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if, this key is valid
+     * Interest set mask bit for write operations.
      */
-    public abstract boolean isValid();
-
-    /**
-     * Requests that the registration of this key's channel with its selector
-     * be cancelled.  Upon return the key will be invalid and will have been
-     * added to its selector's cancelled-key set.  The key will be removed from
-     * all of the selector's key sets during the next selection operation.
-     *
-     * <p> If this key has already been cancelled then invoking this method has
-     * no effect.  Once cancelled, a key remains forever invalid. </p>
-     *
-     * <p> This method may be invoked at any time.  It synchronizes on the
-     * selector's cancelled-key set, and therefore may block briefly if invoked
-     * concurrently with a cancellation or selection operation involving the
-     * same selector.  </p>
-     */
-    public abstract void cancel();
-
-
-    // -- Operation-set accessors --
-
-    /**
-     * Retrieves this key's interest set.
-     *
-     * <p> It is guaranteed that the returned set will only contain operation
-     * bits that are valid for this key's channel.
-     *
-     * <p> This method may be invoked at any time.  Whether or not it blocks,
-     * and for how long, is implementation-dependent.  </p>
-     *
-     * @return  This key's interest set
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public abstract int interestOps();
-
-    /**
-     * Sets this key's interest set to the given value.
-     *
-     * <p> This method may be invoked at any time.  Whether or not it blocks,
-     * and for how long, is implementation-dependent.  </p>
-     *
-     * @param  ops  The new interest set
-     *
-     * @return  This selection key
-     *
-     * @throws  IllegalArgumentException
-     *          If a bit in the set does not correspond to an operation that
-     *          is supported by this key's channel, that is, if
-     *          {@code (ops & ~channel().validOps()) != 0}
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public abstract SelectionKey interestOps(int ops);
-
-    /**
-     * Retrieves this key's ready-operation set.
-     *
-     * <p> It is guaranteed that the returned set will only contain operation
-     * bits that are valid for this key's channel.  </p>
-     *
-     * @return  This key's ready-operation set
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public abstract int readyOps();
-
-
-    // -- Operation bits and bit-testing convenience methods --
-
-    /**
-     * Operation-set bit for read operations.
-     *
-     * <p> Suppose that a selection key's interest set contains
-     * <tt>OP_READ</tt> at the start of a <a
-     * href="Selector.html#selop">selection operation</a>.  If the selector
-     * detects that the corresponding channel is ready for reading, has reached
-     * end-of-stream, has been remotely shut down for further reading, or has
-     * an error pending, then it will add <tt>OP_READ</tt> to the key's
-     * ready-operation set and add the key to its selected-key&nbsp;set.  </p>
-     */
-    public static final int OP_READ = 1 << 0;
-
-    /**
-     * Operation-set bit for write operations.
-     *
-     * <p> Suppose that a selection key's interest set contains
-     * <tt>OP_WRITE</tt> at the start of a <a
-     * href="Selector.html#selop">selection operation</a>.  If the selector
-     * detects that the corresponding channel is ready for writing, has been
-     * remotely shut down for further writing, or has an error pending, then it
-     * will add <tt>OP_WRITE</tt> to the key's ready set and add the key to its
-     * selected-key&nbsp;set.  </p>
-     */
-    public static final int OP_WRITE = 1 << 2;
-
-    /**
-     * Operation-set bit for socket-connect operations.
-     *
-     * <p> Suppose that a selection key's interest set contains
-     * <tt>OP_CONNECT</tt> at the start of a <a
-     * href="Selector.html#selop">selection operation</a>.  If the selector
-     * detects that the corresponding socket channel is ready to complete its
-     * connection sequence, or has an error pending, then it will add
-     * <tt>OP_CONNECT</tt> to the key's ready set and add the key to its
-     * selected-key&nbsp;set.  </p>
-     */
-    public static final int OP_CONNECT = 1 << 3;
-
-    /**
-     * Operation-set bit for socket-accept operations.
-     *
-     * <p> Suppose that a selection key's interest set contains
-     * <tt>OP_ACCEPT</tt> at the start of a <a
-     * href="Selector.html#selop">selection operation</a>.  If the selector
-     * detects that the corresponding server-socket channel is ready to accept
-     * another connection, or has an error pending, then it will add
-     * <tt>OP_ACCEPT</tt> to the key's ready set and add the key to its
-     * selected-key&nbsp;set.  </p>
-     */
-    public static final int OP_ACCEPT = 1 << 4;
-
-    /**
-     * Tests whether this key's channel is ready for reading.
-     *
-     * <p> An invocation of this method of the form <tt>k.isReadable()</tt>
-     * behaves in exactly the same way as the expression
-     *
-     * <blockquote><pre>{@code
-     * k.readyOps() & OP_READ != 0
-     * }</pre></blockquote>
-     *
-     * <p> If this key's channel does not support read operations then this
-     * method always returns <tt>false</tt>.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if,
-                {@code readyOps() & OP_READ} is nonzero
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public final boolean isReadable() {
-        return (readyOps() & OP_READ) != 0;
-    }
-
-    /**
-     * Tests whether this key's channel is ready for writing.
-     *
-     * <p> An invocation of this method of the form <tt>k.isWritable()</tt>
-     * behaves in exactly the same way as the expression
-     *
-     * <blockquote><pre>{@code
-     * k.readyOps() & OP_WRITE != 0
-     * }</pre></blockquote>
-     *
-     * <p> If this key's channel does not support write operations then this
-     * method always returns <tt>false</tt>.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if,
-     *          {@code readyOps() & OP_WRITE} is nonzero
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public final boolean isWritable() {
-        return (readyOps() & OP_WRITE) != 0;
-    }
-
-    /**
-     * Tests whether this key's channel has either finished, or failed to
-     * finish, its socket-connection operation.
-     *
-     * <p> An invocation of this method of the form <tt>k.isConnectable()</tt>
-     * behaves in exactly the same way as the expression
-     *
-     * <blockquote><pre>{@code
-     * k.readyOps() & OP_CONNECT != 0
-     * }</pre></blockquote>
-     *
-     * <p> If this key's channel does not support socket-connect operations
-     * then this method always returns <tt>false</tt>.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if,
-     *          {@code readyOps() & OP_CONNECT} is nonzero
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public final boolean isConnectable() {
-        return (readyOps() & OP_CONNECT) != 0;
-    }
-
-    /**
-     * Tests whether this key's channel is ready to accept a new socket
-     * connection.
-     *
-     * <p> An invocation of this method of the form <tt>k.isAcceptable()</tt>
-     * behaves in exactly the same way as the expression
-     *
-     * <blockquote><pre>{@code
-     * k.readyOps() & OP_ACCEPT != 0
-     * }</pre></blockquote>
-     *
-     * <p> If this key's channel does not support socket-accept operations then
-     * this method always returns <tt>false</tt>.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if,
-     *          {@code readyOps() & OP_ACCEPT} is nonzero
-     *
-     * @throws  CancelledKeyException
-     *          If this key has been cancelled
-     */
-    public final boolean isAcceptable() {
-        return (readyOps() & OP_ACCEPT) != 0;
-    }
-
-
-    // -- Attachments --
+    public static final int OP_WRITE = 4;
 
     private volatile Object attachment = null;
 
-    private static final AtomicReferenceFieldUpdater<SelectionKey,Object>
-        attachmentUpdater = AtomicReferenceFieldUpdater.newUpdater(
-            SelectionKey.class, Object.class, "attachment"
-        );
-
     /**
-     * Attaches the given object to this key.
-     *
-     * <p> An attached object may later be retrieved via the {@link #attachment()
-     * attachment} method.  Only one object may be attached at a time; invoking
-     * this method causes any previous attachment to be discarded.  The current
-     * attachment may be discarded by attaching <tt>null</tt>.  </p>
-     *
-     * @param  ob
-     *         The object to be attached; may be <tt>null</tt>
-     *
-     * @return  The previously-attached object, if any,
-     *          otherwise <tt>null</tt>
+     * Constructs a new {@code SelectionKey}.
      */
-    public final Object attach(Object ob) {
-        return attachmentUpdater.getAndSet(this, ob);
+    protected SelectionKey() {
     }
 
     /**
-     * Retrieves the current attachment.
+     * Attaches an object to this key. It is acceptable to attach {@code null},
+     * this discards the old attachment.
      *
-     * @return  The object currently attached to this key,
-     *          or <tt>null</tt> if there is no attachment
+     * @param anObject
+     *            the object to attach, or {@code null} to discard the current
+     *            attachment.
+     * @return the last attached object or {@code null} if no object has been
+     *         attached.
+     */
+    public final Object attach(Object anObject) {
+        Object oldAttachment = attachment;
+        attachment = anObject;
+        return oldAttachment;
+    }
+
+    /**
+     * Gets the attached object.
+     *
+     * @return the attached object or {@code null} if no object has been
+     *         attached.
      */
     public final Object attachment() {
         return attachment;
     }
 
+    /**
+     * Cancels this key.
+     * <p>
+     * A key that has been canceled is no longer valid. Calling this method on
+     * an already canceled key does nothing.
+     * <p>
+     * Calling this method is safe at any time. The call might block until
+     * another ongoing call to a method of this selector has finished. The
+     * reason is that it is synchronizing on the key set of the selector. After
+     * this call finishes, the key will have been added to the selectors
+     * canceled-keys set and will not be included in any future selects of this
+     * selector.
+     */
+    public abstract void cancel();
+
+    /**
+     * Gets the channel of this key.
+     *
+     * @return the channel of this key.
+     */
+    public abstract SelectableChannel channel();
+
+    /**
+     * Gets this key's {@link SelectionKey interest set}. The returned set has
+     * only those bits set that are valid for this key's channel.
+     *
+     * @return the interest set of this key.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public abstract int interestOps();
+
+    /**
+     * Sets the {@link SelectionKey interest set} for this key.
+     *
+     * @param operations
+     *            the new interest set.
+     * @return this key.
+     * @throws IllegalArgumentException
+     *             if a bit in {@code operations} is not in the set of
+     *             {@link SelectableChannel#validOps() valid operations} of this
+     *             key's channel.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public abstract SelectionKey interestOps(int operations);
+
+    /**
+     * Indicates whether this key's channel is interested in the accept
+     * operation and is ready to accept new connections. A call to this method
+     * is equal to executing {@code (readyOps() & OP_ACCEPT) == OP_ACCEPT}.
+     *
+     * @return {@code true} if the channel is interested in the accept operation
+     *         and is ready to accept new connections, {@code false} otherwise.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public final boolean isAcceptable() {
+        return (readyOps() & OP_ACCEPT) == OP_ACCEPT;
+    }
+
+    /**
+     * Indicates whether this key's channel is interested in the connect
+     * operation and is ready to connect. A call to this method is equal to
+     * executing {@code (readyOps() & OP_CONNECT) == OP_CONNECT}.
+     *
+     * @return {@code true} if the channel is interested in the connect
+     *         operation and is ready to connect, {@code false} otherwise.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public final boolean isConnectable() {
+        return (readyOps() & OP_CONNECT) == OP_CONNECT;
+    }
+
+    /**
+     * Indicates whether this key's channel is interested in the read operation
+     * and is ready to read. A call to this method is equal to executing
+     * {@code (readyOps() & OP_READ) == OP_READ}.
+     *
+     * @return {@code true} if the channel is interested in the read operation
+     *         and is ready to read, {@code false} otherwise.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public final boolean isReadable() {
+        return (readyOps() & OP_READ) == OP_READ;
+    }
+
+    /**
+     * Indicates whether this key is valid. A key is valid as long as it has not
+     * been canceled.
+     *
+     * @return {@code true} if this key has not been canceled, {@code false}
+     *         otherwise.
+     */
+    public abstract boolean isValid();
+
+    /**
+     * Indicates whether this key's channel is interested in the write operation
+     * and is ready to write. A call to this method is equal to executing
+     * {@code (readyOps() & OP_WRITE) == OP_WRITE}.
+     *
+     * @return {@code true} if the channel is interested in the write operation
+     *         and is ready to write, {@code false} otherwise.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public final boolean isWritable() {
+        return (readyOps() & OP_WRITE) == OP_WRITE;
+    }
+
+    /**
+     * Gets the set of operations that are ready. The returned set has only
+     * those bits set that are valid for this key's channel.
+     *
+     * @return the operations for which this key's channel is ready.
+     * @throws CancelledKeyException
+     *             if the key has already been canceled.
+     */
+    public abstract int readyOps();
+
+    /**
+     * Gets the selector for which this key's channel is registered.
+     *
+     * @return the related selector.
+     */
+    public abstract Selector selector();
 }

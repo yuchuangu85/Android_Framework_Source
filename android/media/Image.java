@@ -19,9 +19,7 @@ package android.media;
 import java.nio.ByteBuffer;
 import java.lang.AutoCloseable;
 
-import android.annotation.Nullable;
 import android.graphics.Rect;
-import android.hardware.HardwareBuffer;
 
 /**
  * <p>A single complete image buffer to use with a media source such as a
@@ -33,7 +31,7 @@ import android.hardware.HardwareBuffer;
  * {@link java.nio.ByteBuffer ByteBuffers}. Each buffer is encapsulated in a
  * {@link Plane} that describes the layout of the pixel data in that plane. Due
  * to this direct access, and unlike the {@link android.graphics.Bitmap Bitmap} class,
- * Images are not directly usable as UI resources.</p>
+ * Images are not directly usable as as UI resources.</p>
  *
  * <p>Since Images are often directly produced or consumed by hardware
  * components, they are a limited resource shared across the system, and should
@@ -143,16 +141,6 @@ public abstract class Image implements AutoCloseable {
      *     {@link android.hardware.camera2.CameraDevice CameraDevice}.
      *   </td>
      * </tr>
-     * <tr>
-     *   <td>{@link android.graphics.ImageFormat#RAW_PRIVATE RAW_PRIVATE}</td>
-     *   <td>1</td>
-     *   <td>A single plane of raw sensor image data of private layout.
-     *   The details of the layout is implementation specific. Row stride and
-     *   pixel stride are undefined for this format. Calling {@link Plane#getRowStride()}
-     *   or {@link Plane#getPixelStride()} on RAW_PRIVATE image will cause
-     *   UnSupportedOperationException being thrown.
-     *   </td>
-     * </tr>
      * </table>
      *
      * @see android.graphics.ImageFormat
@@ -184,38 +172,6 @@ public abstract class Image implements AutoCloseable {
      * </p>
      */
     public abstract long getTimestamp();
-
-    /**
-     * Get the transformation associated with this frame.
-     * @return The window transformation that needs to be applied for this frame.
-     * @hide
-     */
-    public abstract int getTransform();
-
-    /**
-     * Get the scaling mode associated with this frame.
-     * @return The scaling mode that needs to be applied for this frame.
-     * @hide
-     */
-    public abstract int getScalingMode();
-
-    /**
-     * Get the {@link android.hardware.HardwareBuffer HardwareBuffer} handle of the input image
-     * intended for GPU and/or hardware access.
-     * <p>
-     * The returned {@link android.hardware.HardwareBuffer HardwareBuffer} shall not be used
-     * after  {@link Image#close Image.close()} has been called.
-     * </p>
-     * @return the HardwareBuffer associated with this Image or null if this Image doesn't support
-     * this feature. (Unsupported use cases include Image instances obtained through
-     * {@link android.media.MediaCodec MediaCodec}, and on versions prior to Android P,
-     * {@link android.media.ImageWriter ImageWriter}).
-     */
-    @Nullable
-    public HardwareBuffer getHardwareBuffer() {
-        throwISEIfImageIsInvalid();
-        return null;
-    }
 
     /**
      * Set the timestamp associated with this frame.
@@ -385,13 +341,7 @@ public abstract class Image implements AutoCloseable {
          * <p>The row stride for this color plane, in bytes.</p>
          *
          * <p>This is the distance between the start of two consecutive rows of
-         * pixels in the image. Note that row stried is undefined for some formats
-         * such as
-         * {@link android.graphics.ImageFormat#RAW_PRIVATE RAW_PRIVATE},
-         * and calling getRowStride on images of these formats will
-         * cause an UnsupportedOperationException being thrown.
-         * For formats where row stride is well defined, the row stride
-         * is always greater than 0.</p>
+         * pixels in the image. The row stride is always greater than 0.</p>
          */
         public abstract int getRowStride();
         /**
@@ -400,12 +350,7 @@ public abstract class Image implements AutoCloseable {
          * <p>This is the distance between two consecutive pixel values in a row
          * of pixels. It may be larger than the size of a single pixel to
          * account for interleaved image data or padded formats.
-         * Note that pixel stride is undefined for some formats such as
-         * {@link android.graphics.ImageFormat#RAW_PRIVATE RAW_PRIVATE},
-         * and calling getPixelStride on images of these formats will
-         * cause an UnsupportedOperationException being thrown.
-         * For formats where pixel stride is well defined, the pixel stride
-         * is always greater than 0.</p>
+         * The pixel stride is always greater than 0.</p>
          */
         public abstract int getPixelStride();
         /**

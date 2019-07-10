@@ -1,283 +1,265 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
-
 /**
- * A buffered character-input stream that keeps track of line numbers.  This
- * class defines methods {@link #setLineNumber(int)} and {@link
- * #getLineNumber()} for setting and getting the current line number
- * respectively.
- *
- * <p> By default, line numbering begins at 0. This number increments at every
- * <a href="#lt">line terminator</a> as the data is read, and can be changed
- * with a call to <tt>setLineNumber(int)</tt>.  Note however, that
- * <tt>setLineNumber(int)</tt> does not actually change the current position in
- * the stream; it only changes the value that will be returned by
- * <tt>getLineNumber()</tt>.
- *
- * <p> A line is considered to be <a name="lt">terminated</a> by any one of a
- * line feed ('\n'), a carriage return ('\r'), or a carriage return followed
- * immediately by a linefeed.
- *
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * Wraps an existing {@link Reader} and counts the line terminators encountered
+ * while reading the data. The line number starts at 0 and is incremented any
+ * time {@code '\r'}, {@code '\n'} or {@code "\r\n"} is read. The class has an
+ * internal buffer for its data. The size of the buffer defaults to 8 KB.
  */
-
 public class LineNumberReader extends BufferedReader {
 
-    /** The current line number */
-    private int lineNumber = 0;
+    private int lineNumber;
 
-    /** The line number of the mark, if any */
-    private int markedLineNumber; // Defaults to 0
+    private int markedLineNumber = -1;
 
-    /** If the next character is a line feed, skip it */
-    private boolean skipLF;
+    private boolean lastWasCR;
 
-    /** The skipLF flag when the mark was set */
-    private boolean markedSkipLF;
+    private boolean markedLastWasCR;
 
     /**
-     * Create a new line-numbering reader, using the default input-buffer
-     * size.
+     * Constructs a new LineNumberReader on the Reader {@code in}. The internal
+     * buffer gets the default size (8 KB).
      *
-     * @param  in
-     *         A Reader object to provide the underlying stream
+     * @param in
+     *            the Reader that is buffered.
      */
     public LineNumberReader(Reader in) {
         super(in);
     }
 
     /**
-     * Create a new line-numbering reader, reading characters into a buffer of
-     * the given size.
+     * Constructs a new LineNumberReader on the Reader {@code in}. The size of
+     * the internal buffer is specified by the parameter {@code size}.
      *
-     * @param  in
-     *         A Reader object to provide the underlying stream
-     *
-     * @param  sz
-     *         An int specifying the size of the buffer
+     * @param in
+     *            the Reader that is buffered.
+     * @param size
+     *            the size of the buffer to allocate.
+     * @throws IllegalArgumentException
+     *             if {@code size <= 0}.
      */
-    public LineNumberReader(Reader in, int sz) {
-        super(in, sz);
+    public LineNumberReader(Reader in, int size) {
+        super(in, size);
     }
 
     /**
-     * Set the current line number.
+     * Returns the current line number for this reader. Numbering starts at 0.
      *
-     * @param  lineNumber
-     *         An int specifying the line number
-     *
-     * @see #getLineNumber
-     */
-    public void setLineNumber(int lineNumber) {
-        this.lineNumber = lineNumber;
-    }
-
-    /**
-     * Get the current line number.
-     *
-     * @return  The current line number
-     *
-     * @see #setLineNumber
+     * @return the current line number.
      */
     public int getLineNumber() {
-        return lineNumber;
+        synchronized (lock) {
+            return lineNumber;
+        }
     }
 
     /**
-     * Read a single character.  <a href="#lt">Line terminators</a> are
-     * compressed into single newline ('\n') characters.  Whenever a line
-     * terminator is read the current line number is incremented.
+     * Sets a mark position in this reader. The parameter {@code readlimit}
+     * indicates how many characters can be read before the mark is invalidated.
+     * Sending {@code reset()} will reposition this reader back to the marked
+     * position, provided that {@code readlimit} has not been surpassed. The
+     * line number associated with this marked position is also stored so that
+     * it can be restored when {@code reset()} is called.
      *
-     * @return  The character read, or -1 if the end of the stream has been
-     *          reached
+     * @param readlimit
+     *            the number of characters that can be read from this stream
+     *            before the mark is invalidated.
+     * @throws IOException
+     *             if an error occurs while setting the mark in this reader.
+     * @see #markSupported()
+     * @see #reset()
+     */
+    @Override
+    public void mark(int readlimit) throws IOException {
+        synchronized (lock) {
+            super.mark(readlimit);
+            markedLineNumber = lineNumber;
+            markedLastWasCR = lastWasCR;
+        }
+    }
+
+    /**
+     * Reads a single character from the source reader and returns it as an
+     * integer with the two higher-order bytes set to 0. Returns -1 if the end
+     * of the source reader has been reached.
+     * <p>
+     * The line number count is incremented if a line terminator is encountered.
+     * Recognized line terminator sequences are {@code '\r'}, {@code '\n'} and
+     * {@code "\r\n"}. Line terminator sequences are always translated into
+     * {@code '\n'}.
      *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @return the character read or -1 if the end of the source reader has been
+     *         reached.
+     * @throws IOException
+     *             if the reader is closed or another IOException occurs.
      */
     @SuppressWarnings("fallthrough")
+    @Override
     public int read() throws IOException {
         synchronized (lock) {
-            int c = super.read();
-            if (skipLF) {
-                if (c == '\n')
-                    c = super.read();
-                skipLF = false;
+            int ch = super.read();
+            if (ch == '\n' && lastWasCR) {
+                ch = super.read();
             }
-            switch (c) {
-            case '\r':
-                skipLF = true;
-            case '\n':          /* Fall through */
-                lineNumber++;
-                return '\n';
-            }
-            return c;
-        }
-    }
-
-    /**
-     * Read characters into a portion of an array.  Whenever a <a
-     * href="#lt">line terminator</a> is read the current line number is
-     * incremented.
-     *
-     * @param  cbuf
-     *         Destination buffer
-     *
-     * @param  off
-     *         Offset at which to start storing characters
-     *
-     * @param  len
-     *         Maximum number of characters to read
-     *
-     * @return  The number of bytes read, or -1 if the end of the stream has
-     *          already been reached
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
-     */
-    @SuppressWarnings("fallthrough")
-    public int read(char cbuf[], int off, int len) throws IOException {
-        synchronized (lock) {
-            int n = super.read(cbuf, off, len);
-
-            for (int i = off; i < off + n; i++) {
-                int c = cbuf[i];
-                if (skipLF) {
-                    skipLF = false;
-                    if (c == '\n')
-                        continue;
-                }
-                switch (c) {
+            lastWasCR = false;
+            switch (ch) {
                 case '\r':
-                    skipLF = true;
-                case '\n':      /* Fall through */
+                    ch = '\n';
+                    lastWasCR = true;
+                    // fall through
+                case '\n':
                     lineNumber++;
-                    break;
-                }
             }
-
-            return n;
+            return ch;
         }
     }
 
     /**
-     * Read a line of text.  Whenever a <a href="#lt">line terminator</a> is
-     * read the current line number is incremented.
+     * Reads up to {@code count} characters from the source reader and stores
+     * them in the character array {@code buffer} starting at {@code offset}.
+     * Returns the number of characters actually read or -1 if no characters
+     * have been read and the end of this reader has been reached.
      *
-     * @return  A String containing the contents of the line, not including
-     *          any <a href="#lt">line termination characters</a>, or
-     *          <tt>null</tt> if the end of the stream has been reached
+     * <p>The line number count is incremented if a line terminator is encountered.
+     * Recognized line terminator sequences are {@code '\r'}, {@code '\n'} and
+     * {@code "\r\n"}.
      *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @throws IOException
+     *             if this reader is closed or another IOException occurs.
      */
+    @Override
+    public int read(char[] buffer, int offset, int count) throws IOException {
+        synchronized (lock) {
+            int read = super.read(buffer, offset, count);
+            if (read == -1) {
+                return -1;
+            }
+            for (int i = 0; i < read; i++) {
+                char ch = buffer[offset + i];
+                if (ch == '\r') {
+                    lineNumber++;
+                    lastWasCR = true;
+                } else if (ch == '\n') {
+                    if (!lastWasCR) {
+                        lineNumber++;
+                    }
+                    lastWasCR = false;
+                } else {
+                    lastWasCR = false;
+                }
+            }
+            return read;
+        }
+    }
+
+    /**
+     * Returns the next line of text available from this reader. A line is
+     * represented by 0 or more characters followed by {@code '\r'},
+     * {@code '\n'}, {@code "\r\n"} or the end of the stream. The returned
+     * string does not include the newline sequence.
+     *
+     * @return the contents of the line or {@code null} if no characters have
+     *         been read before the end of the stream has been reached.
+     * @throws IOException
+     *             if this reader is closed or another IOException occurs.
+     */
+    @Override
     public String readLine() throws IOException {
         synchronized (lock) {
-            String l = super.readLine(skipLF);
-            skipLF = false;
-            if (l != null)
-                lineNumber++;
-            return l;
-        }
-    }
-
-    /** Maximum skip-buffer size */
-    private static final int maxSkipBufferSize = 8192;
-
-    /** Skip buffer, null until allocated */
-    private char skipBuffer[] = null;
-
-    /**
-     * Skip characters.
-     *
-     * @param  n
-     *         The number of characters to skip
-     *
-     * @return  The number of characters actually skipped
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
-     *
-     * @throws  IllegalArgumentException
-     *          If <tt>n</tt> is negative
-     */
-    public long skip(long n) throws IOException {
-        if (n < 0)
-            throw new IllegalArgumentException("skip() value is negative");
-        int nn = (int) Math.min(n, maxSkipBufferSize);
-        synchronized (lock) {
-            if ((skipBuffer == null) || (skipBuffer.length < nn))
-                skipBuffer = new char[nn];
-            long r = n;
-            while (r > 0) {
-                int nc = read(skipBuffer, 0, (int) Math.min(r, nn));
-                if (nc == -1)
-                    break;
-                r -= nc;
+            if (lastWasCR) {
+                chompNewline();
+                lastWasCR = false;
             }
-            return n - r;
+            String result = super.readLine();
+            if (result != null) {
+                lineNumber++;
+            }
+            return result;
         }
     }
 
     /**
-     * Mark the present position in the stream.  Subsequent calls to reset()
-     * will attempt to reposition the stream to this point, and will also reset
-     * the line number appropriately.
+     * Resets this reader to the last marked location. It also resets the line
+     * count to what is was when this reader was marked. This implementation
+     * resets the source reader.
      *
-     * @param  readAheadLimit
-     *         Limit on the number of characters that may be read while still
-     *         preserving the mark.  After reading this many characters,
-     *         attempting to reset the stream may fail.
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @throws IOException
+     *             if this reader is already closed, no mark has been set or the
+     *             mark is no longer valid because more than {@code readlimit}
+     *             bytes have been read since setting the mark.
+     * @see #mark(int)
+     * @see #markSupported()
      */
-    public void mark(int readAheadLimit) throws IOException {
-        synchronized (lock) {
-            super.mark(readAheadLimit);
-            markedLineNumber = lineNumber;
-            markedSkipLF     = skipLF;
-        }
-    }
-
-    /**
-     * Reset the stream to the most recent mark.
-     *
-     * @throws  IOException
-     *          If the stream has not been marked, or if the mark has been
-     *          invalidated
-     */
+    @Override
     public void reset() throws IOException {
         synchronized (lock) {
             super.reset();
             lineNumber = markedLineNumber;
-            skipLF     = markedSkipLF;
+            lastWasCR = markedLastWasCR;
         }
     }
 
+    /**
+     * Sets the line number of this reader to the specified {@code lineNumber}.
+     * Note that this may have side effects on the line number associated with
+     * the last marked position.
+     *
+     * @param lineNumber
+     *            the new line number value.
+     * @see #mark(int)
+     * @see #reset()
+     */
+    public void setLineNumber(int lineNumber) {
+        synchronized (lock) {
+            this.lineNumber = lineNumber;
+        }
+    }
+
+    /**
+     * Skips {@code charCount} characters in this reader. Subsequent calls to
+     * {@code read} will not return these characters unless {@code reset}
+     * is used. This implementation skips {@code charCount} number of characters in
+     * the source reader and increments the line number count whenever line
+     * terminator sequences are skipped.
+     *
+     * @return the number of characters actually skipped.
+     * @throws IllegalArgumentException
+     *             if {@code charCount < 0}.
+     * @throws IOException
+     *             if this reader is closed or another IOException occurs.
+     * @see #mark(int)
+     * @see #read()
+     * @see #reset()
+     */
+    @Override
+    public long skip(long charCount) throws IOException {
+        if (charCount < 0) {
+            throw new IllegalArgumentException("charCount < 0: " + charCount);
+        }
+        synchronized (lock) {
+            for (int i = 0; i < charCount; i++) {
+                if (read() == -1) {
+                    return i;
+                }
+            }
+            return charCount;
+        }
+    }
 }

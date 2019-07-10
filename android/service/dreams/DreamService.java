@@ -15,9 +15,11 @@
  */
 package android.service.dreams;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
 import android.annotation.IdRes;
 import android.annotation.LayoutRes;
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
@@ -28,11 +30,9 @@ import android.graphics.PixelFormat;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.IRemoteCallback;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.util.MathUtils;
 import android.util.Slog;
 import android.view.ActionMode;
 import android.view.Display;
@@ -40,21 +40,19 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
+import com.android.internal.policy.PhoneWindow;
 import android.view.SearchEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.WindowManager.LayoutParams;
 import android.view.WindowManagerGlobal;
+import android.view.WindowManager.LayoutParams;
 import android.view.accessibility.AccessibilityEvent;
+import android.util.MathUtils;
 
-import com.android.internal.policy.PhoneWindow;
 import com.android.internal.util.DumpUtils;
 import com.android.internal.util.DumpUtils.Dump;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 
 /**
  * Extend this class to implement a custom dream (available to the user as a "Daydream").
@@ -100,7 +98,7 @@ import java.io.PrintWriter;
  * &lt;/service>
  * </pre>
  *
- * <p>If specified with the {@code <meta-data>} element,
+ * <p>If specified with the {@code &lt;meta-data&gt;} element,
  * additional information for the dream is defined using the
  * {@link android.R.styleable#Dream &lt;dream&gt;} element in a separate XML file.
  * Currently, the only addtional
@@ -458,47 +456,12 @@ public class DreamService extends Service implements Window.Callback {
      * was processed in {@link #onCreate}.
      *
      * <p>Note: Requires a window, do not call before {@link #onAttachedToWindow()}</p>
-     * <p>
-     * <strong>Note:</strong> In most cases -- depending on compiler support --
-     * the resulting view is automatically cast to the target class type. If
-     * the target class type is unconstrained, an explicit cast may be
-     * necessary.
      *
-     * @param id the ID to search for
      * @return The view if found or null otherwise.
-     * @see View#findViewById(int)
-     * @see DreamService#requireViewById(int)
      */
     @Nullable
-    public <T extends View> T findViewById(@IdRes int id) {
+    public View findViewById(@IdRes int id) {
         return getWindow().findViewById(id);
-    }
-
-    /**
-     * Finds a view that was identified by the id attribute from the XML that was processed in
-     * {@link #onCreate}, or throws an IllegalArgumentException if the ID is invalid or there is no
-     * matching view in the hierarchy.
-     *
-     * <p>Note: Requires a window, do not call before {@link #onAttachedToWindow()}</p>
-     * <p>
-     * <strong>Note:</strong> In most cases -- depending on compiler support --
-     * the resulting view is automatically cast to the target class type. If
-     * the target class type is unconstrained, an explicit cast may be
-     * necessary.
-     *
-     * @param id the ID to search for
-     * @return a view with given ID
-     * @see View#requireViewById(int)
-     * @see DreamService#findViewById(int)
-     */
-    @NonNull
-    public final <T extends View> T requireViewById(@IdRes int id) {
-        T view = findViewById(id);
-        if (view == null) {
-            throw new IllegalArgumentException(
-                    "ID does not reference a View inside this DreamService");
-        }
-        return view;
     }
 
     /**
@@ -665,11 +628,6 @@ public class DreamService extends Service implements Window.Callback {
     }
 
     private void updateDoze() {
-        if (mWindowToken == null) {
-            Slog.w(TAG, "Updating doze without a window token.");
-            return;
-        }
-
         if (mDozing) {
             try {
                 mSandman.startDozing(mWindowToken, mDozeScreenState, mDozeScreenBrightness);
@@ -720,8 +678,8 @@ public class DreamService extends Service implements Window.Callback {
      *
      * @return The screen state to use while dozing, such as {@link Display#STATE_ON},
      * {@link Display#STATE_DOZE}, {@link Display#STATE_DOZE_SUSPEND},
-     * {@link Display#STATE_ON_SUSPEND}, {@link Display#STATE_OFF}, or {@link Display#STATE_UNKNOWN}
-     * for the default behavior.
+     * or {@link Display#STATE_OFF}, or {@link Display#STATE_UNKNOWN} for the default
+     * behavior.
      *
      * @see #setDozeScreenState
      * @hide For use by system UI components only.
@@ -740,18 +698,12 @@ public class DreamService extends Service implements Window.Callback {
      * perform transitions between states while dozing to conserve power and
      * achieve various effects.
      * </p><p>
-     * Some devices will have dedicated hardware ("Sidekick") to animate
-     * the display content while the CPU sleeps. If the dream and the hardware support
-     * this, {@link Display#STATE_ON_SUSPEND} or {@link Display#STATE_DOZE_SUSPEND}
-     * will switch control to the Sidekick.
-     * </p><p>
-     * If not using Sidekick, it is recommended that the state be set to
-     * {@link Display#STATE_DOZE_SUSPEND} once the dream has completely
-     * finished drawing and before it releases its wakelock
-     * to allow the display hardware to be fully suspended.  While suspended,
-     * the display will preserve its on-screen contents.
-     * </p><p>
-     * If the doze suspend state is used, the dream must make sure to set the mode back
+     * It is recommended that the state be set to {@link Display#STATE_DOZE_SUSPEND}
+     * once the dream has completely finished drawing and before it releases its wakelock
+     * to allow the display hardware to be fully suspended.  While suspended, the
+     * display will preserve its on-screen contents or hand off control to dedicated
+     * doze hardware if the devices supports it.  If the doze suspend state is
+     * used, the dream must make sure to set the mode back
      * to {@link Display#STATE_DOZE} or {@link Display#STATE_ON} before drawing again
      * since the display updates may be ignored and not seen by the user otherwise.
      * </p><p>
@@ -762,8 +714,8 @@ public class DreamService extends Service implements Window.Callback {
      *
      * @param state The screen state to use while dozing, such as {@link Display#STATE_ON},
      * {@link Display#STATE_DOZE}, {@link Display#STATE_DOZE_SUSPEND},
-     * {@link Display#STATE_ON_SUSPEND}, {@link Display#STATE_OFF}, or {@link Display#STATE_UNKNOWN}
-     * for the default behavior.
+     * or {@link Display#STATE_OFF}, or {@link Display#STATE_UNKNOWN} for the default
+     * behavior.
      *
      * @hide For use by system UI components only.
      */
@@ -989,9 +941,8 @@ public class DreamService extends Service implements Window.Callback {
      * Must run on mHandler.
      *
      * @param windowToken A window token that will allow a window to be created in the correct layer.
-     * @param started A callback that will be invoked once onDreamingStarted has completed.
      */
-    private final void attach(IBinder windowToken, boolean canDoze, IRemoteCallback started) {
+    private final void attach(IBinder windowToken, boolean canDoze) {
         if (mWindowToken != null) {
             Slog.e(TAG, "attach() called when already attached with token=" + mWindowToken);
             return;
@@ -1065,15 +1016,7 @@ public class DreamService extends Service implements Window.Callback {
                 if (mWindow != null || mWindowless) {
                     if (mDebug) Slog.v(TAG, "Calling onDreamingStarted()");
                     mStarted = true;
-                    try {
-                        onDreamingStarted();
-                    } finally {
-                        try {
-                            started.sendResult(null);
-                        } catch (RemoteException e) {
-                            throw e.rethrowFromSystemServer();
-                        }
-                    }
+                    onDreamingStarted();
                 }
             }
         });
@@ -1148,12 +1091,11 @@ public class DreamService extends Service implements Window.Callback {
 
     private final class DreamServiceWrapper extends IDreamService.Stub {
         @Override
-        public void attach(final IBinder windowToken, final boolean canDoze,
-                IRemoteCallback started) {
+        public void attach(final IBinder windowToken, final boolean canDoze) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    DreamService.this.attach(windowToken, canDoze, started);
+                    DreamService.this.attach(windowToken, canDoze);
                 }
             });
         }

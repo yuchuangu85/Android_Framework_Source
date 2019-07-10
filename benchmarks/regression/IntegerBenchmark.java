@@ -16,7 +16,10 @@
 
 package benchmarks.regression;
 
-public class IntegerBenchmark {
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
+
+public class IntegerBenchmark extends SimpleBenchmark {
     public int timeLongSignumBranch(int reps) {
         int t = 0;
         for (int i = 0; i < reps; ++i) {
@@ -130,18 +133,6 @@ public class IntegerBenchmark {
         int t = 0;
         for (int i = 0; i < reps; ++i) {
             t += numberOfTrailingZerosOL(i);
-        }
-        return t;
-    }
-
-    public int timeIntegerValueOf(int reps) throws Exception {
-        String[] intStrings = new String[]{"0", "1", "12", "123", "1234", "12345",
-                                           "123456", "1234567", "12345678"};
-        int t = 0;
-        for (int i = 0; i < reps; ++i) {
-            for (int j = 0; j < intStrings.length; ++j) {
-                t += Integer.valueOf(intStrings[j]);
-            }
         }
         return t;
     }

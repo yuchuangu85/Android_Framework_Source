@@ -18,38 +18,21 @@ package android.app;
 
 import android.annotation.IdRes;
 import android.annotation.Nullable;
-import android.content.Context;
-import android.os.Bundle;
 import android.view.View;
 
 /**
  * Callbacks to a {@link Fragment}'s container.
- *
- * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
- *      {@link android.support.v4.app.FragmentContainer}.
  */
-@Deprecated
 public abstract class FragmentContainer {
     /**
      * Return the view with the given resource ID. May return {@code null} if the
      * view is not a child of this container.
      */
     @Nullable
-    public abstract <T extends View> T onFindViewById(@IdRes int id);
+    public abstract View onFindViewById(@IdRes int id);
 
     /**
      * Return {@code true} if the container holds any view.
      */
     public abstract boolean onHasView();
-
-    /**
-     * Creates an instance of the specified fragment, can be overridden to construct fragments
-     * with dependencies, or change the fragment being constructed. By default just calls
-     * {@link Fragment#instantiate(Context, String, Bundle)}.
-     *
-     * @hide
-     */
-    public Fragment instantiate(Context context, String className, Bundle arguments) {
-        return Fragment.instantiate(context, className, arguments);
-    }
 }

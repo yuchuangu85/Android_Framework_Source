@@ -16,55 +16,67 @@
 
 package com.android.systemui.qs.tiles;
 
-import android.content.Intent;
-import android.provider.Settings;
 import android.provider.Settings.Secure;
-import android.service.quicksettings.Tile;
-import android.widget.Switch;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.Prefs;
 import com.android.systemui.R;
-import com.android.systemui.R.drawable;
-import com.android.systemui.qs.QSHost;
-import com.android.systemui.plugins.qs.QSTile.BooleanState;
-import com.android.systemui.qs.tileimpl.QSTileImpl;
+import com.android.systemui.qs.QSTile;
 import com.android.systemui.qs.SecureSetting;
+import com.android.systemui.qs.UsageTracker;
 
 /** Quick settings tile: Invert colors **/
-public class ColorInversionTile extends QSTileImpl<BooleanState> {
+public class ColorInversionTile extends QSTile<QSTile.BooleanState> {
 
-    private final Icon mIcon = ResourceIcon.get(drawable.ic_invert_colors);
+    private final AnimationIcon mEnable
+            = new AnimationIcon(R.drawable.ic_invert_colors_enable_animation);
+    private final AnimationIcon mDisable
+            = new AnimationIcon(R.drawable.ic_invert_colors_disable_animation);
     private final SecureSetting mSetting;
+    private final UsageTracker mUsageTracker;
 
     private boolean mListening;
 
-    public ColorInversionTile(QSHost host) {
+    public ColorInversionTile(Host host) {
         super(host);
 
         mSetting = new SecureSetting(mContext, mHandler,
                 Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED) {
             @Override
             protected void handleValueChanged(int value, boolean observedChange) {
-                handleRefreshState(value);
+                if (value != 0 || observedChange) {
+                    mUsageTracker.trackUsage();
+                }
+                if (mListening) {
+                    handleRefreshState(value);
+                }
             }
         };
+        mUsageTracker = new UsageTracker(host.getContext(),
+                Prefs.Key.COLOR_INVERSION_TILE_LAST_USED, ColorInversionTile.class,
+                R.integer.days_to_show_color_inversion_tile);
+        if (mSetting.getValue() != 0 && !mUsageTracker.isRecentlyUsed()) {
+            mUsageTracker.trackUsage();
+        }
+        mUsageTracker.setListening(true);
+        mSetting.setListening(true);
     }
 
     @Override
     protected void handleDestroy() {
         super.handleDestroy();
+        mUsageTracker.setListening(false);
         mSetting.setListening(false);
     }
 
     @Override
-    public BooleanState newTileState() {
+    protected BooleanState newTileState() {
         return new BooleanState();
     }
 
     @Override
-    public void handleSetListening(boolean listening) {
-        mSetting.setListening(listening);
+    public void setListening(boolean listening) {
+        mListening = listening;
     }
 
     @Override
@@ -74,39 +86,39 @@ public class ColorInversionTile extends QSTileImpl<BooleanState> {
     }
 
     @Override
-    public Intent getLongClickIntent() {
-        return new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-    }
-
-    @Override
     protected void handleClick() {
+        MetricsLogger.action(mContext, getMetricsCategory(), !mState.value);
         mSetting.setValue(mState.value ? 0 : 1);
+        mEnable.setAllowAnimation(true);
+        mDisable.setAllowAnimation(true);
     }
 
     @Override
-    public CharSequence getTileLabel() {
-        return mContext.getString(R.string.quick_settings_inversion_label);
+    protected void handleLongClick() {
+        if (mState.value) return;  // don't allow usage reset if inversion is active
+        final String title = mContext.getString(R.string.quick_settings_reset_confirmation_title,
+                mState.label);
+        mUsageTracker.showResetConfirmation(title, new Runnable() {
+            @Override
+            public void run() {
+                refreshState();
+            }
+        });
     }
 
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
         final int value = arg instanceof Integer ? (Integer) arg : mSetting.getValue();
         final boolean enabled = value != 0;
-        if (state.slash == null) {
-            state.slash = new SlashState();
-        }
+        state.visible = enabled || mUsageTracker.isRecentlyUsed();
         state.value = enabled;
-        state.slash.isSlashed = !state.value;
-        state.state = state.value ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
         state.label = mContext.getString(R.string.quick_settings_inversion_label);
-        state.icon = mIcon;
-        state.expandedAccessibilityClassName = Switch.class.getName();
-        state.contentDescription = state.label;
+        state.icon = enabled ? mEnable : mDisable;
     }
 
     @Override
     public int getMetricsCategory() {
-        return MetricsEvent.QS_COLORINVERSION;
+        return MetricsLogger.QS_COLORINVERSION;
     }
 
     @Override

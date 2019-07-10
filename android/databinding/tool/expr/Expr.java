@@ -16,28 +16,25 @@
 
 package android.databinding.tool.expr;
 
+import org.antlr.v4.runtime.misc.Nullable;
+
 import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.processing.scopes.LocationScopeProvider;
+import android.databinding.tool.processing.scopes.ScopeProvider;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.solver.ExecutionPath;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.writer.KCode;
-import android.databinding.tool.writer.LayoutBinderWriterKt;
-
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 abstract public class Expr implements VersionProvider, LocationScopeProvider {
+
     public static final int NO_ID = -1;
     protected List<Expr> mChildren = new ArrayList<Expr>();
 
@@ -64,7 +61,7 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
     private boolean mCanBeInvalidated = false;
 
     @Nullable
-    private List<Location> mLocations = new ArrayList<Location>();
+    private List<Location> mLocations = new ArrayList<>();
 
     /**
      * This set denotes the times when this expression is invalid.
@@ -99,7 +96,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
      */
     private boolean mRead;
     private boolean mIsUsed = false;
-    private boolean mIsUsedInCallback = false;
 
     Expr(Iterable<Expr> children) {
         for (Expr expr : children) {
@@ -164,28 +160,24 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
     }
 
     public boolean canBeEvaluatedToAVariable() {
-        return true; // anything except arg/return expr can be evaluated to a variable
+        return true; // anything except arg expr can be evaluated to a variable
     }
 
     public boolean isObservable() {
         return getResolvedType().isObservable();
     }
 
-    public Expr resolveListeners(ModelClass valueType, Expr parent) {
-        for (int i = mChildren.size() - 1; i >= 0; i--) {
-            Expr child = mChildren.get(i);
-            child.resolveListeners(valueType, this);
+    public boolean resolveListeners(ModelClass valueType) {
+        boolean resetResolvedType = false;
+        for (Expr child : getChildren()) {
+            if (child.resolveListeners(valueType)) {
+                resetResolvedType = true;
+            }
         }
-        resetResolvedType();
-        return this;
-    }
-
-    public Expr resolveTwoWayExpressions(Expr parent) {
-        for (int i = mChildren.size() - 1; i >= 0; i--) {
-            final Expr child = mChildren.get(i);
-            child.resolveTwoWayExpressions(this);
+        if (resetResolvedType) {
+            mResolvedType = null;
         }
-        return this;
+        return resetResolvedType;
     }
 
     protected void resetResolvedType() {
@@ -220,6 +212,7 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
         }
 
         for (Dependency dependency : getDependants()) {
+            // first traverse non-conditionals because we'll avoid adding conditionals if we are get because of these anyways
             if (dependency.getCondition() == null) {
                 bitSet.or(dependency.getDependant().getShouldReadFlagsWithConditionals());
             } else {
@@ -326,58 +319,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
         return mResolvedType;
     }
 
-    public final List<ExecutionPath> toExecutionPath(ExecutionPath path) {
-        List<ExecutionPath> paths = new ArrayList<ExecutionPath>();
-        paths.add(path);
-        return toExecutionPath(paths);
-    }
-
-    public List<ExecutionPath> toExecutionPath(List<ExecutionPath> paths) {
-        if (getChildren().isEmpty()) {
-            return addJustMeToExecutionPath(paths);
-        } else {
-            return toExecutionPathInOrder(paths, getChildren());
-        }
-
-    }
-
-    @NotNull
-    protected final List<ExecutionPath> addJustMeToExecutionPath(List<ExecutionPath> paths) {
-        List<ExecutionPath> result = new ArrayList<ExecutionPath>();
-        for (ExecutionPath path : paths) {
-            result.add(path.addPath(this));
-        }
-        return result;
-    }
-
-    @SuppressWarnings("Duplicates")
-    protected final List<ExecutionPath> toExecutionPathInOrder(List<ExecutionPath> paths,
-            Expr... order) {
-        List<ExecutionPath> executionPaths = paths;
-        for (Expr anOrder : order) {
-            executionPaths = anOrder.toExecutionPath(executionPaths);
-        }
-        List<ExecutionPath> result = new ArrayList<ExecutionPath>(paths.size());
-        for (ExecutionPath path : executionPaths) {
-            result.add(path.addPath(this));
-        }
-        return result;
-    }
-
-    @SuppressWarnings("Duplicates")
-    protected final List<ExecutionPath> toExecutionPathInOrder(List<ExecutionPath> paths,
-            List<Expr> order) {
-        List<ExecutionPath> executionPaths = paths;
-        for (Expr expr : order) {
-            executionPaths = expr.toExecutionPath(executionPaths);
-        }
-        List<ExecutionPath> result = new ArrayList<ExecutionPath>(paths.size());
-        for (ExecutionPath path : executionPaths) {
-            result.add(path.addPath(this));
-        }
-        return result;
-    }
-
     abstract protected ModelClass resolveType(ModelAnalyzer modelAnalyzer);
 
     abstract protected List<Dependency> constructDependencies();
@@ -470,7 +411,7 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
      */
     public int getRequirementFlagIndex(boolean expectedOutput) {
         Preconditions.check(mRequirementId != NO_ID, "If this is an expression w/ conditional"
-                + " dependencies, it must be assigned a requirement ID. %s", this);
+                + " dependencies, it must be assigned a requirement ID");
         return expectedOutput ? mRequirementId + 1 : mRequirementId;
     }
 
@@ -535,7 +476,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
 
         clone.andNot(mReadSoFar);
         mRead = clone.isEmpty();
-
         if (!mRead && !mReadSoFar.isEmpty()) {
             // check if remaining dependencies can be satisfied w/ existing values
             // for predicate flags, this expr may already be calculated to get the predicate
@@ -543,30 +483,25 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
             // them. If any of them is completely covered w/ our non-conditional flags, no reason
             // to add them to the list since we'll already be calculated due to our non-conditional
             // flags
-            boolean allCovered = true;
+
             for (int i = clone.nextSetBit(0); i != -1; i = clone.nextSetBit(i + 1)) {
                 final Expr expr = mModel.findFlagExpression(i);
-                if (expr == null) {
+                if (expr == null || !expr.isConditional()) {
                     continue;
                 }
-                if (!expr.isConditional()) {
-                    allCovered = false;
-                    break;
-                }
-                final BitSet readForConditional = (BitSet) expr
-                        .getShouldReadFlagsWithConditionals().clone();
-
-                // FIXME: this does not do full traversal so misses some cases
+                final BitSet readForConditional = expr.findConditionalFlags();
                 // to calculate that conditional, i should've read /readForConditional/ flags
-                // if my read-so-far bits cover that; that means i would've already
+                // if my read-so-far bits has any common w/ that; that means i would've already
                 // read myself
-                readForConditional.andNot(mReadSoFar);
-                if (!readForConditional.isEmpty()) {
-                    allCovered = false;
+                clone.andNot(readForConditional);
+                final BitSet invalidFlags = (BitSet) getInvalidFlags().clone();
+                invalidFlags.andNot(readForConditional);
+                mRead = invalidFlags.isEmpty() || clone.isEmpty();
+                if (mRead) {
                     break;
                 }
             }
-            mRead = allCovered;
+
         }
         if (mRead) {
             mShouldReadFlags = null; // if we've been marked as read, clear should read flags
@@ -610,12 +545,10 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
 
     private Node mCalculationPaths = null;
 
-    /**
-     * All flag paths that will result in calculation of this expression.
-     */
     protected Node getAllCalculationPaths() {
         if (mCalculationPaths == null) {
             Node node = new Node();
+            // TODO distant parent w/ conditionals are still not traversed :/
             if (isConditional()) {
                 node.mBitSet.or(getPredicateInvalidFlags());
             } else {
@@ -628,7 +561,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
                     cond.setConditionFlag(
                             dependant.getRequirementFlagIndex(dependency.getExpectedOutput()));
                     cond.mParents.add(dependant.getAllCalculationPaths());
-                    node.mParents.add(cond);
                 } else {
                     node.mParents.add(dependant.getAllCalculationPaths());
                 }
@@ -668,22 +600,11 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
         return false;
     }
 
-    public void markAsUsed() {
-        mIsUsed = true;
+    public void setIsUsed(boolean isUsed) {
+        mIsUsed = isUsed;
         for (Expr child : getChildren()) {
-            child.markAsUsed();
+            child.setIsUsed(isUsed);
         }
-    }
-
-    public void markAsUsedInCallback() {
-        mIsUsedInCallback = true;
-        for (Expr child : getChildren()) {
-            child.markAsUsedInCallback();
-        }
-    }
-
-    public boolean isIsUsedInCallback() {
-        return mIsUsedInCallback;
     }
 
     public boolean isUsed() {
@@ -691,13 +612,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
     }
 
     public void updateExpr(ModelAnalyzer modelAnalyzer) {
-        final Map<String, Expr> exprMap = mModel.getExprMap();
-        for (int i = mParents.size() - 1; i >= 0; i--) {
-            final Expr parent = mParents.get(i);
-            if (exprMap.get(parent.getUniqueKey()) != parent) {
-                mParents.remove(i);
-            }
-        }
         for (Expr child : mChildren) {
             child.updateExpr(modelAnalyzer);
         }
@@ -734,60 +648,6 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
         return mLocations;
     }
 
-    public KCode toCode() {
-        if (isDynamic()) {
-            return new KCode(LayoutBinderWriterKt.scopedName(this));
-        }
-        return generateCode();
-    }
-
-    public KCode toFullCode() {
-        return generateCode();
-    }
-
-    protected abstract KCode generateCode();
-
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        throw new IllegalStateException("expression does not support two-way binding");
-    }
-
-    public abstract Expr cloneToModel(ExprModel model);
-
-    protected static List<Expr> cloneToModel(ExprModel model, List<Expr> exprs) {
-        ArrayList<Expr> clones = new ArrayList<Expr>();
-        for (Expr expr : exprs) {
-            clones.add(expr.cloneToModel(model));
-        }
-        return clones;
-    }
-
-    public void assertIsInvertible() {
-        final String errorMessage = getInvertibleError();
-        if (errorMessage != null) {
-            L.e(ErrorMessages.EXPRESSION_NOT_INVERTIBLE, toFullCode().generate(),
-                    errorMessage);
-        }
-    }
-
-    /**
-     * @return The reason the expression wasn't invertible or null if it was invertible.
-     */
-    protected abstract String getInvertibleError();
-
-    /**
-     * This expression is the predicate for 1 or more ternary expressions.
-     */
-    public boolean hasConditionalDependant() {
-        for (Dependency dependency : getDependants()) {
-            Expr dependant = dependency.getDependant();
-            if (dependant.isConditional() && dependant instanceof TernaryExpr) {
-                TernaryExpr ternary = (TernaryExpr) dependant;
-                return ternary.getPred() == this;
-            }
-        }
-        return false;
-    }
-
     static class Node {
 
         BitSet mBitSet = new BitSet();
@@ -796,24 +656,19 @@ abstract public class Expr implements VersionProvider, LocationScopeProvider {
 
         public boolean areAllPathsSatisfied(BitSet readSoFar) {
             if (mConditionFlag != -1) {
-                return readSoFar.get(mConditionFlag)
-                        || mParents.get(0).areAllPathsSatisfied(readSoFar);
+                return readSoFar.get(mConditionFlag) || mParents.get(0)
+                        .areAllPathsSatisfied(readSoFar);
             } else {
-                final BitSet myBitsClone = (BitSet) mBitSet.clone();
-                myBitsClone.andNot(readSoFar);
-                if (!myBitsClone.isEmpty()) {
-                    // read so far does not cover all of my invalidation. The only way I could be
-                    // covered is that I only have 1 conditional dependent which is covered by this.
-                    if (mParents.size() == 1 && mParents.get(0).mConditionFlag != -1) {
-                        return mParents.get(0).areAllPathsSatisfied(readSoFar);
-                    }
-                    return false;
-                }
-                if (mParents.isEmpty()) {
+                final BitSet clone = (BitSet) readSoFar.clone();
+                clone.and(mBitSet);
+                if (!clone.isEmpty()) {
                     return true;
                 }
+                if (mParents.isEmpty()) {
+                    return false;
+                }
                 for (Node parent : mParents) {
-                    if (!parent.areAllPathsSatisfied(readSoFar)) {
+                    if (!parent.areAllPathsSatisfied(clone)) {
                         return false;
                     }
                 }

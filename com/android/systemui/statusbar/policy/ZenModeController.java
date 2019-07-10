@@ -22,29 +22,30 @@ import android.service.notification.Condition;
 import android.service.notification.ZenModeConfig;
 import android.service.notification.ZenModeConfig.ZenRule;
 
-import com.android.systemui.statusbar.policy.ZenModeController.Callback;
-
-public interface ZenModeController extends CallbackController<Callback> {
+public interface ZenModeController {
+    void addCallback(Callback callback);
+    void removeCallback(Callback callback);
     void setZen(int zen, Uri conditionId, String reason);
     int getZen();
+    void requestConditions(boolean request);
     ZenRule getManualRule();
     ZenModeConfig getConfig();
     long getNextAlarm();
+    void setUserId(int userId);
     boolean isZenAvailable();
     ComponentName getEffectsSuppressor();
     boolean isCountdownConditionSupported();
     int getCurrentUser();
     boolean isVolumeRestricted();
-    boolean areNotificationsHiddenInShade();
 
-    public static interface Callback {
-        default void onZenChanged(int zen) {}
-        default void onConditionsChanged(Condition[] conditions) {}
-        default void onNextAlarmChanged() {}
-        default void onZenAvailableChanged(boolean available) {}
-        default void onEffectsSupressorChanged() {}
-        default void onManualRuleChanged(ZenRule rule) {}
-        default void onConfigChanged(ZenModeConfig config) {}
+    public static class Callback {
+        public void onZenChanged(int zen) {}
+        public void onConditionsChanged(Condition[] conditions) {}
+        public void onNextAlarmChanged() {}
+        public void onZenAvailableChanged(boolean available) {}
+        public void onEffectsSupressorChanged() {}
+        public void onManualRuleChanged(ZenRule rule) {}
+        public void onConfigChanged(ZenModeConfig config) {}
     }
 
 }

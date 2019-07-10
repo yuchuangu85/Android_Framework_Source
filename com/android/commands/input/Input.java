@@ -23,7 +23,6 @@ import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.ViewConfiguration;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -88,8 +87,8 @@ public class Input {
                     final boolean longpress = "--longpress".equals(args[index + 1]);
                     final int start = longpress ? index + 2 : index + 1;
                     inputSource = getSource(inputSource, InputDevice.SOURCE_KEYBOARD);
-                    if (args.length > start) {
-                        for (int i = start; i < args.length; i++) {
+                    if (length > start) {
+                        for (int i = start; i < length; i++) {
                             int keyCode = KeyEvent.keyCodeFromString(args[i]);
                             if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
                                 keyCode = KeyEvent.keyCodeFromString("KEYCODE_" + args[i]);
@@ -114,19 +113,6 @@ public class Input {
                         duration = Integer.parseInt(args[index+5]);
                     case 5:
                         sendSwipe(inputSource,
-                                Float.parseFloat(args[index+1]), Float.parseFloat(args[index+2]),
-                                Float.parseFloat(args[index+3]), Float.parseFloat(args[index+4]),
-                                duration);
-                        return;
-                }
-            } else if (command.equals("draganddrop")) {
-                int duration = -1;
-                inputSource = getSource(inputSource, InputDevice.SOURCE_TOUCHSCREEN);
-                switch (length) {
-                    case 6:
-                        duration = Integer.parseInt(args[index+5]);
-                    case 5:
-                        sendDragAndDrop(inputSource,
                                 Float.parseFloat(args[index+1]), Float.parseFloat(args[index+2]),
                                 Float.parseFloat(args[index+3]), Float.parseFloat(args[index+4]),
                                 duration);
@@ -230,31 +216,6 @@ public class Input {
         injectMotionEvent(inputSource, MotionEvent.ACTION_UP, now, x2, y2, 0.0f);
     }
 
-    private void sendDragAndDrop(int inputSource, float x1, float y1, float x2, float y2,
-            int dragDuration) {
-        if (dragDuration < 0) {
-            dragDuration = 300;
-        }
-        long now = SystemClock.uptimeMillis();
-        injectMotionEvent(inputSource, MotionEvent.ACTION_DOWN, now, x1, y1, 1.0f);
-        try {
-            Thread.sleep(ViewConfiguration.getLongPressTimeout());
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-        now = SystemClock.uptimeMillis();
-        long startTime = now;
-        long endTime = startTime + dragDuration;
-        while (now < endTime) {
-            long elapsedTime = now - startTime;
-            float alpha = (float) elapsedTime / dragDuration;
-            injectMotionEvent(inputSource, MotionEvent.ACTION_MOVE, now, lerp(x1, x2, alpha),
-                    lerp(y1, y2, alpha), 1.0f);
-            now = SystemClock.uptimeMillis();
-        }
-        injectMotionEvent(inputSource, MotionEvent.ACTION_UP, now, x2, y2, 0.0f);
-    }
-
     /**
      * Sends a simple zero-pressure move event.
      *
@@ -273,18 +234,6 @@ public class Input {
                 InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH);
     }
 
-    private int getInputDeviceId(int inputSource) {
-        final int DEFAULT_DEVICE_ID = 0;
-        int[] devIds = InputDevice.getDeviceIds();
-        for (int devId : devIds) {
-            InputDevice inputDev = InputDevice.getDevice(devId);
-            if (inputDev.supportsSource(inputSource)) {
-                return devId;
-            }
-        }
-        return DEFAULT_DEVICE_ID;
-    }
-
     /**
      * Builds a MotionEvent and injects it into the event stream.
      *
@@ -300,10 +249,11 @@ public class Input {
         final int DEFAULT_META_STATE = 0;
         final float DEFAULT_PRECISION_X = 1.0f;
         final float DEFAULT_PRECISION_Y = 1.0f;
+        final int DEFAULT_DEVICE_ID = 0;
         final int DEFAULT_EDGE_FLAGS = 0;
         MotionEvent event = MotionEvent.obtain(when, when, action, x, y, pressure, DEFAULT_SIZE,
-                DEFAULT_META_STATE, DEFAULT_PRECISION_X, DEFAULT_PRECISION_Y,
-                getInputDeviceId(inputSource), DEFAULT_EDGE_FLAGS);
+                DEFAULT_META_STATE, DEFAULT_PRECISION_X, DEFAULT_PRECISION_Y, DEFAULT_DEVICE_ID,
+                DEFAULT_EDGE_FLAGS);
         event.setSource(inputSource);
         Log.i(TAG, "injectMotionEvent: " + event);
         InputManager.getInstance().injectInputEvent(event,
@@ -332,8 +282,6 @@ public class Input {
                 + " (Default: keyboard)");
         System.err.println("      tap <x> <y> (Default: touchscreen)");
         System.err.println("      swipe <x1> <y1> <x2> <y2> [duration(ms)]"
-                + " (Default: touchscreen)");
-        System.err.println("      draganddrop <x1> <y1> <x2> <y2> [duration(ms)]"
                 + " (Default: touchscreen)");
         System.err.println("      press (Default: trackball)");
         System.err.println("      roll <dx> <dy> (Default: trackball)");

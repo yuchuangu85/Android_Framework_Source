@@ -73,8 +73,7 @@ import android.util.SparseIntArray;
 
     /**
      * Applies all of the metadata changes that have been set since the MediaMetadataEditor instance
-     * was created or since {@link #clear()} was called. Subclasses should synchronize on
-     * {@code this} for thread safety.
+     * was created or since {@link #clear()} was called.
      */
     public abstract void apply();
 

@@ -1,272 +1,224 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 
 package java.util.logging;
 
-import java.io.*;
-import java.nio.charset.Charset;
-import java.util.*;
+import java.io.IOException;
+import java.text.MessageFormat;
+import java.util.Date;
+import java.util.ResourceBundle;
 
 /**
- * Format a LogRecord into a standard XML format.
- * <p>
- * The DTD specification is provided as Appendix A to the
- * Java Logging APIs specification.
- * <p>
- * The XMLFormatter can be used with arbitrary character encodings,
- * but it is recommended that it normally be used with UTF-8.  The
- * character encoding can be set on the output Handler.
- *
- * @since 1.4
+ * Formatter to convert a {@link LogRecord} into an XML string. The DTD
+ * specified in Appendix A to the Java Logging APIs specification is used.
+ * {@code XMLFormatter} uses the output handler's encoding if it is specified,
+ * otherwise the default platform encoding is used instead. UTF-8 is the
+ * recommended encoding.
  */
-
 public class XMLFormatter extends Formatter {
-    private LogManager manager = LogManager.getLogManager();
 
-    // Append a two digit number.
-    private void a2(StringBuilder sb, int x) {
-        if (x < 10) {
-            sb.append('0');
-        }
-        sb.append(x);
-    }
+    private static final String indent = "    ";
 
-    // Append the time and date in ISO 8601 format
-    private void appendISO8601(StringBuilder sb, long millis) {
-        GregorianCalendar cal = new GregorianCalendar();
-        cal.setTimeInMillis(millis);
-        sb.append(cal.get(Calendar.YEAR));
-        sb.append('-');
-        a2(sb, cal.get(Calendar.MONTH) + 1);
-        sb.append('-');
-        a2(sb, cal.get(Calendar.DAY_OF_MONTH));
-        sb.append('T');
-        a2(sb, cal.get(Calendar.HOUR_OF_DAY));
-        sb.append(':');
-        a2(sb, cal.get(Calendar.MINUTE));
-        sb.append(':');
-        a2(sb, cal.get(Calendar.SECOND));
-    }
-
-    // Append to the given StringBuilder an escaped version of the
-    // given text string where XML special characters have been escaped.
-    // For a null string we append "<null>"
-    private void escape(StringBuilder sb, String text) {
-        if (text == null) {
-            text = "<null>";
-        }
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch == '<') {
-                sb.append("&lt;");
-            } else if (ch == '>') {
-                sb.append("&gt;");
-            } else if (ch == '&') {
-                sb.append("&amp;");
-            } else {
-                sb.append(ch);
-            }
-        }
+    /**
+     * Constructs a new {@code XMLFormatter}.
+     */
+    public XMLFormatter() {
     }
 
     /**
-     * Format the given message to XML.
-     * <p>
-     * This method can be overridden in a subclass.
-     * It is recommended to use the {@link Formatter#formatMessage}
-     * convenience method to localize and format the message field.
+     * Converts a {@code LogRecord} into an XML string.
      *
-     * @param record the log record to be formatted.
-     * @return a formatted log record
+     * @param r
+     *            the log record to be formatted.
+     * @return the log record formatted as an XML string.
      */
-    public String format(LogRecord record) {
-        StringBuilder sb = new StringBuilder(500);
-        sb.append("<record>\n");
+    @Override
+    public String format(LogRecord r) {
+        // call a method of LogRecord to ensure not null
+        long time = r.getMillis();
+        // format to date
+        String date = MessageFormat.format("{0, date} {0, time}", new Date(time));
+        String nl = System.lineSeparator();
 
-        sb.append("  <date>");
-        appendISO8601(sb, record.getMillis());
-        sb.append("</date>\n");
-
-        sb.append("  <millis>");
-        sb.append(record.getMillis());
-        sb.append("</millis>\n");
-
-        sb.append("  <sequence>");
-        sb.append(record.getSequenceNumber());
-        sb.append("</sequence>\n");
-
-        String name = record.getLoggerName();
-        if (name != null) {
-            sb.append("  <logger>");
-            escape(sb, name);
-            sb.append("</logger>\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("<record>").append(nl);
+        append(sb, 1, "date", date);
+        append(sb, 1, "millis", time);
+        append(sb, 1, "sequence", r.getSequenceNumber());
+        if (r.getLoggerName() != null) {
+            escapeAndAppend(sb, 1, "logger", r.getLoggerName());
         }
-
-        sb.append("  <level>");
-        escape(sb, record.getLevel().toString());
-        sb.append("</level>\n");
-
-        if (record.getSourceClassName() != null) {
-            sb.append("  <class>");
-            escape(sb, record.getSourceClassName());
-            sb.append("</class>\n");
+        append(sb, 1, "level", r.getLevel().getName());
+        if (r.getSourceClassName() != null) {
+            append(sb, 1, "class", r.getSourceClassName());
         }
-
-        if (record.getSourceMethodName() != null) {
-            sb.append("  <method>");
-            escape(sb, record.getSourceMethodName());
-            sb.append("</method>\n");
+        if (r.getSourceMethodName() != null) {
+            escapeAndAppend(sb, 1, "method", r.getSourceMethodName());
         }
-
-        sb.append("  <thread>");
-        sb.append(record.getThreadID());
-        sb.append("</thread>\n");
-
-        if (record.getMessage() != null) {
-            // Format the message string and its accompanying parameters.
-            String message = formatMessage(record);
-            sb.append("  <message>");
-            escape(sb, message);
-            sb.append("</message>");
-            sb.append("\n");
-        } else {
-            sb.append("<message/>");
-            sb.append("\n");
-        }
-
-        // If the message is being localized, output the key, resource
-        // bundle name, and params.
-        ResourceBundle bundle = record.getResourceBundle();
-        try {
-            if (bundle != null && bundle.getString(record.getMessage()) != null) {
-                sb.append("  <key>");
-                escape(sb, record.getMessage());
-                sb.append("</key>\n");
-                sb.append("  <catalog>");
-                escape(sb, record.getResourceBundleName());
-                sb.append("</catalog>\n");
-            }
-        } catch (Exception ex) {
-            // The message is not in the catalog.  Drop through.
-        }
-
-        Object parameters[] = record.getParameters();
-        //  Check to see if the parameter was not a messagetext format
-        //  or was not null or empty
-        if ( parameters != null && parameters.length != 0
-                && record.getMessage().indexOf("{") == -1 ) {
-            for (int i = 0; i < parameters.length; i++) {
-                sb.append("  <param>");
-                try {
-                    escape(sb, parameters[i].toString());
-                } catch (Exception ex) {
-                    sb.append("???");
-                }
-                sb.append("</param>\n");
+        append(sb, 1, "thread", r.getThreadID());
+        formatMessages(r, sb);
+        Object[] params = r.getParameters();
+        if (params != null) {
+            for (Object element : params) {
+                escapeAndAppend(sb, 1, "param", element);
             }
         }
-
-        if (record.getThrown() != null) {
-            // Report on the state of the throwable.
-            Throwable th = record.getThrown();
-            sb.append("  <exception>\n");
-            sb.append("    <message>");
-            escape(sb, th.toString());
-            sb.append("</message>\n");
-            StackTraceElement trace[] = th.getStackTrace();
-            for (int i = 0; i < trace.length; i++) {
-                StackTraceElement frame = trace[i];
-                sb.append("    <frame>\n");
-                sb.append("      <class>");
-                escape(sb, frame.getClassName());
-                sb.append("</class>\n");
-                sb.append("      <method>");
-                escape(sb, frame.getMethodName());
-                sb.append("</method>\n");
-                // Check for a line number.
-                if (frame.getLineNumber() >= 0) {
-                    sb.append("      <line>");
-                    sb.append(frame.getLineNumber());
-                    sb.append("</line>\n");
-                }
-                sb.append("    </frame>\n");
-            }
-            sb.append("  </exception>\n");
-        }
-
-        sb.append("</record>\n");
+        formatThrowable(r, sb);
+        sb.append("</record>").append(nl);
         return sb.toString();
     }
 
-    /**
-     * Return the header string for a set of XML formatted records.
-     *
-     * @param   h  The target handler (can be null)
-     * @return  a valid XML string
-     */
-    public String getHead(Handler h) {
-        StringBuilder sb = new StringBuilder();
-        String encoding;
-        sb.append("<?xml version=\"1.0\"");
+    private void formatMessages(LogRecord r, StringBuilder sb) {
+        // get localized message if has, but don't call Formatter.formatMessage
+        // to parse pattern string
+        ResourceBundle rb = r.getResourceBundle();
+        String pattern = r.getMessage();
+        if (rb != null && pattern != null) {
+            String message;
+            try {
+                message = rb.getString(pattern);
+            } catch (Exception e) {
+                message = null;
+            }
 
+            if (message == null) {
+                message = pattern;
+                escapeAndAppend(sb, 1, "message", message);
+            } else {
+                escapeAndAppend(sb, 1, "message", message);
+                escapeAndAppend(sb, 1, "key", pattern);
+                escapeAndAppend(sb, 1, "catalog", r.getResourceBundleName());
+            }
+        } else if (pattern != null) {
+            escapeAndAppend(sb, 1, "message", pattern);
+        } else {
+            sb.append(indent).append("<message/>");
+        }
+    }
+
+    private void formatThrowable(LogRecord r, StringBuilder sb) {
+        Throwable t;
+        if ((t = r.getThrown()) != null) {
+            String nl = System.lineSeparator();
+            sb.append(indent).append("<exception>").append(nl);
+            escapeAndAppend(sb, 2, "message", t.toString());
+            // format throwable's stack trace
+            StackTraceElement[] elements = t.getStackTrace();
+            for (StackTraceElement e : elements) {
+                sb.append(indent).append(indent).append("<frame>").append(nl);
+                append(sb, 3, "class", e.getClassName());
+                escapeAndAppend(sb, 3, "method", e.getMethodName());
+                append(sb, 3, "line", e.getLineNumber());
+                sb.append(indent).append(indent).append("</frame>").append(nl);
+            }
+            sb.append(indent).append("</exception>").append(nl);
+        }
+    }
+
+    private static void append(StringBuilder sb, int indentCount, String tag, Object value) {
+        for (int i = 0; i < indentCount; ++i) {
+            sb.append(indent);
+        }
+        sb.append("<").append(tag).append(">");
+        sb.append(value);
+        sb.append("</").append(tag).append(">");
+        sb.append(System.lineSeparator());
+    }
+
+    private static void escapeAndAppend(StringBuilder sb, int indentCount, String tag, Object value) {
+        if (value == null) {
+            append(sb, indentCount, tag, value);
+        } else {
+            for (int i = 0; i < indentCount; ++i) {
+                sb.append(indent);
+            }
+            sb.append("<").append(tag).append(">");
+            try {
+                escapeXml(sb, value.toString());
+            } catch (IOException e) {
+                throw new AssertionError();
+            }
+            sb.append("</").append(tag).append(">");
+            sb.append(System.lineSeparator());
+        }
+    }
+
+    private static void escapeXml(Appendable valueBuilder, String value) throws IOException {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\"':
+                    valueBuilder.append("&quot;");
+                    break;
+                case '>':
+                    valueBuilder.append("&gt;");
+                    break;
+                case '<':
+                    valueBuilder.append("&lt;");
+                    break;
+                case '&':
+                    valueBuilder.append("&amp;");
+                    break;
+                case '\'':
+                    valueBuilder.append("&apos;");
+                    break;
+                default:
+                    valueBuilder.append(c);
+            }
+        }
+    }
+
+    /**
+     * Returns the header string for a set of log records formatted as XML
+     * strings, using the output handler's encoding if it is defined, otherwise
+     * using the default platform encoding.
+     *
+     * @param h
+     *            the output handler, may be {@code null}.
+     * @return the header string for log records formatted as XML strings.
+     */
+    @Override
+    public String getHead(Handler h) {
+        String encoding = null;
         if (h != null) {
             encoding = h.getEncoding();
-        } else {
-            encoding = null;
         }
-
         if (encoding == null) {
-            // Figure out the default encoding.
-            encoding = java.nio.charset.Charset.defaultCharset().name();
+            encoding = System.getProperty("file.encoding");
         }
-        // Try to map the encoding name to a canonical name.
-        try {
-            Charset cs = Charset.forName(encoding);
-            encoding = cs.name();
-        } catch (Exception ex) {
-            // We hit problems finding a canonical name.
-            // Just use the raw encoding name.
-        }
-
-        sb.append(" encoding=\"");
-        sb.append(encoding);
-        sb.append("\"");
-        sb.append(" standalone=\"no\"?>\n");
-        sb.append("<!DOCTYPE log SYSTEM \"logger.dtd\">\n");
-        sb.append("<log>\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"").append(encoding).append("\" standalone=\"no\"?>");
+        sb.append(System.lineSeparator());
+        sb.append("<!DOCTYPE log SYSTEM \"logger.dtd\">");
+        sb.append(System.lineSeparator());
+        sb.append("<log>");
         return sb.toString();
     }
 
     /**
-     * Return the tail string for a set of XML formatted records.
+     * Returns the tail string for a set of log records formatted as XML
+     * strings.
      *
-     * @param   h  The target handler (can be null)
-     * @return  a valid XML string
+     * @param h
+     *            the output handler, may be {@code null}.
+     * @return the tail string for log records formatted as XML strings.
      */
+    @Override
     public String getTail(Handler h) {
-        return "</log>\n";
+        return "</log>";
     }
 }

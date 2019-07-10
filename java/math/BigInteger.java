@@ -92,7 +92,7 @@ public class BigInteger extends Number
     private transient int hashCode = 0;
 
     BigInteger(BigInt bigInt) {
-        if (bigInt == null || !bigInt.hasNativeBignum()) {
+        if (bigInt == null || bigInt.getNativeBIGNUM() == 0) {
             throw new AssertionError();
         }
         setBigInt(bigInt);
@@ -825,14 +825,14 @@ public class BigInteger extends Number
 
     @Override
     public int hashCode() {
-        if (hashCode == 0) {
-            prepareJavaRepresentation();
-            int hash = 0;
-            for (int i = 0; i < numberLength; ++i) {
-                hash = hash * 33 + digits[i];
-            }
-            hashCode = hash * sign;
+        if (hashCode != 0) {
+            return hashCode;
         }
+        prepareJavaRepresentation();
+        for (int i = 0; i < numberLength; ++i) {
+            hashCode = hashCode * 33 + digits[i];
+        }
+        hashCode = hashCode * sign;
         return hashCode;
     }
 

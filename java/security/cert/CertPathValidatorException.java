@@ -1,296 +1,138 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
 
-import java.io.InvalidObjectException;
-import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.security.GeneralSecurityException;
 
 /**
- * An exception indicating one of a variety of problems encountered when
- * validating a certification path.
+ * The exception that is thrown when a certification path (or certificate chain)
+ * cannot be validated.
  * <p>
- * A {@code CertPathValidatorException} provides support for wrapping
- * exceptions. The {@link #getCause getCause} method returns the throwable,
- * if any, that caused this exception to be thrown.
- * <p>
- * A {@code CertPathValidatorException} may also include the
- * certification path that was being validated when the exception was thrown,
- * the index of the certificate in the certification path that caused the
- * exception to be thrown, and the reason that caused the failure. Use the
- * {@link #getCertPath getCertPath}, {@link #getIndex getIndex}, and
- * {@link #getReason getReason} methods to retrieve this information.
- *
- * <p>
- * <b>Concurrent Access</b>
- * <p>
- * Unless otherwise specified, the methods defined in this class are not
- * thread-safe. Multiple threads that need to access a single
- * object concurrently should synchronize amongst themselves and
- * provide the necessary locking. Multiple threads each manipulating
- * separate objects need not synchronize.
- *
- * @see CertPathValidator
- *
- * @since       1.4
- * @author      Yassir Elley
+ * A {@code CertPathValidatorException} may optionally include the certification
+ * path instance that failed the validation and the index of the failed
+ * certificate.
  */
 public class CertPathValidatorException extends GeneralSecurityException {
 
     private static final long serialVersionUID = -3083180014971893139L;
 
     /**
-     * @serial the index of the certificate in the certification path
-     * that caused the exception to be thrown
-     */
-    private int index = -1;
-
-    /**
-     * @serial the {@code CertPath} that was being validated when
-     * the exception was thrown
+     * the certification path.
      */
     private CertPath certPath;
 
     /**
-     * @serial the reason the validation failed
+     * the index of the certificate.
      */
-    private Reason reason = BasicReason.UNSPECIFIED;
+    private int index = -1;
 
     /**
-     * Creates a {@code CertPathValidatorException} with
-     * no detail message.
-     */
-    public CertPathValidatorException() {
-        this(null, null);
-    }
-
-    /**
-     * Creates a {@code CertPathValidatorException} with the given
-     * detail message. A detail message is a {@code String} that
-     * describes this particular exception.
+     * Creates a new {@code CertPathValidatorException} with the specified
+     * message , cause, certification path and certificate index in the
+     * certification path.
      *
-     * @param msg the detail message
-     */
-    public CertPathValidatorException(String msg) {
-        this(msg, null);
-    }
-
-    /**
-     * Creates a {@code CertPathValidatorException} that wraps the
-     * specified throwable. This allows any exception to be converted into a
-     * {@code CertPathValidatorException}, while retaining information
-     * about the wrapped exception, which may be useful for debugging. The
-     * detail message is set to ({@code cause==null ? null : cause.toString()})
-     * (which typically contains the class and detail message of
-     * cause).
-     *
-     * @param cause the cause (which is saved for later retrieval by the
-     * {@link #getCause getCause()} method). (A {@code null} value is
-     * permitted, and indicates that the cause is nonexistent or unknown.)
-     */
-    public CertPathValidatorException(Throwable cause) {
-        this((cause == null ? null : cause.toString()), cause);
-    }
-
-    /**
-     * Creates a {@code CertPathValidatorException} with the specified
-     * detail message and cause.
-     *
-     * @param msg the detail message
-     * @param cause the cause (which is saved for later retrieval by the
-     * {@link #getCause getCause()} method). (A {@code null} value is
-     * permitted, and indicates that the cause is nonexistent or unknown.)
-     */
-    public CertPathValidatorException(String msg, Throwable cause) {
-        this(msg, cause, null, -1);
-    }
-
-    /**
-     * Creates a {@code CertPathValidatorException} with the specified
-     * detail message, cause, certification path, and index.
-     *
-     * @param msg the detail message (or {@code null} if none)
-     * @param cause the cause (or {@code null} if none)
-     * @param certPath the certification path that was in the process of
-     * being validated when the error was encountered
-     * @param index the index of the certificate in the certification path
-     * that caused the error (or -1 if not applicable). Note that
-     * the list of certificates in a {@code CertPath} is zero based.
-     * @throws IndexOutOfBoundsException if the index is out of range
-     * {@code (index < -1 || (certPath != null && index >=
-     * certPath.getCertificates().size()) }
-     * @throws IllegalArgumentException if {@code certPath} is
-     * {@code null} and {@code index} is not -1
+     * @param msg
+     *            the detail message for this exception.
+     * @param cause
+     *            the cause.
+     * @param certPath
+     *            the certification path that failed the validation.
+     * @param index
+     *            the index of the failed certificate.
+     * @throws IllegalArgumentException
+     *             if {@code certPath} is {@code null} and index is not {@code
+     *             -1}.
+     * @throws IndexOutOfBoundsException
+     *             if {@code certPath} is not {@code null} and index is not
+     *             referencing an certificate in the certification path.
      */
     public CertPathValidatorException(String msg, Throwable cause,
             CertPath certPath, int index) {
-        this(msg, cause, certPath, index, BasicReason.UNSPECIFIED);
-    }
-
-    /**
-     * Creates a {@code CertPathValidatorException} with the specified
-     * detail message, cause, certification path, index, and reason.
-     *
-     * @param msg the detail message (or {@code null} if none)
-     * @param cause the cause (or {@code null} if none)
-     * @param certPath the certification path that was in the process of
-     * being validated when the error was encountered
-     * @param index the index of the certificate in the certification path
-     * that caused the error (or -1 if not applicable). Note that
-     * the list of certificates in a {@code CertPath} is zero based.
-     * @param reason the reason the validation failed
-     * @throws IndexOutOfBoundsException if the index is out of range
-     * {@code (index < -1 || (certPath != null && index >=
-     * certPath.getCertificates().size()) }
-     * @throws IllegalArgumentException if {@code certPath} is
-     * {@code null} and {@code index} is not -1
-     * @throws NullPointerException if {@code reason} is {@code null}
-     *
-     * @since 1.7
-     */
-    public CertPathValidatorException(String msg, Throwable cause,
-            CertPath certPath, int index, Reason reason) {
         super(msg, cause);
-        if (certPath == null && index != -1) {
-            throw new IllegalArgumentException();
+        // check certPath and index parameters
+        if ((certPath == null) && (index != -1)) {
+            throw new IllegalArgumentException("Index should be -1 when CertPath is null");
         }
-        if (index < -1 ||
-            (certPath != null && index >= certPath.getCertificates().size())) {
+        if ((certPath != null) && ((index < -1) || (index >= certPath.getCertificates().size()))) {
             throw new IndexOutOfBoundsException();
-        }
-        if (reason == null) {
-            throw new NullPointerException("reason can't be null");
         }
         this.certPath = certPath;
         this.index = index;
-        this.reason = reason;
     }
 
     /**
-     * Returns the certification path that was being validated when
-     * the exception was thrown.
+     * Creates a new {@code CertPathValidatorException} with the specified
+     * message and cause.
      *
-     * @return the {@code CertPath} that was being validated when
-     * the exception was thrown (or {@code null} if not specified)
+     * @param msg
+     *            the detail message for this exception.
+     * @param cause
+     *            the cause why the path could not be validated.
+     */
+    public CertPathValidatorException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
+
+    /**
+     * Creates a new {@code CertPathValidatorException} with the specified
+     * cause.
+     *
+     * @param cause
+     *            the cause why the path could not be validated.
+     */
+    public CertPathValidatorException(Throwable cause) {
+        super(cause);
+    }
+
+    /**
+     * Creates a new {@code CertPathValidatorException} with the specified
+     * message.
+     *
+     * @param msg
+     *            the detail message for this exception.
+     */
+    public CertPathValidatorException(String msg) {
+        super(msg);
+    }
+
+    /**
+     * Creates a new {@code CertPathValidatorException}.
+     */
+    public CertPathValidatorException() {
+    }
+
+    /**
+     * Returns the certification path that failed validation.
+     *
+     * @return the certification path that failed validation, or {@code null} if
+     *         none was specified.
      */
     public CertPath getCertPath() {
-        return this.certPath;
+        return certPath;
     }
 
     /**
-     * Returns the index of the certificate in the certification path
-     * that caused the exception to be thrown. Note that the list of
-     * certificates in a {@code CertPath} is zero based. If no
-     * index has been set, -1 is returned.
+     * Returns the index of the failed certificate in the certification path.
      *
-     * @return the index that has been set, or -1 if none has been set
+     * @return the index of the failed certificate in the certification path, or
+     *         {@code -1} if none was specified.
      */
     public int getIndex() {
-        return this.index;
-    }
-
-    /**
-     * Returns the reason that the validation failed. The reason is
-     * associated with the index of the certificate returned by
-     * {@link #getIndex}.
-     *
-     * @return the reason that the validation failed, or
-     *    {@code BasicReason.UNSPECIFIED} if a reason has not been
-     *    specified
-     *
-     * @since 1.7
-     */
-    public Reason getReason() {
-        return this.reason;
-    }
-
-    private void readObject(ObjectInputStream stream)
-        throws ClassNotFoundException, IOException {
-        stream.defaultReadObject();
-        if (reason == null) {
-            reason = BasicReason.UNSPECIFIED;
-        }
-        if (certPath == null && index != -1) {
-            throw new InvalidObjectException("certpath is null and index != -1");
-        }
-        if (index < -1 ||
-            (certPath != null && index >= certPath.getCertificates().size())) {
-            throw new InvalidObjectException("index out of range");
-        }
-    }
-
-    /**
-     * The reason the validation algorithm failed.
-     *
-     * @since 1.7
-     */
-    public static interface Reason extends java.io.Serializable { }
-
-
-    /**
-     * The BasicReason enumerates the potential reasons that a certification
-     * path of any type may be invalid.
-     *
-     * @since 1.7
-     */
-    public static enum BasicReason implements Reason {
-        /**
-         * Unspecified reason.
-         */
-        UNSPECIFIED,
-
-        /**
-         * The certificate is expired.
-         */
-        EXPIRED,
-
-        /**
-         * The certificate is not yet valid.
-         */
-        NOT_YET_VALID,
-
-        /**
-         * The certificate is revoked.
-         */
-        REVOKED,
-
-        /**
-         * The revocation status of the certificate could not be determined.
-         */
-        UNDETERMINED_REVOCATION_STATUS,
-
-        /**
-         * The signature is invalid.
-         */
-        INVALID_SIGNATURE,
-
-        /**
-         * The public key or the signature algorithm has been constrained.
-         */
-        ALGORITHM_CONSTRAINED
+        return index;
     }
 }

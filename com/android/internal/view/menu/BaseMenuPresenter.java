@@ -16,8 +16,6 @@
 
 package com.android.internal.view.menu;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -60,7 +58,7 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
     }
 
     @Override
-    public void initForMenu(@NonNull Context context, @Nullable MenuBuilder menu) {
+    public void initForMenu(Context context, MenuBuilder menu) {
         mContext = context;
         mInflater = LayoutInflater.from(mContext);
         mMenu = menu;

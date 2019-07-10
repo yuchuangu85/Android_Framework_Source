@@ -17,7 +17,6 @@
 package android.service.notification;
 
 import android.app.Notification;
-import android.app.NotificationChannel;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -34,8 +33,7 @@ public class StatusBarNotification implements Parcelable {
     private final int id;
     private final String tag;
     private final String key;
-    private String groupKey;
-    private String overrideGroupKey;
+    private final String groupKey;
 
     private final int uid;
     private final String opPkg;
@@ -44,33 +42,16 @@ public class StatusBarNotification implements Parcelable {
     private final UserHandle user;
     private final long postTime;
 
+    private final int score;
     private Context mContext; // used for inflation & icon expansion
 
     /** @hide */
-    public StatusBarNotification(String pkg, String opPkg, int id,
-            String tag, int uid, int initialPid, Notification notification, UserHandle user,
-            String overrideGroupKey, long postTime) {
-        if (pkg == null) throw new NullPointerException();
-        if (notification == null) throw new NullPointerException();
-
-        this.pkg = pkg;
-        this.opPkg = opPkg;
-        this.id = id;
-        this.tag = tag;
-        this.uid = uid;
-        this.initialPid = initialPid;
-        this.notification = notification;
-        this.user = user;
-        this.postTime = postTime;
-        this.overrideGroupKey = overrideGroupKey;
-        this.key = key();
-        this.groupKey = groupKey();
+    public StatusBarNotification(String pkg, String opPkg, int id, String tag, int uid,
+            int initialPid, int score, Notification notification, UserHandle user) {
+        this(pkg, opPkg, id, tag, uid, initialPid, score, notification, user,
+                System.currentTimeMillis());
     }
 
-    /**
-     * @deprecated Non-system apps should not need to create StatusBarNotifications.
-     */
-    @Deprecated
     public StatusBarNotification(String pkg, String opPkg, int id, String tag, int uid,
             int initialPid, int score, Notification notification, UserHandle user,
             long postTime) {
@@ -83,6 +64,7 @@ public class StatusBarNotification implements Parcelable {
         this.tag = tag;
         this.uid = uid;
         this.initialPid = initialPid;
+        this.score = score;
         this.notification = notification;
         this.user = user;
         this.postTime = postTime;
@@ -101,30 +83,19 @@ public class StatusBarNotification implements Parcelable {
         }
         this.uid = in.readInt();
         this.initialPid = in.readInt();
+        this.score = in.readInt();
         this.notification = new Notification(in);
         this.user = UserHandle.readFromParcel(in);
         this.postTime = in.readLong();
-        if (in.readInt() != 0) {
-            this.overrideGroupKey = in.readString();
-        } else {
-            this.overrideGroupKey = null;
-        }
         this.key = key();
         this.groupKey = groupKey();
     }
 
     private String key() {
-        String sbnKey = user.getIdentifier() + "|" + pkg + "|" + id + "|" + tag + "|" + uid;
-        if (overrideGroupKey != null && getNotification().isGroupSummary()) {
-            sbnKey = sbnKey + "|" + overrideGroupKey;
-        }
-        return sbnKey;
+        return user.getIdentifier() + "|" + pkg + "|" + id + "|" + tag + "|" + uid;
     }
 
     private String groupKey() {
-        if (overrideGroupKey != null) {
-            return user.getIdentifier() + "|" + pkg + "|" + "g:" + overrideGroupKey;
-        }
         final String group = getNotification().getGroup();
         final String sortKey = getNotification().getSortKey();
         if (group == null && sortKey == null) {
@@ -133,29 +104,8 @@ public class StatusBarNotification implements Parcelable {
         }
         return user.getIdentifier() + "|" + pkg + "|" +
                 (group == null
-                        ? "c:" + notification.getChannelId()
+                        ? "p:" + notification.priority
                         : "g:" + group);
-    }
-
-    /**
-     * Returns true if this notification is part of a group.
-     */
-    public boolean isGroup() {
-        if (overrideGroupKey != null || isAppGroup()) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if application asked that this notification be part of a group.
-     * @hide
-     */
-    public boolean isAppGroup() {
-        if (getNotification().getGroup() != null || getNotification().getSortKey() != null) {
-            return true;
-        }
-        return false;
     }
 
     public void writeToParcel(Parcel out, int flags) {
@@ -170,16 +120,11 @@ public class StatusBarNotification implements Parcelable {
         }
         out.writeInt(this.uid);
         out.writeInt(this.initialPid);
+        out.writeInt(this.score);
         this.notification.writeToParcel(out, flags);
         user.writeToParcel(out, flags);
 
         out.writeLong(this.postTime);
-        if (this.overrideGroupKey != null) {
-            out.writeInt(1);
-            out.writeString(this.overrideGroupKey);
-        } else {
-            out.writeInt(0);
-        }
     }
 
     public int describeContents() {
@@ -208,22 +153,22 @@ public class StatusBarNotification implements Parcelable {
         this.notification.cloneInto(no, false); // light copy
         return new StatusBarNotification(this.pkg, this.opPkg,
                 this.id, this.tag, this.uid, this.initialPid,
-                no, this.user, this.overrideGroupKey, this.postTime);
+                this.score, no, this.user, this.postTime);
     }
 
     @Override
     public StatusBarNotification clone() {
         return new StatusBarNotification(this.pkg, this.opPkg,
                 this.id, this.tag, this.uid, this.initialPid,
-                this.notification.clone(), this.user, this.overrideGroupKey, this.postTime);
+                this.score, this.notification.clone(), this.user, this.postTime);
     }
 
     @Override
     public String toString() {
         return String.format(
-                "StatusBarNotification(pkg=%s user=%s id=%d tag=%s key=%s: %s)",
+                "StatusBarNotification(pkg=%s user=%s id=%d tag=%s score=%d key=%s: %s)",
                 this.pkg, this.user, this.id, this.tag,
-                this.key, this.notification);
+                this.score, this.key, this.notification);
     }
 
     /** Convenience method to check the notification's flags for
@@ -243,11 +188,10 @@ public class StatusBarNotification implements Parcelable {
     }
 
     /**
-     * Returns a userid for whom this notification is intended.
+     * Returns a userHandle for the instance of the app that posted this notification.
      *
      * @deprecated Use {@link #getUser()} instead.
      */
-    @Deprecated
     public int getUserId() {
         return this.user.getIdentifier();
     }
@@ -303,6 +247,11 @@ public class StatusBarNotification implements Parcelable {
         return postTime;
     }
 
+    /** @hide */
+    public int getScore() {
+        return score;
+    }
+
     /**
      * A unique instance key for this notification record.
      */
@@ -318,40 +267,13 @@ public class StatusBarNotification implements Parcelable {
     }
 
     /**
-     * The ID passed to setGroup(), or the override, or null.
-     * @hide
-     */
-    public String getGroup() {
-        if (overrideGroupKey != null) {
-            return overrideGroupKey;
-        }
-        return getNotification().getGroup();
-    }
-
-    /**
-     * Sets the override group key.
-     */
-    public void setOverrideGroupKey(String overrideGroupKey) {
-        this.overrideGroupKey = overrideGroupKey;
-        groupKey = groupKey();
-    }
-
-    /**
-     * Returns the override group key.
-     */
-    public String getOverrideGroupKey() {
-        return overrideGroupKey;
-    }
-
-    /**
      * @hide
      */
     public Context getPackageContext(Context context) {
         if (mContext == null) {
             try {
                 ApplicationInfo ai = context.getPackageManager()
-                        .getApplicationInfoAsUser(pkg, PackageManager.MATCH_UNINSTALLED_PACKAGES,
-                                getUserId());
+                        .getApplicationInfo(pkg, PackageManager.GET_UNINSTALLED_PACKAGES);
                 mContext = context.createApplicationContext(ai,
                         Context.CONTEXT_RESTRICTED);
             } catch (PackageManager.NameNotFoundException e) {

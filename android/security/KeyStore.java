@@ -16,12 +16,11 @@
 
 package android.security;
 
-import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.Application;
 import android.app.KeyguardManager;
+
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Binder;
 import android.os.IBinder;
@@ -33,13 +32,11 @@ import android.security.keymaster.ExportResult;
 import android.security.keymaster.KeyCharacteristics;
 import android.security.keymaster.KeymasterArguments;
 import android.security.keymaster.KeymasterBlob;
-import android.security.keymaster.KeymasterCertificateChain;
 import android.security.keymaster.KeymasterDefs;
 import android.security.keymaster.OperationResult;
 import android.security.keystore.KeyExpiredException;
 import android.security.keystore.KeyNotYetValidException;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
-import android.security.keystore.StrongBoxUnavailableException;
 import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Log;
 
@@ -56,7 +53,7 @@ import java.util.Locale;
 public class KeyStore {
     private static final String TAG = "KeyStore";
 
-    // ResponseCodes - see system/security/keystore/include/keystore/keystore.h
+    // ResponseCodes
     public static final int NO_ERROR = 1;
     public static final int LOCKED = 2;
     public static final int UNINITIALIZED = 3;
@@ -67,8 +64,6 @@ public class KeyStore {
     public static final int VALUE_CORRUPTED = 8;
     public static final int UNDEFINED_ACTION = 9;
     public static final int WRONG_PASSWORD = 10;
-    public static final int CANNOT_ATTEST_IDS = -66;
-    public static final int HARDWARE_TYPE_UNAVAILABLE = -68;
 
     /**
      * Per operation authentication is needed before this operation is valid.
@@ -97,35 +92,6 @@ public class KeyStore {
      * @see KeyguardManager#isDeviceSecure()
      */
     public static final int FLAG_ENCRYPTED = 1;
-
-    /**
-     * Select Software keymaster device, which as of this writing is the lowest security
-     * level available on an android device. If neither FLAG_STRONGBOX nor FLAG_SOFTWARE is provided
-     * A TEE based keymaster implementation is implied.
-     *
-     * Need to be in sync with KeyStoreFlag in system/security/keystore/include/keystore/keystore.h
-     * For historical reasons this corresponds to the KEYSTORE_FLAG_FALLBACK flag.
-     */
-    public static final int FLAG_SOFTWARE = 1 << 1;
-
-    /**
-     * A private flag that's only available to system server to indicate that this key is part of
-     * device encryption flow so it receives special treatment from keystore. For example this key
-     * will not be super encrypted, and it will be stored separately under an unique UID instead
-     * of the caller UID i.e. SYSTEM.
-     *
-     * Need to be in sync with KeyStoreFlag in system/security/keystore/include/keystore/keystore.h
-     */
-    public static final int FLAG_CRITICAL_TO_DEVICE_ENCRYPTION = 1 << 3;
-
-    /**
-     * Select Strongbox keymaster device, which as of this writing the the highest security level
-     * available an android devices. If neither FLAG_STRONGBOX nor FLAG_SOFTWARE is provided
-     * A TEE based keymaster implementation is implied.
-     *
-     * Need to be in sync with KeyStoreFlag in system/security/keystore/include/keystore/keystore.h
-     */
-    public static final int FLAG_STRONGBOX = 1 << 4;
 
     // States
     public enum State { UNLOCKED, LOCKED, UNINITIALIZED };
@@ -189,21 +155,13 @@ public class KeyStore {
         return state() == State.UNLOCKED;
     }
 
-    public byte[] get(String key, int uid) {
+    public byte[] get(String key) {
         try {
-            key = key != null ? key : "";
-            return mBinder.get(key, uid);
+            return mBinder.get(key);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return null;
         }
-    }
-
-    public byte[] get(String key) {
-        return get(key, UID_SELF);
     }
 
     public boolean put(String key, byte[] value, int uid, int flags) {
@@ -212,9 +170,6 @@ public class KeyStore {
 
     public int insert(String key, byte[] value, int uid, int flags) {
         try {
-            if (value == null) {
-                value = new byte[0];
-            }
             return mBinder.insert(key, value, uid, flags);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
@@ -224,8 +179,7 @@ public class KeyStore {
 
     public boolean delete(String key, int uid) {
         try {
-            int ret = mBinder.del(key, uid);
-            return (ret == NO_ERROR || ret == KEY_NOT_FOUND);
+            return mBinder.del(key, uid) == NO_ERROR;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return false;
@@ -258,9 +212,6 @@ public class KeyStore {
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return null;
         }
     }
 
@@ -280,7 +231,7 @@ public class KeyStore {
     /**
      * Attempt to lock the keystore for {@code user}.
      *
-     * @param userId Android user to lock.
+     * @param user Android user to lock.
      * @return whether {@code user}'s keystore was locked.
      */
     public boolean lock(int userId) {
@@ -301,7 +252,7 @@ public class KeyStore {
      * This is required before keystore entries created with FLAG_ENCRYPTED can be accessed or
      * created.
      *
-     * @param userId Android user ID to operate on
+     * @param user Android user ID to operate on
      * @param password user's keystore password. Should be the most recent value passed to
      * {@link #onUserPasswordChanged} for the user.
      *
@@ -309,7 +260,6 @@ public class KeyStore {
      */
     public boolean unlock(int userId, String password) {
         try {
-            password = password != null ? password : "";
             mError = mBinder.unlock(userId, password);
             return mError == NO_ERROR;
         } catch (RemoteException e) {
@@ -364,35 +314,24 @@ public class KeyStore {
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return null;
         }
-
     }
 
     public boolean verify(String key, byte[] data, byte[] signature) {
         try {
-            signature = signature != null ? signature : new byte[0];
             return mBinder.verify(key, data, signature) == NO_ERROR;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return false;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return false;
         }
-
     }
 
-    public String grant(String key, int uid) {
+    public boolean grant(String key, int uid) {
         try {
-            String grantAlias =  mBinder.grant(key, uid);
-            if (grantAlias == "") return null;
-            return grantAlias;
+            return mBinder.grant(key, uid) == NO_ERROR;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
-            return null;
+            return false;
         }
     }
 
@@ -409,9 +348,9 @@ public class KeyStore {
      * Returns the last modification time of the key in milliseconds since the
      * epoch. Will return -1L if the key could not be found or other error.
      */
-    public long getmtime(String key, int uid) {
+    public long getmtime(String key) {
         try {
-            final long millis = mBinder.getmtime(key, uid);
+            final long millis = mBinder.getmtime(key);
             if (millis == -1L) {
                 return -1L;
             }
@@ -423,8 +362,13 @@ public class KeyStore {
         }
     }
 
-    public long getmtime(String key) {
-        return getmtime(key, UID_SELF);
+    public boolean duplicate(String srcKey, int srcUid, String destKey, int destUid) {
+        try {
+            return mBinder.duplicate(srcKey, srcUid, destKey, destUid) == NO_ERROR;
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+            return false;
+        }
     }
 
     // TODO: remove this when it's removed from Settings
@@ -454,9 +398,9 @@ public class KeyStore {
         return mError;
     }
 
-    public boolean addRngEntropy(byte[] data, int flags) {
+    public boolean addRngEntropy(byte[] data) {
         try {
-            return mBinder.addRngEntropy(data, flags) == NO_ERROR;
+            return mBinder.addRngEntropy(data) == NO_ERROR;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return false;
@@ -466,8 +410,6 @@ public class KeyStore {
     public int generateKey(String alias, KeymasterArguments args, byte[] entropy, int uid,
             int flags, KeyCharacteristics outCharacteristics) {
         try {
-            entropy = entropy != null ? entropy : new byte[0];
-            args = args != null ? args : new KeymasterArguments();
             return mBinder.generateKey(alias, args, entropy, uid, flags, outCharacteristics);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
@@ -481,20 +423,13 @@ public class KeyStore {
     }
 
     public int getKeyCharacteristics(String alias, KeymasterBlob clientId, KeymasterBlob appId,
-            int uid, KeyCharacteristics outCharacteristics) {
+            KeyCharacteristics outCharacteristics) {
         try {
-            clientId = clientId != null ? clientId : new KeymasterBlob(new byte[0]);
-            appId = appId != null ? appId : new KeymasterBlob(new byte[0]);
-            return mBinder.getKeyCharacteristics(alias, clientId, appId, uid, outCharacteristics);
+            return mBinder.getKeyCharacteristics(alias, clientId, appId, outCharacteristics);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
         }
-    }
-
-    public int getKeyCharacteristics(String alias, KeymasterBlob clientId, KeymasterBlob appId,
-            KeyCharacteristics outCharacteristics) {
-        return getKeyCharacteristics(alias, clientId, appId, UID_SELF, outCharacteristics);
     }
 
     public int importKey(String alias, KeymasterArguments args, int format, byte[] keyData,
@@ -513,41 +448,10 @@ public class KeyStore {
         return importKey(alias, args, format, keyData, UID_SELF, flags, outCharacteristics);
     }
 
-    public int importWrappedKey(String wrappedKeyAlias, byte[] wrappedKey,
-            String wrappingKeyAlias,
-            byte[] maskingKey, KeymasterArguments args, long rootSid, long fingerprintSid, int uid,
-            KeyCharacteristics outCharacteristics) {
-        try {
-            return mBinder.importWrappedKey(wrappedKeyAlias, wrappedKey, wrappingKeyAlias,
-                    maskingKey, args, rootSid, fingerprintSid, outCharacteristics);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return SYSTEM_ERROR;
-        }
-    }
-
-    public ExportResult exportKey(String alias, int format, KeymasterBlob clientId,
-            KeymasterBlob appId, int uid) {
-        try {
-            clientId = clientId != null ? clientId : new KeymasterBlob(new byte[0]);
-            appId = appId != null ? appId : new KeymasterBlob(new byte[0]);
-            return mBinder.exportKey(alias, format, clientId, appId, uid);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return null;
-        }
-    }
     public ExportResult exportKey(String alias, int format, KeymasterBlob clientId,
             KeymasterBlob appId) {
-        return exportKey(alias, format, clientId, appId, UID_SELF);
-    }
-
-    public OperationResult begin(String alias, int purpose, boolean pruneable,
-            KeymasterArguments args, byte[] entropy, int uid) {
         try {
-            args = args != null ? args : new KeymasterArguments();
-            entropy = entropy != null ? entropy : new byte[0];
-            return mBinder.begin(getToken(), alias, purpose, pruneable, args, entropy, uid);
+            return mBinder.exportKey(alias, format, clientId, appId);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
@@ -556,15 +460,16 @@ public class KeyStore {
 
     public OperationResult begin(String alias, int purpose, boolean pruneable,
             KeymasterArguments args, byte[] entropy) {
-        entropy = entropy != null ? entropy : new byte[0];
-        args = args != null ? args : new KeymasterArguments();
-        return begin(alias, purpose, pruneable, args, entropy, UID_SELF);
+        try {
+            return mBinder.begin(getToken(), alias, purpose, pruneable, args, entropy);
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+            return null;
+        }
     }
 
     public OperationResult update(IBinder token, KeymasterArguments arguments, byte[] input) {
         try {
-            arguments = arguments != null ? arguments : new KeymasterArguments();
-            input = input != null ? input : new byte[0];
             return mBinder.update(token, arguments, input);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
@@ -575,9 +480,6 @@ public class KeyStore {
     public OperationResult finish(IBinder token, KeymasterArguments arguments, byte[] signature,
             byte[] entropy) {
         try {
-            arguments = arguments != null ? arguments : new KeymasterArguments();
-            entropy = entropy != null ? entropy : new byte[0];
-            signature = signature != null ? signature : new byte[0];
             return mBinder.finish(token, arguments, signature, entropy);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
@@ -691,114 +593,6 @@ public class KeyStore {
         return onUserPasswordChanged(UserHandle.getUserId(Process.myUid()), newPassword);
     }
 
-    public int attestKey(
-            String alias, KeymasterArguments params, KeymasterCertificateChain outChain) {
-        try {
-            if (params == null) {
-                params = new KeymasterArguments();
-            }
-            if (outChain == null) {
-                outChain = new KeymasterCertificateChain();
-            }
-            return mBinder.attestKey(alias, params, outChain);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return SYSTEM_ERROR;
-        }
-    }
-
-    public int attestDeviceIds(KeymasterArguments params, KeymasterCertificateChain outChain) {
-        try {
-            if (params == null) {
-                params = new KeymasterArguments();
-            }
-            if (outChain == null) {
-                outChain = new KeymasterCertificateChain();
-            }
-            return mBinder.attestDeviceIds(params, outChain);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return SYSTEM_ERROR;
-        }
-    }
-
-    /**
-     * Notify keystore that the device went off-body.
-     */
-    public void onDeviceOffBody() {
-        try {
-            mBinder.onDeviceOffBody();
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-        }
-    }
-
-    // Keep in sync with confirmationui/1.0/types.hal.
-    public static final int CONFIRMATIONUI_OK = 0;
-    public static final int CONFIRMATIONUI_CANCELED = 1;
-    public static final int CONFIRMATIONUI_ABORTED = 2;
-    public static final int CONFIRMATIONUI_OPERATION_PENDING = 3;
-    public static final int CONFIRMATIONUI_IGNORED = 4;
-    public static final int CONFIRMATIONUI_SYSTEM_ERROR = 5;
-    public static final int CONFIRMATIONUI_UNIMPLEMENTED = 6;
-    public static final int CONFIRMATIONUI_UNEXPECTED = 7;
-    public static final int CONFIRMATIONUI_UIERROR = 0x10000;
-    public static final int CONFIRMATIONUI_UIERROR_MISSING_GLYPH = 0x10001;
-    public static final int CONFIRMATIONUI_UIERROR_MESSAGE_TOO_LONG = 0x10002;
-    public static final int CONFIRMATIONUI_UIERROR_MALFORMED_UTF8_ENCODING = 0x10003;
-
-    /**
-     * Requests keystore call into the confirmationui HAL to display a prompt.
-     *
-     * @param listener the binder to use for callbacks.
-     * @param promptText the prompt to display.
-     * @param extraData extra data / nonce from application.
-     * @param locale the locale as a BCP 47 langauge tag.
-     * @param uiOptionsAsFlags the UI options to use, as flags.
-     * @return one of the {@code CONFIRMATIONUI_*} constants, for
-     * example {@code KeyStore.CONFIRMATIONUI_OK}.
-     */
-    public int presentConfirmationPrompt(IBinder listener, String promptText, byte[] extraData,
-                                         String locale, int uiOptionsAsFlags) {
-        try {
-            return mBinder.presentConfirmationPrompt(listener, promptText, extraData, locale,
-                                                     uiOptionsAsFlags);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return CONFIRMATIONUI_SYSTEM_ERROR;
-        }
-    }
-
-    /**
-     * Requests keystore call into the confirmationui HAL to cancel displaying a prompt.
-     *
-     * @param listener the binder passed to the {@link #presentConfirmationPrompt} method.
-     * @return one of the {@code CONFIRMATIONUI_*} constants, for
-     * example {@code KeyStore.CONFIRMATIONUI_OK}.
-     */
-    public int cancelConfirmationPrompt(IBinder listener) {
-        try {
-            return mBinder.cancelConfirmationPrompt(listener);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return CONFIRMATIONUI_SYSTEM_ERROR;
-        }
-    }
-
-    /**
-     * Requests keystore to check if the confirmationui HAL is available.
-     *
-     * @return whether the confirmationUI HAL is available.
-     */
-    public boolean isConfirmationPromptSupported() {
-        try {
-            return mBinder.isConfirmationPromptSupported();
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
-        }
-    }
-
     /**
      * Returns a {@link KeyStoreException} corresponding to the provided keystore/keymaster error
      * code.
@@ -846,7 +640,7 @@ public class KeyStore {
      * {@link KeyStoreException}.
      */
     public InvalidKeyException getInvalidKeyException(
-            String keystoreKeyAlias, int uid, KeyStoreException e) {
+            String keystoreKeyAlias, KeyStoreException e) {
         switch (e.getErrorCode()) {
             case LOCKED:
                 return new UserNotAuthenticatedException();
@@ -864,8 +658,7 @@ public class KeyStore {
                 // to authenticate.
                 KeyCharacteristics keyCharacteristics = new KeyCharacteristics();
                 int getKeyCharacteristicsErrorCode =
-                        getKeyCharacteristics(keystoreKeyAlias, null, null, uid,
-                                keyCharacteristics);
+                        getKeyCharacteristics(keystoreKeyAlias, null, null, keyCharacteristics);
                 if (getKeyCharacteristicsErrorCode != NO_ERROR) {
                     return new InvalidKeyException(
                             "Failed to obtained key characteristics",
@@ -895,18 +688,12 @@ public class KeyStore {
                 // None of the key's SIDs can ever be authenticated
                 return new KeyPermanentlyInvalidatedException();
             }
-            case UNINITIALIZED:
-                return new KeyPermanentlyInvalidatedException();
             default:
                 return new InvalidKeyException("Keystore operation failed", e);
         }
     }
 
     private long getFingerprintOnlySid() {
-        final PackageManager packageManager = mContext.getPackageManager();
-        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_FINGERPRINT)) {
-            return 0;
-        }
         FingerprintManager fingerprintManager = mContext.getSystemService(FingerprintManager.class);
         if (fingerprintManager == null) {
             return 0;
@@ -921,8 +708,7 @@ public class KeyStore {
      * Returns an {@link InvalidKeyException} corresponding to the provided keystore/keymaster error
      * code.
      */
-    public InvalidKeyException getInvalidKeyException(String keystoreKeyAlias, int uid,
-            int errorCode) {
-        return getInvalidKeyException(keystoreKeyAlias, uid, getKeyStoreException(errorCode));
+    public InvalidKeyException getInvalidKeyException(String keystoreKeyAlias, int errorCode) {
+        return getInvalidKeyException(keystoreKeyAlias, getKeyStoreException(errorCode));
     }
 }

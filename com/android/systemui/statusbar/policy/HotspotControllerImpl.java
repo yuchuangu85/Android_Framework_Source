@@ -16,49 +16,39 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
-import android.os.UserManager;
+import android.os.UserHandle;
 import android.util.Log;
 
-import com.android.systemui.Dependency;
+import com.android.settingslib.TetherUtil;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 
-public class HotspotControllerImpl implements HotspotController, WifiManager.SoftApCallback {
+public class HotspotControllerImpl implements HotspotController {
 
     private static final String TAG = "HotspotController";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    private static final Intent TETHER_SERVICE_INTENT = new Intent()
+            .putExtra(TetherUtil.EXTRA_ADD_TETHER_TYPE, TetherUtil.TETHERING_WIFI)
+            .putExtra(TetherUtil.EXTRA_SET_ALARM, true)
+            .putExtra(TetherUtil.EXTRA_RUN_PROVISION, true)
+            .putExtra(TetherUtil.EXTRA_ENABLE_WIFI_TETHER, true)
+            .setComponent(TetherUtil.TETHER_SERVICE);
 
-    private final ArrayList<Callback> mCallbacks = new ArrayList<>();
-    private final WifiStateReceiver mWifiStateReceiver = new WifiStateReceiver();
-    private final ConnectivityManager mConnectivityManager;
-    private final WifiManager mWifiManager;
+    private final ArrayList<Callback> mCallbacks = new ArrayList<Callback>();
+    private final Receiver mReceiver = new Receiver();
     private final Context mContext;
 
     private int mHotspotState;
-    private int mNumConnectedDevices;
-    private boolean mWaitingForCallback;
 
     public HotspotControllerImpl(Context context) {
         mContext = context;
-        mConnectivityManager =
-                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        mWifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-    }
-
-    @Override
-    public boolean isHotspotSupported() {
-        return mConnectivityManager.isTetheringSupported()
-                && mConnectivityManager.getTetherableWifiRegexs().length != 0
-                && UserManager.get(mContext).isUserAdmin(ActivityManager.getCurrentUser());
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
@@ -82,44 +72,18 @@ public class HotspotControllerImpl implements HotspotController, WifiManager.Sof
         return null;
     }
 
-    @Override
     public void addCallback(Callback callback) {
-        synchronized (mCallbacks) {
-            if (callback == null || mCallbacks.contains(callback)) return;
-            if (DEBUG) Log.d(TAG, "addCallback " + callback);
-            mCallbacks.add(callback);
-
-            updateWifiStateListeners(!mCallbacks.isEmpty());
-        }
+        if (callback == null || mCallbacks.contains(callback)) return;
+        if (DEBUG) Log.d(TAG, "addCallback " + callback);
+        mCallbacks.add(callback);
+        mReceiver.setListening(!mCallbacks.isEmpty());
     }
 
-    @Override
     public void removeCallback(Callback callback) {
         if (callback == null) return;
         if (DEBUG) Log.d(TAG, "removeCallback " + callback);
-        synchronized (mCallbacks) {
-            mCallbacks.remove(callback);
-
-            updateWifiStateListeners(!mCallbacks.isEmpty());
-        }
-    }
-
-    /**
-     * Updates the wifi state receiver to either start or stop listening to get updates to the
-     * hotspot status. Additionally starts listening to wifi manager state to track the number of
-     * connected devices.
-     *
-     * @param shouldListen whether we should start listening to various wifi statuses
-     */
-    private void updateWifiStateListeners(boolean shouldListen) {
-        mWifiStateReceiver.setListening(shouldListen);
-        if (shouldListen) {
-            mWifiManager.registerSoftApCallback(
-                    this,
-                    Dependency.get(Dependency.MAIN_HANDLER));
-        } else {
-            mWifiManager.unregisterSoftApCallback(this);
-        }
+        mCallbacks.remove(callback);
+        mReceiver.setListening(!mCallbacks.isEmpty());
     }
 
     @Override
@@ -128,88 +92,27 @@ public class HotspotControllerImpl implements HotspotController, WifiManager.Sof
     }
 
     @Override
-    public boolean isHotspotTransient() {
-        return mWaitingForCallback || (mHotspotState == WifiManager.WIFI_AP_STATE_ENABLING);
+    public boolean isHotspotSupported() {
+        return TetherUtil.isTetheringSupported(mContext);
     }
 
     @Override
     public void setHotspotEnabled(boolean enabled) {
-        if (enabled) {
-            OnStartTetheringCallback callback = new OnStartTetheringCallback();
-            mWaitingForCallback = true;
-            if (DEBUG) Log.d(TAG, "Starting tethering");
-            mConnectivityManager.startTethering(
-                    ConnectivityManager.TETHERING_WIFI, false, callback);
+        // Call provisioning app which is called when enabling Tethering from Settings
+        if (enabled && TetherUtil.isProvisioningNeeded(mContext)) {
+            mContext.startServiceAsUser(TETHER_SERVICE_INTENT, UserHandle.CURRENT);
         } else {
-            mConnectivityManager.stopTethering(ConnectivityManager.TETHERING_WIFI);
+            TetherUtil.setWifiTethering(enabled, mContext);
         }
     }
 
-    @Override
-    public int getNumConnectedDevices() {
-        return mNumConnectedDevices;
-    }
-
-    /**
-     * Sends a hotspot changed callback with the new enabled status. Wraps
-     * {@link #fireHotspotChangedCallback(boolean, int)} and assumes that the number of devices has
-     * not changed.
-     *
-     * @param enabled whether the hotspot is enabled
-     */
-    private void fireHotspotChangedCallback(boolean enabled) {
-        fireHotspotChangedCallback(enabled, mNumConnectedDevices);
-    }
-
-    /**
-     * Sends a hotspot changed callback with the new enabled status & the number of devices
-     * connected to the hotspot. Be careful when calling over multiple threads, especially if one of
-     * them is the main thread (as it can be blocked).
-     *
-     * @param enabled whether the hotspot is enabled
-     * @param numConnectedDevices number of devices connected to the hotspot
-     */
-    private void fireHotspotChangedCallback(boolean enabled, int numConnectedDevices) {
-        synchronized (mCallbacks) {
-            for (Callback callback : mCallbacks) {
-                callback.onHotspotChanged(enabled, numConnectedDevices);
-            }
+    private void fireCallback(boolean isEnabled) {
+        for (Callback callback : mCallbacks) {
+            callback.onHotspotChanged(isEnabled);
         }
     }
 
-    @Override
-    public void onStateChanged(int state, int failureReason) {
-        // Do nothing - we don't care about changing anything here.
-    }
-
-    @Override
-    public void onNumClientsChanged(int numConnectedDevices) {
-        mNumConnectedDevices = numConnectedDevices;
-        fireHotspotChangedCallback(isHotspotEnabled(), numConnectedDevices);
-    }
-
-    private final class OnStartTetheringCallback extends
-            ConnectivityManager.OnStartTetheringCallback {
-        @Override
-        public void onTetheringStarted() {
-            if (DEBUG) Log.d(TAG, "onTetheringStarted");
-            mWaitingForCallback = false;
-            // Don't fire a callback here, instead wait for the next update from wifi.
-        }
-
-        @Override
-        public void onTetheringFailed() {
-            if (DEBUG) Log.d(TAG, "onTetheringFailed");
-            mWaitingForCallback = false;
-            fireHotspotChangedCallback(isHotspotEnabled());
-          // TODO: Show error.
-        }
-    }
-
-    /**
-     * Class to listen in on wifi state and update the hotspot state
-     */
-    private final class WifiStateReceiver extends BroadcastReceiver {
+    private final class Receiver extends BroadcastReceiver {
         private boolean mRegistered;
 
         public void setListening(boolean listening) {
@@ -228,20 +131,11 @@ public class HotspotControllerImpl implements HotspotController, WifiManager.Sof
 
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (DEBUG) Log.d(TAG, "onReceive " + intent.getAction());
             int state = intent.getIntExtra(
                     WifiManager.EXTRA_WIFI_AP_STATE, WifiManager.WIFI_AP_STATE_FAILED);
-            if (DEBUG) Log.d(TAG, "onReceive " + state);
-
-            // Update internal hotspot state for tracking before using any enabled/callback methods.
             mHotspotState = state;
-
-            if (!isHotspotEnabled()) {
-                // Reset num devices if the hotspot is no longer enabled so we don't get ghost
-                // counters.
-                mNumConnectedDevices = 0;
-            }
-
-            fireHotspotChangedCallback(isHotspotEnabled());
+            fireCallback(mHotspotState == WifiManager.WIFI_AP_STATE_ENABLED);
         }
     }
 }

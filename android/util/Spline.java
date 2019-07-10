@@ -166,10 +166,10 @@ public abstract class Spline {
                                 + "monotonic Y values.");
                     }
                     float h = (float) Math.hypot(a, b);
-                    if (h > 3f) {
+                    if (h > 9f) {
                         float t = 3f / h;
-                        m[i] *= t;
-                        m[i + 1] *= t;
+                        m[i] = t * a * d[i];
+                        m[i + 1] = t * b * d[i];
                     }
                 }
             }

@@ -16,7 +16,11 @@
 
 package benchmarks.regression;
 
-public class DoubleBenchmark {
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
+public class DoubleBenchmark extends SimpleBenchmark {
     private double d = 1.2;
     private long l = 4608083138725491507L;
 

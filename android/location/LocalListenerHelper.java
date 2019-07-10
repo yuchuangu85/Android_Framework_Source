@@ -16,18 +16,16 @@
 
 package android.location;
 
+import com.android.internal.util.Preconditions;
+
 import android.annotation.NonNull;
 import android.content.Context;
-import android.os.Handler;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.internal.util.Preconditions;
-
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
 
 /**
  * A base handler class to manage transport and local listeners.
@@ -35,7 +33,7 @@ import java.util.Map;
  * @hide
  */
 abstract class LocalListenerHelper<TListener> {
-    private final HashMap<TListener, Handler> mListeners = new HashMap<>();
+    private final HashSet<TListener> mListeners = new HashSet<>();
 
     private final String mTag;
     private final Context mContext;
@@ -46,12 +44,7 @@ abstract class LocalListenerHelper<TListener> {
         mTag = name;
     }
 
-    /**
-     * Adds a {@param listener} to the list of listeners on which callbacks will be executed. The
-     * execution will happen on the {@param handler} thread or alternatively in the callback thread
-     * if a  {@code null} handler value is passed.
-     */
-    public boolean add(@NonNull TListener listener, Handler handler) {
+    public boolean add(@NonNull TListener listener) {
         Preconditions.checkNotNull(listener);
         synchronized (mListeners) {
             // we need to register with the service first, because we need to find out if the
@@ -69,19 +62,17 @@ abstract class LocalListenerHelper<TListener> {
                     return false;
                 }
             }
-            if (mListeners.containsKey(listener)) {
+            if (mListeners.contains(listener)) {
                 return true;
             }
-            mListeners.put(listener, handler);
-            return true;
+            return mListeners.add(listener);
         }
     }
 
     public void remove(@NonNull TListener listener) {
         Preconditions.checkNotNull(listener);
         synchronized (mListeners) {
-            boolean removed = mListeners.containsKey(listener);
-            mListeners.remove(listener);
+            boolean removed = mListeners.remove(listener);
             boolean isLastRemoved = removed && mListeners.isEmpty();
             if (isLastRemoved) {
                 try {
@@ -104,30 +95,17 @@ abstract class LocalListenerHelper<TListener> {
         return mContext;
     }
 
-    private void executeOperation(ListenerOperation<TListener> operation, TListener listener) {
-        try {
-            operation.execute(listener);
-        } catch (RemoteException e) {
-            Log.e(mTag, "Error in monitored listener.", e);
-            // don't return, give a fair chance to all listeners to receive the event
-        }
-    }
-
-    protected void foreach(final ListenerOperation<TListener> operation) {
-        Collection<Map.Entry<TListener, Handler>> listeners;
+    protected void foreach(ListenerOperation<TListener> operation) {
+        Collection<TListener> listeners;
         synchronized (mListeners) {
-            listeners = new ArrayList<>(mListeners.entrySet());
+            listeners = new ArrayList<>(mListeners);
         }
-        for (final Map.Entry<TListener, Handler> listener : listeners) {
-            if (listener.getValue() == null) {
-                executeOperation(operation, listener.getKey());
-            } else {
-                listener.getValue().post(new Runnable() {
-                    @Override
-                    public void run() {
-                        executeOperation(operation, listener.getKey());
-                    }
-                });
+        for (TListener listener : listeners) {
+            try {
+                operation.execute(listener);
+            } catch (RemoteException e) {
+                Log.e(mTag, "Error in monitored listener.", e);
+                // don't return, give a fair chance to all listeners to receive the event
             }
         }
     }

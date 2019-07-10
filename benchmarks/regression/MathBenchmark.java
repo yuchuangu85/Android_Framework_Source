@@ -16,11 +16,15 @@
 
 package benchmarks.regression;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 /**
  * Many of these tests are bogus in that the cost will vary wildly depending on inputs.
  * For _my_ current purposes, that's okay. But beware!
  */
-public class MathBenchmark {
+public class MathBenchmark extends SimpleBenchmark {
     private final double d = 1.2;
     private final float f = 1.2f;
     private final int i = 1;

@@ -1,183 +1,109 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
-import java.io.*;
-
 /**
- * This class is used to represent an Identity that can also digitally
- * sign data.
+ * {@link Signer} represents an identity (individual or corporation) that owns a
+ * private key and the corresponding public key.
  *
- * <p>The management of a signer's private keys is an important and
- * sensitive issue that should be handled by subclasses as appropriate
- * to their intended use.
- *
- * @see Identity
- *
- * @author Benjamin Renaud
- *
- * @deprecated This class is no longer used. Its functionality has been
- * replaced by {@code java.security.KeyStore}, the
- * {@code java.security.cert} package, and
- * {@code java.security.Principal}.
+ * @deprecated Use the {@link java.security.cert java.security.cert} package
+ * and {@link java.security.Principal} instead.
  */
 @Deprecated
 public abstract class Signer extends Identity {
 
     private static final long serialVersionUID = -1763464102261361480L;
 
-    /**
-     * The signer's private key.
-     *
-     * @serial
-     */
     private PrivateKey privateKey;
 
     /**
-     * Creates a signer. This constructor should only be used for
-     * serialization.
+     * Constructs a new instance of {@code Signer}.
      */
     protected Signer() {
-        super();
     }
 
-
     /**
-     * Creates a signer with the specified identity name.
+     * Constructs a new instance of {@code Signer} with the given name.
      *
-     * @param name the identity name.
+     * @param name
+     *            the name of the signer.
      */
     public Signer(String name) {
         super(name);
     }
 
     /**
-     * Creates a signer with the specified identity name and scope.
+     * Constructs a new instance of {@code Signer} with the given name in the
+     * given scope.
      *
-     * @param name the identity name.
-     *
-     * @param scope the scope of the identity.
-     *
-     * @exception KeyManagementException if there is already an identity
-     * with the same name in the scope.
+     * @param name
+     *            the name of the signer.
+     * @param scope
+     *            the scope of the signer.
+     * @throws KeyManagementException
+     *             if a signer with the specified name already exists in the
+     *             provided scope.
      */
-    public Signer(String name, IdentityScope scope)
-    throws KeyManagementException {
+    public Signer(String name, IdentityScope scope) throws KeyManagementException {
         super(name, scope);
     }
 
     /**
-     * Returns this signer's private key.
-     *
-     * <p>First, if there is a security manager, its {@code checkSecurityAccess}
-     * method is called with {@code "getSignerPrivateKey"}
-     * as its argument to see if it's ok to return the private key.
-     *
-     * @return this signer's private key, or null if the private key has
-     * not yet been set.
-     *
-     * @exception  SecurityException  if a security manager exists and its
-     * {@code checkSecurityAccess} method doesn't allow
-     * returning the private key.
-     *
-     * @see SecurityManager#checkSecurityAccess
+     * Returns the private key of this {@code Signer}.
      */
     public PrivateKey getPrivateKey() {
-        check("getSignerPrivateKey");
         return privateKey;
     }
 
-   /**
-     * Sets the key pair (public key and private key) for this signer.
+    /**
+     * Associates the specified key pair with this {@code Signer}.
      *
-     * <p>First, if there is a security manager, its {@code checkSecurityAccess}
-     * method is called with {@code "setSignerKeyPair"}
-     * as its argument to see if it's ok to set the key pair.
-     *
-     * @param pair an initialized key pair.
-     *
-     * @exception InvalidParameterException if the key pair is not
-     * properly initialized.
-     * @exception KeyException if the key pair cannot be set for any
-     * other reason.
-     * @exception  SecurityException  if a security manager exists and its
-     * {@code checkSecurityAccess} method doesn't allow
-     * setting the key pair.
-     *
-     * @see SecurityManager#checkSecurityAccess
+     * @param pair
+     *            the key pair to associate with this {@code Signer}.
+     * @throws InvalidParameterException
+     *             if the key pair is invalid.
+     * @throws KeyException
+     *             if any other key related problem occurs.
      */
-    public final void setKeyPair(KeyPair pair)
-    throws InvalidParameterException, KeyException {
-        check("setSignerKeyPair");
-        final PublicKey pub = pair.getPublic();
-        PrivateKey priv = pair.getPrivate();
+    public final void setKeyPair(KeyPair pair) throws InvalidParameterException, KeyException {
+        if (pair == null) {
+            throw new NullPointerException("pair == null");
+        }
 
-        if (pub == null || priv == null) {
+        if (pair.getPrivate() == null || pair.getPublic() == null) {
             throw new InvalidParameterException();
         }
-        try {
-            AccessController.doPrivileged(
-                new PrivilegedExceptionAction<Void>() {
-                public Void run() throws KeyManagementException {
-                    setPublicKey(pub);
-                    return null;
-                }
-            });
-        } catch (PrivilegedActionException pae) {
-            throw (KeyManagementException) pae.getException();
-        }
-        privateKey = priv;
-    }
-
-    String printKeys() {
-        String keys = "";
-        PublicKey publicKey = getPublicKey();
-        if (publicKey != null && privateKey != null) {
-            keys = "\tpublic and private keys initialized";
-
-        } else {
-            keys = "\tno keys";
-        }
-        return keys;
+        setPublicKey(pair.getPublic());
+        this.privateKey = pair.getPrivate();
     }
 
     /**
-     * Returns a string of information about the signer.
+     * Returns a string containing a concise, human-readable description of this
+     * {@code Signer} including its name and its scope if present.
      *
-     * @return a string of information about the signer.
+     * @return a printable representation for this {@code Signer}.
      */
+    @Override
     public String toString() {
-        return "[Signer]" + super.toString();
-    }
-
-    private static void check(String directive) {
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkSecurityAccess(directive);
+        String s = "[Signer]" + getName();
+        if (getScope() != null) {
+            s = s + '[' + getScope().toString() + ']';
         }
+        return s;
     }
-
 }

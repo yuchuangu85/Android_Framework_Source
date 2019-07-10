@@ -16,15 +16,16 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.Param;
 import java.io.File;
-import java.util.jar.JarFile;
-import java.util.jar.Manifest;
+import java.util.jar.*;
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class JarFileBenchmark {
+public class JarFileBenchmark extends SimpleBenchmark {
     @Param({
-        "/system/framework/core-oj.jar",
-        "/system/priv-app/Phonesky/Phonesky.apk"
+        "/system/framework/bouncycastle.jar",
+        "/system/framework/core.jar",
+        "/system/framework/framework.jar"
     })
     private String filename;
 

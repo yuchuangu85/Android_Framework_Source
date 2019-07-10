@@ -1,110 +1,86 @@
 /*
- * Copyright (c) 1996, 2004, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang.reflect;
 
 /**
- * InvocationTargetException is a checked exception that wraps
- * an exception thrown by an invoked method or constructor.
+ * This class provides a wrapper for an exception thrown by a {@code Method} or
+ * {@code Constructor} invocation.
  *
- * <p>As of release 1.4, this exception has been retrofitted to conform to
- * the general purpose exception-chaining mechanism.  The "target exception"
- * that is provided at construction time and accessed via the
- * {@link #getTargetException()} method is now known as the <i>cause</i>,
- * and may be accessed via the {@link Throwable#getCause()} method,
- * as well as the aforementioned "legacy method."
- *
- * @see Method
- * @see Constructor
+ * @see Method#invoke
+ * @see Constructor#newInstance
  */
 public class InvocationTargetException extends ReflectiveOperationException {
-    /**
-     * Use serialVersionUID from JDK 1.1.X for interoperability
-     */
+
     private static final long serialVersionUID = 4085088731926701167L;
 
-     /**
-     * This field holds the target if the
-     * InvocationTargetException(Throwable target) constructor was
-     * used to instantiate the object
-     *
-     * @serial
-     *
-     */
     private Throwable target;
 
     /**
-     * Constructs an {@code InvocationTargetException} with
-     * {@code null} as the target exception.
+     * Constructs a new {@code InvocationTargetException} instance with a
+     * {@code null} cause / target exception.
      */
     protected InvocationTargetException() {
-        super((Throwable)null);  // Disallow initCause
+        super((Throwable) null);
     }
 
     /**
-     * Constructs a InvocationTargetException with a target exception.
+     * Constructs a new {@code InvocationTargetException} instance with its
+     * cause / target exception filled in.
      *
-     * @param target the target exception
+     * @param exception
+     *            the exception which occurred while running the Method or
+     *            Constructor
      */
-    public InvocationTargetException(Throwable target) {
-        super((Throwable)null);  // Disallow initCause
-        this.target = target;
+    public InvocationTargetException(Throwable exception) {
+        super(null, exception);
+        target = exception;
     }
 
     /**
-     * Constructs a InvocationTargetException with a target exception
-     * and a detail message.
+     * Constructs a new {@code InvocationTargetException} instance with its
+     * cause / target exception and message filled in.
      *
-     * @param target the target exception
-     * @param s      the detail message
+     * @param detailMessage
+     *            the detail message for the exception
+     * @param exception
+     *            the exception which occurred while running the Method or
+     *            Constructor
      */
-    public InvocationTargetException(Throwable target, String s) {
-        super(s, null);  // Disallow initCause
-        this.target = target;
+    public InvocationTargetException(Throwable exception, String detailMessage) {
+        super(detailMessage, exception);
+        target = exception;
     }
 
     /**
-     * Get the thrown target exception.
+     * Returns the target exception, which may be {@code null}.
      *
-     * <p>This method predates the general-purpose exception chaining facility.
-     * The {@link Throwable#getCause()} method is now the preferred means of
-     * obtaining this information.
-     *
-     * @return the thrown target exception (cause of this exception).
+     * @return the target exception
      */
     public Throwable getTargetException() {
         return target;
     }
 
     /**
-     * Returns the cause of this exception (the thrown target exception,
-     * which may be {@code null}).
+     * Returns the cause of this exception, which may be {@code null}.
      *
-     * @return  the cause of this exception.
-     * @since   1.4
+     * @return the cause of this exception
      */
+    @Override
     public Throwable getCause() {
         return target;
     }

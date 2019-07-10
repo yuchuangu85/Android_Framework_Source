@@ -38,7 +38,6 @@ import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.util.Log;
 
-import com.android.internal.util.function.pooled.PooledLambda;
 import com.android.printspooler.R;
 import com.android.printspooler.util.PageRangeUtils;
 
@@ -57,8 +56,6 @@ public final class RemotePrintDocument {
     private static final String LOG_TAG = "RemotePrintDocument";
 
     private static final boolean DEBUG = false;
-
-    private static final long FORCE_CANCEL_TIMEOUT = 1000; // ms
 
     private static final int STATE_INITIAL = 0;
     private static final int STATE_STARTED = 1;
@@ -94,10 +91,9 @@ public final class RemotePrintDocument {
                     // but the content has changed.
                     if (mNextCommand == null) {
                         if (mUpdateSpec.pages != null && (mDocumentInfo.changed
-                                || mDocumentInfo.pagesWrittenToFile == null
                                 || (mDocumentInfo.info.getPageCount()
                                         != PrintDocumentInfo.PAGE_COUNT_UNKNOWN
-                                && !PageRangeUtils.contains(mDocumentInfo.pagesWrittenToFile,
+                                && !PageRangeUtils.contains(mDocumentInfo.writtenPages,
                                         mUpdateSpec.pages, mDocumentInfo.info.getPageCount())))) {
                             mNextCommand = new WriteCommand(mContext, mLooper,
                                     mPrintDocumentAdapter, mDocumentInfo,
@@ -106,21 +102,18 @@ public final class RemotePrintDocument {
                         } else {
                             if (mUpdateSpec.pages != null) {
                                 // If we have the requested pages, update which ones to be printed.
-                                mDocumentInfo.pagesInFileToPrint =
-                                        PageRangeUtils.computeWhichPagesInFileToPrint(
-                                                mUpdateSpec.pages, mDocumentInfo.pagesWrittenToFile,
-                                                mDocumentInfo.info.getPageCount());
+                                mDocumentInfo.printedPages = PageRangeUtils.computePrintedPages(
+                                        mUpdateSpec.pages, mDocumentInfo.writtenPages,
+                                        mDocumentInfo.info.getPageCount());
                             }
                             // Notify we are done.
                             mState = STATE_UPDATED;
-                            mDocumentInfo.updated = true;
                             notifyUpdateCompleted();
                         }
                     }
                 } else {
                     // We always notify after a write.
                     mState = STATE_UPDATED;
-                    mDocumentInfo.updated = true;
                     notifyUpdateCompleted();
                 }
                 runPendingCommand();
@@ -136,12 +129,7 @@ public final class RemotePrintDocument {
                     mState = STATE_CANCELED;
                     notifyUpdateCanceled();
                 }
-                if (mNextCommand != null) {
-                    runPendingCommand();
-                } else {
-                    // The update was not performed, hence the spec is stale
-                    mUpdateSpec.reset();
-                }
+                runPendingCommand();
             }
         }
     };
@@ -185,21 +173,15 @@ public final class RemotePrintDocument {
         if (DEBUG) {
             Log.i(LOG_TAG, "[CALLED] start()");
         }
-        if (mState == STATE_FAILED) {
-            Log.w(LOG_TAG, "Failed before start.");
-        } else if (mState == STATE_DESTROYED) {
-            Log.w(LOG_TAG, "Destroyed before start.");
-        } else {
-            if (mState != STATE_INITIAL) {
-                throw new IllegalStateException("Cannot start in state:" + stateToString(mState));
-            }
-            try {
-                mPrintDocumentAdapter.start();
-                mState = STATE_STARTED;
-            } catch (RemoteException re) {
-                Log.e(LOG_TAG, "Error calling start()", re);
-                mState = STATE_FAILED;
-            }
+        if (mState != STATE_INITIAL) {
+            throw new IllegalStateException("Cannot start in state:" + stateToString(mState));
+        }
+        try {
+            mPrintDocumentAdapter.start();
+            mState = STATE_STARTED;
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error calling start()", re);
+            mState = STATE_FAILED;
         }
     }
 
@@ -226,7 +208,7 @@ public final class RemotePrintDocument {
             // cancellation and start over.
             if (mCurrentCommand != null && (mCurrentCommand.isRunning()
                     || mCurrentCommand.isPending())) {
-                mCurrentCommand.cancel(false);
+                mCurrentCommand.cancel();
             }
 
             // Schedule a layout command.
@@ -236,7 +218,6 @@ public final class RemotePrintDocument {
                   mDocumentInfo, oldAttributes, attributes, preview, mCommandResultCallback);
             scheduleCommand(command);
 
-            mDocumentInfo.updated = false;
             mState = STATE_UPDATING;
         // If no layout in progress and we don't have all pages - schedule a write.
         } else if ((!(mCurrentCommand instanceof LayoutCommand)
@@ -248,7 +229,7 @@ public final class RemotePrintDocument {
             // Cancel the current write as a new one is to be scheduled.
             if (mCurrentCommand instanceof WriteCommand
                     && (mCurrentCommand.isPending() || mCurrentCommand.isRunning())) {
-                mCurrentCommand.cancel(false);
+                mCurrentCommand.cancel();
             }
 
             // Schedule a write command.
@@ -257,7 +238,6 @@ public final class RemotePrintDocument {
                     mDocumentInfo.fileProvider, mCommandResultCallback);
             scheduleCommand(command);
 
-            mDocumentInfo.updated = false;
             mState = STATE_UPDATING;
         } else {
             willUpdate = false;
@@ -280,7 +260,7 @@ public final class RemotePrintDocument {
         }
         if (mState != STATE_STARTED && mState != STATE_UPDATED
                 && mState != STATE_FAILED && mState != STATE_CANCELING
-                && mState != STATE_CANCELED && mState != STATE_DESTROYED) {
+                && mState != STATE_CANCELED) {
             throw new IllegalStateException("Cannot finish in state:"
                     + stateToString(mState));
         }
@@ -293,20 +273,22 @@ public final class RemotePrintDocument {
         }
     }
 
-    public void cancel(boolean force) {
+    public void cancel() {
         if (DEBUG) {
-            Log.i(LOG_TAG, "[CALLED] cancel(" + force + ")");
+            Log.i(LOG_TAG, "[CALLED] cancel()");
         }
 
-        mNextCommand = null;
+        if (mState == STATE_CANCELING) {
+            return;
+        }
 
         if (mState != STATE_UPDATING) {
-            return;
+            throw new IllegalStateException("Cannot cancel in state:" + stateToString(mState));
         }
 
         mState = STATE_CANCELING;
 
-        mCurrentCommand.cancel(force);
+        mCurrentCommand.cancel();
     }
 
     public void destroy() {
@@ -405,7 +387,7 @@ public final class RemotePrintDocument {
 
     private void notifyUpdateFailed(CharSequence error) {
         if (DEBUG) {
-            Log.i(LOG_TAG, "[CALLING] notifyUpdateFailed()");
+            Log.i(LOG_TAG, "[CALLING] onUpdateCompleted()");
         }
         mUpdateCallbacks.onUpdateFailed(error);
     }
@@ -457,9 +439,8 @@ public final class RemotePrintDocument {
         if (mCurrentCommand != null) {
             if (mCurrentCommand.isPending()) {
                 mCurrentCommand.run();
-
-                mState = STATE_UPDATING;
             }
+            mState = STATE_UPDATING;
         } else {
             mState = STATE_UPDATED;
         }
@@ -524,20 +505,8 @@ public final class RemotePrintDocument {
         public PrintAttributes attributes;
         public Bundle metadata;
         public PrintDocumentInfo info;
-
-        /**
-         * Which pages out of the ones written to the file to print. This is not indexed by the
-         * document pages, but by the page number in the file.
-         * <p>E.g. if a document has 10 pages, we want pages 4-5 and 7, but only page 3-9 are in the
-         * file. This would contain 1-2 and 4.</p>
-         *
-         * @see PageRangeUtils#computeWhichPagesInFileToPrint
-         */
-        public PageRange[] pagesInFileToPrint;
-
-        /** Pages of the whole document that are currently written to file */
-        public PageRange[] pagesWrittenToFile;
-
+        public PageRange[] printedPages;
+        public PageRange[] writtenPages;
         public MutexFileProvider fileProvider;
         public boolean changed;
         public boolean updated;
@@ -549,9 +518,6 @@ public final class RemotePrintDocument {
     }
 
     private static abstract class AsyncCommand implements Runnable {
-        /** Message indicated the desire to {@link #forceCancel} a command */
-        static final int MSG_FORCE_CANCEL = 0;
-
         private static final int STATE_PENDING = 0;
         private static final int STATE_RUNNING = 1;
         private static final int STATE_COMPLETED = 2;
@@ -567,17 +533,14 @@ public final class RemotePrintDocument {
 
         protected final CommandDoneCallback mDoneCallback;
 
-        private final Handler mHandler;
-
         protected ICancellationSignal mCancellation;
 
         private CharSequence mError;
 
         private int mState = STATE_PENDING;
 
-        public AsyncCommand(Looper looper, IPrintDocumentAdapter adapter, RemotePrintDocumentInfo document,
+        public AsyncCommand(IPrintDocumentAdapter adapter, RemotePrintDocumentInfo document,
                 CommandDoneCallback doneCallback) {
-            mHandler = new Handler(looper);
             mAdapter = adapter;
             mDocument = document;
             mDoneCallback = doneCallback;
@@ -591,29 +554,7 @@ public final class RemotePrintDocument {
             return mState == STATE_CANCELED;
         }
 
-        /**
-         * If a force cancel is pending, remove it. This is usually called when a command returns
-         * and thereby does not need to be canceled anymore.
-         */
-        protected void removeForceCancel() {
-            if (DEBUG) {
-                if (mHandler.hasMessages(MSG_FORCE_CANCEL)) {
-                    Log.i(LOG_TAG, "[FORCE CANCEL] Removed");
-                }
-            }
-
-            mHandler.removeMessages(MSG_FORCE_CANCEL);
-        }
-
-        /**
-         * Cancel the current command.
-         *
-         * @param force If set, does not wait for the {@link PrintDocumentAdapter} to cancel. This
-         *              should only be used if this is the last command send to the as otherwise the
-         *              {@link PrintDocumentAdapter adapter} might get commands while it is still
-         *              running the old one.
-         */
-        public final void cancel(boolean force) {
+        public final void cancel() {
             if (isRunning()) {
                 canceling();
                 if (mCancellation != null) {
@@ -623,26 +564,12 @@ public final class RemotePrintDocument {
                         Log.w(LOG_TAG, "Error while canceling", re);
                     }
                 }
+            } else {
+                canceled();
+
+                // Done.
+                mDoneCallback.onDone();
             }
-
-            if (isCanceling()) {
-                if (force) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "[FORCE CANCEL] queued");
-                    }
-                    mHandler.sendMessageDelayed(
-                            PooledLambda.obtainMessage(AsyncCommand::forceCancel, this)
-                                    .setWhat(MSG_FORCE_CANCEL),
-                            FORCE_CANCEL_TIMEOUT);
-                }
-
-                return;
-            }
-
-            canceled();
-
-            // Done.
-            mDoneCallback.onDone();
         }
 
         protected final void canceling() {
@@ -686,7 +613,7 @@ public final class RemotePrintDocument {
         }
 
         protected final void failed(CharSequence error) {
-            if (mState != STATE_RUNNING && mState != STATE_CANCELING) {
+            if (mState != STATE_RUNNING) {
                 throw new IllegalStateException("Not running.");
             }
             mState = STATE_FAILED;
@@ -700,18 +627,6 @@ public final class RemotePrintDocument {
 
         public CharSequence getError() {
             return mError;
-        }
-
-        private void forceCancel() {
-            if (isCanceling()) {
-                if (DEBUG) {
-                    Log.i(LOG_TAG, "[FORCE CANCEL] executed");
-                }
-                failed("Command did not respond to cancellation in "
-                        + FORCE_CANCEL_TIMEOUT + " ms");
-
-                mDoneCallback.onDone();
-            }
         }
     }
 
@@ -727,7 +642,7 @@ public final class RemotePrintDocument {
         public LayoutCommand(Looper looper, IPrintDocumentAdapter adapter,
                 RemotePrintDocumentInfo document, PrintAttributes oldAttributes,
                 PrintAttributes newAttributes, boolean preview, CommandDoneCallback callback) {
-            super(looper, adapter, document, callback);
+            super(adapter, document, callback);
             mHandler = new LayoutHandler(looper);
             mRemoteResultCallback = new LayoutResultCallback(mHandler);
             mOldAttributes.copyFrom(oldAttributes);
@@ -790,8 +705,8 @@ public final class RemotePrintDocument {
             if (changed || !equalsIgnoreSize(mDocument.info, info)) {
                 // If the content changed we throw away all pages as
                 // we will request them again with the new content.
-                mDocument.pagesWrittenToFile = null;
-                mDocument.pagesInFileToPrint = null;
+                mDocument.writtenPages = null;
+                mDocument.printedPages = null;
                 mDocument.changed = true;
             }
 
@@ -876,69 +791,28 @@ public final class RemotePrintDocument {
 
             @Override
             public void handleMessage(Message message) {
-                // The command might have been force canceled, see
-                // AsyncCommand.AsyncCommandHandler#handleMessage
-                if (isFailed()) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "[CALLBACK] on failed layout command");
-                    }
-
-                    return;
-                }
-
-                int sequence;
-                int what = message.what;
-                CharSequence error = null;
-                switch (what) {
-                    case MSG_ON_LAYOUT_FINISHED:
-                        removeForceCancel();
-                        sequence = message.arg2;
-                        break;
-                    case MSG_ON_LAYOUT_FAILED:
-                        error = (CharSequence) message.obj;
-                        removeForceCancel();
-                        sequence = message.arg1;
-                        break;
-                    case MSG_ON_LAYOUT_CANCELED:
-                        if (!isCanceling()) {
-                            Log.w(LOG_TAG, "Unexpected cancel");
-                            what = MSG_ON_LAYOUT_FAILED;
-                        }
-                        removeForceCancel();
-                        sequence = message.arg1;
-                        break;
-                    case MSG_ON_LAYOUT_STARTED:
-                        // Don't remote force-cancel as command is still running and might need to
-                        // be canceled later
-                        sequence = message.arg1;
-                        break;
-                    default:
-                        // not reached
-                        sequence = -1;
-                }
-
-                // If we are canceling any result is treated as a cancel
-                if (isCanceling() && what != MSG_ON_LAYOUT_STARTED) {
-                    what = MSG_ON_LAYOUT_CANCELED;
-                }
-
-                switch (what) {
+                switch (message.what) {
                     case MSG_ON_LAYOUT_STARTED: {
                         ICancellationSignal cancellation = (ICancellationSignal) message.obj;
+                        final int sequence = message.arg1;
                         handleOnLayoutStarted(cancellation, sequence);
                     } break;
 
                     case MSG_ON_LAYOUT_FINISHED: {
                         PrintDocumentInfo info = (PrintDocumentInfo) message.obj;
                         final boolean changed = (message.arg1 == 1);
+                        final int sequence = message.arg2;
                         handleOnLayoutFinished(info, changed, sequence);
                     } break;
 
                     case MSG_ON_LAYOUT_FAILED: {
+                        CharSequence error = (CharSequence) message.obj;
+                        final int sequence = message.arg1;
                         handleOnLayoutFailed(error, sequence);
                     } break;
 
                     case MSG_ON_LAYOUT_CANCELED: {
+                        final int sequence = message.arg1;
                         handleOnLayoutCanceled(sequence);
                     } break;
                 }
@@ -996,7 +870,7 @@ public final class RemotePrintDocument {
         private final MutexFileProvider mFileProvider;
 
         private final IWriteResultCallback mRemoteResultCallback;
-        private final CommandDoneCallback mWriteDoneCallback;
+        private final CommandDoneCallback mDoneCallback;
 
         private final Context mContext;
         private final Handler mHandler;
@@ -1004,14 +878,14 @@ public final class RemotePrintDocument {
         public WriteCommand(Context context, Looper looper, IPrintDocumentAdapter adapter,
                 RemotePrintDocumentInfo document, int pageCount, PageRange[] pages,
                 MutexFileProvider fileProvider, CommandDoneCallback callback) {
-            super(looper, adapter, document, callback);
+            super(adapter, document, callback);
             mContext = context;
             mHandler = new WriteHandler(looper);
             mRemoteResultCallback = new WriteResultCallback(mHandler);
             mPageCount = pageCount;
             mPages = Arrays.copyOf(pages, pages.length);
             mFileProvider = fileProvider;
-            mWriteDoneCallback = callback;
+            mDoneCallback = callback;
         }
 
         @Override
@@ -1105,17 +979,17 @@ public final class RemotePrintDocument {
             }
 
             PageRange[] writtenPages = PageRangeUtils.normalize(pages);
-            PageRange[] printedPages = PageRangeUtils.computeWhichPagesInFileToPrint(
+            PageRange[] printedPages = PageRangeUtils.computePrintedPages(
                     mPages, writtenPages, mPageCount);
 
             // Handle if we got invalid pages
             if (printedPages != null) {
-                mDocument.pagesWrittenToFile = writtenPages;
-                mDocument.pagesInFileToPrint = printedPages;
+                mDocument.writtenPages = writtenPages;
+                mDocument.printedPages = printedPages;
                 completed();
             } else {
-                mDocument.pagesWrittenToFile = null;
-                mDocument.pagesInFileToPrint = null;
+                mDocument.writtenPages = null;
+                mDocument.printedPages = null;
                 failed(mContext.getString(R.string.print_error_default_message));
             }
 
@@ -1123,7 +997,7 @@ public final class RemotePrintDocument {
             mCancellation = null;
 
             // Done.
-            mWriteDoneCallback.onDone();
+            mDoneCallback.onDone();
         }
 
         private void handleOnWriteFailed(CharSequence error, int sequence) {
@@ -1141,7 +1015,7 @@ public final class RemotePrintDocument {
             mCancellation = null;
 
             // Done.
-            mWriteDoneCallback.onDone();
+            mDoneCallback.onDone();
         }
 
         private void handleOnWriteCanceled(int sequence) {
@@ -1159,7 +1033,7 @@ public final class RemotePrintDocument {
             mCancellation = null;
 
             // Done.
-            mWriteDoneCallback.onDone();
+            mDoneCallback.onDone();
         }
 
         private final class WriteHandler extends Handler {
@@ -1174,60 +1048,27 @@ public final class RemotePrintDocument {
 
             @Override
             public void handleMessage(Message message) {
-                // The command might have been force canceled, see
-                // AsyncCommand.AsyncCommandHandler#handleMessage
-                if (isFailed()) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "[CALLBACK] on failed write command");
-                    }
-
-                    return;
-                }
-
-                int what = message.what;
-                CharSequence error = null;
-                int sequence = message.arg1;
-                switch (what) {
-                    case MSG_ON_WRITE_CANCELED:
-                        if (!isCanceling()) {
-                            Log.w(LOG_TAG, "Unexpected cancel");
-                            what = MSG_ON_WRITE_FAILED;
-                        }
-                        removeForceCancel();
-                        break;
-                    case MSG_ON_WRITE_FAILED:
-                        error = (CharSequence) message.obj;
-                        // $FALL-THROUGH
-                    case MSG_ON_WRITE_FINISHED:
-                        removeForceCancel();
-                        // $FALL-THROUGH
-                    case MSG_ON_WRITE_STARTED:
-                        // Don't remote force-cancel as command is still running and might need to
-                        // be canceled later
-                        break;
-                }
-
-                // If we are canceling any result is treated as a cancel
-                if (isCanceling() && what != MSG_ON_WRITE_STARTED) {
-                    what = MSG_ON_WRITE_CANCELED;
-                }
-
-                switch (what) {
+                switch (message.what) {
                     case MSG_ON_WRITE_STARTED: {
                         ICancellationSignal cancellation = (ICancellationSignal) message.obj;
+                        final int sequence = message.arg1;
                         handleOnWriteStarted(cancellation, sequence);
                     } break;
 
                     case MSG_ON_WRITE_FINISHED: {
                         PageRange[] pages = (PageRange[]) message.obj;
+                        final int sequence = message.arg1;
                         handleOnWriteFinished(pages, sequence);
                     } break;
 
                     case MSG_ON_WRITE_FAILED: {
+                        CharSequence error = (CharSequence) message.obj;
+                        final int sequence = message.arg1;
                         handleOnWriteFailed(error, sequence);
                     } break;
 
                     case MSG_ON_WRITE_CANCELED: {
+                        final int sequence = message.arg1;
                         handleOnWriteCanceled(sequence);
                     } break;
                 }

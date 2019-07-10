@@ -16,6 +16,9 @@
 
 package android.view.textservice;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -28,15 +31,10 @@ import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
-import android.util.PrintWriterPrinter;
 import android.util.Slog;
 import android.util.Xml;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 
 /**
@@ -57,7 +55,7 @@ public final class SpellCheckerInfo implements Parcelable {
     /**
      * The array of subtypes.
      */
-    private final ArrayList<SpellCheckerSubtype> mSubtypes = new ArrayList<>();
+    private final ArrayList<SpellCheckerSubtype> mSubtypes = new ArrayList<SpellCheckerSubtype>();
 
     /**
      * Constructor.
@@ -119,11 +117,7 @@ public final class SpellCheckerInfo implements Parcelable {
                             a.getString(com.android.internal.R.styleable
                                     .SpellChecker_Subtype_subtypeLocale),
                             a.getString(com.android.internal.R.styleable
-                                    .SpellChecker_Subtype_languageTag),
-                            a.getString(com.android.internal.R.styleable
-                                    .SpellChecker_Subtype_subtypeExtraValue),
-                            a.getInt(com.android.internal.R.styleable
-                                    .SpellChecker_Subtype_subtypeId, 0));
+                                    .SpellChecker_Subtype_subtypeExtraValue));
                     mSubtypes.add(subtype);
                 }
             }
@@ -268,23 +262,5 @@ public final class SpellCheckerInfo implements Parcelable {
     @Override
     public int describeContents() {
         return 0;
-    }
-
-    /**
-     * @hide
-     */
-    public void dump(final PrintWriter pw, final String prefix) {
-        pw.println(prefix + "mId=" + mId);
-        pw.println(prefix + "mSettingsActivityName=" + mSettingsActivityName);
-        pw.println(prefix + "Service:");
-        mService.dump(new PrintWriterPrinter(pw), prefix + "  ");
-        final int N = getSubtypeCount();
-        for (int i = 0; i < N; i++) {
-            final SpellCheckerSubtype st = getSubtypeAt(i);
-            pw.println(prefix + "  " + "Subtype #" + i + ":");
-            pw.println(prefix + "    " + "locale=" + st.getLocale()
-                    + " languageTag=" + st.getLanguageTag());
-            pw.println(prefix + "    " + "extraValue=" + st.getExtraValue());
-        }
     }
 }

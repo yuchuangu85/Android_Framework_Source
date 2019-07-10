@@ -16,23 +16,11 @@
 
 package android.os;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.app.AppGlobals;
-import android.content.Context;
-import android.util.Log;
-
 import com.android.internal.util.FastPrintWriter;
-import com.android.internal.util.Preconditions;
 import com.android.internal.util.TypedProperties;
 
-import dalvik.system.VMDebug;
+import android.util.Log;
 
-import org.apache.harmony.dalvik.ddmc.Chunk;
-import org.apache.harmony.dalvik.ddmc.ChunkHandler;
-import org.apache.harmony.dalvik.ddmc.DdmServer;
-
-import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -40,14 +28,21 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.annotation.Target;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.apache.harmony.dalvik.ddmc.Chunk;
+import org.apache.harmony.dalvik.ddmc.ChunkHandler;
+import org.apache.harmony.dalvik.ddmc.DdmServer;
+
+import dalvik.bytecode.OpcodeInfo;
+import dalvik.system.VMDebug;
 
 
 /**
@@ -56,10 +51,10 @@ import java.util.Map;
  * <p><strong>Logging Trace Files</strong></p>
  * <p>Debug can create log files that give details about an application, such as
  * a call stack and start/stop times for any running methods. See <a
- * href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs with
- * Traceview</a> for information about reading trace files. To start logging
- * trace files, call one of the startMethodTracing() methods. To stop tracing,
- * call {@link #stopMethodTracing()}.
+href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a> for
+ * information about reading trace files. To start logging trace files, call one
+ * of the startMethodTracing() methods. To stop tracing, call
+ * {@link #stopMethodTracing()}.
  */
 public final class Debug
 {
@@ -103,8 +98,14 @@ public final class Debug
     /**
      * Default trace file path and file
      */
+    private static final String DEFAULT_TRACE_PATH_PREFIX =
+        Environment.getLegacyExternalStorageDirectory().getPath() + "/";
     private static final String DEFAULT_TRACE_BODY = "dmtrace";
     private static final String DEFAULT_TRACE_EXTENSION = ".trace";
+    private static final String DEFAULT_TRACE_FILE_PATH =
+        DEFAULT_TRACE_PATH_PREFIX + DEFAULT_TRACE_BODY
+        + DEFAULT_TRACE_EXTENSION;
+
 
     /**
      * This class is used to retrieved various statistics about the memory mappings for this
@@ -116,8 +117,6 @@ public final class Debug
         /** The proportional set size that is swappable for dalvik heap. */
         /** @hide We may want to expose this, eventually. */
         public int dalvikSwappablePss;
-        /** @hide The resident set size for dalvik heap.  (Without other Dalvik overhead.) */
-        public int dalvikRss;
         /** The private dirty pages used by dalvik heap. */
         public int dalvikPrivateDirty;
         /** The shared dirty pages used by dalvik heap. */
@@ -131,17 +130,12 @@ public final class Debug
         /** The dirty dalvik pages that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
         public int dalvikSwappedOut;
-        /** The dirty dalvik pages that have been swapped out, proportional. */
-        /** @hide We may want to expose this, eventually. */
-        public int dalvikSwappedOutPss;
 
         /** The proportional set size for the native heap. */
         public int nativePss;
         /** The proportional set size that is swappable for the native heap. */
         /** @hide We may want to expose this, eventually. */
         public int nativeSwappablePss;
-        /** @hide The resident set size for the native heap. */
-        public int nativeRss;
         /** The private dirty pages used by the native heap. */
         public int nativePrivateDirty;
         /** The shared dirty pages used by the native heap. */
@@ -155,17 +149,12 @@ public final class Debug
         /** The dirty native pages that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
         public int nativeSwappedOut;
-        /** The dirty native pages that have been swapped out, proportional. */
-        /** @hide We may want to expose this, eventually. */
-        public int nativeSwappedOutPss;
 
         /** The proportional set size for everything else. */
         public int otherPss;
         /** The proportional set size that is swappable for everything else. */
         /** @hide We may want to expose this, eventually. */
         public int otherSwappablePss;
-        /** @hide The resident set size for everything else. */
-        public int otherRss;
         /** The private dirty pages used by everything else. */
         public int otherPrivateDirty;
         /** The shared dirty pages used by everything else. */
@@ -179,13 +168,6 @@ public final class Debug
         /** The dirty pages used by anyting else that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
         public int otherSwappedOut;
-        /** The dirty pages used by anyting else that have been swapped out, proportional. */
-        /** @hide We may want to expose this, eventually. */
-        public int otherSwappedOutPss;
-
-        /** Whether the kernel reports proportional swap usage */
-        /** @hide */
-        public boolean hasSwappedOutPss;
 
         /** @hide */
         public static final int HEAP_UNKNOWN = 0;
@@ -229,91 +211,46 @@ public final class Debug
         /** @hide */
         public static final int OTHER_OTHER_MEMTRACK = 16;
 
-        // Needs to be declared here for the DVK_STAT ranges below.
-        /** @hide */
-        public static final int NUM_OTHER_STATS = 17;
-
-        // Dalvik subsections.
         /** @hide */
         public static final int OTHER_DALVIK_NORMAL = 17;
         /** @hide */
         public static final int OTHER_DALVIK_LARGE = 18;
         /** @hide */
-        public static final int OTHER_DALVIK_ZYGOTE = 19;
+        public static final int OTHER_DALVIK_LINEARALLOC = 19;
         /** @hide */
-        public static final int OTHER_DALVIK_NON_MOVING = 20;
-        // Section begins and ends for dumpsys, relative to the DALVIK categories.
+        public static final int OTHER_DALVIK_ACCOUNTING = 20;
         /** @hide */
-        public static final int OTHER_DVK_STAT_DALVIK_START =
-                OTHER_DALVIK_NORMAL - NUM_OTHER_STATS;
+        public static final int OTHER_DALVIK_CODE_CACHE = 21;
         /** @hide */
-        public static final int OTHER_DVK_STAT_DALVIK_END =
-                OTHER_DALVIK_NON_MOVING - NUM_OTHER_STATS;
-
-        // Dalvik Other subsections.
+        public static final int OTHER_DALVIK_ZYGOTE = 22;
         /** @hide */
-        public static final int OTHER_DALVIK_OTHER_LINEARALLOC = 21;
+        public static final int OTHER_DALVIK_NON_MOVING = 23;
         /** @hide */
-        public static final int OTHER_DALVIK_OTHER_ACCOUNTING = 22;
-        /** @hide */
-        public static final int OTHER_DALVIK_OTHER_CODE_CACHE = 23;
-        /** @hide */
-        public static final int OTHER_DALVIK_OTHER_COMPILER_METADATA = 24;
-        /** @hide */
-        public static final int OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE = 25;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_DALVIK_OTHER_START =
-                OTHER_DALVIK_OTHER_LINEARALLOC - NUM_OTHER_STATS;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_DALVIK_OTHER_END =
-                OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE - NUM_OTHER_STATS;
-
-        // Dex subsections (Boot vdex, App dex, and App vdex).
-        /** @hide */
-        public static final int OTHER_DEX_BOOT_VDEX = 26;
-        /** @hide */
-        public static final int OTHER_DEX_APP_DEX = 27;
-        /** @hide */
-        public static final int OTHER_DEX_APP_VDEX = 28;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_DEX_START = OTHER_DEX_BOOT_VDEX - NUM_OTHER_STATS;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_DEX_END = OTHER_DEX_APP_VDEX - NUM_OTHER_STATS;
-
-        // Art subsections (App image, boot image).
-        /** @hide */
-        public static final int OTHER_ART_APP = 29;
-        /** @hide */
-        public static final int OTHER_ART_BOOT = 30;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_ART_START = OTHER_ART_APP - NUM_OTHER_STATS;
-        /** @hide */
-        public static final int OTHER_DVK_STAT_ART_END = OTHER_ART_BOOT - NUM_OTHER_STATS;
+        public static final int OTHER_DALVIK_INDIRECT_REFERENCE_TABLE = 24;
 
         /** @hide */
-        public static final int NUM_DVK_STATS = 14;
+        public static final int NUM_OTHER_STATS = 17;
 
         /** @hide */
-        public static final int NUM_CATEGORIES = 9;
+        public static final int NUM_DVK_STATS = 8;
 
         /** @hide */
-        public static final int OFFSET_PSS = 0;
+        public static final int NUM_CATEGORIES = 7;
+
         /** @hide */
-        public static final int OFFSET_SWAPPABLE_PSS = 1;
+        public static final int offsetPss = 0;
         /** @hide */
-        public static final int OFFSET_RSS = 2;
+        public static final int offsetSwappablePss = 1;
         /** @hide */
-        public static final int OFFSET_PRIVATE_DIRTY = 3;
+        public static final int offsetPrivateDirty = 2;
         /** @hide */
-        public static final int OFFSET_SHARED_DIRTY = 4;
+        public static final int offsetSharedDirty = 3;
         /** @hide */
-        public static final int OFFSET_PRIVATE_CLEAN = 5;
+        public static final int offsetPrivateClean = 4;
         /** @hide */
-        public static final int OFFSET_SHARED_CLEAN = 6;
+        public static final int offsetSharedClean = 5;
         /** @hide */
-        public static final int OFFSET_SWAPPED_OUT = 7;
-        /** @hide */
-        public static final int OFFSET_SWAPPED_OUT_PSS = 8;
+        public static final int offsetSwappedOut = 6;
 
         private int[] otherStats = new int[(NUM_OTHER_STATS+NUM_DVK_STATS)*NUM_CATEGORIES];
 
@@ -324,7 +261,7 @@ public final class Debug
          * Return total PSS memory usage in kB.
          */
         public int getTotalPss() {
-            return dalvikPss + nativePss + otherPss + getTotalSwappedOutPss();
+            return dalvikPss + nativePss + otherPss;
         }
 
         /**
@@ -337,18 +274,10 @@ public final class Debug
         }
 
         /**
-         * Return total PSS memory usage in kB mapping a file of one of the following extension:
-         * .so, .jar, .apk, .ttf, .dex, .odex, .oat, .art .
+         * Return total PSS memory usage in kB.
          */
         public int getTotalSwappablePss() {
             return dalvikSwappablePss + nativeSwappablePss + otherSwappablePss;
-        }
-
-        /**
-         * @hide Return total RSS memory usage in kB.
-         */
-        public int getTotalRss() {
-            return dalvikRss + nativeRss + otherRss;
         }
 
         /**
@@ -387,42 +316,31 @@ public final class Debug
             return dalvikSwappedOut + nativeSwappedOut + otherSwappedOut;
         }
 
-        /**
-         * Return total swapped out memory in kB, proportional.
-         * @hide
-         */
-        public int getTotalSwappedOutPss() {
-            return dalvikSwappedOutPss + nativeSwappedOutPss + otherSwappedOutPss;
-        }
-
         /** @hide */
         public int getOtherPss(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_PSS];
+            return otherStats[which*NUM_CATEGORIES + offsetPss];
         }
+
 
         /** @hide */
         public int getOtherSwappablePss(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_SWAPPABLE_PSS];
+            return otherStats[which*NUM_CATEGORIES + offsetSwappablePss];
         }
 
-        /** @hide */
-        public int getOtherRss(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_RSS];
-        }
 
         /** @hide */
         public int getOtherPrivateDirty(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_PRIVATE_DIRTY];
+            return otherStats[which*NUM_CATEGORIES + offsetPrivateDirty];
         }
 
         /** @hide */
         public int getOtherSharedDirty(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_SHARED_DIRTY];
+            return otherStats[which*NUM_CATEGORIES + offsetSharedDirty];
         }
 
         /** @hide */
         public int getOtherPrivateClean(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_PRIVATE_CLEAN];
+            return otherStats[which*NUM_CATEGORIES + offsetPrivateClean];
         }
 
         /** @hide */
@@ -432,17 +350,12 @@ public final class Debug
 
         /** @hide */
         public int getOtherSharedClean(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_SHARED_CLEAN];
+            return otherStats[which*NUM_CATEGORIES + offsetSharedClean];
         }
 
         /** @hide */
         public int getOtherSwappedOut(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_SWAPPED_OUT];
-        }
-
-        /** @hide */
-        public int getOtherSwappedOutPss(int which) {
-            return otherStats[which * NUM_CATEGORIES + OFFSET_SWAPPED_OUT_PSS];
+            return otherStats[which*NUM_CATEGORIES + offsetSwappedOut];
         }
 
         /** @hide */
@@ -467,18 +380,12 @@ public final class Debug
                 case OTHER_OTHER_MEMTRACK: return "Other mtrack";
                 case OTHER_DALVIK_NORMAL: return ".Heap";
                 case OTHER_DALVIK_LARGE: return ".LOS";
+                case OTHER_DALVIK_LINEARALLOC: return ".LinearAlloc";
+                case OTHER_DALVIK_ACCOUNTING: return ".GC";
+                case OTHER_DALVIK_CODE_CACHE: return ".JITCache";
                 case OTHER_DALVIK_ZYGOTE: return ".Zygote";
                 case OTHER_DALVIK_NON_MOVING: return ".NonMoving";
-                case OTHER_DALVIK_OTHER_LINEARALLOC: return ".LinearAlloc";
-                case OTHER_DALVIK_OTHER_ACCOUNTING: return ".GC";
-                case OTHER_DALVIK_OTHER_CODE_CACHE: return ".JITCache";
-                case OTHER_DALVIK_OTHER_COMPILER_METADATA: return ".CompilerMetadata";
-                case OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE: return ".IndirectRef";
-                case OTHER_DEX_BOOT_VDEX: return ".Boot vdex";
-                case OTHER_DEX_APP_DEX: return ".App dex";
-                case OTHER_DEX_APP_VDEX: return ".App vdex";
-                case OTHER_ART_APP: return ".App art";
-                case OTHER_ART_BOOT: return ".Boot art";
+                case OTHER_DALVIK_INDIRECT_REFERENCE_TABLE: return ".IndirectRef";
                 default: return "????";
             }
         }
@@ -564,7 +471,7 @@ public final class Debug
        *     </tbody>
        * </table>
        */
-       public String getMemoryStat(String statName) {
+        public String getMemoryStat(String statName) {
             switch(statName) {
                 case "summary.java-heap":
                     return Integer.toString(getSummaryJavaHeap());
@@ -725,31 +632,10 @@ public final class Debug
          *    know if the Swap memory is shared or private, so we don't know
          *    what to blame on the application and what on the system.
          *    For now, just lump all the Swap in one place.
-         *    For kernels reporting SwapPss {@link #getSummaryTotalSwapPss()}
-         *    will report the application proportional Swap.
          * @hide
          */
         public int getSummaryTotalSwap() {
             return getTotalSwappedOut();
-        }
-
-        /**
-         * Total proportional Swap in KB.
-         * Notes:
-         *  * Always 0 if {@link #hasSwappedOutPss} is false.
-         * @hide
-         */
-        public int getSummaryTotalSwapPss() {
-            return getTotalSwappedOutPss();
-        }
-
-        /**
-         * Return true if the kernel is reporting pss swapped out...  that is, if
-         * {@link #getSummaryTotalSwapPss()} will return non-0 values.
-         * @hide
-         */
-        public boolean hasSwappedOutPss() {
-            return hasSwappedOutPss;
         }
 
         public int describeContents() {
@@ -759,64 +645,50 @@ public final class Debug
         public void writeToParcel(Parcel dest, int flags) {
             dest.writeInt(dalvikPss);
             dest.writeInt(dalvikSwappablePss);
-            dest.writeInt(dalvikRss);
             dest.writeInt(dalvikPrivateDirty);
             dest.writeInt(dalvikSharedDirty);
             dest.writeInt(dalvikPrivateClean);
             dest.writeInt(dalvikSharedClean);
             dest.writeInt(dalvikSwappedOut);
-            dest.writeInt(dalvikSwappedOutPss);
             dest.writeInt(nativePss);
             dest.writeInt(nativeSwappablePss);
-            dest.writeInt(nativeRss);
             dest.writeInt(nativePrivateDirty);
             dest.writeInt(nativeSharedDirty);
             dest.writeInt(nativePrivateClean);
             dest.writeInt(nativeSharedClean);
             dest.writeInt(nativeSwappedOut);
-            dest.writeInt(nativeSwappedOutPss);
             dest.writeInt(otherPss);
             dest.writeInt(otherSwappablePss);
-            dest.writeInt(otherRss);
             dest.writeInt(otherPrivateDirty);
             dest.writeInt(otherSharedDirty);
             dest.writeInt(otherPrivateClean);
             dest.writeInt(otherSharedClean);
             dest.writeInt(otherSwappedOut);
-            dest.writeInt(hasSwappedOutPss ? 1 : 0);
-            dest.writeInt(otherSwappedOutPss);
             dest.writeIntArray(otherStats);
         }
 
         public void readFromParcel(Parcel source) {
             dalvikPss = source.readInt();
             dalvikSwappablePss = source.readInt();
-            dalvikRss = source.readInt();
             dalvikPrivateDirty = source.readInt();
             dalvikSharedDirty = source.readInt();
             dalvikPrivateClean = source.readInt();
             dalvikSharedClean = source.readInt();
             dalvikSwappedOut = source.readInt();
-            dalvikSwappedOutPss = source.readInt();
             nativePss = source.readInt();
             nativeSwappablePss = source.readInt();
-            nativeRss = source.readInt();
             nativePrivateDirty = source.readInt();
             nativeSharedDirty = source.readInt();
             nativePrivateClean = source.readInt();
             nativeSharedClean = source.readInt();
             nativeSwappedOut = source.readInt();
-            nativeSwappedOutPss = source.readInt();
             otherPss = source.readInt();
             otherSwappablePss = source.readInt();
-            otherRss = source.readInt();
             otherPrivateDirty = source.readInt();
             otherSharedDirty = source.readInt();
             otherPrivateClean = source.readInt();
             otherSharedClean = source.readInt();
             otherSwappedOut = source.readInt();
-            hasSwappedOutPss = source.readInt() != 0;
-            otherSwappedOutPss = source.readInt();
             otherStats = source.createIntArray();
         }
 
@@ -1019,171 +891,109 @@ public final class Debug
     }
 
     /**
-     * Start method tracing with default log name and buffer size.
-     * <p>
-     * By default, the trace file is called "dmtrace.trace" and it's placed
-     * under your package-specific directory on primary shared/external storage,
-     * as returned by {@link Context#getExternalFilesDir(String)}.
-     * <p>
-     * See <a href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs
-     * with Traceview</a> for information about reading trace files.
-     * <p class="note">
-     * When method tracing is enabled, the VM will run more slowly than usual,
-     * so the timings from the trace files should only be considered in relative
-     * terms (e.g. was run #1 faster than run #2). The times for native methods
-     * will not change, so don't try to use this to compare the performance of
-     * interpreted and native implementations of the same method. As an
-     * alternative, consider using sampling-based method tracing via
-     * {@link #startMethodTracingSampling(String, int, int)} or "native" tracing
-     * in the emulator via {@link #startNativeTracing()}.
-     * </p>
+     * Start method tracing with default log name and buffer size. See <a
+href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a> for
+     * information about reading these files. Call stopMethodTracing() to stop
+     * tracing.
      */
     public static void startMethodTracing() {
-        VMDebug.startMethodTracing(fixTracePath(null), 0, 0, false, 0);
+        VMDebug.startMethodTracing(DEFAULT_TRACE_FILE_PATH, 0, 0, false, 0);
     }
 
     /**
-     * Start method tracing, specifying the trace log file path.
-     * <p>
-     * When a relative file path is given, the trace file will be placed under
-     * your package-specific directory on primary shared/external storage, as
-     * returned by {@link Context#getExternalFilesDir(String)}.
-     * <p>
-     * See <a href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs
-     * with Traceview</a> for information about reading trace files.
-     * <p class="note">
-     * When method tracing is enabled, the VM will run more slowly than usual,
-     * so the timings from the trace files should only be considered in relative
-     * terms (e.g. was run #1 faster than run #2). The times for native methods
-     * will not change, so don't try to use this to compare the performance of
-     * interpreted and native implementations of the same method. As an
-     * alternative, consider using sampling-based method tracing via
-     * {@link #startMethodTracingSampling(String, int, int)} or "native" tracing
-     * in the emulator via {@link #startNativeTracing()}.
-     * </p>
+     * Start method tracing, specifying the trace log file name.  The trace
+     * file will be put under "/sdcard" unless an absolute path is given.
+     * See <a
+       href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a> for
+     * information about reading trace files.
      *
-     * @param tracePath Path to the trace log file to create. If {@code null},
-     *            this will default to "dmtrace.trace". If the file already
-     *            exists, it will be truncated. If the path given does not end
-     *            in ".trace", it will be appended for you.
+     * @param traceName Name for the trace log file to create.
+     * If {@code traceName} is null, this value defaults to "/sdcard/dmtrace.trace".
+     * If the files already exist, they will be truncated.
+     * If the trace file given does not end in ".trace", it will be appended for you.
      */
-    public static void startMethodTracing(String tracePath) {
-        startMethodTracing(tracePath, 0, 0);
+    public static void startMethodTracing(String traceName) {
+        startMethodTracing(traceName, 0, 0);
     }
 
     /**
-     * Start method tracing, specifying the trace log file name and the buffer
-     * size.
-     * <p>
-     * When a relative file path is given, the trace file will be placed under
-     * your package-specific directory on primary shared/external storage, as
-     * returned by {@link Context#getExternalFilesDir(String)}.
-     * <p>
-     * See <a href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs
-     * with Traceview</a> for information about reading trace files.
-     * <p class="note">
-     * When method tracing is enabled, the VM will run more slowly than usual,
-     * so the timings from the trace files should only be considered in relative
-     * terms (e.g. was run #1 faster than run #2). The times for native methods
-     * will not change, so don't try to use this to compare the performance of
-     * interpreted and native implementations of the same method. As an
-     * alternative, consider using sampling-based method tracing via
-     * {@link #startMethodTracingSampling(String, int, int)} or "native" tracing
-     * in the emulator via {@link #startNativeTracing()}.
-     * </p>
+     * Start method tracing, specifying the trace log file name and the
+     * buffer size. The trace files will be put under "/sdcard" unless an
+     * absolute path is given. See <a
+       href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a> for
+     * information about reading trace files.
+     * @param traceName    Name for the trace log file to create.
+     * If {@code traceName} is null, this value defaults to "/sdcard/dmtrace.trace".
+     * If the files already exist, they will be truncated.
+     * If the trace file given does not end in ".trace", it will be appended for you.
      *
-     * @param tracePath Path to the trace log file to create. If {@code null},
-     *            this will default to "dmtrace.trace". If the file already
-     *            exists, it will be truncated. If the path given does not end
-     *            in ".trace", it will be appended for you.
-     * @param bufferSize The maximum amount of trace data we gather. If not
-     *            given, it defaults to 8MB.
+     * @param bufferSize    The maximum amount of trace data we gather. If not given, it defaults to 8MB.
      */
-    public static void startMethodTracing(String tracePath, int bufferSize) {
-        startMethodTracing(tracePath, bufferSize, 0);
+    public static void startMethodTracing(String traceName, int bufferSize) {
+        startMethodTracing(traceName, bufferSize, 0);
     }
 
     /**
-     * Start method tracing, specifying the trace log file name, the buffer
-     * size, and flags.
+     * Start method tracing, specifying the trace log file name and the
+     * buffer size. The trace files will be put under "/sdcard" unless an
+     * absolute path is given. See <a
+       href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a> for
+     * information about reading trace files.
+     *
      * <p>
-     * When a relative file path is given, the trace file will be placed under
-     * your package-specific directory on primary shared/external storage, as
-     * returned by {@link Context#getExternalFilesDir(String)}.
-     * <p>
-     * See <a href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs
-     * with Traceview</a> for information about reading trace files.
-     * <p class="note">
-     * When method tracing is enabled, the VM will run more slowly than usual,
-     * so the timings from the trace files should only be considered in relative
-     * terms (e.g. was run #1 faster than run #2). The times for native methods
-     * will not change, so don't try to use this to compare the performance of
-     * interpreted and native implementations of the same method. As an
-     * alternative, consider using sampling-based method tracing via
-     * {@link #startMethodTracingSampling(String, int, int)} or "native" tracing
-     * in the emulator via {@link #startNativeTracing()}.
+     * When method tracing is enabled, the VM will run more slowly than
+     * usual, so the timings from the trace files should only be considered
+     * in relative terms (e.g. was run #1 faster than run #2).  The times
+     * for native methods will not change, so don't try to use this to
+     * compare the performance of interpreted and native implementations of the
+     * same method.  As an alternative, consider using sampling-based method
+     * tracing via {@link #startMethodTracingSampling(String, int, int)} or
+     * "native" tracing in the emulator via {@link #startNativeTracing()}.
      * </p>
      *
-     * @param tracePath Path to the trace log file to create. If {@code null},
-     *            this will default to "dmtrace.trace". If the file already
-     *            exists, it will be truncated. If the path given does not end
-     *            in ".trace", it will be appended for you.
-     * @param bufferSize The maximum amount of trace data we gather. If not
-     *            given, it defaults to 8MB.
-     * @param flags Flags to control method tracing. The only one that is
-     *            currently defined is {@link #TRACE_COUNT_ALLOCS}.
+     * @param traceName    Name for the trace log file to create.
+     * If {@code traceName} is null, this value defaults to "/sdcard/dmtrace.trace".
+     * If the files already exist, they will be truncated.
+     * If the trace file given does not end in ".trace", it will be appended for you.
+     * @param bufferSize    The maximum amount of trace data we gather. If not given, it defaults to 8MB.
+     * @param flags    Flags to control method tracing. The only one that is currently defined is {@link #TRACE_COUNT_ALLOCS}.
      */
-    public static void startMethodTracing(String tracePath, int bufferSize, int flags) {
-        VMDebug.startMethodTracing(fixTracePath(tracePath), bufferSize, flags, false, 0);
+    public static void startMethodTracing(String traceName, int bufferSize,
+        int flags) {
+        VMDebug.startMethodTracing(fixTraceName(traceName), bufferSize, flags, false, 0);
     }
 
     /**
      * Start sampling-based method tracing, specifying the trace log file name,
-     * the buffer size, and the sampling interval.
-     * <p>
-     * When a relative file path is given, the trace file will be placed under
-     * your package-specific directory on primary shared/external storage, as
-     * returned by {@link Context#getExternalFilesDir(String)}.
-     * <p>
-     * See <a href="{@docRoot}studio/profile/traceview.html">Inspect Trace Logs
-     * with Traceview</a> for information about reading trace files.
+     * the buffer size, and the sampling interval. The trace files will be put
+     * under "/sdcard" unless an absolute path is given. See <a
+       href="{@docRoot}guide/developing/tools/traceview.html">Traceview: A Graphical Log Viewer</a>
+     * for information about reading trace files.
      *
-     * @param tracePath Path to the trace log file to create. If {@code null},
-     *            this will default to "dmtrace.trace". If the file already
-     *            exists, it will be truncated. If the path given does not end
-     *            in ".trace", it will be appended for you.
-     * @param bufferSize The maximum amount of trace data we gather. If not
-     *            given, it defaults to 8MB.
-     * @param intervalUs The amount of time between each sample in microseconds.
+     * @param traceName    Name for the trace log file to create.
+     * If {@code traceName} is null, this value defaults to "/sdcard/dmtrace.trace".
+     * If the files already exist, they will be truncated.
+     * If the trace file given does not end in ".trace", it will be appended for you.
+     * @param bufferSize    The maximum amount of trace data we gather. If not given, it defaults to 8MB.
+     * @param intervalUs    The amount of time between each sample in microseconds.
      */
-    public static void startMethodTracingSampling(String tracePath, int bufferSize,
-            int intervalUs) {
-        VMDebug.startMethodTracing(fixTracePath(tracePath), bufferSize, 0, true, intervalUs);
+    public static void startMethodTracingSampling(String traceName,
+        int bufferSize, int intervalUs) {
+        VMDebug.startMethodTracing(fixTraceName(traceName), bufferSize, 0, true, intervalUs);
     }
 
     /**
      * Formats name of trace log file for method tracing.
      */
-    private static String fixTracePath(String tracePath) {
-        if (tracePath == null || tracePath.charAt(0) != '/') {
-            final Context context = AppGlobals.getInitialApplication();
-            final File dir;
-            if (context != null) {
-                dir = context.getExternalFilesDir(null);
-            } else {
-                dir = Environment.getExternalStorageDirectory();
-            }
+    private static String fixTraceName(String traceName) {
+        if (traceName == null)
+            traceName = DEFAULT_TRACE_FILE_PATH;
+        if (traceName.charAt(0) != '/')
+            traceName = DEFAULT_TRACE_PATH_PREFIX + traceName;
+        if (!traceName.endsWith(DEFAULT_TRACE_EXTENSION))
+            traceName = traceName + DEFAULT_TRACE_EXTENSION;
 
-            if (tracePath == null) {
-                tracePath = new File(dir, DEFAULT_TRACE_BODY).getAbsolutePath();
-            } else {
-                tracePath = new File(dir, tracePath).getAbsolutePath();
-            }
-        }
-        if (!tracePath.endsWith(DEFAULT_TRACE_EXTENSION)) {
-            tracePath += DEFAULT_TRACE_EXTENSION;
-        }
-        return tracePath;
+        return traceName;
     }
 
     /**
@@ -1196,8 +1006,8 @@ public final class Debug
      * @hide
      */
     public static void startMethodTracing(String traceName, FileDescriptor fd,
-        int bufferSize, int flags, boolean streamOutput) {
-        VMDebug.startMethodTracing(traceName, fd, bufferSize, flags, false, 0, streamOutput);
+        int bufferSize, int flags) {
+        VMDebug.startMethodTracing(traceName, fd, bufferSize, flags, false, 0);
     }
 
     /**
@@ -1728,13 +1538,7 @@ public final class Debug
 
     /**
      * Retrieves information about this processes memory usages. This information is broken down by
-     * how much is in use by dalvik, the native heap, and everything else.
-     *
-     * <p><b>Note:</b> this method directly retrieves memory information for the given process
-     * from low-level data available to it.  It may not be able to retrieve information about
-     * some protected allocations, such as graphics.  If you want to be sure you can see
-     * all information about allocations by the process, use
-     * {@link android.app.ActivityManager#getProcessMemoryInfo(int[])} instead.</p>
+     * how much is in use by dalivk, the native heap, and everything else.
      */
     public static native void getMemoryInfo(MemoryInfo memoryInfo);
 
@@ -1753,12 +1557,11 @@ public final class Debug
 
     /**
      * Retrieves the PSS memory used by the process as given by the
-     * smaps.  Optionally supply a long array of 2 entries to also
-     * receive the Uss and SwapPss of the process, and another array to also
-     * retrieve the separate memtrack size.
-     * @hide
+     * smaps.  Optionally supply a long array of 1 entry to also
+     * receive the uss of the process, and another array to also
+     * retrieve the separate memtrack size.  @hide
      */
-    public static native long getPss(int pid, long[] outUssSwapPss, long[] outMemtrack);
+    public static native long getPss(int pid, long[] outUss, long[] outMemtrack);
 
     /** @hide */
     public static final int MEMINFO_TOTAL = 0;
@@ -1772,26 +1575,22 @@ public final class Debug
     public static final int MEMINFO_SHMEM = 4;
     /** @hide */
     public static final int MEMINFO_SLAB = 5;
-     /** @hide */
-    public static final int MEMINFO_SLAB_RECLAIMABLE = 6;
-     /** @hide */
-    public static final int MEMINFO_SLAB_UNRECLAIMABLE = 7;
     /** @hide */
-    public static final int MEMINFO_SWAP_TOTAL = 8;
+    public static final int MEMINFO_SWAP_TOTAL = 6;
     /** @hide */
-    public static final int MEMINFO_SWAP_FREE = 9;
+    public static final int MEMINFO_SWAP_FREE = 7;
     /** @hide */
-    public static final int MEMINFO_ZRAM_TOTAL = 10;
+    public static final int MEMINFO_ZRAM_TOTAL = 8;
     /** @hide */
-    public static final int MEMINFO_MAPPED = 11;
+    public static final int MEMINFO_MAPPED = 9;
     /** @hide */
-    public static final int MEMINFO_VM_ALLOC_USED = 12;
+    public static final int MEMINFO_VM_ALLOC_USED = 10;
     /** @hide */
-    public static final int MEMINFO_PAGE_TABLES = 13;
+    public static final int MEMINFO_PAGE_TABLES = 11;
     /** @hide */
-    public static final int MEMINFO_KERNEL_STACK = 14;
+    public static final int MEMINFO_KERNEL_STACK = 12;
     /** @hide */
-    public static final int MEMINFO_COUNT = 15;
+    public static final int MEMINFO_COUNT = 13;
 
     /**
      * Retrieves /proc/meminfo.  outSizes is filled with fields
@@ -1889,13 +1688,6 @@ public final class Debug
     public static native void dumpNativeHeap(FileDescriptor fd);
 
     /**
-     * Writes malloc info data to the specified file descriptor.
-     *
-     * @hide
-     */
-    public static native void dumpNativeMallocInfo(FileDescriptor fd);
-
-    /**
       * Returns a count of the extant instances of a class.
      *
      * @hide
@@ -1983,7 +1775,13 @@ public final class Debug
      */
     @Deprecated
     public static class InstructionCount {
+        private static final int NUM_INSTR =
+            OpcodeInfo.MAXIMUM_PACKED_VALUE + 1;
+
+        private int[] mCounts;
+
         public InstructionCount() {
+            mCounts = new int[NUM_INSTR];
         }
 
         /**
@@ -1993,7 +1791,13 @@ public final class Debug
          * @return true if counting was started
          */
         public boolean resetAndStart() {
-            return false;
+            try {
+                VMDebug.startInstructionCounting();
+                VMDebug.resetInstructionCount();
+            } catch (UnsupportedOperationException uoe) {
+                return false;
+            }
+            return true;
         }
 
         /**
@@ -2001,7 +1805,13 @@ public final class Debug
          * counting process.
          */
         public boolean collect() {
-            return false;
+            try {
+                VMDebug.stopInstructionCounting();
+                VMDebug.getInstructionCount(mCounts);
+            } catch (UnsupportedOperationException uoe) {
+                return false;
+            }
+            return true;
         }
 
         /**
@@ -2009,7 +1819,13 @@ public final class Debug
          * all threads).
          */
         public int globalTotal() {
-            return 0;
+            int count = 0;
+
+            for (int i = 0; i < NUM_INSTR; i++) {
+                count += mCounts[i];
+            }
+
+            return count;
         }
 
         /**
@@ -2017,7 +1833,15 @@ public final class Debug
          * executed globally.
          */
         public int globalMethodInvocations() {
-            return 0;
+            int count = 0;
+
+            for (int i = 0; i < NUM_INSTR; i++) {
+                if (OpcodeInfo.isInvoke(i)) {
+                    count += mCounts[i];
+                }
+            }
+
+            return count;
         }
     }
 
@@ -2275,34 +2099,11 @@ public final class Debug
     }
 
     /**
-     * Append the Java stack traces of a given native process to a specified file.
-     *
-     * @param pid pid to dump.
-     * @param file path of file to append dump to.
-     * @param timeoutSecs time to wait in seconds, or 0 to wait forever.
+     * Have the stack traces of the given native process dumped to the
+     * specified file.  Will be appended to the file.
      * @hide
      */
-    public static native boolean dumpJavaBacktraceToFileTimeout(int pid, String file,
-                                                                int timeoutSecs);
-
-    /**
-     * Append the native stack traces of a given process to a specified file.
-     *
-     * @param pid pid to dump.
-     * @param file path of file to append dump to.
-     * @param timeoutSecs time to wait in seconds, or 0 to wait forever.
-     * @hide
-     */
-    public static native boolean dumpNativeBacktraceToFileTimeout(int pid, String file,
-                                                                  int timeoutSecs);
-
-    /**
-     * Get description of unreachable native memory.
-     * @param limit the number of leaks to provide info on, 0 to only get a summary.
-     * @param contents true to include a hex dump of the contents of unreachable memory.
-     * @return the String containing a description of unreachable memory.
-     * @hide */
-    public static native String getUnreachableMemory(int limit, boolean contents);
+    public static native void dumpNativeBacktraceToFile(int pid, String file);
 
     /**
      * Return a String describing the calling method and location at a particular stack depth.
@@ -2373,31 +2174,5 @@ public final class Debug
      */
     public static String getCaller() {
         return getCaller(Thread.currentThread().getStackTrace(), 0);
-    }
-
-    /**
-     * Attach a library as a jvmti agent to the current runtime, with the given classloader
-     * determining the library search path.
-     * <p>
-     * Note: agents may only be attached to debuggable apps. Otherwise, this function will
-     * throw a SecurityException.
-     *
-     * @param library the library containing the agent.
-     * @param options the options passed to the agent.
-     * @param classLoader the classloader determining the library search path.
-     *
-     * @throws IOException if the agent could not be attached.
-     * @throws SecurityException if the app is not debuggable.
-     */
-    public static void attachJvmtiAgent(@NonNull String library, @Nullable String options,
-            @Nullable ClassLoader classLoader) throws IOException {
-        Preconditions.checkNotNull(library);
-        Preconditions.checkArgument(!library.contains("="));
-
-        if (options == null) {
-            VMDebug.attachAgent(library, classLoader);
-        } else {
-            VMDebug.attachAgent(library + "=" + options, classLoader);
-        }
     }
 }

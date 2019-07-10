@@ -23,7 +23,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -33,10 +32,8 @@ import android.content.res.Resources;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Debug;
-import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
-import android.provider.Telephony;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.Rlog;
 import android.telephony.SmsManager;
@@ -44,8 +41,6 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import com.android.internal.content.PackageMonitor;
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -61,7 +56,6 @@ public final class SmsApplication {
     private static final String PHONE_PACKAGE_NAME = "com.android.phone";
     private static final String BLUETOOTH_PACKAGE_NAME = "com.android.bluetooth";
     private static final String MMS_SERVICE_PACKAGE_NAME = "com.android.mms.service";
-    private static final String TELEPHONY_PROVIDER_PACKAGE_NAME = "com.android.providers.telephony";
 
     private static final String SCHEME_SMS = "sms";
     private static final String SCHEME_SMSTO = "smsto";
@@ -75,7 +69,7 @@ public final class SmsApplication {
         /**
          * Name of this SMS app for display.
          */
-        private String mApplicationName;
+        public String mApplicationName;
 
         /**
          * Package name for this SMS app.
@@ -85,42 +79,27 @@ public final class SmsApplication {
         /**
          * The class name of the SMS_DELIVER_ACTION receiver in this app.
          */
-        private String mSmsReceiverClass;
+        public String mSmsReceiverClass;
 
         /**
          * The class name of the WAP_PUSH_DELIVER_ACTION receiver in this app.
          */
-        private String mMmsReceiverClass;
+        public String mMmsReceiverClass;
 
         /**
          * The class name of the ACTION_RESPOND_VIA_MESSAGE intent in this app.
          */
-        private String mRespondViaMessageClass;
+        public String mRespondViaMessageClass;
 
         /**
          * The class name of the ACTION_SENDTO intent in this app.
          */
-        private String mSendToClass;
-
-        /**
-         * The class name of the ACTION_DEFAULT_SMS_PACKAGE_CHANGED receiver in this app.
-         */
-        private String mSmsAppChangedReceiverClass;
-
-        /**
-         * The class name of the ACTION_EXTERNAL_PROVIDER_CHANGE receiver in this app.
-         */
-        private String mProviderChangedReceiverClass;
-
-        /**
-         * The class name of the SIM_FULL_ACTION receiver in this app.
-         */
-        private String mSimFullReceiverClass;
+        public String mSendToClass;
 
         /**
          * The user-id for this application
          */
-        private int mUid;
+        public int mUid;
 
         /**
          * Returns true if this SmsApplicationData is complete (all intents handled).
@@ -131,40 +110,10 @@ public final class SmsApplication {
                     && mRespondViaMessageClass != null && mSendToClass != null);
         }
 
-        public SmsApplicationData(String packageName, int uid) {
+        public SmsApplicationData(String applicationName, String packageName, int uid) {
+            mApplicationName = applicationName;
             mPackageName = packageName;
             mUid = uid;
-        }
-
-        public String getApplicationName(Context context) {
-            if (mApplicationName == null) {
-                PackageManager pm = context.getPackageManager();
-                ApplicationInfo appInfo;
-                try {
-                    appInfo = pm.getApplicationInfoAsUser(mPackageName, 0,
-                            UserHandle.getUserId(mUid));
-                } catch (NameNotFoundException e) {
-                    return null;
-                }
-                if (appInfo != null) {
-                    CharSequence label  = pm.getApplicationLabel(appInfo);
-                    mApplicationName = (label == null) ? null : label.toString();
-                }
-            }
-            return mApplicationName;
-        }
-
-        @Override
-        public String toString() {
-            return " mPackageName: " + mPackageName
-                    + " mSmsReceiverClass: " + mSmsReceiverClass
-                    + " mMmsReceiverClass: " + mMmsReceiverClass
-                    + " mRespondViaMessageClass: " + mRespondViaMessageClass
-                    + " mSendToClass: " + mSendToClass
-                    + " mSmsAppChangedClass: " + mSmsAppChangedReceiverClass
-                    + " mProviderChangedReceiverClass: " + mProviderChangedReceiverClass
-                    + " mSimFullReceiverClass: " + mSimFullReceiverClass
-                    + " mUid: " + mUid;
         }
     }
 
@@ -224,7 +173,7 @@ public final class SmsApplication {
 
         // Get the list of apps registered for SMS
         Intent intent = new Intent(Intents.SMS_DELIVER_ACTION);
-        List<ResolveInfo> smsReceivers = packageManager.queryBroadcastReceiversAsUser(intent, 0,
+        List<ResolveInfo> smsReceivers = packageManager.queryBroadcastReceivers(intent, 0,
                 userId);
 
         HashMap<String, SmsApplicationData> receivers = new HashMap<String, SmsApplicationData>();
@@ -240,8 +189,9 @@ public final class SmsApplication {
             }
             final String packageName = activityInfo.packageName;
             if (!receivers.containsKey(packageName)) {
-                final SmsApplicationData smsApplicationData = new SmsApplicationData(packageName,
-                        activityInfo.applicationInfo.uid);
+                final String applicationName = resolveInfo.loadLabel(packageManager).toString();
+                final SmsApplicationData smsApplicationData = new SmsApplicationData(
+                        applicationName, packageName, activityInfo.applicationInfo.uid);
                 smsApplicationData.mSmsReceiverClass = activityInfo.name;
                 receivers.put(packageName, smsApplicationData);
             }
@@ -250,7 +200,7 @@ public final class SmsApplication {
         // Update any existing entries with mms receiver class
         intent = new Intent(Intents.WAP_PUSH_DELIVER_ACTION);
         intent.setDataAndType(null, "application/vnd.wap.mms-message");
-        List<ResolveInfo> mmsReceivers = packageManager.queryBroadcastReceiversAsUser(intent, 0,
+        List<ResolveInfo> mmsReceivers = packageManager.queryBroadcastReceivers(intent, 0,
                 userId);
         for (ResolveInfo resolveInfo : mmsReceivers) {
             final ActivityInfo activityInfo = resolveInfo.activityInfo;
@@ -301,81 +251,6 @@ public final class SmsApplication {
             final SmsApplicationData smsApplicationData = receivers.get(packageName);
             if (smsApplicationData != null) {
                 smsApplicationData.mSendToClass = activityInfo.name;
-            }
-        }
-
-        // Update any existing entries with the default sms changed handler.
-        intent = new Intent(Telephony.Sms.Intents.ACTION_DEFAULT_SMS_PACKAGE_CHANGED);
-        List<ResolveInfo> smsAppChangedReceivers =
-                packageManager.queryBroadcastReceiversAsUser(intent, 0, userId);
-        if (DEBUG_MULTIUSER) {
-            Log.i(LOG_TAG, "getApplicationCollectionInternal smsAppChangedActivities=" +
-                    smsAppChangedReceivers);
-        }
-        for (ResolveInfo resolveInfo : smsAppChangedReceivers) {
-            final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo == null) {
-                continue;
-            }
-            final String packageName = activityInfo.packageName;
-            final SmsApplicationData smsApplicationData = receivers.get(packageName);
-            if (DEBUG_MULTIUSER) {
-                Log.i(LOG_TAG, "getApplicationCollectionInternal packageName=" +
-                        packageName + " smsApplicationData: " + smsApplicationData +
-                        " activityInfo.name: " + activityInfo.name);
-            }
-            if (smsApplicationData != null) {
-                smsApplicationData.mSmsAppChangedReceiverClass = activityInfo.name;
-            }
-        }
-
-        // Update any existing entries with the external provider changed handler.
-        intent = new Intent(Telephony.Sms.Intents.ACTION_EXTERNAL_PROVIDER_CHANGE);
-        List<ResolveInfo> providerChangedReceivers =
-                packageManager.queryBroadcastReceiversAsUser(intent, 0, userId);
-        if (DEBUG_MULTIUSER) {
-            Log.i(LOG_TAG, "getApplicationCollectionInternal providerChangedActivities=" +
-                    providerChangedReceivers);
-        }
-        for (ResolveInfo resolveInfo : providerChangedReceivers) {
-            final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo == null) {
-                continue;
-            }
-            final String packageName = activityInfo.packageName;
-            final SmsApplicationData smsApplicationData = receivers.get(packageName);
-            if (DEBUG_MULTIUSER) {
-                Log.i(LOG_TAG, "getApplicationCollectionInternal packageName=" +
-                        packageName + " smsApplicationData: " + smsApplicationData +
-                        " activityInfo.name: " + activityInfo.name);
-            }
-            if (smsApplicationData != null) {
-                smsApplicationData.mProviderChangedReceiverClass = activityInfo.name;
-            }
-        }
-
-        // Update any existing entries with the sim full handler.
-        intent = new Intent(Intents.SIM_FULL_ACTION);
-        List<ResolveInfo> simFullReceivers =
-                packageManager.queryBroadcastReceiversAsUser(intent, 0, userId);
-        if (DEBUG_MULTIUSER) {
-            Log.i(LOG_TAG, "getApplicationCollectionInternal simFullReceivers="
-                    + simFullReceivers);
-        }
-        for (ResolveInfo resolveInfo : simFullReceivers) {
-            final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo == null) {
-                continue;
-            }
-            final String packageName = activityInfo.packageName;
-            final SmsApplicationData smsApplicationData = receivers.get(packageName);
-            if (DEBUG_MULTIUSER) {
-                Log.i(LOG_TAG, "getApplicationCollectionInternal packageName="
-                        + packageName + " smsApplicationData: " + smsApplicationData
-                        + " activityInfo.name: " + activityInfo.name);
-            }
-            if (smsApplicationData != null) {
-                smsApplicationData.mSimFullReceiverClass = activityInfo.name;
             }
         }
 
@@ -515,13 +390,6 @@ public final class SmsApplication {
                         BLUETOOTH_PACKAGE_NAME);
                 assignWriteSmsPermissionToSystemApp(context, packageManager, appOps,
                         MMS_SERVICE_PACKAGE_NAME);
-                assignWriteSmsPermissionToSystemApp(context, packageManager, appOps,
-                        TELEPHONY_PROVIDER_PACKAGE_NAME);
-                // Give WRITE_SMS AppOps permission to UID 1001 which contains multiple
-                // apps, all of them should be able to write to telephony provider.
-                // This is to allow the proxy package permission check in telephony provider
-                // to pass.
-                assignWriteSmsPermissionToSystemUid(appOps, Process.PHONE_UID);
             }
         }
         if (DEBUG_MULTIUSER) {
@@ -556,11 +424,6 @@ public final class SmsApplication {
         String oldPackageName = Settings.Secure.getStringForUser(context.getContentResolver(),
                 Settings.Secure.SMS_DEFAULT_APPLICATION, userId);
 
-        if (DEBUG_MULTIUSER) {
-            Log.i(LOG_TAG, "setDefaultApplicationInternal old=" + oldPackageName +
-                    " new=" + packageName);
-        }
-
         if (packageName != null && oldPackageName != null && packageName.equals(oldPackageName)) {
             // No change
             return;
@@ -569,16 +432,14 @@ public final class SmsApplication {
         // We only make the change if the new package is valid
         PackageManager packageManager = context.getPackageManager();
         Collection<SmsApplicationData> applications = getApplicationCollection(context);
-        SmsApplicationData oldAppData = oldPackageName != null ?
-                getApplicationForPackage(applications, oldPackageName) : null;
         SmsApplicationData applicationData = getApplicationForPackage(applications, packageName);
         if (applicationData != null) {
             // Ignore OP_WRITE_SMS for the previously configured default SMS app.
             AppOpsManager appOps = (AppOpsManager)context.getSystemService(Context.APP_OPS_SERVICE);
             if (oldPackageName != null) {
                 try {
-                    PackageInfo info = packageManager.getPackageInfoAsUser(oldPackageName,
-                            0, userId);
+                    PackageInfo info = packageManager.getPackageInfo(oldPackageName,
+                            PackageManager.GET_UNINSTALLED_PACKAGES);
                     appOps.setMode(AppOpsManager.OP_WRITE_SMS, info.applicationInfo.uid,
                             oldPackageName, AppOpsManager.MODE_IGNORED);
                 } catch (NameNotFoundException e) {
@@ -606,50 +467,6 @@ public final class SmsApplication {
                     BLUETOOTH_PACKAGE_NAME);
             assignWriteSmsPermissionToSystemApp(context, packageManager, appOps,
                     MMS_SERVICE_PACKAGE_NAME);
-            assignWriteSmsPermissionToSystemApp(context, packageManager, appOps,
-                    TELEPHONY_PROVIDER_PACKAGE_NAME);
-            // Give WRITE_SMS AppOps permission to UID 1001 which contains multiple
-            // apps, all of them should be able to write to telephony provider.
-            // This is to allow the proxy package permission check in telephony provider
-            // to pass.
-            assignWriteSmsPermissionToSystemUid(appOps, Process.PHONE_UID);
-
-            if (DEBUG_MULTIUSER) {
-                Log.i(LOG_TAG, "setDefaultApplicationInternal oldAppData=" + oldAppData);
-            }
-            if (oldAppData != null && oldAppData.mSmsAppChangedReceiverClass != null) {
-                // Notify the old sms app that it's no longer the default
-                final Intent oldAppIntent =
-                        new Intent(Telephony.Sms.Intents.ACTION_DEFAULT_SMS_PACKAGE_CHANGED);
-                final ComponentName component = new ComponentName(oldAppData.mPackageName,
-                        oldAppData.mSmsAppChangedReceiverClass);
-                oldAppIntent.setComponent(component);
-                oldAppIntent.putExtra(Telephony.Sms.Intents.EXTRA_IS_DEFAULT_SMS_APP, false);
-                if (DEBUG_MULTIUSER) {
-                    Log.i(LOG_TAG, "setDefaultApplicationInternal old=" + oldAppData.mPackageName);
-                }
-                context.sendBroadcast(oldAppIntent);
-            }
-            // Notify the new sms app that it's now the default (if the new sms app has a receiver
-            // to handle the changed default sms intent).
-            if (DEBUG_MULTIUSER) {
-                Log.i(LOG_TAG, "setDefaultApplicationInternal new applicationData=" +
-                        applicationData);
-            }
-            if (applicationData.mSmsAppChangedReceiverClass != null) {
-                final Intent intent =
-                        new Intent(Telephony.Sms.Intents.ACTION_DEFAULT_SMS_PACKAGE_CHANGED);
-                final ComponentName component = new ComponentName(applicationData.mPackageName,
-                        applicationData.mSmsAppChangedReceiverClass);
-                intent.setComponent(component);
-                intent.putExtra(Telephony.Sms.Intents.EXTRA_IS_DEFAULT_SMS_APP, true);
-                if (DEBUG_MULTIUSER) {
-                    Log.i(LOG_TAG, "setDefaultApplicationInternal new=" + packageName);
-                }
-                context.sendBroadcast(intent);
-            }
-            MetricsLogger.action(context, MetricsEvent.ACTION_DEFAULT_SMS_APP_CHANGED,
-                    applicationData.mPackageName);
         }
     }
 
@@ -687,10 +504,6 @@ public final class SmsApplication {
 
     }
 
-    private static void assignWriteSmsPermissionToSystemUid(AppOpsManager appOps, int uid) {
-        appOps.setUidMode(AppOpsManager.OP_WRITE_SMS, uid, AppOpsManager.MODE_ALLOWED);
-    }
-
     /**
      * Tracks package changes and ensures that the default SMS app is always configured to be the
      * preferred activity for SENDTO sms/mms intents.
@@ -705,24 +518,24 @@ public final class SmsApplication {
 
         @Override
         public void onPackageDisappeared(String packageName, int reason) {
-            onPackageChanged();
+            onPackageChanged(packageName);
         }
 
         @Override
         public void onPackageAppeared(String packageName, int reason) {
-            onPackageChanged();
+            onPackageChanged(packageName);
         }
 
         @Override
         public void onPackageModified(String packageName) {
-            onPackageChanged();
+            onPackageChanged(packageName);
         }
 
-        private void onPackageChanged() {
+        private void onPackageChanged(String packageName) {
             PackageManager packageManager = mContext.getPackageManager();
             Context userContext = mContext;
             final int userId = getSendingUserId();
-            if (userId != UserHandle.USER_SYSTEM) {
+            if (userId != UserHandle.USER_OWNER) {
                 try {
                     userContext = mContext.createPackageContextAsUser(mContext.getPackageName(), 0,
                             new UserHandle(userId));
@@ -881,57 +694,6 @@ public final class SmsApplication {
             if (smsApplicationData != null) {
                 component = new ComponentName(smsApplicationData.mPackageName,
                         smsApplicationData.mSendToClass);
-            }
-            return component;
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
-    }
-
-    /**
-     * Gets the default application that handles external changes to the SmsProvider and
-     * MmsProvider.
-     * @param context context from the calling app
-     * @param updateIfNeeded update the default app if there is no valid default app configured.
-     * @return component name of the app and class to deliver change intents to
-     */
-    public static ComponentName getDefaultExternalTelephonyProviderChangedApplication(
-            Context context, boolean updateIfNeeded) {
-        int userId = getIncomingUserId(context);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            ComponentName component = null;
-            SmsApplicationData smsApplicationData = getApplication(context, updateIfNeeded,
-                    userId);
-            if (smsApplicationData != null
-                    && smsApplicationData.mProviderChangedReceiverClass != null) {
-                component = new ComponentName(smsApplicationData.mPackageName,
-                        smsApplicationData.mProviderChangedReceiverClass);
-            }
-            return component;
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
-    }
-
-    /**
-     * Gets the default application that handles sim full event.
-     * @param context context from the calling app
-     * @param updateIfNeeded update the default app if there is no valid default app configured.
-     * @return component name of the app and class to deliver change intents to
-     */
-    public static ComponentName getDefaultSimFullApplication(
-            Context context, boolean updateIfNeeded) {
-        int userId = getIncomingUserId(context);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            ComponentName component = null;
-            SmsApplicationData smsApplicationData = getApplication(context, updateIfNeeded,
-                    userId);
-            if (smsApplicationData != null
-                    && smsApplicationData.mSimFullReceiverClass != null) {
-                component = new ComponentName(smsApplicationData.mPackageName,
-                        smsApplicationData.mSimFullReceiverClass);
             }
             return component;
         } finally {

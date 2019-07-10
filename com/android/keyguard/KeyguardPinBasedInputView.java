@@ -20,16 +20,13 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * A Pin based Keyguard input view
  */
 public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
-        implements View.OnKeyListener, View.OnTouchListener {
+        implements View.OnKeyListener {
 
     protected PasswordTextView mPasswordEntry;
     private View mOkButton;
@@ -54,26 +51,29 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
     }
 
     @Override
+    public void reset() {
+        mPasswordEntry.requestFocus();
+        super.reset();
+    }
+
+    @Override
     protected boolean onRequestFocusInDescendants(int direction, Rect previouslyFocusedRect) {
         // send focus to the password field
         return mPasswordEntry.requestFocus(direction, previouslyFocusedRect);
     }
 
-    @Override
     protected void resetState() {
-        setPasswordEntryEnabled(true);
+        mPasswordEntry.setEnabled(true);
     }
 
     @Override
     protected void setPasswordEntryEnabled(boolean enabled) {
         mPasswordEntry.setEnabled(enabled);
-        mOkButton.setEnabled(enabled);
     }
 
     @Override
     protected void setPasswordEntryInputEnabled(boolean enabled) {
         mPasswordEntry.setEnabled(enabled);
-        mOkButton.setEnabled(enabled);
     }
 
     @Override
@@ -86,12 +86,7 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
             return true;
         }
         if (keyCode >= KeyEvent.KEYCODE_0 && keyCode <= KeyEvent.KEYCODE_9) {
-            int number = keyCode - KeyEvent.KEYCODE_0;
-            performNumberClick(number);
-            return true;
-        }
-        if (keyCode >= KeyEvent.KEYCODE_NUMPAD_0 && keyCode <= KeyEvent.KEYCODE_NUMPAD_9) {
-            int number = keyCode - KeyEvent.KEYCODE_NUMPAD_0;
+            int number = keyCode - KeyEvent.KEYCODE_0 ;
             performNumberClick(number);
             return true;
         }
@@ -99,20 +94,12 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    protected int getPromptReasonStringRes(int reason) {
+    protected int getPromtReasonStringRes(int reason) {
         switch (reason) {
             case PROMPT_REASON_RESTART:
                 return R.string.kg_prompt_reason_restart_pin;
-            case PROMPT_REASON_TIMEOUT:
-                return R.string.kg_prompt_reason_timeout_pin;
-            case PROMPT_REASON_DEVICE_ADMIN:
-                return R.string.kg_prompt_reason_device_admin;
-            case PROMPT_REASON_USER_REQUEST:
-                return R.string.kg_prompt_reason_user_request;
-            case PROMPT_REASON_NONE:
-                return 0;
             default:
-                return R.string.kg_prompt_reason_timeout_pin;
+                return 0;
         }
     }
 
@@ -156,8 +143,8 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    protected void resetPasswordText(boolean animate, boolean announce) {
-        mPasswordEntry.reset(animate, announce);
+    protected void resetPasswordText(boolean animate) {
+        mPasswordEntry.reset(animate);
     }
 
     @Override
@@ -167,7 +154,7 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
 
     @Override
     protected void onFinishInflate() {
-        mPasswordEntry = findViewById(getPasswordTextViewId());
+        mPasswordEntry = (PasswordTextView) findViewById(getPasswordTextViewId());
         mPasswordEntry.setOnKeyListener(this);
 
         // Set selected property on so the view can send accessibility events.
@@ -182,10 +169,10 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
 
         mOkButton = findViewById(R.id.key_enter);
         if (mOkButton != null) {
-            mOkButton.setOnTouchListener(this);
             mOkButton.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    doHapticKeyClick();
                     if (mPasswordEntry.isEnabled()) {
                         verifyPasswordAndUnlock();
                     }
@@ -196,22 +183,20 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
 
         mDeleteButton = findViewById(R.id.delete_button);
         mDeleteButton.setVisibility(View.VISIBLE);
-        mDeleteButton.setOnTouchListener(this);
         mDeleteButton.setOnClickListener(new OnClickListener() {
-            @Override
             public void onClick(View v) {
                 // check for time-based lockouts
                 if (mPasswordEntry.isEnabled()) {
                     mPasswordEntry.deleteLastChar();
                 }
+                doHapticKeyClick();
             }
         });
         mDeleteButton.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
             public boolean onLongClick(View v) {
                 // check for time-based lockouts
                 if (mPasswordEntry.isEnabled()) {
-                    resetPasswordText(true /* animate */, true /* announce */);
+                    resetPasswordText(true /* animate */);
                 }
                 doHapticKeyClick();
                 return true;
@@ -234,30 +219,11 @@ public abstract class KeyguardPinBasedInputView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    public void onResume(int reason) {
-        super.onResume(reason);
-        mPasswordEntry.requestFocus();
-    }
-
-    @Override
-    public boolean onTouch(View v, MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            doHapticKeyClick();
-        }
-        return false;
-    }
-
-    @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            return onKeyDown(keyCode, event);
+            onKeyDown(keyCode, event);
+            return true;
         }
         return false;
-    }
-
-    @Override
-    public CharSequence getTitle() {
-        return getContext().getString(
-                com.android.internal.R.string.keyguard_accessibility_pin_unlock);
     }
 }

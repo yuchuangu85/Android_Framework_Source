@@ -19,9 +19,8 @@ package android.graphics;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.graphics.Paint_Delegate.FontInfo;
+import android.icu.lang.UScript;
 import android.icu.lang.UScriptRun;
 import android.icu.text.Bidi;
 import android.icu.text.BidiRun;
@@ -31,9 +30,8 @@ import java.awt.Graphics2D;
 import java.awt.Toolkit;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
-import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -43,31 +41,31 @@ import java.util.List;
  */
 @SuppressWarnings("deprecation")
 public class BidiRenderer {
-    private static final String JETBRAINS_VENDOR_ID = "JetBrains s.r.o";
-    private static final String JAVA_VENDOR = System.getProperty("java.vendor");
-    /** When scaleX is bigger than this, we need to apply the workaround for http://b.android.com/211659 */
-    private static final double SCALEX_WORKAROUND_LIMIT = 9;
 
     private static class ScriptRun {
-        private final int start;
-        private final int limit;
-        private final Font font;
+        int start;
+        int limit;
+        boolean isRtl;
+        int scriptCode;
+        Font font;
 
-        private ScriptRun(int start, int limit, @NonNull Font font) {
+        public ScriptRun(int start, int limit, boolean isRtl) {
             this.start = start;
             this.limit = limit;
-            this.font = font;
+            this.isRtl = isRtl;
+            this.scriptCode = UScript.INVALID_CODE;
         }
     }
 
     private final Graphics2D mGraphics;
     private final Paint_Delegate mPaint;
     private char[] mText;
+    // This List can contain nulls. A null font implies that the we weren't able to load the font
+    // properly. So, if we encounter a situation where we try to use that font, log a warning.
+    private List<Font> mFonts;
     // Bounds of the text drawn so far.
     private RectF mBounds;
     private float mBaseline;
-    private final Bidi mBidi = new Bidi();
-
 
     /**
      * @param graphics May be null.
@@ -79,6 +77,14 @@ public class BidiRenderer {
         mGraphics = graphics;
         mPaint = paint;
         mText = text;
+        mFonts = new ArrayList<Font>(paint.getFonts().size());
+        for (FontInfo fontInfo : paint.getFonts()) {
+            if (fontInfo == null) {
+                mFonts.add(null);
+                continue;
+            }
+            mFonts.add(fontInfo.mFont);
+        }
         mBounds = new RectF();
     }
 
@@ -90,7 +96,7 @@ public class BidiRenderer {
      *
      */
     public BidiRenderer setRenderLocation(float x, float y) {
-        mBounds.set(x, y, x, y);
+        mBounds = new RectF(x, y, x, y);
         mBaseline = y;
         return this;
     }
@@ -103,10 +109,9 @@ public class BidiRenderer {
      */
     public RectF renderText(int start, int limit, int bidiFlags, float[] advances,
             int advancesIndex, boolean draw) {
-        mBidi.setPara(Arrays.copyOfRange(mText, start, limit), (byte)getIcuFlags(bidiFlags), null);
-        mText = mBidi.getText();
-        for (int i = 0; i < mBidi.countRuns(); i++) {
-            BidiRun visualRun = mBidi.getVisualRun(i);
+        Bidi bidi = new Bidi(mText, start, null, 0, limit - start, getIcuFlags(bidiFlags));
+        for (int i = 0; i < bidi.countRuns(); i++) {
+            BidiRun visualRun = bidi.getVisualRun(i);
             boolean isRtl = visualRun.getDirection() == Bidi.RTL;
             renderText(visualRun.getStart(), visualRun.getLimit(), isRtl, advances,
                     advancesIndex, draw);
@@ -133,7 +138,7 @@ public class BidiRenderer {
             int advancesIndex, boolean draw) {
         // We break the text into scripts and then select font based on it and then render each of
         // the script runs.
-        for (ScriptRun run : getScriptRuns(mText, start, limit, mPaint.getFonts())) {
+        for (ScriptRun run : getScriptRuns(mText, start, limit, isRtl, mFonts)) {
             int flag = Font.LAYOUT_NO_LIMIT_CONTEXT | Font.LAYOUT_NO_START_CONTEXT;
             flag |= isRtl ? Font.LAYOUT_RIGHT_TO_LEFT : Font.LAYOUT_LEFT_TO_RIGHT;
             renderScript(run.start, run.limit, run.font, flag, advances, advancesIndex, draw);
@@ -149,7 +154,7 @@ public class BidiRenderer {
      */
     private void renderScript(int start, int limit, Font preferredFont, int flag,
             float[] advances, int advancesIndex, boolean draw) {
-        if (mPaint.getFonts().size() == 0 || preferredFont == null) {
+        if (mFonts.size() == 0 || preferredFont == null) {
             return;
         }
 
@@ -171,10 +176,7 @@ public class BidiRenderer {
             // The current character cannot be drawn with the preferred font. Cycle through all the
             // fonts to check which one can draw it.
             int charCount = Character.isHighSurrogate(mText[start]) ? 2 : 1;
-            List<FontInfo> fontInfos = mPaint.getFonts();
-            //noinspection ForLoopReplaceableByForEach (avoid iterator allocation)
-            for (int i = 0; i < fontInfos.size(); i++) {
-                Font font = fontInfos.get(i).mFont;
+            for (Font font : mFonts) {
                 if (font == null) {
                     logFontWarning();
                     continue;
@@ -203,7 +205,8 @@ public class BidiRenderer {
 
     private static void logFontWarning() {
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_BROKEN,
-                "Some fonts could not be loaded. The rendering may not be perfect.", null, null);
+                "Some fonts could not be loaded. The rendering may not be perfect. " +
+                        "Try running the IDE with JRE 7.", null, null);
     }
 
     /**
@@ -212,52 +215,21 @@ public class BidiRenderer {
      */
     private void render(int start, int limit, Font font, int flag, float[] advances,
             int advancesIndex, boolean draw) {
-        FontRenderContext frc = mGraphics != null ? mGraphics.getFontRenderContext() :
-                    Toolkit.getDefaultToolkit().getFontMetrics(font).getFontRenderContext();
 
-        boolean frcIsAntialiased = frc.isAntiAliased();
-        boolean useAntialiasing = mPaint.isAntiAliased();
-
-        if (frcIsAntialiased) {
-            if (!useAntialiasing) {
-                // The context has antialiasing enabled but the paint does not. We need to
-                // disable it
-                frc = new FontRenderContext(font.getTransform(), false,
-                        frc.usesFractionalMetrics());
-            } else {
-                // In this case both the paint and the context antialising match but we need
-                // to check for a bug in the JDK
-                // Workaround for http://b.android.com/211659 (disable antialiasing)
-                if (font.isTransformed()) {
-                    AffineTransform transform = font.getTransform();
-                    if (transform.getScaleX() >= SCALEX_WORKAROUND_LIMIT &&
-                            JETBRAINS_VENDOR_ID.equals(JAVA_VENDOR)) {
-                        frc = new FontRenderContext(transform, false, frc.usesFractionalMetrics());
-                    }
-                }
-            }
-        } else if (useAntialiasing) {
-            // The context does not have antialiasing enabled but the paint does. We need to
-            // enable it unless we need to avoid the JDK bug
-
-            AffineTransform transform = font.getTransform();
-            // Workaround for http://b.android.com/211659 (disable antialiasing)
-            if (transform.getScaleX() < SCALEX_WORKAROUND_LIMIT ||
-                    !JETBRAINS_VENDOR_ID.equals(JAVA_VENDOR)) {
-                frc = new FontRenderContext(font.getTransform(), true, frc.usesFractionalMetrics());
-            }
+        FontRenderContext frc;
+        if (mGraphics != null) {
+            frc = mGraphics.getFontRenderContext();
+        } else {
+            frc = Toolkit.getDefaultToolkit().getFontMetrics(font).getFontRenderContext();
+            // Metrics obtained this way don't have anti-aliasing set. So,
+            // we create a new FontRenderContext with anti-aliasing set.
+            frc = new FontRenderContext(font.getTransform(), mPaint.isAntiAliased(), frc.usesFractionalMetrics());
         }
-
         GlyphVector gv = font.layoutGlyphVector(frc, mText, start, limit, flag);
         int ng = gv.getNumGlyphs();
         int[] ci = gv.getGlyphCharIndices(0, ng, null);
         if (advances != null) {
             for (int i = 0; i < ng; i++) {
-                if (mText[ci[i]] == '\uFEFF') {
-                    // Workaround for bug in JetBrains JDK
-                    // where the character \uFEFF is associated a glyph with non-zero width
-                    continue;
-                }
                 int adv_idx = advancesIndex + ci[i];
                 advances[adv_idx] += gv.getGlyphMetrics(i).getAdvanceX();
             }
@@ -268,64 +240,60 @@ public class BidiRenderer {
 
         // Update the bounds.
         Rectangle2D awtBounds = gv.getLogicalBounds();
+        RectF bounds = awtRectToAndroidRect(awtBounds, mBounds.right, mBaseline);
         // If the width of the bounds is zero, no text had been drawn earlier. Hence, use the
         // coordinates from the bounds as an offset.
         if (Math.abs(mBounds.right - mBounds.left) == 0) {
-            mBounds = awtRectToAndroidRect(awtBounds, mBounds.right, mBaseline, mBounds);
+            mBounds = bounds;
         } else {
-            mBounds.union(awtRectToAndroidRect(awtBounds, mBounds.right, mBaseline, null));
+            mBounds.union(bounds);
         }
     }
 
     // --- Static helper methods ---
 
-    private static RectF awtRectToAndroidRect(Rectangle2D awtRec, float offsetX, float offsetY,
-            @Nullable RectF destination) {
+    private static RectF awtRectToAndroidRect(Rectangle2D awtRec, float offsetX, float offsetY) {
         float left = (float) awtRec.getX();
         float top = (float) awtRec.getY();
         float right = (float) (left + awtRec.getWidth());
         float bottom = (float) (top + awtRec.getHeight());
-        if (destination != null) {
-            destination.set(left, top, right, bottom);
-        } else {
-            destination = new RectF(left, top, right, bottom);
-        }
-        destination.offset(offsetX, offsetY);
-        return destination;
+        RectF androidRect = new RectF(left, top, right, bottom);
+        androidRect.offset(offsetX, offsetY);
+        return androidRect;
     }
 
-    private static List<ScriptRun> getScriptRuns(char[] text, int start, int limit, List<FontInfo> fonts) {
-        LinkedList<ScriptRun> scriptRuns = new LinkedList<>();
+    /* package */  static List<ScriptRun> getScriptRuns(char[] text, int start, int limit,
+            boolean isRtl, List<Font> fonts) {
+        LinkedList<ScriptRun> scriptRuns = new LinkedList<ScriptRun>();
 
         int count = limit - start;
         UScriptRun uScriptRun = new UScriptRun(text, start, count);
         while (uScriptRun.next()) {
             int scriptStart = uScriptRun.getScriptStart();
             int scriptLimit = uScriptRun.getScriptLimit();
-            ScriptRun run = new ScriptRun(
-                    scriptStart, scriptLimit,
-                    getScriptFont(text, scriptStart, scriptLimit, fonts));
+            ScriptRun run = new ScriptRun(scriptStart, scriptLimit, isRtl);
+            run.scriptCode = uScriptRun.getScriptCode();
+            setScriptFont(text, run, fonts);
             scriptRuns.add(run);
         }
+
         return scriptRuns;
     }
 
     // TODO: Replace this method with one which returns the font based on the scriptCode.
-    @NonNull
-    private static Font getScriptFont(char[] text, int start, int limit, List<FontInfo> fonts) {
-        for (FontInfo fontInfo : fonts) {
-            if (fontInfo.mFont.canDisplayUpTo(text, start, limit) == -1) {
-                return fontInfo.mFont;
+    private static void setScriptFont(char[] text, ScriptRun run,
+            List<Font> fonts) {
+        for (Font font : fonts) {
+            if (font == null) {
+                logFontWarning();
+                continue;
+            }
+            if (font.canDisplayUpTo(text, run.start, run.limit) == -1) {
+                run.font = font;
+                return;
             }
         }
-
-        if (fonts.isEmpty()) {
-            logFontWarning();
-            // Fallback font in case no font can be loaded
-            return Font.getFont(Font.SERIF);
-        }
-
-        return fonts.get(0).mFont;
+        run.font = fonts.get(0);
     }
 
     private static int getIcuFlags(int bidiFlag) {

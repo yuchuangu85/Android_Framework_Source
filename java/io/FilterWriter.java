@@ -1,55 +1,45 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
-
 /**
- * Abstract class for writing filtered character streams.
- * The abstract class <code>FilterWriter</code> itself
- * provides default methods that pass all requests to the
- * contained stream. Subclasses of <code>FilterWriter</code>
- * should override some of these methods and may also
- * provide additional methods and fields.
+ * Wraps an existing {@link Writer} and performs some transformation on the
+ * output data while it is being written. Transformations can be anything from a
+ * simple byte-wise filtering output data to an on-the-fly compression or
+ * decompression of the underlying writer. Writers that wrap another writer and
+ * provide some additional functionality on top of it usually inherit from this
+ * class.
  *
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * @see FilterReader
  */
-
 public abstract class FilterWriter extends Writer {
 
     /**
-     * The underlying character-output stream.
+     * The Writer being filtered.
      */
     protected Writer out;
 
     /**
-     * Create a new filtered writer.
+     * Constructs a new FilterWriter on the Writer {@code out}. All writes are
+     * now filtered through this writer.
      *
-     * @param out  a Writer object to provide the underlying stream.
-     * @throws NullPointerException if <code>out</code> is <code>null</code>
+     * @param out
+     *            the target Writer to filter writes on.
      */
     protected FilterWriter(Writer out) {
         super(out);
@@ -57,51 +47,86 @@ public abstract class FilterWriter extends Writer {
     }
 
     /**
-     * Writes a single character.
+     * Closes this writer. This implementation closes the target writer.
      *
-     * @exception  IOException  If an I/O error occurs
+     * @throws IOException
+     *             if an error occurs attempting to close this writer.
      */
-    public void write(int c) throws IOException {
-        out.write(c);
-    }
-
-    /**
-     * Writes a portion of an array of characters.
-     *
-     * @param  cbuf  Buffer of characters to be written
-     * @param  off   Offset from which to start reading characters
-     * @param  len   Number of characters to be written
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void write(char cbuf[], int off, int len) throws IOException {
-        out.write(cbuf, off, len);
-    }
-
-    /**
-     * Writes a portion of a string.
-     *
-     * @param  str  String to be written
-     * @param  off  Offset from which to start reading characters
-     * @param  len  Number of characters to be written
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void write(String str, int off, int len) throws IOException {
-        out.write(str, off, len);
-    }
-
-    /**
-     * Flushes the stream.
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public void flush() throws IOException {
-        out.flush();
-    }
-
+    @Override
     public void close() throws IOException {
-        out.close();
+        synchronized (lock) {
+            out.close();
+        }
     }
 
+    /**
+     * Flushes this writer to ensure all pending data is sent out to the target
+     * writer. This implementation flushes the target writer.
+     *
+     * @throws IOException
+     *             if an error occurs attempting to flush this writer.
+     */
+    @Override
+    public void flush() throws IOException {
+        synchronized (lock) {
+            out.flush();
+        }
+    }
+
+    /**
+     * Writes {@code count} characters from the char array {@code buffer}
+     * starting at position {@code offset} to the target writer.
+     *
+     * @param buffer
+     *            the buffer to write.
+     * @param offset
+     *            the index of the first character in {@code buffer} to write.
+     * @param count
+     *            the number of characters in {@code buffer} to write.
+     * @throws IOException
+     *             if an error occurs while writing to this writer.
+     */
+    @Override
+    public void write(char[] buffer, int offset, int count) throws IOException {
+        synchronized (lock) {
+            out.write(buffer, offset, count);
+        }
+    }
+
+    /**
+     * Writes the specified character {@code oneChar} to the target writer. Only the
+     * two least significant bytes of the integer {@code oneChar} are written.
+     *
+     * @param oneChar
+     *            the char to write to the target writer.
+     * @throws IOException
+     *             if an error occurs while writing to this writer.
+     */
+    @Override
+    public void write(int oneChar) throws IOException {
+        synchronized (lock) {
+            out.write(oneChar);
+        }
+    }
+
+    /**
+     * Writes {@code count} characters from the string {@code str} starting at
+     * position {@code index} to this writer. This implementation writes
+     * {@code str} to the target writer.
+     *
+     * @param str
+     *            the string to be written.
+     * @param offset
+     *            the index of the first character in {@code str} to write.
+     * @param count
+     *            the number of chars in {@code str} to write.
+     * @throws IOException
+     *             if an error occurs while writing to this writer.
+     */
+    @Override
+    public void write(String str, int offset, int count) throws IOException {
+        synchronized (lock) {
+            out.write(str, offset, count);
+        }
+    }
 }

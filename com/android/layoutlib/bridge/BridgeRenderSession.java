@@ -16,18 +16,18 @@
 
 package com.android.layoutlib.bridge;
 
+import com.android.ide.common.rendering.api.IAnimationListener;
+import com.android.ide.common.rendering.api.ILayoutPullParser;
+import com.android.ide.common.rendering.api.RenderParams;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.ViewInfo;
 import com.android.layoutlib.bridge.impl.RenderSessionImpl;
-import com.android.tools.layoutlib.java.System_Delegate;
-import com.android.util.PropertiesMap;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
+import android.view.View;
+import android.view.ViewGroup;
 
 import java.awt.image.BufferedImage;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -40,9 +40,7 @@ import java.util.Map;
  */
 public class BridgeRenderSession extends RenderSession {
 
-    @Nullable
     private final RenderSessionImpl mSession;
-    @NonNull
     private Result mLastResult;
 
     @Override
@@ -52,95 +50,151 @@ public class BridgeRenderSession extends RenderSession {
 
     @Override
     public BufferedImage getImage() {
-        return mSession != null ? mSession.getImage() :
-                new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        return mSession.getImage();
     }
 
     @Override
     public boolean isAlphaChannelImage() {
-        return mSession != null && mSession.isAlphaChannelImage();
+        return mSession.isAlphaChannelImage();
     }
 
     @Override
     public List<ViewInfo> getRootViews() {
-        return mSession != null ? mSession.getViewInfos() : Collections.emptyList();
+        return mSession.getViewInfos();
     }
 
     @Override
     public List<ViewInfo> getSystemRootViews() {
-        return mSession != null ? mSession.getSystemViewInfos() : Collections.emptyList();
+        return mSession.getSystemViewInfos();
     }
 
     @Override
-    public Map<Object, PropertiesMap> getDefaultProperties() {
-        return mSession != null ? mSession.getDefaultProperties() : Collections.emptyMap();
+    public Map<String, String> getDefaultProperties(Object viewObject) {
+        return mSession.getDefaultProperties(viewObject);
     }
 
     @Override
-    public Result measure(long timeout) {
-        if (mSession != null) {
-            try {
-                Bridge.prepareThread();
-                mLastResult = mSession.acquire(timeout);
-                if (mLastResult.isSuccess()) {
-                    mSession.invalidateRenderingSize();
-                    mLastResult = mSession.measure();
-                }
-            } finally {
-                mSession.release();
-                Bridge.cleanupThread();
-            }
-        }
+    public Result getProperty(Object objectView, String propertyName) {
+        // pass
+        return super.getProperty(objectView, propertyName);
+    }
 
-        return mLastResult;
+    @Override
+    public Result setProperty(Object objectView, String propertyName, String propertyValue) {
+        // pass
+        return super.setProperty(objectView, propertyName, propertyValue);
     }
 
     @Override
     public Result render(long timeout, boolean forceMeasure) {
-        if (mSession != null) {
-            try {
-                Bridge.prepareThread();
-                mLastResult = mSession.acquire(timeout);
-                if (mLastResult.isSuccess()) {
-                    if (forceMeasure) {
-                        mSession.invalidateRenderingSize();
-                    }
-                    mLastResult = mSession.render(false /*freshRender*/);
+        try {
+            Bridge.prepareThread();
+            mLastResult = mSession.acquire(timeout);
+            if (mLastResult.isSuccess()) {
+                if (forceMeasure) {
+                    mSession.invalidateRenderingSize();
                 }
-            } finally {
-                mSession.release();
-                Bridge.cleanupThread();
+                mLastResult = mSession.render(false /*freshRender*/);
             }
+        } finally {
+            mSession.release();
+            Bridge.cleanupThread();
         }
 
         return mLastResult;
     }
 
     @Override
-    public void setSystemTimeNanos(long nanos) {
-        System_Delegate.setNanosTime(nanos);
-    }
-
-    @Override
-    public void setSystemBootTimeNanos(long nanos) {
-        System_Delegate.setBootTimeNanos(nanos);
-    }
-
-    @Override
-    public void setElapsedFrameTimeNanos(long nanos) {
-        if (mSession != null) {
-            mSession.setElapsedFrameTimeNanos(nanos);
+    public Result animate(Object targetObject, String animationName,
+            boolean isFrameworkAnimation, IAnimationListener listener) {
+        try {
+            Bridge.prepareThread();
+            mLastResult = mSession.acquire(RenderParams.DEFAULT_TIMEOUT);
+            if (mLastResult.isSuccess()) {
+                mLastResult = mSession.animate(targetObject, animationName, isFrameworkAnimation,
+                        listener);
+            }
+        } finally {
+            mSession.release();
+            Bridge.cleanupThread();
         }
+
+        return mLastResult;
+    }
+
+    @Override
+    public Result insertChild(Object parentView, ILayoutPullParser childXml, int index,
+            IAnimationListener listener) {
+        if (parentView instanceof ViewGroup == false) {
+            throw new IllegalArgumentException("parentView is not a ViewGroup");
+        }
+
+        try {
+            Bridge.prepareThread();
+            mLastResult = mSession.acquire(RenderParams.DEFAULT_TIMEOUT);
+            if (mLastResult.isSuccess()) {
+                mLastResult = mSession.insertChild((ViewGroup) parentView, childXml, index,
+                        listener);
+            }
+        } finally {
+            mSession.release();
+            Bridge.cleanupThread();
+        }
+
+        return mLastResult;
+    }
+
+
+    @Override
+    public Result moveChild(Object parentView, Object childView, int index,
+            Map<String, String> layoutParams, IAnimationListener listener) {
+        if (parentView instanceof ViewGroup == false) {
+            throw new IllegalArgumentException("parentView is not a ViewGroup");
+        }
+        if (childView instanceof View == false) {
+            throw new IllegalArgumentException("childView is not a View");
+        }
+
+        try {
+            Bridge.prepareThread();
+            mLastResult = mSession.acquire(RenderParams.DEFAULT_TIMEOUT);
+            if (mLastResult.isSuccess()) {
+                mLastResult = mSession.moveChild((ViewGroup) parentView, (View) childView, index,
+                        layoutParams, listener);
+            }
+        } finally {
+            mSession.release();
+            Bridge.cleanupThread();
+        }
+
+        return mLastResult;
+    }
+
+    @Override
+    public Result removeChild(Object childView, IAnimationListener listener) {
+        if (childView instanceof View == false) {
+            throw new IllegalArgumentException("childView is not a View");
+        }
+
+        try {
+            Bridge.prepareThread();
+            mLastResult = mSession.acquire(RenderParams.DEFAULT_TIMEOUT);
+            if (mLastResult.isSuccess()) {
+                mLastResult = mSession.removeChild((View) childView, listener);
+            }
+        } finally {
+            mSession.release();
+            Bridge.cleanupThread();
+        }
+
+        return mLastResult;
     }
 
     @Override
     public void dispose() {
-        if (mSession != null) {
-            mSession.dispose();
-        }
     }
 
-    /*package*/ BridgeRenderSession(@Nullable RenderSessionImpl scene, @NonNull Result lastResult) {
+    /*package*/ BridgeRenderSession(RenderSessionImpl scene, Result lastResult) {
         mSession = scene;
         if (scene != null) {
             mSession.setScene(this);

@@ -16,19 +16,17 @@
 
 package benchmarks.regression;
 
-import java.text.Collator;
-import java.text.DateFormat;
-import java.text.DateFormatSymbols;
-import java.text.DecimalFormatSymbols;
-import java.text.NumberFormat;
-import java.text.SimpleDateFormat;
-import java.util.GregorianCalendar;
-import java.util.Locale;
+import com.google.caliper.Benchmark;
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+import java.text.*;
+import java.util.*;
 
 /**
  * Benchmarks creation and cloning various expensive objects.
  */
-public class ExpensiveObjectsBenchmark {
+public class ExpensiveObjectsBenchmark extends SimpleBenchmark {
     public void timeNewDateFormatTimeInstance(int reps) {
         for (int i = 0; i < reps; ++i) {
             DateFormat df = DateFormat.getTimeInstance(DateFormat.SHORT);

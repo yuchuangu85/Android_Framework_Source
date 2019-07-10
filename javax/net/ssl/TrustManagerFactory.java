@@ -1,303 +1,222 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
 
+import java.security.InvalidAlgorithmParameterException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
 import java.security.Security;
-import java.security.*;
-
-import sun.security.jca.GetInstance;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * This class acts as a factory for trust managers based on a
- * source of trust material. Each trust manager manages a specific
- * type of trust material for use by secure sockets. The trust
- * material is based on a KeyStore and/or provider specific sources.
- *
- * <p> Android provides the following <code>TrustManagerFactory</code> algorithms:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>PKIX</td>
- *       <td>1+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * @since 1.4
- * @see TrustManager
+ * The factory for {@code TrustManager}s based on {@code KeyStore} or provider
+ * specific implementation.
  */
 public class TrustManagerFactory {
-    // The provider
-    private Provider provider;
+    // Store TrustManager service name
+    private static final String SERVICE = "TrustManagerFactory";
 
-    // The provider implementation (delegate)
-    private TrustManagerFactorySpi factorySpi;
+    // Used to access common engine functionality
+    private static final Engine ENGINE = new Engine(SERVICE);
 
-    // The name of the trust management algorithm.
-    private String algorithm;
+    // Store default property name
+    private static final String PROPERTY_NAME = "ssl.TrustManagerFactory.algorithm";
+
+    // Default value of TrustManagerFactory type.
+    private static final String DEFAULT_PROPERTY = "PKIX";
 
     /**
-     * Obtains the default TrustManagerFactory algorithm name.
+     * Returns the default algorithm name for the {@code TrustManagerFactory}. The
+     * default algorithm name is specified by the security property
+     * {@code 'ssl.TrustManagerFactory.algorithm'}.
      *
-     * <p>The default TrustManager can be changed at runtime by setting
-     * the value of the {@code ssl.TrustManagerFactory.algorithm}
-     * security property to the desired algorithm name.
-     *
-     * @see java.security.Security security properties
-     * @return the default algorithm name as specified by the
-     * {@code ssl.TrustManagerFactory.algorithm} security property, or an
-     * implementation-specific default if no such property exists.
+     * @return the default algorithm name.
      */
-    public final static String getDefaultAlgorithm() {
-        String type;
-        type = AccessController.doPrivileged(new PrivilegedAction<String>() {
-            @Override
-            public String run() {
-                return Security.getProperty(
-                    "ssl.TrustManagerFactory.algorithm");
-            }
-        });
-        if (type == null) {
-            type = "SunX509";
-        }
-        return type;
+    public static final String getDefaultAlgorithm() {
+        String algorithm = Security.getProperty(PROPERTY_NAME);
+        return (algorithm != null ? algorithm : DEFAULT_PROPERTY);
     }
 
     /**
-     * Creates a TrustManagerFactory object.
+     * Creates a new {@code TrustManagerFactory} instance for the specified
+     * trust management algorithm.
      *
-     * @param factorySpi the delegate
-     * @param provider the provider
-     * @param algorithm the algorithm
-     */
-    protected TrustManagerFactory(TrustManagerFactorySpi factorySpi,
-            Provider provider, String algorithm) {
-        this.factorySpi = factorySpi;
-        this.provider = provider;
-        this.algorithm = algorithm;
-    }
-
-    /**
-     * Returns the algorithm name of this <code>TrustManagerFactory</code>
-     * object.
-     *
-     * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this
-     * <code>TrustManagerFactory</code> object.
-     *
-     * @return the algorithm name of this <code>TrustManagerFactory</code>
-     *          object
-     */
-    public final String getAlgorithm() {
-        return this.algorithm;
-    }
-
-    /**
-     * Returns a <code>TrustManagerFactory</code> object that acts as a
-     * factory for trust managers.
-     *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new TrustManagerFactory object encapsulating the
-     * TrustManagerFactorySpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested trust management
-     *          algorithm.  See the <a href=
-     *  "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/jsse/JSSERefGuide.html">
-     *          Java Secure Socket Extension Reference Guide </a>
-     *          for information about standard algorithm names.
-     *
-     * @return the new <code>TrustManagerFactory</code> object.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports a
-     *          TrustManagerFactorySpi implementation for the
-     *          specified algorithm.
-     * @exception NullPointerException if algorithm is null.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested trust management algorithm.
+     * @return a trust manager factory for the requested algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if no installed provider can provide the requested algorithm.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release)
      */
     public static final TrustManagerFactory getInstance(String algorithm)
             throws NoSuchAlgorithmException {
-        GetInstance.Instance instance = GetInstance.getInstance
-                ("TrustManagerFactory", TrustManagerFactorySpi.class,
-                algorithm);
-        return new TrustManagerFactory((TrustManagerFactorySpi)instance.impl,
-                instance.provider, algorithm);
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        Engine.SpiAndProvider sap = ENGINE.getInstance(algorithm, null);
+        return new TrustManagerFactory((TrustManagerFactorySpi) sap.spi, sap.provider, algorithm);
     }
 
     /**
-     * Returns a <code>TrustManagerFactory</code> object that acts as a
-     * factory for trust managers.
+     * Creates a new {@code TrustManagerFactory} instance for the specified
+     * trust management algorithm from the specified provider.
      *
-     * <p> A new KeyManagerFactory object encapsulating the
-     * KeyManagerFactorySpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested trust management
-     *          algorithm.  See the <a href=
-     *  "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/jsse/JSSERefGuide.html">
-     *          Java Secure Socket Extension Reference Guide </a>
-     *          for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new <code>TrustManagerFactory</code> object
-     *
-     * @throws NoSuchAlgorithmException if a TrustManagerFactorySpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @throws NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @throws IllegalArgumentException if the provider name is null or empty.
-     * @throws NullPointerException if algorithm is null.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested trust management algorithm name.
+     * @param provider
+     *            the name of the provider that provides the requested
+     *            algorithm.
+     * @return a trust manager factory for the requested algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             algorithm.
+     * @throws NoSuchProviderException
+     *             if the specified provider does not exist.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release)
      */
-    public static final TrustManagerFactory getInstance(String algorithm,
-            String provider) throws NoSuchAlgorithmException,
-            NoSuchProviderException {
-        GetInstance.Instance instance = GetInstance.getInstance
-                ("TrustManagerFactory", TrustManagerFactorySpi.class,
-                algorithm, provider);
-        return new TrustManagerFactory((TrustManagerFactorySpi)instance.impl,
-                instance.provider, algorithm);
+    public static final TrustManagerFactory getInstance(String algorithm, String provider)
+            throws NoSuchAlgorithmException, NoSuchProviderException {
+        if ((provider == null) || (provider.length() == 0)) {
+            throw new IllegalArgumentException("Provider is null or empty");
+        }
+        Provider impProvider = Security.getProvider(provider);
+        if (impProvider == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        return getInstance(algorithm, impProvider);
     }
 
     /**
-     * Returns a <code>TrustManagerFactory</code> object that acts as a
-     * factory for trust managers.
+     * Creates a new {@code TrustManagerFactory} instance for the specified
+     * trust management algorithm from the specified provider.
      *
-     * <p> A new TrustManagerFactory object encapsulating the
-     * TrustManagerFactorySpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param algorithm the standard name of the requested trust management
-     *          algorithm.  See the <a href=
-     *  "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/jsse/JSSERefGuide.html">
-     *          Java Secure Socket Extension Reference Guide </a>
-     *          for information about standard algorithm names.
-     *
-     * @param provider an instance of the provider.
-     *
-     * @return the new <code>TrustManagerFactory</code> object.
-     *
-     * @throws NoSuchAlgorithmException if a TrustManagerFactorySpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @throws IllegalArgumentException if the provider is null.
-     * @throws NullPointerException if algorithm is null.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested key management algorithm name.
+     * @param provider
+     *            the provider that provides the requested algorithm.
+     * @return a key manager factory for the requested algorithm.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             algorithm.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release)
      */
-    public static final TrustManagerFactory getInstance(String algorithm,
-            Provider provider) throws NoSuchAlgorithmException {
-        GetInstance.Instance instance = GetInstance.getInstance
-                ("TrustManagerFactory", TrustManagerFactorySpi.class,
-                algorithm, provider);
-        return new TrustManagerFactory((TrustManagerFactorySpi)instance.impl,
-                instance.provider, algorithm);
+    public static final TrustManagerFactory getInstance(String algorithm, Provider provider)
+            throws NoSuchAlgorithmException {
+        if (provider == null) {
+            throw new IllegalArgumentException("Provider is null");
+        }
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
+        }
+        Object spi = ENGINE.getInstance(algorithm, provider, null);
+        return new TrustManagerFactory((TrustManagerFactorySpi) spi, provider, algorithm);
+    }
+
+    // Store used provider
+    private final Provider provider;
+
+    // Store used TrustManagerFactorySpi implementation
+    private final TrustManagerFactorySpi spiImpl;
+
+    // Store used algorithm
+    private final String algorithm;
+
+    /**
+     * Creates a new {@code TrustManagerFactory} instance.
+     *
+     * @param factorySpi
+     *            the implementation delegate.
+     * @param provider
+     *            the provider
+     * @param algorithm
+     *            the algorithm name.
+     */
+    protected TrustManagerFactory(TrustManagerFactorySpi factorySpi, Provider provider,
+            String algorithm) {
+        this.provider = provider;
+        this.algorithm = algorithm;
+        this.spiImpl = factorySpi;
     }
 
     /**
-     * Returns the provider of this <code>TrustManagerFactory</code> object.
+     * Returns the name of this {@code TrustManagerFactory} algorithm
+     * implementation.
      *
-     * @return the provider of this <code>TrustManagerFactory</code> object
+     * @return the name of this {@code TrustManagerFactory} algorithm
+     *         implementation.
+     */
+    public final String getAlgorithm() {
+        return algorithm;
+    }
+
+    /**
+     * Returns the provider for this {@code TrustManagerFactory} instance.
+     *
+     * @return the provider for this {@code TrustManagerFactory} instance.
      */
     public final Provider getProvider() {
-        return this.provider;
+        return provider;
     }
 
-
     /**
-     * Initializes this factory with a source of certificate
-     * authorities and related trust material.
-     * <P>
-     * The provider typically uses a KeyStore as a basis for making
-     * trust decisions.
-     * <P>
-     * For more flexible initialization, please see
-     * {@link #init(ManagerFactoryParameters)}.
+     * Initializes this factory instance with the specified keystore as source
+     * of certificate authorities and trust material.
      *
-     * @param ks the key store, or null
-     * @throws KeyStoreException if this operation fails
+     * @param ks
+     *            the keystore or {@code null}.
+     * @throws KeyStoreException
+     *             if the initialization fails.
      */
     public final void init(KeyStore ks) throws KeyStoreException {
-        factorySpi.engineInit(ks);
+        spiImpl.engineInit(ks);
     }
 
-
     /**
-     * Initializes this factory with a source of provider-specific
-     * trust material.
-     * <P>
-     * In some cases, initialization parameters other than a keystore
-     * may be needed by a provider.  Users of that particular provider
-     * are expected to pass an implementation of the appropriate
-     * <CODE>ManagerFactoryParameters</CODE> as defined by the
-     * provider.  The provider can then call the specified methods in
-     * the <CODE>ManagerFactoryParameters</CODE> implementation to obtain the
-     * needed information.
+     * Initializes this factory instance with the specified provider-specific
+     * parameters for a source of trust material.
      *
-     * @param spec an implementation of a provider-specific parameter
-     *          specification
-     * @throws InvalidAlgorithmParameterException if an error is
-     *          encountered
+     * @param spec
+     *            the provider-specific parameters.
+     * @throws InvalidAlgorithmParameterException
+     *             if the initialization fails.
      */
-    public final void init(ManagerFactoryParameters spec) throws
-            InvalidAlgorithmParameterException {
-        factorySpi.engineInit(spec);
+    public final void init(ManagerFactoryParameters spec)
+            throws InvalidAlgorithmParameterException {
+        spiImpl.engineInit(spec);
     }
 
-
     /**
-     * Returns one trust manager for each type of trust material.
+     * Returns the list of {@code TrustManager}s with one entry for each type
+     * of trust material.
      *
-     * @throws IllegalStateException if the factory is not initialized.
-     *
-     * @return the trust managers
+     * @return the list of {@code TrustManager}s
      */
     public final TrustManager[] getTrustManagers() {
-        return factorySpi.engineGetTrustManagers();
+        return spiImpl.engineGetTrustManagers();
     }
+
 }

@@ -16,11 +16,12 @@
 
 package benchmarks.regression;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+import java.lang.reflect.*;
 
-public class ReflectionBenchmark {
+public class ReflectionBenchmark extends SimpleBenchmark {
     public void timeObject_getClass(int reps) throws Exception {
         C c = new C();
         for (int rep = 0; rep < reps; ++rep) {
@@ -162,14 +163,6 @@ public class ReflectionBenchmark {
         }
     }
 
-    public void timeClass_isInstance(int reps) throws Exception {
-        D d = new D();
-        Class<?> klass = IC.class;
-        for (int rep = 0; rep < reps; ++rep) {
-            klass.isInstance(d);
-        }
-    }
-
     public void timeGetInstanceField(int reps) throws Exception {
         for (int rep = 0; rep < reps; ++rep) {
             // The field here (and in timeGetStaticField) were chosen to be
@@ -186,18 +179,6 @@ public class ReflectionBenchmark {
     public void timeGetStaticField(int reps) throws Exception {
         for (int rep = 0; rep < reps; ++rep) {
             R.class.getField("weekNumberColor");
-        }
-    }
-
-    public void timeGetInterfaceStaticField(int reps) throws Exception {
-        for (int rep = 0; rep < reps; ++rep) {
-            F.class.getField("sf");
-        }
-    }
-
-    public void timeGetSuperClassField(int reps) throws Exception {
-        for (int rep = 0; rep < reps; ++rep) {
-            G.class.getField("f");
         }
     }
 
@@ -224,27 +205,5 @@ public class ReflectionBenchmark {
         public static void setStaticField(int value) {
             sf = value;
         }
-    }
-
-    interface IA {
-    }
-
-    interface IB extends IA {
-    }
-
-    interface IC extends IB {
-        public static final int sf = 0;
-    }
-
-    class D implements IC {
-    }
-
-    class E extends D {
-    }
-
-    class F extends E implements IB {
-    }
-
-    class G extends C {
     }
 }

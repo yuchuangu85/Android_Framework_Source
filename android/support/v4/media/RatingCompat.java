@@ -16,16 +16,11 @@
 
 package android.support.v4.media;
 
-import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
-import android.media.Rating;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.support.annotation.IntDef;
 import android.util.Log;
-
-import androidx.annotation.IntDef;
-import androidx.annotation.RestrictTo;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -44,7 +39,6 @@ public final class RatingCompat implements Parcelable {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
     @IntDef({RATING_NONE, RATING_HEART, RATING_THUMB_UP_DOWN, RATING_3_STARS, RATING_4_STARS,
             RATING_5_STARS, RATING_PERCENTAGE})
     @Retention(RetentionPolicy.SOURCE)
@@ -53,7 +47,6 @@ public final class RatingCompat implements Parcelable {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
     @IntDef({RATING_3_STARS, RATING_4_STARS, RATING_5_STARS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface StarStyle {}
@@ -103,7 +96,7 @@ public final class RatingCompat implements Parcelable {
 
     private Object mRatingObj; // framework Rating object
 
-    RatingCompat(@Style int ratingStyle, float rating) {
+    private RatingCompat(@Style int ratingStyle, float rating) {
         mRatingStyle = ratingStyle;
         mRatingValue = rating;
     }
@@ -298,7 +291,6 @@ public final class RatingCompat implements Parcelable {
                 if (isRated()) {
                     return mRatingValue;
                 }
-                // fall through
             default:
                 return -1.0f;
         }
@@ -320,80 +312,79 @@ public final class RatingCompat implements Parcelable {
     /**
      * Creates an instance from a framework {@link android.media.Rating} object.
      * <p>
-     * This method is only supported on API 19+.
+     * This method is only supported on API 21+.
      * </p>
      *
      * @param ratingObj A {@link android.media.Rating} object, or null if none.
      * @return An equivalent {@link RatingCompat} object, or null if none.
      */
     public static RatingCompat fromRating(Object ratingObj) {
-        if (ratingObj != null && Build.VERSION.SDK_INT >= 19) {
-            final int ratingStyle = ((Rating) ratingObj).getRatingStyle();
-            final RatingCompat rating;
-            if (((Rating) ratingObj).isRated()) {
-                switch (ratingStyle) {
-                    case RATING_HEART:
-                        rating = newHeartRating(((Rating) ratingObj).hasHeart());
-                        break;
-                    case RATING_THUMB_UP_DOWN:
-                        rating = newThumbRating(((Rating) ratingObj).isThumbUp());
-                        break;
-                    case RATING_3_STARS:
-                    case RATING_4_STARS:
-                    case RATING_5_STARS:
-                        rating = newStarRating(ratingStyle,
-                                ((Rating) ratingObj).getStarRating());
-                        break;
-                    case RATING_PERCENTAGE:
-                        rating = newPercentageRating(
-                                ((Rating) ratingObj).getPercentRating());
-                        break;
-                    default:
-                        return null;
-                }
-            } else {
-                rating = newUnratedRating(ratingStyle);
-            }
-            rating.mRatingObj = ratingObj;
-            return rating;
-        } else {
+        if (ratingObj == null || Build.VERSION.SDK_INT < 21) {
             return null;
         }
+
+        final int ratingStyle = RatingCompatApi21.getRatingStyle(ratingObj);
+        final RatingCompat rating;
+        if (RatingCompatApi21.isRated(ratingObj)) {
+            switch (ratingStyle) {
+                case RATING_HEART:
+                    rating = newHeartRating(RatingCompatApi21.hasHeart(ratingObj));
+                    break;
+                case RATING_THUMB_UP_DOWN:
+                    rating = newThumbRating(RatingCompatApi21.isThumbUp(ratingObj));
+                    break;
+                case RATING_3_STARS:
+                case RATING_4_STARS:
+                case RATING_5_STARS:
+                    rating = newStarRating(ratingStyle,
+                            RatingCompatApi21.getStarRating(ratingObj));
+                    break;
+                case RATING_PERCENTAGE:
+                    rating = newPercentageRating(RatingCompatApi21.getPercentRating(ratingObj));
+                    break;
+                default:
+                    return null;
+            }
+        } else {
+            rating = newUnratedRating(ratingStyle);
+        }
+        rating.mRatingObj = ratingObj;
+        return rating;
     }
 
     /**
      * Gets the underlying framework {@link android.media.Rating} object.
      * <p>
-     * This method is only supported on API 19+.
+     * This method is only supported on API 21+.
      * </p>
      *
      * @return An equivalent {@link android.media.Rating} object, or null if none.
      */
     public Object getRating() {
-        if (mRatingObj == null && Build.VERSION.SDK_INT >= 19) {
-            if (isRated()) {
-                switch (mRatingStyle) {
-                    case RATING_HEART:
-                        mRatingObj = Rating.newHeartRating(hasHeart());
-                        break;
-                    case RATING_THUMB_UP_DOWN:
-                        mRatingObj = Rating.newThumbRating(isThumbUp());
-                        break;
-                    case RATING_3_STARS:
-                    case RATING_4_STARS:
-                    case RATING_5_STARS:
-                        mRatingObj = Rating.newStarRating(mRatingStyle,
-                                getStarRating());
-                        break;
-                    case RATING_PERCENTAGE:
-                        mRatingObj = Rating.newPercentageRating(getPercentRating());
-                        break;
-                    default:
-                        return null;
-                }
-            } else {
-                mRatingObj = Rating.newUnratedRating(mRatingStyle);
+        if (mRatingObj != null || Build.VERSION.SDK_INT < 21) {
+            return mRatingObj;
+        }
+
+        if (isRated()) {
+            switch (mRatingStyle) {
+                case RATING_HEART:
+                    mRatingObj = RatingCompatApi21.newHeartRating(hasHeart());
+                    break;
+                case RATING_THUMB_UP_DOWN:
+                    mRatingObj = RatingCompatApi21.newThumbRating(isThumbUp());
+                    break;
+                case RATING_3_STARS:
+                case RATING_4_STARS:
+                case RATING_5_STARS:
+                    mRatingObj = RatingCompatApi21.newStarRating(mRatingStyle, getStarRating());
+                    break;
+                case RATING_PERCENTAGE:
+                    mRatingObj = RatingCompatApi21.newPercentageRating(getPercentRating());
+                default:
+                    return null;
             }
+        } else {
+            mRatingObj = RatingCompatApi21.newUnratedRating(mRatingStyle);
         }
         return mRatingObj;
     }

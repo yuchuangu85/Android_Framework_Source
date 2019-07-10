@@ -16,28 +16,21 @@
 
 package com.android.keyguard;
 
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.PowerManager;
-import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.telecom.TelecomManager;
 import android.util.AttributeSet;
-import android.util.Slog;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.widget.Button;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.widget.LockPatternUtils;
-import com.android.internal.util.EmergencyAffordanceManager;
 
 /**
  * This class implements a smart emergency button that updates itself based
@@ -53,11 +46,6 @@ public class EmergencyButton extends Button {
                     | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                     | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-    private static final String LOG_TAG = "EmergencyButton";
-    private final EmergencyAffordanceManager mEmergencyAffordanceManager;
-
-    private int mDownX;
-    private int mDownY;
     KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
 
         @Override
@@ -70,7 +58,6 @@ public class EmergencyButton extends Button {
             updateEmergencyCallButton();
         }
     };
-    private boolean mLongPressWasDragged;
 
     public interface EmergencyButtonCallback {
         public void onEmergencyButtonClickedWhenInCall();
@@ -93,7 +80,6 @@ public class EmergencyButton extends Button {
                 com.android.internal.R.bool.config_voice_capable);
         mEnableEmergencyCallWhileSimLocked = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_enable_emergency_call_while_sim_locked);
-        mEmergencyAffordanceManager = new EmergencyAffordanceManager(context);
     }
 
     @Override
@@ -118,42 +104,7 @@ public class EmergencyButton extends Button {
                 takeEmergencyCallAction();
             }
         });
-        setOnLongClickListener(new OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                if (!mLongPressWasDragged
-                        && mEmergencyAffordanceManager.needsEmergencyAffordance()) {
-                    mEmergencyAffordanceManager.performEmergencyCall();
-                    return true;
-                }
-                return false;
-            }
-        });
         updateEmergencyCallButton();
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        final int x = (int) event.getX();
-        final int y = (int) event.getY();
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            mDownX = x;
-            mDownY = y;
-            mLongPressWasDragged = false;
-        } else {
-            final int xDiff = Math.abs(x - mDownX);
-            final int yDiff = Math.abs(y - mDownY);
-            int touchSlop = ViewConfiguration.get(mContext).getScaledTouchSlop();
-            if (Math.abs(yDiff) > touchSlop || Math.abs(xDiff) > touchSlop) {
-                mLongPressWasDragged = true;
-            }
-        }
-        return super.onTouchEvent(event);
-    }
-
-    @Override
-    public boolean performLongClick() {
-        return super.performLongClick();
     }
 
     @Override
@@ -166,15 +117,10 @@ public class EmergencyButton extends Button {
      * Shows the emergency dialer or returns the user to the existing call.
      */
     public void takeEmergencyCallAction() {
-        MetricsLogger.action(mContext, MetricsEvent.ACTION_EMERGENCY_CALL);
+        MetricsLogger.action(mContext, MetricsLogger.ACTION_EMERGENCY_CALL);
         // TODO: implement a shorter timeout once new PowerManager API is ready.
         // should be the equivalent to the old userActivity(EMERGENCY_CALL_TIMEOUT)
         mPowerManager.userActivity(SystemClock.uptimeMillis(), true);
-        try {
-            ActivityManager.getService().stopSystemLockTaskMode();
-        } catch (RemoteException e) {
-            Slog.w(LOG_TAG, "Failed to stop app pinning");
-        }
         if (isInCall()) {
             resumeCall();
             if (mEmergencyButtonCallback != null) {

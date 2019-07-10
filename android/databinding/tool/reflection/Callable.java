@@ -15,10 +15,13 @@
  */
 package android.databinding.tool.reflection;
 
-import org.jetbrains.annotations.Nullable;
+import android.databinding.tool.util.L;
+
+import java.util.List;
 
 public class Callable {
-    public enum Type {
+
+    public static enum Type {
         METHOD,
         FIELD
     }
@@ -31,34 +34,19 @@ public class Callable {
 
     public final String name;
 
-    public final String setterName;
-
     public final ModelClass resolvedType;
-
-    @Nullable
-    public final ModelMethod method;
 
     private final int mFlags;
 
-    private final int mParameterCount;
-
-    public Callable(Type type, String name, String setterName, ModelClass resolvedType,
-            int parameterCount, int flags, ModelMethod method) {
+    public Callable(Type type, String name, ModelClass resolvedType, int flags) {
         this.type = type;
         this.name = name;
         this.resolvedType = resolvedType;
-        mParameterCount = parameterCount;
-        this.setterName = setterName;
         mFlags = flags;
-        this.method = method;
     }
 
     public String getTypeCodeName() {
         return resolvedType.toJavaCode();
-    }
-
-    public int getParameterCount() {
-        return mParameterCount;
     }
 
     public boolean isDynamic() {
@@ -86,7 +74,6 @@ public class Callable {
                 ", isDynamic=" + isDynamic() +
                 ", canBeInvalidated=" + canBeInvalidated() +
                 ", static=" + isStatic() +
-                ", method=" + method +
                 '}';
     }
 }

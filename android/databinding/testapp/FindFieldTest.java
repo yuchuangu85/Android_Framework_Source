@@ -33,11 +33,4 @@ public class FindFieldTest extends BaseDataBinderTest<FindFieldTestBinding> {
         mBinder.executePendingBindings();
         assertEquals(obj.mPublicField, mBinder.textView1.getText().toString());
     }
-
-    @UiThreadTest
-    public void testFieldOnGeneric() {
-        initBinder();
-        mBinder.executePendingBindings();
-        assertEquals("Hello", mBinder.textView2.getText().toString());
-    }
 }

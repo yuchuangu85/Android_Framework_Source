@@ -19,7 +19,6 @@ import android.databinding.testapp.databinding.MergeLayoutBinding;
 import android.databinding.testapp.vo.NotBindableVo;
 
 import android.test.UiThreadTest;
-import android.widget.FrameLayout;
 import android.widget.TextView;
 
 public class IncludeTagTest extends BaseDataBinderTest<LayoutWithIncludeBinding> {
@@ -31,8 +30,6 @@ public class IncludeTagTest extends BaseDataBinderTest<LayoutWithIncludeBinding>
     @UiThreadTest
     public void testIncludeTag() {
         initBinder();
-        assertNotNull(mBinder.includedPlainLayout);
-        assertTrue(mBinder.includedPlainLayout instanceof FrameLayout);
         NotBindableVo vo = new NotBindableVo(3, "a");
         mBinder.setOuterObject(vo);
         mBinder.executePendingBindings();

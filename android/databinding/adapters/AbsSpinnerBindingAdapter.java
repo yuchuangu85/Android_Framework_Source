@@ -20,12 +20,10 @@ import android.widget.AbsSpinner;
 import android.widget.ArrayAdapter;
 import android.widget.SpinnerAdapter;
 
-import java.util.List;
-
 public class AbsSpinnerBindingAdapter {
 
     @BindingAdapter({"android:entries"})
-    public static <T extends CharSequence> void setEntries(AbsSpinner view, T[] entries) {
+    public static void setEntries(AbsSpinner view, CharSequence[] entries) {
         if (entries != null) {
             SpinnerAdapter oldAdapter = view.getAdapter();
             boolean changed = true;
@@ -44,22 +42,6 @@ public class AbsSpinnerBindingAdapter {
                                 android.R.layout.simple_spinner_item, entries);
                 adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 view.setAdapter(adapter);
-            }
-        } else {
-            view.setAdapter(null);
-        }
-    }
-
-    @BindingAdapter({"android:entries"})
-    public static <T> void setEntries(AbsSpinner view, List<T> entries) {
-        if (entries != null) {
-            SpinnerAdapter oldAdapter = view.getAdapter();
-            if (oldAdapter instanceof ObservableListAdapter) {
-                ((ObservableListAdapter) oldAdapter).setList(entries);
-            } else {
-                view.setAdapter(new ObservableListAdapter<T>(view.getContext(), entries,
-                        android.R.layout.simple_spinner_item,
-                        android.R.layout.simple_spinner_dropdown_item, 0));
             }
         } else {
             view.setAdapter(null);

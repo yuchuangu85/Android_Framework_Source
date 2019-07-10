@@ -16,14 +16,11 @@
 
 package android.widget;
 
-import android.annotation.NonNull;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-
-import com.android.internal.widget.ScrollBarUtils;
 
 /**
  * This is only used by View for displaying its scroll bars. It should probably
@@ -138,15 +135,23 @@ public class ScrollBarDrawable extends Drawable implements Drawable.Callback {
         }
 
         if (drawThumb) {
-            final int scrollBarLength = vertical ? r.height() : r.width();
+            final int size = vertical ? r.height() : r.width();
             final int thickness = vertical ? r.width() : r.height();
-            final int thumbLength =
-                    ScrollBarUtils.getThumbLength(scrollBarLength, thickness, extent, range);
-            final int thumbOffset =
-                    ScrollBarUtils.getThumbOffset(scrollBarLength, thumbLength, extent, range,
-                            mOffset);
+            final int minLength = thickness * 2;
 
-            drawThumb(canvas, r, thumbOffset, thumbLength, vertical);
+            // Avoid the tiny thumb.
+            int length = Math.round((float) size * extent / range);
+            if (length < minLength) {
+                length = minLength;
+            }
+
+            // Avoid the too-big thumb.
+            int offset = Math.round((float) (size - length) * mOffset / (range - extent));
+            if (offset > size - length) {
+                offset = size - length;
+            }
+
+            drawThumb(canvas, r, offset, length, vertical);
         }
     }
 
@@ -363,17 +368,17 @@ public class ScrollBarDrawable extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public void invalidateDrawable(@NonNull Drawable who) {
+    public void invalidateDrawable(Drawable who) {
         invalidateSelf();
     }
 
     @Override
-    public void scheduleDrawable(@NonNull Drawable who, @NonNull Runnable what, long when) {
+    public void scheduleDrawable(Drawable who, Runnable what, long when) {
         scheduleSelf(what, when);
     }
 
     @Override
-    public void unscheduleDrawable(@NonNull Drawable who, @NonNull Runnable what) {
+    public void unscheduleDrawable(Drawable who, Runnable what) {
         unscheduleSelf(what);
     }
 

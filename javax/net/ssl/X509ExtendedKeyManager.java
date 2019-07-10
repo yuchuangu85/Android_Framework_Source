@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2004, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
@@ -28,41 +20,32 @@ package javax.net.ssl;
 import java.security.Principal;
 
 /**
- * Abstract class that provides for extension of the X509KeyManager
- * interface.
- * <P>
- * Methods in this class should be overriden to provide actual
- * implementations.
- *
- * @since 1.5
- * @author Brad R. Wetmore
+ * The abstract extension for the {@code X509KeyManager} interface.
  */
 public abstract class X509ExtendedKeyManager implements X509KeyManager {
 
     /**
-     * Constructor used by subclasses only.
+     * To be used by subclasses only.
+     * <p>
+     * Creates a new {@code X509ExtendedKeyManager} instance.
      */
     protected X509ExtendedKeyManager() {
     }
 
     /**
-     * Choose an alias to authenticate the client side of an
-     * <code>SSLEngine</code> connection given the public key type
-     * and the list of certificate issuer authorities recognized by
-     * the peer (if any).
-     * <P>
-     * The default implementation returns null.
+     * Chooses an alias for the client side of an SSL connection to authenticate
+     * it with the specified public key type and certificate issuers.
      *
-     * @param keyType the key algorithm type name(s), ordered
-     *          with the most-preferred key type first.
-     * @param issuers the list of acceptable CA issuer subject names
-     *          or null if it does not matter which issuers are used.
-     * @param engine the <code>SSLEngine</code> to be used for this
-     *          connection.  This parameter can be null, which indicates
-     *          that implementations of this interface are free to
-     *          select an alias applicable to any engine.
-     * @return the alias name for the desired key, or null if there
-     *          are no matches.
+     * @param keyType
+     *            the list of public key algorithm names.
+     * @param issuers
+     *            the list of certificate issuers, or {@code null} if any issuer
+     *            will do.
+     * @param engine
+     *            the {@code SSLEngine} for the connection, or {@code null} if
+     *            no engine is predefined.
+     * @return the alias name of a matching key or {@code null} if there are no
+     *         matches.
      */
     public String chooseEngineClientAlias(String[] keyType,
             Principal[] issuers, SSLEngine engine) {
@@ -70,25 +53,22 @@ public abstract class X509ExtendedKeyManager implements X509KeyManager {
     }
 
     /**
-     * Choose an alias to authenticate the server side of an
-     * <code>SSLEngine</code> connection given the public key type
-     * and the list of certificate issuer authorities recognized by
-     * the peer (if any).
-     * <P>
-     * The default implementation returns null.
+     * Chooses an alias for the server side of an SSL connection to authenticate
+     * it with the specified public key type and certificate issuers.
      *
-     * @param keyType the key algorithm type name.
-     * @param issuers the list of acceptable CA issuer subject names
-     *          or null if it does not matter which issuers are used.
-     * @param engine the <code>SSLEngine</code> to be used for this
-     *          connection.  This parameter can be null, which indicates
-     *          that implementations of this interface are free to
-     *          select an alias applicable to any engine.
-     * @return the alias name for the desired key, or null if there
-     *          are no matches.
+     * @param keyType
+     *            the list of public key algorithm names.
+     * @param issuers
+     *            the list of certificate issuers, or {@code null} if any issuer
+     *            will do.
+     * @param engine
+     *            the {@code SSLEngine} for the connection, or {@code null} if
+     *            no engine is predefined.
+     * @return the alias name of a matching key or {@code null} if there are no
+     *         matches.
      */
-    public String chooseEngineServerAlias(String keyType,
-            Principal[] issuers, SSLEngine engine) {
+    public String chooseEngineServerAlias(String keyType, Principal[] issuers,
+            SSLEngine engine) {
         return null;
     }
 

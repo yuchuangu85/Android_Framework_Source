@@ -19,9 +19,12 @@ import android.annotation.TargetApi;
 import android.databinding.BindingAdapter;
 import android.databinding.BindingMethod;
 import android.databinding.BindingMethods;
+import android.os.Build;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
+import android.widget.RatingBar;
 import android.widget.SearchView;
+import android.widget.SearchView.OnCloseListener;
 import android.widget.SearchView.OnQueryTextListener;
 import android.widget.SearchView.OnSuggestionListener;
 
@@ -31,9 +34,18 @@ import android.widget.SearchView.OnSuggestionListener;
         @BindingMethod(type = SearchView.class, attribute = "android:onClose", method = "setOnCloseListener"),
 })
 public class SearchViewBindingAdapter {
-    @BindingAdapter(value = {"android:onQueryTextSubmit", "android:onQueryTextChange"},
-            requireAll = false)
-    public static void setOnQueryTextListener(SearchView view, final OnQueryTextSubmit submit,
+    @BindingAdapter("android:onQueryTextChange")
+    public static void setListener(SearchView view, OnQueryTextChange listener) {
+        setListener(view, null, listener);
+    }
+
+    @BindingAdapter("android:onQueryTextSubmit")
+    public static void setListener(SearchView view, OnQueryTextSubmit listener) {
+        setListener(view, listener, null);
+    }
+
+    @BindingAdapter({"android:onQueryTextSubmit", "android:onQueryTextChange"})
+    public static void setListener(SearchView view, final OnQueryTextSubmit submit,
             final OnQueryTextChange change) {
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             if (submit == null && change == null){
@@ -62,9 +74,18 @@ public class SearchViewBindingAdapter {
         }
     }
 
-    @BindingAdapter(value = {"android:onSuggestionSelect", "android:onSuggestionClick"},
-            requireAll = false)
-    public static void setOnSuggestListener(SearchView view, final OnSuggestionSelect submit,
+    @BindingAdapter("android:onSuggestionClick")
+    public static void setListener(SearchView view, OnSuggestionClick listener) {
+        setListener(view, null, listener);
+    }
+
+    @BindingAdapter("android:onSuggestionSelect")
+    public static void setListener(SearchView view, OnSuggestionSelect listener) {
+        setListener(view, listener, null);
+    }
+
+    @BindingAdapter({"android:onSuggestionSelect", "android:onSuggestionClick"})
+    public static void setListener(SearchView view, final OnSuggestionSelect submit,
             final OnSuggestionClick change) {
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             if (submit == null && change == null) {

@@ -18,7 +18,7 @@ package com.android.internal.app;
 
 import com.android.internal.R;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
 import android.app.ListFragment;
 import android.app.backup.BackupManager;
@@ -26,7 +26,6 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
-import android.os.LocaleList;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Log;
@@ -46,7 +45,6 @@ import java.util.ArrayList;
 public class LocalePicker extends ListFragment {
     private static final String TAG = "LocalePicker";
     private static final boolean DEBUG = false;
-    private static final String[] pseudoLocales = { "en-XA", "ar-XB" };
 
     public static interface LocaleSelectionListener {
         // You can add any argument if you really need it...
@@ -59,7 +57,7 @@ public class LocalePicker extends ListFragment {
         static final Collator sCollator = Collator.getInstance();
 
         String label;
-        final Locale locale;
+        Locale locale;
 
         public LocaleInfo(String label, Locale locale) {
             this.label = label;
@@ -85,20 +83,18 @@ public class LocalePicker extends ListFragment {
         }
     }
 
-    public static String[] getSystemAssetLocales() {
-        return Resources.getSystem().getAssets().getLocales();
-    }
-
-    public static String[] getSupportedLocales(Context context) {
-        return context.getResources().getStringArray(R.array.supported_locales);
-    }
-
     public static List<LocaleInfo> getAllAssetLocales(Context context, boolean isInDeveloperMode) {
         final Resources resources = context.getResources();
 
-        final String[] locales = getSystemAssetLocales();
+        final String[] locales = Resources.getSystem().getAssets().getLocales();
         List<String> localeList = new ArrayList<String>(locales.length);
         Collections.addAll(localeList, locales);
+
+        // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
+        if (!isInDeveloperMode) {
+            localeList.remove("ar-XB");
+            localeList.remove("en-XA");
+        }
 
         Collections.sort(localeList);
         final String[] specialLocaleCodes = resources.getStringArray(R.array.special_locale_codes);
@@ -109,10 +105,6 @@ public class LocalePicker extends ListFragment {
             final Locale l = Locale.forLanguageTag(locale.replace('_', '-'));
             if (l == null || "und".equals(l.getLanguage())
                     || l.getLanguage().isEmpty() || l.getCountry().isEmpty()) {
-                continue;
-            }
-            // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
-            if (!isInDeveloperMode && LocaleList.isPseudoLocale(l)) {
                 continue;
             }
 
@@ -248,46 +240,20 @@ public class LocalePicker extends ListFragment {
     /**
      * Requests the system to update the system locale. Note that the system looks halted
      * for a while during the Locale migration, so the caller need to take care of it.
-     *
-     * @see #updateLocales(LocaleList)
      */
     public static void updateLocale(Locale locale) {
-        updateLocales(new LocaleList(locale));
-    }
-
-    /**
-     * Requests the system to update the list of system locales.
-     * Note that the system looks halted for a while during the Locale migration,
-     * so the caller need to take care of it.
-     */
-    public static void updateLocales(LocaleList locales) {
         try {
-            final IActivityManager am = ActivityManager.getService();
-            final Configuration config = am.getConfiguration();
+            IActivityManager am = ActivityManagerNative.getDefault();
+            Configuration config = am.getConfiguration();
 
-            config.setLocales(locales);
+            config.setLocale(locale);
             config.userSetLocale = true;
 
-            am.updatePersistentConfiguration(config);
+            am.updateConfiguration(config);
             // Trigger the dirty bit for the Settings Provider.
             BackupManager.dataChanged("com.android.providers.settings");
         } catch (RemoteException e) {
             // Intentionally left blank
-        }
-    }
-
-    /**
-     * Get the locale list.
-     *
-     * @return The locale list.
-     */
-    public static LocaleList getLocales() {
-        try {
-            return ActivityManager.getService()
-                    .getConfiguration().getLocales();
-        } catch (RemoteException e) {
-            // If something went wrong
-            return LocaleList.getDefault();
         }
     }
 }

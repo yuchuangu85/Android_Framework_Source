@@ -18,8 +18,4 @@ package android.databinding.testapp.vo;
 
 public class FindFieldBindingObject {
     public String mPublicField;
-
-    public static class Inner<T> {
-        public static final String HELLO = "Hello";
-    }
 }

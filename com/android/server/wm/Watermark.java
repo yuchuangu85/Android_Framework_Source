@@ -16,8 +16,6 @@
 
 package com.android.server.wm;
 
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
-
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -53,15 +51,15 @@ class Watermark {
     private int mLastDH;
     private boolean mDrawNeeded;
 
-    Watermark(DisplayContent dc, DisplayMetrics dm, String[] tokens) {
+    Watermark(Display display, DisplayMetrics dm, SurfaceSession session, String[] tokens) {
         if (false) {
-            Log.i(TAG_WM, "*********************** WATERMARK");
+            Log.i(WindowManagerService.TAG, "*********************** WATERMARK");
             for (int i=0; i<tokens.length; i++) {
-                Log.i(TAG_WM, "  TOKEN #" + i + ": " + tokens[i]);
+                Log.i(WindowManagerService.TAG, "  TOKEN #" + i + ": " + tokens[i]);
             }
         }
 
-        mDisplay = dc.getDisplay();
+        mDisplay = display;
         mTokens = tokens;
 
         StringBuilder builder = new StringBuilder(32);
@@ -80,7 +78,7 @@ class Watermark {
         }
         mText = builder.toString();
         if (false) {
-            Log.i(TAG_WM, "Final text: " + mText);
+            Log.i(WindowManagerService.TAG, "Final text: " + mText);
         }
 
         int fontSize = WindowManagerService.getPropertyInt(tokens, 1,
@@ -114,11 +112,8 @@ class Watermark {
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = dc.makeOverlay()
-                    .setName("WatermarkSurface")
-                    .setSize(1, 1)
-                    .setFormat(PixelFormat.TRANSLUCENT)
-                    .build();
+            ctrl = new SurfaceControl(session, "WatermarkSurface",
+                    1, 1, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
             ctrl.setLayerStack(mDisplay.getLayerStack());
             ctrl.setLayer(WindowManagerService.TYPE_LAYER_MULTIPLIER*100);
             ctrl.setPosition(0, 0);

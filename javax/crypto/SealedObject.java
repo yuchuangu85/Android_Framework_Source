@@ -1,493 +1,303 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.security.AlgorithmParameters;
-import java.security.Key;
-import java.security.InvalidKeyException;
 import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import libcore.io.IoUtils;
 
 /**
- * This class enables a programmer to create an object and protect its
- * confidentiality with a cryptographic algorithm.
+ * A {@code SealedObject} is a wrapper around a {@code serializable} object
+ * instance and encrypts it using a cryptographic cipher.
  *
- * <p> Given any Serializable object, one can create a SealedObject
- * that encapsulates the original object, in serialized
- * format (i.e., a "deep copy"), and seals (encrypts) its serialized contents,
- * using a cryptographic algorithm such as DES, to protect its
- * confidentiality.  The encrypted content can later be decrypted (with
- * the corresponding algorithm using the correct decryption key) and
- * de-serialized, yielding the original object.
+ * <p>Since a {@code SealedObject} instance is serializable it can
+ * either be stored or transmitted over an insecure channel.
  *
- * <p> Note that the Cipher object must be fully initialized with the
- * correct algorithm, key, padding scheme, etc., before being applied
- * to a SealedObject.
- *
- * <p> The original object that was sealed can be recovered in two different
- * ways:
- *
- * <ul>
- *
- * <li>by using the {@link #getObject(javax.crypto.Cipher) getObject}
- * method that takes a <code>Cipher</code> object.
- *
- * <p> This method requires a fully initialized <code>Cipher</code> object,
- * initialized with the
- * exact same algorithm, key, padding scheme, etc., that were used to seal the
- * object.
- *
- * <p> This approach has the advantage that the party who unseals the
- * sealed object does not require knowledge of the decryption key. For example,
- * after one party has initialized the cipher object with the required
- * decryption key, it could hand over the cipher object to
- * another party who then unseals the sealed object.
- *
- * <li>by using one of the
- * {@link #getObject(java.security.Key) getObject} methods
- * that take a <code>Key</code> object.
- *
- * <p> In this approach, the <code>getObject</code> method creates a cipher
- * object for the appropriate decryption algorithm and initializes it with the
- * given decryption key and the algorithm parameters (if any) that were stored
- * in the sealed object.
- *
- * <p> This approach has the advantage that the party who
- * unseals the object does not need to keep track of the parameters (e.g., an
- * IV) that were used to seal the object.
- *
- * </ul>
- *
- * @author Li Gong
- * @author Jan Luehe
- * @see Cipher
- * @since 1.4
+ * <p>The wrapped object can later be decrypted (unsealed) using the corresponding
+ * key and then be deserialized to retrieve the original object. The sealed
+ * object itself keeps track of the cipher and corresponding parameters.
  */
-
 public class SealedObject implements Serializable {
 
-    static final long serialVersionUID = 4482838265551344752L;
+    private static final long serialVersionUID = 4482838265551344752L;
 
     /**
-     * The serialized object contents in encrypted format.
-     *
-     * @serial
+     * The cipher's {@link AlgorithmParameters} in encoded format.
+     * Equivalent to {@code cipher.getParameters().getEncoded()},
+     * or null if the cipher did not use any parameters.
      */
-    private byte[] encryptedContent = null;
+    protected byte[] encodedParams;
 
-    /**
-     * The algorithm that was used to seal this object.
-     *
-     * @serial
-     */
-    private String sealAlg = null;
+    private byte[] encryptedContent;
+    private String sealAlg;
+    private String paramsAlg;
 
-    /**
-     * The algorithm of the parameters used.
-     *
-     * @serial
-     */
-    private String paramsAlg = null;
+    private void readObject(ObjectInputStream s) throws IOException, ClassNotFoundException {
+        // This implementation is based on the latest recommendations for safe deserialization at
+        // the time of writing. See the Serialization spec section A.6.
+        ObjectInputStream.GetField fields = s.readFields();
 
-    /**
-     * The cryptographic parameters used by the sealing Cipher,
-     * encoded in the default format.
-     * <p>
-     * That is, <code>cipher.getParameters().getEncoded()</code>.
-     *
-     * @serial
-     */
-    protected byte[] encodedParams = null;
+        // The mutable byte arrays are cloned and the immutable strings are not.
+        this.encodedParams = getSafeCopy(fields, "encodedParams");
+        this.encryptedContent = getSafeCopy(fields, "encryptedContent");
+        this.paramsAlg = (String) fields.get("paramsAlg", null);
+        this.sealAlg = (String) fields.get("sealAlg", null);
+    }
 
-    /**
-     * Constructs a SealedObject from any Serializable object.
-     *
-     * <p>The given object is serialized, and its serialized contents are
-     * encrypted using the given Cipher, which must be fully initialized.
-     *
-     * <p>Any algorithm parameters that may be used in the encryption
-     * operation are stored inside of the new <code>SealedObject</code>.
-     *
-     * @param object the object to be sealed; can be null.
-     * @param c the cipher used to seal the object.
-     *
-     * @exception NullPointerException if the given cipher is null.
-     * @exception IOException if an error occurs during serialization
-     * @exception IllegalBlockSizeException if the given cipher is a block
-     * cipher, no padding has been requested, and the total input length
-     * (i.e., the length of the serialized object contents) is not a multiple
-     * of the cipher's block size
-     */
-    public SealedObject(Serializable object, Cipher c) throws IOException,
-        IllegalBlockSizeException
-    {
-        /*
-         * Serialize the object
-         */
-
-        // creating a stream pipe-line, from a to b
-        ByteArrayOutputStream b = new ByteArrayOutputStream();
-        ObjectOutput a = new ObjectOutputStream(b);
-        byte[] content;
-        try {
-            // write and flush the object content to byte array
-            a.writeObject(object);
-            a.flush();
-            content = b.toByteArray();
-        } finally {
-            a.close();
-        }
-
-        /*
-         * Seal the object
-         */
-        try {
-            this.encryptedContent = c.doFinal(content);
-        }
-        catch (BadPaddingException ex) {
-            // if sealing is encryption only
-            // Should never happen??
-        }
-
-        // Save the parameters
-        if (c.getParameters() != null) {
-            this.encodedParams = c.getParameters().getEncoded();
-            this.paramsAlg = c.getParameters().getAlgorithm();
-        }
-
-        // Save the encryption algorithm
-        this.sealAlg = c.getAlgorithm();
+    private static byte[] getSafeCopy(ObjectInputStream.GetField fields, String fieldName)
+            throws IOException {
+        byte[] fieldValue = (byte[]) fields.get(fieldName, null);
+        return fieldValue != null ? fieldValue.clone() : null;
     }
 
     /**
-     * Constructs a SealedObject object from the passed-in SealedObject.
+     * Creates a new {@code SealedObject} instance wrapping the specified object
+     * and sealing it using the specified cipher.
+     * <p>
+     * The cipher must be fully initialized.
      *
-     * @param so a SealedObject object
-     * @exception NullPointerException if the given sealed object is null.
+     * @param object
+     *            the object to seal, can be {@code null}.
+     * @param c
+     *            the cipher to encrypt the object.
+     * @throws IOException
+     *             if the serialization fails.
+     * @throws IllegalBlockSizeException
+     *             if the specified cipher is a block cipher and the length of
+     *             the serialized data is not a multiple of the ciphers block
+     *             size.
+     * @throws NullPointerException
+     *             if the cipher is {@code null}.
+     */
+    public SealedObject(Serializable object, Cipher c)
+            throws IOException, IllegalBlockSizeException {
+        if (c == null) {
+            throw new NullPointerException("c == null");
+        }
+        ObjectOutputStream oos = null;
+        try {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            oos = new ObjectOutputStream(bos);
+            oos.writeObject(object);
+            oos.flush();
+            AlgorithmParameters ap = c.getParameters();
+            this.encodedParams = (ap == null) ? null : ap.getEncoded();
+            this.paramsAlg = (ap == null) ? null : ap.getAlgorithm();
+            this.sealAlg = c.getAlgorithm();
+            this.encryptedContent = c.doFinal(bos.toByteArray());
+        } catch (BadPaddingException e) {
+            // should be never thrown because the cipher
+            // should be initialized for encryption
+            throw new IOException(e.toString());
+        } finally {
+            IoUtils.closeQuietly(oos);
+        }
+    }
+
+    /**
+     * Creates a new {@code SealedObject} instance by copying the data from
+     * the specified object.
+     *
+     * @param so
+     *            the object to copy.
      */
     protected SealedObject(SealedObject so) {
-        this.encryptedContent = so.encryptedContent.clone();
+        if (so == null) {
+            throw new NullPointerException("so == null");
+        }
+        // For safety: clone the mutable arrays so that each object has its own independent copy of
+        // the data.
+        this.encryptedContent = so.encryptedContent != null ? so.encryptedContent.clone() : null;
+        this.encodedParams = so.encodedParams != null ? so.encodedParams.clone() : null;
         this.sealAlg = so.sealAlg;
         this.paramsAlg = so.paramsAlg;
-        if (so.encodedParams != null) {
-            this.encodedParams = so.encodedParams.clone();
-        } else {
-            this.encodedParams = null;
-        }
     }
 
     /**
-     * Returns the algorithm that was used to seal this object.
+     * Returns the algorithm this object was sealed with.
      *
-     * @return the algorithm that was used to seal this object.
+     * @return the algorithm this object was sealed with.
      */
     public final String getAlgorithm() {
-        return this.sealAlg;
+        return sealAlg;
     }
 
     /**
-     * Retrieves the original (encapsulated) object.
+     * Returns the wrapped object, decrypting it using the specified key.
      *
-     * <p>This method creates a cipher for the algorithm that had been used in
-     * the sealing operation.
-     * If the default provider package provides an implementation of that
-     * algorithm, an instance of Cipher containing that implementation is used.
-     * If the algorithm is not available in the default package, other
-     * packages are searched.
-     * The Cipher object is initialized for decryption, using the given
-     * <code>key</code> and the parameters (if any) that had been used in the
-     * sealing operation.
-     *
-     * <p>The encapsulated object is unsealed and de-serialized, before it is
-     * returned.
-     *
-     * @param key the key used to unseal the object.
-     *
-     * @return the original object.
-     *
-     * @exception IOException if an error occurs during de-serialiazation.
-     * @exception ClassNotFoundException if an error occurs during
-     * de-serialiazation.
-     * @exception NoSuchAlgorithmException if the algorithm to unseal the
-     * object is not available.
-     * @exception InvalidKeyException if the given key cannot be used to unseal
-     * the object (e.g., it has the wrong algorithm).
-     * @exception NullPointerException if <code>key</code> is null.
+     * @param key
+     *            the key to decrypt the data with.
+     * @return the encapsulated object.
+     * @throws IOException
+     *             if deserialization fails.
+     * @throws ClassNotFoundException
+     *             if deserialization fails.
+     * @throws NoSuchAlgorithmException
+     *             if the algorithm to decrypt the data is not available.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to decrypt the data.
      */
     public final Object getObject(Key key)
-        throws IOException, ClassNotFoundException, NoSuchAlgorithmException,
-            InvalidKeyException
-    {
+                throws IOException, ClassNotFoundException,
+                       NoSuchAlgorithmException, InvalidKeyException {
         if (key == null) {
-            throw new NullPointerException("key is null");
+            throw new InvalidKeyException("key == null");
         }
-
         try {
-            return unseal(key, null);
-        } catch (NoSuchProviderException nspe) {
-            // we've already caught NoSuchProviderException's and converted
-            // them into NoSuchAlgorithmException's with details about
-            // the failing algorithm
-            throw new NoSuchAlgorithmException("algorithm not found");
-        } catch (IllegalBlockSizeException ibse) {
-            throw new InvalidKeyException(ibse.getMessage());
-        } catch (BadPaddingException bpe) {
-            throw new InvalidKeyException(bpe.getMessage());
+            Cipher cipher = Cipher.getInstance(sealAlg);
+            if ((paramsAlg != null) && (paramsAlg.length() != 0)) {
+                AlgorithmParameters params = AlgorithmParameters.getInstance(paramsAlg);
+                params.init(encodedParams);
+                cipher.init(Cipher.DECRYPT_MODE, key, params);
+            } else {
+                cipher.init(Cipher.DECRYPT_MODE, key);
+            }
+            byte[] serialized = cipher.doFinal(encryptedContent);
+            return readSerialized(serialized);
+        } catch (NoSuchPaddingException e)  {
+            // should not be thrown because cipher text was made
+            // with existing padding
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (InvalidAlgorithmParameterException e) {
+            // should not be thrown because cipher text was made
+            // with correct algorithm parameters
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (IllegalBlockSizeException e) {
+            // should not be thrown because the cipher text
+            // was correctly made
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (BadPaddingException e) {
+            // should not be thrown because the cipher text
+            // was correctly made
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (IllegalStateException e) {
+            // should never be thrown because cipher is initialized
+            throw new NoSuchAlgorithmException(e.toString());
         }
     }
 
     /**
-     * Retrieves the original (encapsulated) object.
+     * Returns the wrapped object, decrypting it using the specified
+     * cipher.
      *
-     * <p>The encapsulated object is unsealed (using the given Cipher,
-     * assuming that the Cipher is already properly initialized) and
-     * de-serialized, before it is returned.
-     *
-     * @param c the cipher used to unseal the object
-     *
-     * @return the original object.
-     *
-     * @exception NullPointerException if the given cipher is null.
-     * @exception IOException if an error occurs during de-serialiazation
-     * @exception ClassNotFoundException if an error occurs during
-     * de-serialiazation
-     * @exception IllegalBlockSizeException if the given cipher is a block
-     * cipher, no padding has been requested, and the total input length is
-     * not a multiple of the cipher's block size
-     * @exception BadPaddingException if the given cipher has been
-     * initialized for decryption, and padding has been specified, but
-     * the input data does not have proper expected padding bytes
+     * @param c
+     *            the cipher to decrypt the data.
+     * @return the encapsulated object.
+     * @throws IOException
+     *             if deserialization fails.
+     * @throws ClassNotFoundException
+     *             if deserialization fails.
+     * @throws IllegalBlockSizeException
+     *             if the specified cipher is a block cipher and the length of
+     *             the serialized data is not a multiple of the ciphers block
+     *             size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
      */
     public final Object getObject(Cipher c)
-        throws IOException, ClassNotFoundException, IllegalBlockSizeException,
-            BadPaddingException
-    {
-        /*
-         * Unseal the object
-         */
-        byte[] content = c.doFinal(this.encryptedContent);
-
-        /*
-         * De-serialize it
-         */
-        // creating a stream pipe-line, from b to a
-        ByteArrayInputStream b = new ByteArrayInputStream(content);
-        ObjectInput a = new extObjectInputStream(b);
-        try {
-            Object obj = a.readObject();
-            return obj;
-        } finally {
-            a.close();
+                throws IOException, ClassNotFoundException,
+                       IllegalBlockSizeException, BadPaddingException {
+        if (c == null) {
+            throw new NullPointerException("c == null");
         }
+        byte[] serialized = c.doFinal(encryptedContent);
+        return readSerialized(serialized);
     }
 
     /**
-     * Retrieves the original (encapsulated) object.
+     * Returns the wrapped object, decrypting it using the specified key. The
+     * specified provider is used to retrieve the cipher algorithm.
      *
-     * <p>This method creates a cipher for the algorithm that had been used in
-     * the sealing operation, using an implementation of that algorithm from
-     * the given <code>provider</code>.
-     * The Cipher object is initialized for decryption, using the given
-     * <code>key</code> and the parameters (if any) that had been used in the
-     * sealing operation.
-     *
-     * <p>The encapsulated object is unsealed and de-serialized, before it is
-     * returned.
-     *
-     * @param key the key used to unseal the object.
-     * @param provider the name of the provider of the algorithm to unseal
-     * the object.
-     *
-     * @return the original object.
-     *
-     * @exception IllegalArgumentException if the given provider is null
-     * or empty.
-     * @exception IOException if an error occurs during de-serialiazation.
-     * @exception ClassNotFoundException if an error occurs during
-     * de-serialiazation.
-     * @exception NoSuchAlgorithmException if the algorithm to unseal the
-     * object is not available.
-     * @exception NoSuchProviderException if the given provider is not
-     * configured.
-     * @exception InvalidKeyException if the given key cannot be used to unseal
-     * the object (e.g., it has the wrong algorithm).
-     * @exception NullPointerException if <code>key</code> is null.
+     * @param key
+     *            the key to decrypt the data.
+     * @param provider
+     *            the name of the provider that provides the cipher algorithm.
+     * @return the encapsulated object.
+     * @throws IOException
+     *             if deserialization fails.
+     * @throws ClassNotFoundException
+     *             if deserialization fails.
+     * @throws NoSuchAlgorithmException
+     *             if the algorithm used to decrypt the data is not available.
+     * @throws NoSuchProviderException
+     *             if the specified provider is not available.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to decrypt the data.
      */
     public final Object getObject(Key key, String provider)
-        throws IOException, ClassNotFoundException, NoSuchAlgorithmException,
-            NoSuchProviderException, InvalidKeyException
-    {
-        if (key == null) {
-            throw new NullPointerException("key is null");
+                throws IOException, ClassNotFoundException,
+                       NoSuchAlgorithmException, NoSuchProviderException,
+                       InvalidKeyException {
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("provider name empty or null");
         }
-        if (provider == null || provider.length() == 0) {
-            throw new IllegalArgumentException("missing provider");
-        }
-
         try {
-            return unseal(key, provider);
-        } catch (IllegalBlockSizeException | BadPaddingException ex) {
-            throw new InvalidKeyException(ex.getMessage());
-        }
-    }
-
-
-    private Object unseal(Key key, String provider)
-        throws IOException, ClassNotFoundException, NoSuchAlgorithmException,
-            NoSuchProviderException, InvalidKeyException,
-            IllegalBlockSizeException, BadPaddingException
-    {
-        /*
-         * Create the parameter object.
-         */
-        AlgorithmParameters params = null;
-        if (this.encodedParams != null) {
-            try {
-                if (provider != null)
-                    params = AlgorithmParameters.getInstance(this.paramsAlg,
-                                                             provider);
-                else
-                    params = AlgorithmParameters.getInstance(this.paramsAlg);
-
-            } catch (NoSuchProviderException nspe) {
-                if (provider == null) {
-                    throw new NoSuchAlgorithmException(this.paramsAlg
-                                                       + " not found");
-                } else {
-                    throw new NoSuchProviderException(nspe.getMessage());
-                }
-            }
-            params.init(this.encodedParams);
-        }
-
-        /*
-         * Create and initialize the cipher.
-         */
-        Cipher c;
-        try {
-            if (provider != null)
-                c = Cipher.getInstance(this.sealAlg, provider);
-            else
-                c = Cipher.getInstance(this.sealAlg);
-        } catch (NoSuchPaddingException nspe) {
-            throw new NoSuchAlgorithmException("Padding that was used in "
-                                               + "sealing operation not "
-                                               + "available");
-        } catch (NoSuchProviderException nspe) {
-            if (provider == null) {
-                throw new NoSuchAlgorithmException(this.sealAlg+" not found");
+            Cipher cipher = Cipher.getInstance(sealAlg, provider);
+            if ((paramsAlg != null) && (paramsAlg.length() != 0)) {
+                AlgorithmParameters params = AlgorithmParameters.getInstance(paramsAlg);
+                params.init(encodedParams);
+                cipher.init(Cipher.DECRYPT_MODE, key, params);
             } else {
-                throw new NoSuchProviderException(nspe.getMessage());
+                cipher.init(Cipher.DECRYPT_MODE, key);
             }
+            byte[] serialized = cipher.doFinal(encryptedContent);
+            return readSerialized(serialized);
+        } catch (NoSuchPaddingException e)  {
+            // should not be thrown because cipher text was made
+            // with existing padding
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (InvalidAlgorithmParameterException e) {
+            // should not be thrown because cipher text was made
+            // with correct algorithm parameters
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (IllegalBlockSizeException e) {
+            // should not be thrown because the cipher text
+            // was correctly made
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (BadPaddingException e) {
+            // should not be thrown because the cipher text
+            // was correctly made
+            throw new NoSuchAlgorithmException(e.toString());
+        } catch (IllegalStateException  e) {
+            // should never be thrown because cipher is initialized
+            throw new NoSuchAlgorithmException(e.toString());
         }
+    }
 
+    private static Object readSerialized(byte[] serialized)
+            throws IOException, ClassNotFoundException {
+        ObjectInputStream ois = null;
         try {
-            if (params != null)
-                c.init(Cipher.DECRYPT_MODE, key, params);
-            else
-                c.init(Cipher.DECRYPT_MODE, key);
-        } catch (InvalidAlgorithmParameterException iape) {
-            // this should never happen, because we use the exact same
-            // parameters that were used in the sealing operation
-            throw new RuntimeException(iape.getMessage());
-        }
-
-        /*
-         * Unseal the object
-         */
-        byte[] content = c.doFinal(this.encryptedContent);
-
-        /*
-         * De-serialize it
-         */
-        // creating a stream pipe-line, from b to a
-        ByteArrayInputStream b = new ByteArrayInputStream(content);
-        ObjectInput a = new extObjectInputStream(b);
-        try {
-            Object obj = a.readObject();
-            return obj;
+            ois = new ObjectInputStream(new ByteArrayInputStream(serialized));
+            return ois.readObject();
         } finally {
-            a.close();
-        }
-    }
-
-    /**
-     * Restores the state of the SealedObject from a stream.
-     * @param s the object input stream.
-     * @exception NullPointerException if s is null.
-     */
-    private void readObject(java.io.ObjectInputStream s)
-        throws java.io.IOException, ClassNotFoundException
-    {
-        s.defaultReadObject();
-        if (encryptedContent != null)
-            encryptedContent = encryptedContent.clone();
-        if (encodedParams != null)
-            encodedParams = encodedParams.clone();
-    }
-}
-
-final class extObjectInputStream extends ObjectInputStream {
-
-    private static ClassLoader systemClassLoader = null;
-
-    extObjectInputStream(InputStream in)
-        throws IOException, StreamCorruptedException {
-        super(in);
-    }
-
-    protected Class<?> resolveClass(ObjectStreamClass v)
-        throws IOException, ClassNotFoundException
-    {
-
-        try {
-            /*
-             * Calling the super.resolveClass() first
-             * will let us pick up bug fixes in the super
-             * class (e.g., 4171142).
-             */
-            return super.resolveClass(v);
-        } catch (ClassNotFoundException cnfe) {
-            /*
-             * This is a workaround for bug 4224921.
-             */
-            ClassLoader loader = Thread.currentThread().getContextClassLoader();
-            if (loader == null) {
-                if (systemClassLoader == null) {
-                    systemClassLoader = ClassLoader.getSystemClassLoader();
-                }
-                loader = systemClassLoader;
-                if (loader == null) {
-                    throw new ClassNotFoundException(v.getName());
-                }
-            }
-
-            return Class.forName(v.getName(), false, loader);
+            IoUtils.closeQuietly(ois);
         }
     }
 }

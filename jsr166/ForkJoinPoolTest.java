@@ -40,7 +40,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ForkJoinPoolTest.class);
+    //     return new TestSuite(...);
     // }
 
     /*
@@ -68,12 +68,10 @@ public class ForkJoinPoolTest extends JSR166TestCase {
         }
     }
 
-    static class MyError extends Error {}
-
     // to test handlers
     static class FailingFJWSubclass extends ForkJoinWorkerThread {
         public FailingFJWSubclass(ForkJoinPool p) { super(p) ; }
-        protected void onStart() { super.onStart(); throw new MyError(); }
+        protected void onStart() { super.onStart(); throw new Error(); }
     }
 
     static class FailingThreadFactory
@@ -168,7 +166,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testDefaultInitialState() {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             assertSame(ForkJoinPool.defaultForkJoinWorkerThreadFactory,
                        p.getFactory());
             assertFalse(p.getAsyncMode());
@@ -180,6 +178,8 @@ public class ForkJoinPoolTest extends JSR166TestCase {
             assertFalse(p.isShutdown());
             assertFalse(p.isTerminating());
             assertFalse(p.isTerminated());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -208,8 +208,10 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testGetParallelism() {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             assertEquals(1, p.getParallelism());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -217,26 +219,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      * getPoolSize returns number of started workers.
      */
     public void testGetPoolSize() {
-        final CountDownLatch taskStarted = new CountDownLatch(1);
-        final CountDownLatch done = new CountDownLatch(1);
-        final ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        ForkJoinPool p = new ForkJoinPool(1);
+        try {
             assertEquals(0, p.getActiveThreadCount());
-            final Runnable task = new CheckedRunnable() {
-                public void realRun() throws InterruptedException {
-                    taskStarted.countDown();
-                    assertEquals(1, p.getPoolSize());
-                    assertEquals(1, p.getActiveThreadCount());
-                    done.await();
-                }};
-            Future<?> future = p.submit(task);
-            await(taskStarted);
+            Future<String> future = p.submit(new StringTask());
             assertEquals(1, p.getPoolSize());
-            assertEquals(1, p.getActiveThreadCount());
-            done.countDown();
+        } finally {
+            joinPool(p);
         }
-        assertEquals(0, p.getPoolSize());
-        assertEquals(0, p.getActiveThreadCount());
     }
 
     /**
@@ -244,28 +234,26 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testAwaitTermination_timesOut() throws InterruptedException {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
-            assertFalse(p.isTerminated());
-            assertFalse(p.awaitTermination(Long.MIN_VALUE, NANOSECONDS));
-            assertFalse(p.awaitTermination(Long.MIN_VALUE, MILLISECONDS));
-            assertFalse(p.awaitTermination(-1L, NANOSECONDS));
-            assertFalse(p.awaitTermination(-1L, MILLISECONDS));
-            assertFalse(p.awaitTermination(0L, NANOSECONDS));
-            assertFalse(p.awaitTermination(0L, MILLISECONDS));
-            long timeoutNanos = 999999L;
-            long startTime = System.nanoTime();
-            assertFalse(p.awaitTermination(timeoutNanos, NANOSECONDS));
-            assertTrue(System.nanoTime() - startTime >= timeoutNanos);
-            assertFalse(p.isTerminated());
-            startTime = System.nanoTime();
-            long timeoutMillis = timeoutMillis();
-            assertFalse(p.awaitTermination(timeoutMillis, MILLISECONDS));
-            assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
-            assertFalse(p.isTerminated());
-            p.shutdown();
-            assertTrue(p.awaitTermination(LONG_DELAY_MS, MILLISECONDS));
-            assertTrue(p.isTerminated());
-        }
+        assertFalse(p.isTerminated());
+        assertFalse(p.awaitTermination(Long.MIN_VALUE, NANOSECONDS));
+        assertFalse(p.awaitTermination(Long.MIN_VALUE, MILLISECONDS));
+        assertFalse(p.awaitTermination(-1L, NANOSECONDS));
+        assertFalse(p.awaitTermination(-1L, MILLISECONDS));
+        assertFalse(p.awaitTermination(0L, NANOSECONDS));
+        assertFalse(p.awaitTermination(0L, MILLISECONDS));
+        long timeoutNanos = 999999L;
+        long startTime = System.nanoTime();
+        assertFalse(p.awaitTermination(timeoutNanos, NANOSECONDS));
+        assertTrue(System.nanoTime() - startTime >= timeoutNanos);
+        assertFalse(p.isTerminated());
+        startTime = System.nanoTime();
+        long timeoutMillis = timeoutMillis();
+        assertFalse(p.awaitTermination(timeoutMillis, MILLISECONDS));
+        assertTrue(millisElapsedSince(startTime) >= timeoutMillis);
+        assertFalse(p.isTerminated());
+        p.shutdown();
+        assertTrue(p.awaitTermination(LONG_DELAY_MS, MILLISECONDS));
+        assertTrue(p.isTerminated());
     }
 
     /**
@@ -276,23 +264,23 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSetUncaughtExceptionHandler() throws InterruptedException {
         final CountDownLatch uehInvoked = new CountDownLatch(1);
-        final Thread.UncaughtExceptionHandler ueh =
+        final Thread.UncaughtExceptionHandler eh =
             new Thread.UncaughtExceptionHandler() {
                 public void uncaughtException(Thread t, Throwable e) {
-                    threadAssertTrue(e instanceof MyError);
-                    threadAssertTrue(t instanceof FailingFJWSubclass);
                     uehInvoked.countDown();
                 }};
         ForkJoinPool p = new ForkJoinPool(1, new FailingThreadFactory(),
-                                          ueh, false);
-        try (PoolCleaner cleaner = cleaner(p)) {
-            assertSame(ueh, p.getUncaughtExceptionHandler());
+                                          eh, false);
+        try {
+            assertSame(eh, p.getUncaughtExceptionHandler());
             try {
                 p.execute(new FibTask(8));
-                await(uehInvoked);
-            } finally {
-                p.shutdownNow(); // failure might have prevented processing task
+                assertTrue(uehInvoked.await(MEDIUM_DELAY_MS, MILLISECONDS));
+            } catch (RejectedExecutionException ok) {
             }
+        } finally {
+            p.shutdownNow(); // failure might have prevented processing task
+            joinPool(p);
         }
     }
 
@@ -304,7 +292,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testIsQuiescent() throws Exception {
         ForkJoinPool p = new ForkJoinPool(2);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             assertTrue(p.isQuiescent());
             long startTime = System.nanoTime();
             FibTask f = new FibTask(20);
@@ -323,18 +311,17 @@ public class ForkJoinPoolTest extends JSR166TestCase {
 
             assertTrue(p.isQuiescent());
             assertFalse(p.getAsyncMode());
+            assertEquals(0, p.getActiveThreadCount());
             assertEquals(0, p.getQueuedTaskCount());
             assertEquals(0, p.getQueuedSubmissionCount());
             assertFalse(p.hasQueuedSubmissions());
-            while (p.getActiveThreadCount() != 0
-                   && millisElapsedSince(startTime) < LONG_DELAY_MS)
-                Thread.yield();
             assertFalse(p.isShutdown());
             assertFalse(p.isTerminating());
             assertFalse(p.isTerminated());
             assertTrue(f.isDone());
             assertEquals(6765, (int) f.get());
-            assertTrue(millisElapsedSince(startTime) < LONG_DELAY_MS);
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -343,9 +330,11 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitForkJoinTask() throws Throwable {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             ForkJoinTask<Integer> f = p.submit(new FibTask(8));
             assertEquals(21, (int) f.get());
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -354,13 +343,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitAfterShutdown() {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             p.shutdown();
             assertTrue(p.isShutdown());
             try {
                 ForkJoinTask<Integer> f = p.submit(new FibTask(8));
                 shouldThrow();
             } catch (RejectedExecutionException success) {}
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -386,14 +377,16 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     public void testPollSubmission() {
         final CountDownLatch done = new CountDownLatch(1);
         SubFJP p = new SubFJP();
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             ForkJoinTask a = p.submit(awaiter(done));
             ForkJoinTask b = p.submit(awaiter(done));
             ForkJoinTask c = p.submit(awaiter(done));
             ForkJoinTask r = p.pollSubmission();
             assertTrue(r == a || r == b || r == c);
             assertFalse(r.isDone());
+        } finally {
             done.countDown();
+            joinPool(p);
         }
     }
 
@@ -403,7 +396,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     public void testDrainTasksTo() {
         final CountDownLatch done = new CountDownLatch(1);
         SubFJP p = new SubFJP();
-        try (PoolCleaner cleaner = cleaner(p)) {
+        try {
             ForkJoinTask a = p.submit(awaiter(done));
             ForkJoinTask b = p.submit(awaiter(done));
             ForkJoinTask c = p.submit(awaiter(done));
@@ -414,7 +407,9 @@ public class ForkJoinPoolTest extends JSR166TestCase {
                 assertTrue(r == a || r == b || r == c);
                 assertFalse(r.isDone());
             }
+        } finally {
             done.countDown();
+            joinPool(p);
         }
     }
 
@@ -425,7 +420,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testExecuteRunnable() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             final AtomicBoolean done = new AtomicBoolean(false);
             Future<?> future = e.submit(new CheckedRunnable() {
                 public void realRun() {
@@ -436,6 +431,8 @@ public class ForkJoinPoolTest extends JSR166TestCase {
             assertTrue(done.get());
             assertTrue(future.isDone());
             assertFalse(future.isCancelled());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -444,11 +441,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitCallable() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             Future<String> future = e.submit(new StringTask());
             assertSame(TEST_STRING, future.get());
             assertTrue(future.isDone());
             assertFalse(future.isCancelled());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -457,11 +456,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitRunnable() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             Future<?> future = e.submit(new NoOpRunnable());
             assertNull(future.get());
             assertTrue(future.isDone());
             assertFalse(future.isCancelled());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -470,11 +471,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitRunnable2() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             Future<String> future = e.submit(new NoOpRunnable(), TEST_STRING);
             assertSame(TEST_STRING, future.get());
             assertTrue(future.isDone());
             assertFalse(future.isCancelled());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -487,9 +490,11 @@ public class ForkJoinPoolTest extends JSR166TestCase {
         Runnable r = new CheckedRunnable() {
         public void realRun() throws Exception {
             ExecutorService e = new ForkJoinPool(1);
-            try (PoolCleaner cleaner = cleaner(e)) {
+            try {
                 Future future = e.submit(callable);
                 assertSame(TEST_STRING, future.get());
+            } finally {
+                joinPool(e);
             }
         }};
 
@@ -506,9 +511,11 @@ public class ForkJoinPoolTest extends JSR166TestCase {
         Runnable r = new CheckedRunnable() {
         public void realRun() throws Exception {
             ExecutorService e = new ForkJoinPool(1);
-            try (PoolCleaner cleaner = cleaner(e)) {
+            try {
                 Future future = e.submit(callable);
                 assertSame(TEST_STRING, future.get());
+            } finally {
+                joinPool(e);
             }
         }};
 
@@ -525,7 +532,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
         Runnable r = new CheckedRunnable() {
         public void realRun() throws Exception {
             ExecutorService e = new ForkJoinPool(1);
-            try (PoolCleaner cleaner = cleaner(e)) {
+            try {
                 Future future = e.submit(callable);
                 try {
                     future.get();
@@ -533,6 +540,8 @@ public class ForkJoinPoolTest extends JSR166TestCase {
                 } catch (ExecutionException success) {
                     assertTrue(success.getCause() instanceof IndexOutOfBoundsException);
                 }
+            } finally {
+                joinPool(e);
             }
         }};
 
@@ -544,11 +553,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testExecuteNullRunnable() {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                Future<?> future = e.submit((Runnable) null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            Future<?> future = e.submit((Runnable) null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -557,11 +567,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitNullCallable() {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                Future<String> future = e.submit((Callable) null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            Future<String> future = e.submit((Callable) null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -571,13 +582,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     public void testInterruptedSubmit() throws InterruptedException {
         final CountDownLatch submitted    = new CountDownLatch(1);
         final CountDownLatch quittingTime = new CountDownLatch(1);
+        final ExecutorService p = new ForkJoinPool(1);
         final Callable<Void> awaiter = new CheckedCallable<Void>() {
             public Void realCall() throws InterruptedException {
-                assertTrue(quittingTime.await(2*LONG_DELAY_MS, MILLISECONDS));
+                assertTrue(quittingTime.await(MEDIUM_DELAY_MS, MILLISECONDS));
                 return null;
             }};
-        final ExecutorService p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p, quittingTime)) {
+        try {
             Thread t = new Thread(new CheckedInterruptedRunnable() {
                 public void realRun() throws Exception {
                     Future<Void> future = p.submit(awaiter);
@@ -585,9 +596,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
                     future.get();
                 }});
             t.start();
-            await(submitted);
+            assertTrue(submitted.await(MEDIUM_DELAY_MS, MILLISECONDS));
             t.interrupt();
-            awaitTermination(t);
+            t.join();
+        } finally {
+            quittingTime.countDown();
+            joinPool(p);
         }
     }
 
@@ -597,15 +611,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testSubmitEE() throws Throwable {
         ForkJoinPool p = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(p)) {
-            try {
-                p.submit(new Callable() {
-                        public Object call() { throw new ArithmeticException(); }})
-                    .get();
-                shouldThrow();
-            } catch (ExecutionException success) {
-                assertTrue(success.getCause() instanceof ArithmeticException);
-            }
+        try {
+            p.submit(new Callable() {
+                public Object call() { throw new ArithmeticException(); }})
+                .get();
+            shouldThrow();
+        } catch (ExecutionException success) {
+            assertTrue(success.getCause() instanceof ArithmeticException);
+        } finally {
+            joinPool(p);
         }
     }
 
@@ -614,11 +628,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAny1() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAny(null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            e.invokeAny(null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -627,11 +642,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAny2() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAny(new ArrayList<Callable<String>>());
-                shouldThrow();
-            } catch (IllegalArgumentException success) {}
+        try {
+            e.invokeAny(new ArrayList<Callable<String>>());
+            shouldThrow();
+        } catch (IllegalArgumentException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -640,13 +656,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAny3() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(null);
-            try {
-                e.invokeAny(l);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(null);
+        try {
+            e.invokeAny(l);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -656,15 +673,16 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     public void testInvokeAny4() throws Throwable {
         CountDownLatch latch = new CountDownLatch(1);
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(latchAwaitingStringTask(latch));
-            l.add(null);
-            try {
-                e.invokeAny(l);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(latchAwaitingStringTask(latch));
+        l.add(null);
+        try {
+            e.invokeAny(l);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
             latch.countDown();
+            joinPool(e);
         }
     }
 
@@ -673,15 +691,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAny5() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new NPETask());
-            try {
-                e.invokeAny(l);
-                shouldThrow();
-            } catch (ExecutionException success) {
-                assertTrue(success.getCause() instanceof NullPointerException);
-            }
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new NPETask());
+        try {
+            e.invokeAny(l);
+            shouldThrow();
+        } catch (ExecutionException success) {
+            assertTrue(success.getCause() instanceof NullPointerException);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -690,12 +708,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAny6() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             List<Callable<String>> l = new ArrayList<Callable<String>>();
             l.add(new StringTask());
             l.add(new StringTask());
             String result = e.invokeAny(l);
             assertSame(TEST_STRING, result);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -704,11 +724,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAll1() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAll(null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            e.invokeAll(null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -717,10 +738,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAll2() throws InterruptedException {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             List<Future<String>> r
                 = e.invokeAll(new ArrayList<Callable<String>>());
             assertTrue(r.isEmpty());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -729,14 +752,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAll3() throws InterruptedException {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new StringTask());
-            l.add(null);
-            try {
-                e.invokeAll(l);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new StringTask());
+        l.add(null);
+        try {
+            e.invokeAll(l);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -746,17 +770,17 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAll4() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new NPETask());
-            List<Future<String>> futures = e.invokeAll(l);
-            assertEquals(1, futures.size());
-            try {
-                futures.get(0).get();
-                shouldThrow();
-            } catch (ExecutionException success) {
-                assertTrue(success.getCause() instanceof NullPointerException);
-            }
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new NPETask());
+        List<Future<String>> futures = e.invokeAll(l);
+        assertEquals(1, futures.size());
+        try {
+            futures.get(0).get();
+            shouldThrow();
+        } catch (ExecutionException success) {
+            assertTrue(success.getCause() instanceof NullPointerException);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -765,7 +789,7 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testInvokeAll5() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             List<Callable<String>> l = new ArrayList<Callable<String>>();
             l.add(new StringTask());
             l.add(new StringTask());
@@ -773,6 +797,8 @@ public class ForkJoinPoolTest extends JSR166TestCase {
             assertEquals(2, futures.size());
             for (Future<String> future : futures)
                 assertSame(TEST_STRING, future.get());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -781,11 +807,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAny1() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAny(null, MEDIUM_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            e.invokeAny(null, MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -794,13 +821,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAnyNullTimeUnit() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new StringTask());
-            try {
-                e.invokeAny(l, MEDIUM_DELAY_MS, null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new StringTask());
+        try {
+            e.invokeAny(l, MEDIUM_DELAY_MS, null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -809,12 +837,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAny2() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAny(new ArrayList<Callable<String>>(),
-                            MEDIUM_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (IllegalArgumentException success) {}
+        try {
+            e.invokeAny(new ArrayList<Callable<String>>(),
+                        MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (IllegalArgumentException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -824,15 +853,16 @@ public class ForkJoinPoolTest extends JSR166TestCase {
     public void testTimedInvokeAny3() throws Throwable {
         CountDownLatch latch = new CountDownLatch(1);
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(latchAwaitingStringTask(latch));
-            l.add(null);
-            try {
-                e.invokeAny(l, MEDIUM_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(latchAwaitingStringTask(latch));
+        l.add(null);
+        try {
+            e.invokeAny(l, MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
             latch.countDown();
+            joinPool(e);
         }
     }
 
@@ -841,17 +871,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAny4() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            long startTime = System.nanoTime();
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new NPETask());
-            try {
-                e.invokeAny(l, LONG_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (ExecutionException success) {
-                assertTrue(success.getCause() instanceof NullPointerException);
-            }
-            assertTrue(millisElapsedSince(startTime) < LONG_DELAY_MS);
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new NPETask());
+        try {
+            e.invokeAny(l, MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (ExecutionException success) {
+            assertTrue(success.getCause() instanceof NullPointerException);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -860,14 +888,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAny5() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            long startTime = System.nanoTime();
+        try {
             List<Callable<String>> l = new ArrayList<Callable<String>>();
             l.add(new StringTask());
             l.add(new StringTask());
-            String result = e.invokeAny(l, LONG_DELAY_MS, MILLISECONDS);
+            String result = e.invokeAny(l, MEDIUM_DELAY_MS, MILLISECONDS);
             assertSame(TEST_STRING, result);
-            assertTrue(millisElapsedSince(startTime) < LONG_DELAY_MS);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -876,11 +904,12 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAll1() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            try {
-                e.invokeAll(null, MEDIUM_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        try {
+            e.invokeAll(null, MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -889,13 +918,14 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAllNullTimeUnit() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new StringTask());
-            try {
-                e.invokeAll(l, MEDIUM_DELAY_MS, null);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new StringTask());
+        try {
+            e.invokeAll(l, MEDIUM_DELAY_MS, null);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -904,11 +934,13 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAll2() throws InterruptedException {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        try {
             List<Future<String>> r
                 = e.invokeAll(new ArrayList<Callable<String>>(),
                               MEDIUM_DELAY_MS, MILLISECONDS);
             assertTrue(r.isEmpty());
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -917,14 +949,15 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAll3() throws InterruptedException {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new StringTask());
-            l.add(null);
-            try {
-                e.invokeAll(l, MEDIUM_DELAY_MS, MILLISECONDS);
-                shouldThrow();
-            } catch (NullPointerException success) {}
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new StringTask());
+        l.add(null);
+        try {
+            e.invokeAll(l, MEDIUM_DELAY_MS, MILLISECONDS);
+            shouldThrow();
+        } catch (NullPointerException success) {
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -933,18 +966,18 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      */
     public void testTimedInvokeAll4() throws Throwable {
         ExecutorService e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
-            List<Callable<String>> l = new ArrayList<Callable<String>>();
-            l.add(new NPETask());
-            List<Future<String>> futures
-                = e.invokeAll(l, LONG_DELAY_MS, MILLISECONDS);
-            assertEquals(1, futures.size());
-            try {
-                futures.get(0).get();
-                shouldThrow();
-            } catch (ExecutionException success) {
-                assertTrue(success.getCause() instanceof NullPointerException);
-            }
+        List<Callable<String>> l = new ArrayList<Callable<String>>();
+        l.add(new NPETask());
+        List<Future<String>> futures
+            = e.invokeAll(l, MEDIUM_DELAY_MS, MILLISECONDS);
+        assertEquals(1, futures.size());
+        try {
+            futures.get(0).get();
+            shouldThrow();
+        } catch (ExecutionException success) {
+            assertTrue(success.getCause() instanceof NullPointerException);
+        } finally {
+            joinPool(e);
         }
     }
 
@@ -952,16 +985,18 @@ public class ForkJoinPoolTest extends JSR166TestCase {
      * timed invokeAll(c) returns results of all completed tasks in c
      */
     public void testTimedInvokeAll5() throws Throwable {
-        ForkJoinPool e = new ForkJoinPool(1);
-        try (PoolCleaner cleaner = cleaner(e)) {
+        ExecutorService e = new ForkJoinPool(1);
+        try {
             List<Callable<String>> l = new ArrayList<Callable<String>>();
             l.add(new StringTask());
             l.add(new StringTask());
             List<Future<String>> futures
-                = e.invokeAll(l, LONG_DELAY_MS, MILLISECONDS);
+                = e.invokeAll(l, MEDIUM_DELAY_MS, MILLISECONDS);
             assertEquals(2, futures.size());
             for (Future<String> future : futures)
                 assertSame(TEST_STRING, future.get());
+        } finally {
+            joinPool(e);
         }
     }
 

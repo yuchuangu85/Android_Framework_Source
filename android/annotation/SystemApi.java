@@ -39,6 +39,6 @@ import java.lang.annotation.Target;
  * @hide
  */
 @Target({TYPE, FIELD, METHOD, CONSTRUCTOR, ANNOTATION_TYPE, PACKAGE})
-@Retention(RetentionPolicy.RUNTIME)
+@Retention(RetentionPolicy.SOURCE)
 public @interface SystemApi {
 }

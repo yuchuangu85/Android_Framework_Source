@@ -27,7 +27,7 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ConcurrentLinkedQueueTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
@@ -66,7 +66,8 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      */
     public void testConstructor4() {
         try {
-            new ConcurrentLinkedQueue(Arrays.asList(new Integer[SIZE]));
+            Integer[] ints = new Integer[SIZE];
+            new ConcurrentLinkedQueue(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
     }
@@ -75,10 +76,10 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * Initializing from Collection with some null elements throws NPE
      */
     public void testConstructor5() {
-        Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
         try {
+            Integer[] ints = new Integer[SIZE];
+            for (int i = 0; i < SIZE-1; ++i)
+                ints[i] = new Integer(i);
             new ConcurrentLinkedQueue(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -116,7 +117,7 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
     public void testSize() {
         ConcurrentLinkedQueue q = populatedQueue(SIZE);
         for (int i = 0; i < SIZE; ++i) {
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             q.remove();
         }
         for (int i = 0; i < SIZE; ++i) {
@@ -129,8 +130,8 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * offer(null) throws NPE
      */
     public void testOfferNull() {
-        ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
         try {
+            ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
             q.offer(null);
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -140,8 +141,8 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * add(null) throws NPE
      */
     public void testAddNull() {
-        ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
         try {
+            ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
             q.add(null);
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -171,8 +172,8 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * addAll(null) throws NPE
      */
     public void testAddAll1() {
-        ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
         try {
+            ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
             q.addAll(null);
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -182,8 +183,8 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * addAll(this) throws IAE
      */
     public void testAddAllSelf() {
-        ConcurrentLinkedQueue q = populatedQueue(SIZE);
         try {
+            ConcurrentLinkedQueue q = populatedQueue(SIZE);
             q.addAll(q);
             shouldThrow();
         } catch (IllegalArgumentException success) {}
@@ -193,9 +194,10 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * addAll of a collection with null elements throws NPE
      */
     public void testAddAll2() {
-        ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
         try {
-            q.addAll(Arrays.asList(new Integer[SIZE]));
+            ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
+            Integer[] ints = new Integer[SIZE];
+            q.addAll(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
     }
@@ -205,11 +207,11 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
      * possibly adding some elements
      */
     public void testAddAll3() {
-        ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
-        Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
         try {
+            ConcurrentLinkedQueue q = new ConcurrentLinkedQueue();
+            Integer[] ints = new Integer[SIZE];
+            for (int i = 0; i < SIZE-1; ++i)
+                ints[i] = new Integer(i);
             q.addAll(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -293,14 +295,14 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
             assertTrue(q.contains(i));
             assertTrue(q.remove(i));
             assertFalse(q.contains(i));
-            assertTrue(q.contains(i - 1));
+            assertTrue(q.contains(i-1));
         }
         for (int i = 0; i < SIZE; i += 2) {
             assertTrue(q.contains(i));
             assertTrue(q.remove(i));
             assertFalse(q.contains(i));
-            assertFalse(q.remove(i + 1));
-            assertFalse(q.contains(i + 1));
+            assertFalse(q.remove(i+1));
+            assertFalse(q.contains(i+1));
         }
         assertTrue(q.isEmpty());
     }
@@ -359,7 +361,7 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
                 assertTrue(changed);
 
             assertTrue(q.containsAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             p.remove();
         }
     }
@@ -372,7 +374,7 @@ public class ConcurrentLinkedQueueTest extends JSR166TestCase {
             ConcurrentLinkedQueue q = populatedQueue(SIZE);
             ConcurrentLinkedQueue p = populatedQueue(i);
             assertTrue(q.removeAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             for (int j = 0; j < i; ++j) {
                 Integer x = (Integer)(p.remove());
                 assertFalse(q.contains(x));

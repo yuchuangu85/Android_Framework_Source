@@ -19,19 +19,22 @@ package android.app;
 import com.android.internal.R;
 import com.android.internal.app.MediaRouteDialogPresenter;
 
-import android.annotation.NonNull;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
-import android.graphics.drawable.AnimationDrawable;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.media.MediaRouter;
 import android.media.MediaRouter.RouteGroup;
 import android.media.MediaRouter.RouteInfo;
+import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.SoundEffectConstants;
 import android.view.View;
+import android.widget.Toast;
 
 public class MediaRouteButton extends View {
     private final MediaRouter mRouter;
@@ -43,6 +46,7 @@ public class MediaRouteButton extends View {
 
     private Drawable mRemoteIndicator;
     private boolean mRemoteActive;
+    private boolean mCheatSheetEnabled;
     private boolean mIsConnecting;
 
     private int mMinWidth;
@@ -93,6 +97,7 @@ public class MediaRouteButton extends View {
         a.recycle();
 
         setClickable(true);
+        setLongClickable(true);
 
         setRouteTypes(routeTypes);
     }
@@ -172,10 +177,12 @@ public class MediaRouteButton extends View {
         throw new IllegalStateException("The MediaRouteButton's Context is not an Activity.");
     }
 
-    @Override
-    public void setContentDescription(CharSequence contentDescription) {
-        super.setContentDescription(contentDescription);
-        setTooltipText(contentDescription);
+    /**
+     * Sets whether to enable showing a toast with the content descriptor of the
+     * button when the button is long pressed.
+     */
+    void setCheatSheetEnabled(boolean enable) {
+        mCheatSheetEnabled = enable;
     }
 
     @Override
@@ -186,6 +193,47 @@ public class MediaRouteButton extends View {
             playSoundEffect(SoundEffectConstants.CLICK);
         }
         return showDialogInternal() || handled;
+    }
+
+    @Override
+    public boolean performLongClick() {
+        if (super.performLongClick()) {
+            return true;
+        }
+
+        if (!mCheatSheetEnabled) {
+            return false;
+        }
+
+        final CharSequence contentDesc = getContentDescription();
+        if (TextUtils.isEmpty(contentDesc)) {
+            // Don't show the cheat sheet if we have no description
+            return false;
+        }
+
+        final int[] screenPos = new int[2];
+        final Rect displayFrame = new Rect();
+        getLocationOnScreen(screenPos);
+        getWindowVisibleDisplayFrame(displayFrame);
+
+        final Context context = getContext();
+        final int width = getWidth();
+        final int height = getHeight();
+        final int midy = screenPos[1] + height / 2;
+        final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+
+        Toast cheatSheet = Toast.makeText(context, contentDesc, Toast.LENGTH_SHORT);
+        if (midy < displayFrame.height()) {
+            // Show along the top; follow action buttons
+            cheatSheet.setGravity(Gravity.TOP | Gravity.END,
+                    screenWidth - screenPos[0] - width / 2, height);
+        } else {
+            // Show along the bottom center
+            cheatSheet.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, height);
+        }
+        cheatSheet.show();
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        return true;
     }
 
     @Override
@@ -208,10 +256,10 @@ public class MediaRouteButton extends View {
     protected void drawableStateChanged() {
         super.drawableStateChanged();
 
-        final Drawable remoteIndicator = mRemoteIndicator;
-        if (remoteIndicator != null && remoteIndicator.isStateful()
-                && remoteIndicator.setState(getDrawableState())) {
-            invalidateDrawable(remoteIndicator);
+        if (mRemoteIndicator != null) {
+            int[] myDrawableState = getDrawableState();
+            mRemoteIndicator.setState(myDrawableState);
+            invalidate();
         }
     }
 
@@ -231,7 +279,7 @@ public class MediaRouteButton extends View {
     }
 
     @Override
-    protected boolean verifyDrawable(@NonNull Drawable who) {
+    protected boolean verifyDrawable(Drawable who) {
         return super.verifyDrawable(who) || who == mRemoteIndicator;
     }
 
@@ -282,40 +330,40 @@ public class MediaRouteButton extends View {
         final int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         final int heightMode = MeasureSpec.getMode(heightMeasureSpec);
 
-        final int width = Math.max(mMinWidth, mRemoteIndicator != null ?
-                mRemoteIndicator.getIntrinsicWidth() + getPaddingLeft() + getPaddingRight() : 0);
-        final int height = Math.max(mMinHeight, mRemoteIndicator != null ?
-                mRemoteIndicator.getIntrinsicHeight() + getPaddingTop() + getPaddingBottom() : 0);
+        final int minWidth = Math.max(mMinWidth,
+                mRemoteIndicator != null ? mRemoteIndicator.getIntrinsicWidth() : 0);
+        final int minHeight = Math.max(mMinHeight,
+                mRemoteIndicator != null ? mRemoteIndicator.getIntrinsicHeight() : 0);
 
-        int measuredWidth;
+        int width;
         switch (widthMode) {
             case MeasureSpec.EXACTLY:
-                measuredWidth = widthSize;
+                width = widthSize;
                 break;
             case MeasureSpec.AT_MOST:
-                measuredWidth = Math.min(widthSize, width);
+                width = Math.min(widthSize, minWidth + getPaddingLeft() + getPaddingRight());
                 break;
             default:
             case MeasureSpec.UNSPECIFIED:
-                measuredWidth = width;
+                width = minWidth + getPaddingLeft() + getPaddingRight();
                 break;
         }
 
-        int measuredHeight;
+        int height;
         switch (heightMode) {
             case MeasureSpec.EXACTLY:
-                measuredHeight = heightSize;
+                height = heightSize;
                 break;
             case MeasureSpec.AT_MOST:
-                measuredHeight = Math.min(heightSize, height);
+                height = Math.min(heightSize, minHeight + getPaddingTop() + getPaddingBottom());
                 break;
             default:
             case MeasureSpec.UNSPECIFIED:
-                measuredHeight = height;
+                height = minHeight + getPaddingTop() + getPaddingBottom();
                 break;
         }
 
-        setMeasuredDimension(measuredWidth, measuredHeight);
+        setMeasuredDimension(width, height);
     }
 
     @Override
@@ -340,41 +388,27 @@ public class MediaRouteButton extends View {
     }
 
     private void refreshRoute() {
-        final MediaRouter.RouteInfo route = mRouter.getSelectedRoute();
-        final boolean isRemote = !route.isDefault() && route.matchesTypes(mRouteTypes);
-        final boolean isConnecting = isRemote && route.isConnecting();
-        boolean needsRefresh = false;
-        if (mRemoteActive != isRemote) {
-            mRemoteActive = isRemote;
-            needsRefresh = true;
-        }
-        if (mIsConnecting != isConnecting) {
-            mIsConnecting = isConnecting;
-            needsRefresh = true;
-        }
-
-        if (needsRefresh) {
-            refreshDrawableState();
-        }
         if (mAttachedToWindow) {
+            final MediaRouter.RouteInfo route = mRouter.getSelectedRoute();
+            final boolean isRemote = !route.isDefault() && route.matchesTypes(mRouteTypes);
+            final boolean isConnecting = isRemote && route.isConnecting();
+
+            boolean needsRefresh = false;
+            if (mRemoteActive != isRemote) {
+                mRemoteActive = isRemote;
+                needsRefresh = true;
+            }
+            if (mIsConnecting != isConnecting) {
+                mIsConnecting = isConnecting;
+                needsRefresh = true;
+            }
+
+            if (needsRefresh) {
+                refreshDrawableState();
+            }
+
             setEnabled(mRouter.isRouteAvailable(mRouteTypes,
                     MediaRouter.AVAILABILITY_FLAG_IGNORE_DEFAULT_ROUTE));
-        }
-        if (mRemoteIndicator != null
-                && mRemoteIndicator.getCurrent() instanceof AnimationDrawable) {
-            AnimationDrawable curDrawable = (AnimationDrawable) mRemoteIndicator.getCurrent();
-            if (mAttachedToWindow) {
-                if ((needsRefresh || isConnecting) && !curDrawable.isRunning()) {
-                    curDrawable.start();
-                }
-            } else if (isRemote && !isConnecting) {
-                // When the route is already connected before the view is attached, show the last
-                // frame of the connected animation immediately.
-                if (curDrawable.isRunning()) {
-                    curDrawable.stop();
-                }
-                curDrawable.selectDrawable(curDrawable.getNumberOfFrames() - 1);
-            }
         }
     }
 

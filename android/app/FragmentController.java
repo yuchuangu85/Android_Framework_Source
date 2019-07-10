@@ -37,11 +37,7 @@ import java.util.List;
  * <p>
  * It is the responsibility of the host to take care of the Fragment's lifecycle.
  * The methods provided by {@link FragmentController} are for that purpose.
- *
- * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
- *      {@link android.support.v4.app.FragmentController}
  */
-@Deprecated
 public class FragmentController {
     private final FragmentHostCallback<?> mHost;
 
@@ -121,42 +117,16 @@ public class FragmentController {
      * instances retained across configuration changes.
      *
      * @see #retainNonConfig()
-     *
-     * @deprecated use {@link #restoreAllState(Parcelable, FragmentManagerNonConfig)}
      */
-    @Deprecated
     public void restoreAllState(Parcelable state, List<Fragment> nonConfigList) {
-        mHost.mFragmentManager.restoreAllState(state,
-                new FragmentManagerNonConfig(nonConfigList, null));
-    }
-
-    /**
-     * Restores the saved state for all Fragments. The given FragmentManagerNonConfig are Fragment
-     * instances retained across configuration changes, including nested fragments
-     *
-     * @see #retainNestedNonConfig()
-     */
-    public void restoreAllState(Parcelable state, FragmentManagerNonConfig nonConfig) {
-        mHost.mFragmentManager.restoreAllState(state, nonConfig);
+        mHost.mFragmentManager.restoreAllState(state, nonConfigList);
     }
 
     /**
      * Returns a list of Fragments that have opted to retain their instance across
      * configuration changes.
-     *
-     * @deprecated use {@link #retainNestedNonConfig()} to also track retained
-     *             nested child fragments
      */
-    @Deprecated
     public List<Fragment> retainNonConfig() {
-        return mHost.mFragmentManager.retainNonConfig().getFragments();
-    }
-
-    /**
-     * Returns a nested tree of Fragments that have opted to retain their instance across
-     * configuration changes.
-     */
-    public FragmentManagerNonConfig retainNestedNonConfig() {
         return mHost.mFragmentManager.retainNonConfig();
     }
 
@@ -246,57 +216,6 @@ public class FragmentController {
      */
     public void dispatchDestroy() {
         mHost.mFragmentManager.dispatchDestroy();
-    }
-
-    /**
-     * Lets all Fragments managed by the controller's FragmentManager know the multi-window mode of
-     * the activity changed.
-     * <p>Call when the multi-window mode of the activity changed.
-     *
-     * @see Fragment#onMultiWindowModeChanged
-     * @deprecated use {@link #dispatchMultiWindowModeChanged(boolean, Configuration)}
-     */
-    @Deprecated
-    public void dispatchMultiWindowModeChanged(boolean isInMultiWindowMode) {
-        mHost.mFragmentManager.dispatchMultiWindowModeChanged(isInMultiWindowMode);
-    }
-
-    /**
-     * Lets all Fragments managed by the controller's FragmentManager know the multi-window mode of
-     * the activity changed.
-     * <p>Call when the multi-window mode of the activity changed.
-     *
-     * @see Fragment#onMultiWindowModeChanged
-     */
-    public void dispatchMultiWindowModeChanged(boolean isInMultiWindowMode,
-            Configuration newConfig) {
-        mHost.mFragmentManager.dispatchMultiWindowModeChanged(isInMultiWindowMode, newConfig);
-    }
-
-    /**
-     * Lets all Fragments managed by the controller's FragmentManager know the picture-in-picture
-     * mode of the activity changed.
-     * <p>Call when the picture-in-picture mode of the activity changed.
-     *
-     * @see Fragment#onPictureInPictureModeChanged
-     * @deprecated use {@link #dispatchPictureInPictureModeChanged(boolean, Configuration)}
-     */
-    @Deprecated
-    public void dispatchPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
-        mHost.mFragmentManager.dispatchPictureInPictureModeChanged(isInPictureInPictureMode);
-    }
-
-    /**
-     * Lets all Fragments managed by the controller's FragmentManager know the picture-in-picture
-     * mode of the activity changed.
-     * <p>Call when the picture-in-picture mode of the activity changed.
-     *
-     * @see Fragment#onPictureInPictureModeChanged
-     */
-    public void dispatchPictureInPictureModeChanged(boolean isInPictureInPictureMode,
-            Configuration newConfig) {
-        mHost.mFragmentManager.dispatchPictureInPictureModeChanged(isInPictureInPictureMode,
-                newConfig);
     }
 
     /**

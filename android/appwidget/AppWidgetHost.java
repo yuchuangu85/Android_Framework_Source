@@ -16,13 +16,16 @@
 
 package android.appwidget;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.IntentSender;
-import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,16 +36,12 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.DisplayMetrics;
-import android.util.SparseArray;
+import android.util.TypedValue;
 import android.widget.RemoteViews;
 import android.widget.RemoteViews.OnClickHandler;
 
-import com.android.internal.R;
 import com.android.internal.appwidget.IAppWidgetHost;
 import com.android.internal.appwidget.IAppWidgetService;
-
-import java.lang.ref.WeakReference;
-import java.util.List;
 
 /**
  * AppWidgetHost provides the interaction with the AppWidget service for apps,
@@ -57,14 +56,13 @@ public class AppWidgetHost {
 
     final static Object sServiceLock = new Object();
     static IAppWidgetService sService;
-    static boolean sServiceInitialized = false;
     private DisplayMetrics mDisplayMetrics;
 
     private String mContextOpPackageName;
     private final Handler mHandler;
     private final int mHostId;
     private final Callbacks mCallbacks;
-    private final SparseArray<AppWidgetHostView> mViews = new SparseArray<>();
+    private final HashMap<Integer,AppWidgetHostView> mViews = new HashMap<>();
     private OnClickHandler mOnClickHandler;
 
     static class Callbacks extends IAppWidgetHost.Stub {
@@ -163,22 +161,16 @@ public class AppWidgetHost {
         mHandler = new UpdateHandler(looper);
         mCallbacks = new Callbacks(mHandler);
         mDisplayMetrics = context.getResources().getDisplayMetrics();
-        bindService(context);
+        bindService();
     }
 
-    private static void bindService(Context context) {
+
+    private static void bindService() {
         synchronized (sServiceLock) {
-            if (sServiceInitialized) {
-                return;
+            if (sService == null) {
+                IBinder b = ServiceManager.getService(Context.APPWIDGET_SERVICE);
+                sService = IAppWidgetService.Stub.asInterface(b);
             }
-            sServiceInitialized = true;
-            PackageManager packageManager = context.getPackageManager();
-            if (!packageManager.hasSystemFeature(PackageManager.FEATURE_APP_WIDGETS)
-                    && !context.getResources().getBoolean(R.bool.config_enableAppWidgetService)) {
-                return;
-            }
-            IBinder b = ServiceManager.getService(Context.APPWIDGET_SERVICE);
-            sService = IAppWidgetService.Stub.asInterface(b);
         }
     }
 
@@ -187,39 +179,19 @@ public class AppWidgetHost {
      * becomes visible, i.e. from onStart() in your Activity.
      */
     public void startListening() {
-        if (sService == null) {
-            return;
-        }
-        final int[] idsToUpdate;
-        synchronized (mViews) {
-            int N = mViews.size();
-            idsToUpdate = new int[N];
-            for (int i = 0; i < N; i++) {
-                idsToUpdate[i] = mViews.keyAt(i);
-            }
-        }
-        List<PendingHostUpdate> updates;
+        int[] updatedIds;
+        ArrayList<RemoteViews> updatedViews = new ArrayList<RemoteViews>();
         try {
-            updates = sService.startListening(
-                    mCallbacks, mContextOpPackageName, mHostId, idsToUpdate).getList();
+            updatedIds = sService.startListening(mCallbacks, mContextOpPackageName, mHostId,
+                    updatedViews);
         }
         catch (RemoteException e) {
             throw new RuntimeException("system server dead?", e);
         }
 
-        int N = updates.size();
+        final int N = updatedIds.length;
         for (int i = 0; i < N; i++) {
-            PendingHostUpdate update = updates.get(i);
-            switch (update.type) {
-                case PendingHostUpdate.TYPE_VIEWS_UPDATE:
-                    updateAppWidgetView(update.appWidgetId, update.views);
-                    break;
-                case PendingHostUpdate.TYPE_PROVIDER_CHANGED:
-                    onProviderChanged(update.appWidgetId, update.widgetInfo);
-                    break;
-                case PendingHostUpdate.TYPE_VIEW_DATA_CHANGED:
-                    viewDataChanged(update.appWidgetId, update.viewId);
-            }
+            updateAppWidgetView(updatedIds[i], updatedViews.get(i));
         }
     }
 
@@ -228,15 +200,16 @@ public class AppWidgetHost {
      * no longer visible, i.e. from onStop() in your Activity.
      */
     public void stopListening() {
-        if (sService == null) {
-            return;
-        }
         try {
             sService.stopListening(mContextOpPackageName, mHostId);
         }
         catch (RemoteException e) {
             throw new RuntimeException("system server dead?", e);
         }
+
+        // This is here because keyguard needs it since it'll be switching users after this call.
+        // If it turns out other apps need to call this often, we should re-think how this works.
+        clearViews();
     }
 
     /**
@@ -245,9 +218,6 @@ public class AppWidgetHost {
      * @return a appWidgetId
      */
     public int allocateAppWidgetId() {
-        if (sService == null) {
-            return -1;
-        }
         try {
             return sService.allocateAppWidgetId(mContextOpPackageName, mHostId);
         }
@@ -277,9 +247,6 @@ public class AppWidgetHost {
      */
     public final void startAppWidgetConfigureActivityForResult(@NonNull Activity activity,
             int appWidgetId, int intentFlags, int requestCode, @Nullable Bundle options) {
-        if (sService == null) {
-            return;
-        }
         try {
             IntentSender intentSender = sService.createAppWidgetConfigIntentSender(
                     mContextOpPackageName, appWidgetId, intentFlags);
@@ -298,12 +265,14 @@ public class AppWidgetHost {
 
     /**
      * Gets a list of all the appWidgetIds that are bound to the current host
+     *
+     * @hide
      */
     public int[] getAppWidgetIds() {
-        if (sService == null) {
-            return new int[0];
-        }
         try {
+            if (sService == null) {
+                bindService();
+            }
             return sService.getAppWidgetIdsForHost(mContextOpPackageName, mHostId);
         } catch (RemoteException e) {
             throw new RuntimeException("system server dead?", e);
@@ -314,9 +283,6 @@ public class AppWidgetHost {
      * Stop listening to changes for this AppWidget.
      */
     public void deleteAppWidgetId(int appWidgetId) {
-        if (sService == null) {
-            return;
-        }
         synchronized (mViews) {
             mViews.remove(appWidgetId);
             try {
@@ -337,9 +303,6 @@ public class AppWidgetHost {
      * </ul>
      */
     public void deleteHost() {
-        if (sService == null) {
-            return;
-        }
         try {
             sService.deleteHost(mContextOpPackageName, mHostId);
         }
@@ -357,9 +320,6 @@ public class AppWidgetHost {
      * </ul>
      */
     public static void deleteAllHosts() {
-        if (sService == null) {
-            return;
-        }
         try {
             sService.deleteAllHosts();
         }
@@ -374,9 +334,6 @@ public class AppWidgetHost {
      */
     public final AppWidgetHostView createView(Context context, int appWidgetId,
             AppWidgetProviderInfo appWidget) {
-        if (sService == null) {
-            return null;
-        }
         AppWidgetHostView view = onCreateView(context, appWidgetId, appWidget);
         view.setOnClickHandler(mOnClickHandler);
         view.setAppWidget(appWidgetId, appWidget);
@@ -412,7 +369,15 @@ public class AppWidgetHost {
         // Convert complex to dp -- we are getting the AppWidgetProviderInfo from the
         // AppWidgetService, which doesn't have our context, hence we need to do the
         // conversion here.
-        appWidget.updateDimensions(mDisplayMetrics);
+        appWidget.minWidth =
+            TypedValue.complexToDimensionPixelSize(appWidget.minWidth, mDisplayMetrics);
+        appWidget.minHeight =
+            TypedValue.complexToDimensionPixelSize(appWidget.minHeight, mDisplayMetrics);
+        appWidget.minResizeWidth =
+            TypedValue.complexToDimensionPixelSize(appWidget.minResizeWidth, mDisplayMetrics);
+        appWidget.minResizeHeight =
+            TypedValue.complexToDimensionPixelSize(appWidget.minResizeHeight, mDisplayMetrics);
+
         synchronized (mViews) {
             v = mViews.get(appWidgetId);
         }
@@ -453,9 +418,7 @@ public class AppWidgetHost {
      * Clear the list of Views that have been created by this AppWidgetHost.
      */
     protected void clearViews() {
-        synchronized (mViews) {
-            mViews.clear();
-        }
+        mViews.clear();
     }
 }
 

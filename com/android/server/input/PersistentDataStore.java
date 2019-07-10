@@ -24,7 +24,6 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
-import android.annotation.Nullable;
 import android.view.Surface;
 import android.hardware.input.TouchCalibration;
 import android.util.AtomicFile;
@@ -43,10 +42,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 import libcore.io.IoUtils;
+import libcore.util.Objects;
 
 /**
  * Manages persistent state recorded by the input manager service as an XML file.
@@ -76,8 +75,7 @@ final class PersistentDataStore {
     private boolean mDirty;
 
     public PersistentDataStore() {
-        mAtomicFile = new AtomicFile(new File("/data/system/input-manager-state.xml"),
-                "input-state");
+        mAtomicFile = new AtomicFile(new File("/data/system/input-manager-state.xml"));
     }
 
     public void saveIfNeeded() {
@@ -308,7 +306,6 @@ final class PersistentDataStore {
                 "x_ymix", "x_offset", "y_xmix", "y_scale", "y_offset" };
 
         private TouchCalibration[] mTouchCalibration = new TouchCalibration[4];
-        @Nullable
         private String mCurrentKeyboardLayout;
         private ArrayList<String> mKeyboardLayouts = new ArrayList<String>();
 
@@ -334,13 +331,12 @@ final class PersistentDataStore {
             }
         }
 
-        @Nullable
         public String getCurrentKeyboardLayout() {
             return mCurrentKeyboardLayout;
         }
 
         public boolean setCurrentKeyboardLayout(String keyboardLayout) {
-            if (Objects.equals(mCurrentKeyboardLayout, keyboardLayout)) {
+            if (Objects.equal(mCurrentKeyboardLayout, keyboardLayout)) {
                 return false;
             }
             addKeyboardLayout(keyboardLayout);
@@ -379,7 +375,7 @@ final class PersistentDataStore {
 
         private void updateCurrentKeyboardLayoutIfRemoved(
                 String removedKeyboardLayout, int removedIndex) {
-            if (Objects.equals(mCurrentKeyboardLayout, removedKeyboardLayout)) {
+            if (Objects.equal(mCurrentKeyboardLayout, removedKeyboardLayout)) {
                 if (!mKeyboardLayouts.isEmpty()) {
                     int index = removedIndex;
                     if (index == mKeyboardLayouts.size()) {

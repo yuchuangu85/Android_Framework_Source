@@ -16,10 +16,14 @@
 
 package benchmarks;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 /**
  * How much do various kinds of multiplication cost?
  */
-public class MultiplicationBenchmark {
+public class MultiplicationBenchmark extends SimpleBenchmark {
     public int timeMultiplyIntByConstant10(int reps) {
         int result = 1;
         for (int i = 0; i < reps; ++i) {

@@ -22,9 +22,12 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.UserInfo;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.SystemProperties;
+import android.os.UserHandle;
+import android.os.UserManager;
 
 import com.android.internal.app.AlertActivity;
 import com.android.internal.app.AlertController;
@@ -44,7 +47,8 @@ public class UsbDebuggingSecondaryUserActivity extends AlertActivity
 
         final AlertController.AlertParams ap = mAlertParams;
         ap.mTitle = getString(R.string.usb_debugging_secondary_user_title);
-        ap.mMessage = getString(R.string.usb_debugging_secondary_user_message);
+        UserInfo user = UserManager.get(this).getUserInfo(UserHandle.USER_OWNER);
+        ap.mMessage = getString(R.string.usb_debugging_secondary_user_message, user.name);
         ap.mPositiveButtonText = getString(android.R.string.ok);
         ap.mPositiveButtonListener = this;
 

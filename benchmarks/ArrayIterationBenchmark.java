@@ -16,10 +16,14 @@
 
 package benchmarks;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 /**
  * How do various ways of iterating through an array compare?
  */
-public class ArrayIterationBenchmark {
+public class ArrayIterationBenchmark extends SimpleBenchmark {
     Foo[] mArray = new Foo[27];
     {
         for (int i = 0; i < mArray.length; ++i) mArray[i] = new Foo();

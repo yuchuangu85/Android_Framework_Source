@@ -22,7 +22,8 @@ import android.databinding.tool.expr.ExprModel;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.store.SetterStore;
 import android.databinding.tool.util.L;
-import android.databinding.tool.writer.LayoutBinderWriterKt;
+import android.databinding.tool.writer.CodeGenUtil;
+import android.databinding.tool.writer.WriterPackage;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -41,19 +42,8 @@ public class MergedBinding extends Binding {
         mMultiAttributeSetter = multiAttributeSetter;
     }
 
-    @Override
-    public void resolveListeners() {
-        ModelClass[] parameters = mMultiAttributeSetter.getParameterTypes();
-        List<Expr> children = getExpr().getChildren();
-        final Expr expr = getExpr();
-        for (int i = 0; i < children.size(); i++) {
-            final Expr child = children.get(i);
-            child.resolveListeners(parameters[i], expr);
-        }
-    }
-
     private static Expr createArgListExpr(ExprModel model, final Iterable<Binding> bindings) {
-        List<Expr> args = new ArrayList<Expr>();
+        List<Expr> args = new ArrayList<>();
         for (Binding binding : bindings) {
             args.add(binding.getExpr());
         }
@@ -70,18 +60,28 @@ public class MergedBinding extends Binding {
         return sb.toString();
     }
 
+    @Override
+    public void resolveListeners() {
+        ModelClass[] params = mMultiAttributeSetter.getParameterTypes();
+        List<Expr> expressions = getExpr().getChildren();
+        for (int i = 0; i < params.length; i++) {
+            expressions.get(i).resolveListeners(params[i]);
+        }
+    }
+
     public Expr[] getComponentExpressions() {
         ArgListExpr args = (ArgListExpr) getExpr();
         return args.getChildren().toArray(new Expr[args.getChildren().size()]);
     }
 
-    public String[] getAttributes() {
-        return mMultiAttributeSetter.attributes;
-    }
-
     @Override
     public String getBindingAdapterInstanceClass() {
         return mMultiAttributeSetter.getBindingAdapterInstanceClass();
+    }
+
+    @Override
+    public void setBindingAdapterCall(String method) {
+        mMultiAttributeSetter.setBindingAdapterCall(method);
     }
 
     @Override
@@ -97,15 +97,15 @@ public class MergedBinding extends Binding {
     @Override
     public String toJavaCode(String targetViewName, String bindingComponent) {
         final ArgListExpr args = (ArgListExpr) getExpr();
-        final List<String> newValues = new ArrayList<String>();
+        final List<String> newValues = new ArrayList<>();
         for (Expr expr : args.getChildren()) {
-            newValues.add(expr.toCode().generate());
+            newValues.add(CodeGenUtil.Companion.toCode(expr, false).generate());
         }
         final List<String> oldValues;
         if (requiresOldValue()) {
-            oldValues = new ArrayList<String>();
+            oldValues = new ArrayList<>();
             for (Expr expr : args.getChildren()) {
-                oldValues.add("this." + LayoutBinderWriterKt.getOldValueName(expr));
+                oldValues.add("this." + WriterPackage.getOldValueName(expr));
             }
         } else {
             oldValues = Arrays.asList(new String[args.getChildren().size()]);
@@ -116,7 +116,7 @@ public class MergedBinding extends Binding {
     }
 
     private static <T> T[] concat(List<T> l1, List<T> l2, Class<T> klass) {
-        List<T> result = new ArrayList<T>();
+        List<T> result = new ArrayList<>();
         result.addAll(l1);
         result.addAll(l2);
         return result.toArray((T[]) Array.newInstance(klass, result.size()));

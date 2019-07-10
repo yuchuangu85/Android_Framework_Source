@@ -16,7 +16,6 @@ package android.databinding.testapp;
 import android.databinding.ViewStubProxy;
 import android.databinding.testapp.databinding.ListenersBinding;
 import android.databinding.testapp.vo.ListenerBindingObject;
-import android.databinding.testapp.vo.ListenerBindingObject.Inner;
 import android.test.UiThreadTest;
 import android.view.View;
 
@@ -113,16 +112,5 @@ public class ListenerTest extends BaseDataBinderTest<ListenersBinding> {
         viewStubProxy.getViewStub().inflate();
         assertTrue(mBindingObject.inflateCalled);
         assertTrue(viewStubProxy.isInflated());
-    }
-
-    @UiThreadTest
-    public void testBaseObservableClick() throws Throwable {
-        View view = mBinder.click6;
-        Inner inner = new Inner();
-        mBinder.setObj2(inner);
-        mBinder.executePendingBindings();
-        assertFalse(inner.clicked);
-        view.callOnClick();
-        assertTrue(inner.clicked);
     }
 }

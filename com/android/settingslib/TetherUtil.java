@@ -15,23 +15,73 @@
  */
 package com.android.settingslib;
 
+import android.app.ActivityManager;
+import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.res.Resources;
+import android.net.ConnectivityManager;
+import android.net.wifi.WifiManager;
 import android.os.SystemProperties;
-import android.support.annotation.VisibleForTesting;
-import android.telephony.CarrierConfigManager;
+import android.os.UserHandle;
+import android.provider.Settings;
 
 public class TetherUtil {
 
-    @VisibleForTesting
-    static boolean isEntitlementCheckRequired(Context context) {
-        final CarrierConfigManager configManager = (CarrierConfigManager) context
-             .getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        if (configManager == null || configManager.getConfig() == null) {
-            // return service default
-            return true;
+    // Types of tethering.
+    public static final int TETHERING_INVALID   = -1;
+    public static final int TETHERING_WIFI      = 0;
+    public static final int TETHERING_USB       = 1;
+    public static final int TETHERING_BLUETOOTH = 2;
+
+    // Extras used for communicating with the TetherService.
+    public static final String EXTRA_ADD_TETHER_TYPE = "extraAddTetherType";
+    public static final String EXTRA_REM_TETHER_TYPE = "extraRemTetherType";
+    public static final String EXTRA_SET_ALARM = "extraSetAlarm";
+    /**
+     * Tells the service to run a provision check now.
+     */
+    public static final String EXTRA_RUN_PROVISION = "extraRunProvision";
+    /**
+     * Enables wifi tethering if the provision check is successful. Used by
+     * QS to enable tethering.
+     */
+    public static final String EXTRA_ENABLE_WIFI_TETHER = "extraEnableWifiTether";
+
+    public static ComponentName TETHER_SERVICE = ComponentName.unflattenFromString(Resources
+            .getSystem().getString(com.android.internal.R.string.config_wifi_tether_enable));
+
+    public static boolean setWifiTethering(boolean enable, Context context) {
+        final WifiManager wifiManager =
+                (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        final ContentResolver cr = context.getContentResolver();
+        /**
+         * Disable Wifi if enabling tethering
+         */
+        int wifiState = wifiManager.getWifiState();
+        if (enable && ((wifiState == WifiManager.WIFI_STATE_ENABLING) ||
+                    (wifiState == WifiManager.WIFI_STATE_ENABLED))) {
+            wifiManager.setWifiEnabled(false);
+            Settings.Global.putInt(cr, Settings.Global.WIFI_SAVED_STATE, 1);
         }
-        return configManager.getConfig().getBoolean(CarrierConfigManager
-             .KEY_REQUIRE_ENTITLEMENT_CHECKS_BOOL);
+
+        boolean success = wifiManager.setWifiApEnabled(null, enable);
+        /**
+         *  If needed, restore Wifi on tether disable
+         */
+        if (!enable) {
+            int wifiSavedState = Settings.Global.getInt(cr, Settings.Global.WIFI_SAVED_STATE, 0);
+            if (wifiSavedState == 1) {
+                wifiManager.setWifiEnabled(true);
+                Settings.Global.putInt(cr, Settings.Global.WIFI_SAVED_STATE, 0);
+            }
+        }
+        return success;
+    }
+
+    public static boolean isWifiTetherEnabled(Context context) {
+        WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        return wifiManager.getWifiApState() == WifiManager.WIFI_AP_STATE_ENABLED;
     }
 
     public static boolean isProvisioningNeeded(Context context) {
@@ -43,10 +93,14 @@ public class TetherUtil {
                 || provisionApp == null) {
             return false;
         }
-        // Check carrier config for entitlement checks
-        if (isEntitlementCheckRequired(context) == false) {
-            return false;
-        }
         return (provisionApp.length == 2);
     }
+
+    public static boolean isTetheringSupported(Context context) {
+        final ConnectivityManager cm =
+                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        final boolean isSecondaryUser = ActivityManager.getCurrentUser() != UserHandle.USER_OWNER;
+        return !isSecondaryUser && cm.isTetheringSupported();
+    }
+
 }

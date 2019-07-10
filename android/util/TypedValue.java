@@ -17,7 +17,6 @@
 package android.util;
 
 import android.annotation.AnyRes;
-import android.content.pm.ActivityInfo.Config;
 
 /**
  * Container for a dynamically typed data value.  Primarily used with
@@ -184,32 +183,9 @@ public class TypedValue {
     @AnyRes
     public int resourceId;
 
-    /**
-     * If the value came from a resource, these are the configurations for
-     * which its contents can change.
-     *
-     * <p>For example, if a resource has a value defined for the -land resource qualifier,
-     * this field will have the {@link android.content.pm.ActivityInfo#CONFIG_ORIENTATION} bit set.
-     * </p>
-     *
-     * @see android.content.pm.ActivityInfo#CONFIG_MCC
-     * @see android.content.pm.ActivityInfo#CONFIG_MNC
-     * @see android.content.pm.ActivityInfo#CONFIG_LOCALE
-     * @see android.content.pm.ActivityInfo#CONFIG_TOUCHSCREEN
-     * @see android.content.pm.ActivityInfo#CONFIG_KEYBOARD
-     * @see android.content.pm.ActivityInfo#CONFIG_KEYBOARD_HIDDEN
-     * @see android.content.pm.ActivityInfo#CONFIG_NAVIGATION
-     * @see android.content.pm.ActivityInfo#CONFIG_ORIENTATION
-     * @see android.content.pm.ActivityInfo#CONFIG_SCREEN_LAYOUT
-     * @see android.content.pm.ActivityInfo#CONFIG_UI_MODE
-     * @see android.content.pm.ActivityInfo#CONFIG_SCREEN_SIZE
-     * @see android.content.pm.ActivityInfo#CONFIG_SMALLEST_SCREEN_SIZE
-     * @see android.content.pm.ActivityInfo#CONFIG_DENSITY
-     * @see android.content.pm.ActivityInfo#CONFIG_LAYOUT_DIRECTION
-     * @see android.content.pm.ActivityInfo#CONFIG_COLOR_MODE
-     *
-     */
-    public @Config int changingConfigurations = -1;
+    /** If Value came from a resource, these are the configurations for which
+     *  its contents can change. */
+    public int changingConfigurations = -1;
 
     /**
      * If the Value came from a resource, this holds the corresponding pixel density.
@@ -321,7 +297,7 @@ public class TypedValue {
                 (data>>COMPLEX_UNIT_SHIFT)&COMPLEX_UNIT_MASK,
                 value,
                 metrics);
-        final int res = (int) ((f >= 0) ? (f + 0.5f) : (f - 0.5f));
+        final int res = (int)(f+0.5f);
         if (res != 0) return res;
         if (value == 0) return 0;
         if (value > 0) return 1;

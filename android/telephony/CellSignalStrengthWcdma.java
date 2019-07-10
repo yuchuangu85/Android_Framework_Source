@@ -20,8 +20,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.Rlog;
 
-import java.util.Objects;
-
 /**
  * Wcdma signal strength related information.
  */
@@ -34,32 +32,62 @@ public final class CellSignalStrengthWcdma extends CellSignalStrength implements
     private static final int WCDMA_SIGNAL_STRENGTH_GOOD = 8;
     private static final int WCDMA_SIGNAL_STRENGTH_MODERATE = 5;
 
-    private int mSignalStrength; // in ASU; Valid values are (0-31, 99) as defined in TS 27.007 8.5
-    private int mBitErrorRate; // bit error rate (0-7, 99) as defined in TS 27.007 8.5
+    private int mSignalStrength; // Valid values are (0-31, 99) as defined in TS 27.007 8.5
+    private int mBitErrorRate;   // bit error rate (0-7, 99) as defined in TS 27.007 8.5
 
-    /** @hide */
+    /**
+     * Empty constructor
+     *
+     * @hide
+     */
     public CellSignalStrengthWcdma() {
         setDefaultValues();
     }
 
-    /** @hide */
+    /**
+     * Constructor
+     *
+     * @hide
+     */
     public CellSignalStrengthWcdma(int ss, int ber) {
-        mSignalStrength = ss;
-        mBitErrorRate = ber;
+        initialize(ss, ber);
     }
 
-    /** @hide */
+    /**
+     * Copy constructors
+     *
+     * @param s Source SignalStrength
+     *
+     * @hide
+     */
     public CellSignalStrengthWcdma(CellSignalStrengthWcdma s) {
         copyFrom(s);
     }
 
-    /** @hide */
+    /**
+     * Initialize all the values
+     *
+     * @param ss SignalStrength as ASU value
+     * @param ber is Bit Error Rate
+     *
+     * @hide
+     */
+    public void initialize(int ss, int ber) {
+        mSignalStrength = ss;
+        mBitErrorRate = ber;
+    }
+
+    /**
+     * @hide
+     */
     protected void copyFrom(CellSignalStrengthWcdma s) {
         mSignalStrength = s.mSignalStrength;
         mBitErrorRate = s.mBitErrorRate;
     }
 
-    /** @hide */
+    /**
+     * @hide
+     */
     @Override
     public CellSignalStrengthWcdma copy() {
         return new CellSignalStrengthWcdma(this);
@@ -128,7 +156,8 @@ public final class CellSignalStrengthWcdma extends CellSignalStrength implements
 
     @Override
     public int hashCode() {
-        return Objects.hash(mSignalStrength, mBitErrorRate);
+        int primeNum = 31;
+        return (mSignalStrength * primeNum) + (mBitErrorRate * primeNum);
     }
 
     @Override

@@ -1,204 +1,141 @@
 /*
- * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.security.*;
-import java.security.spec.*;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.spec.AlgorithmParameterSpec;
 
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the <code>KeyAgreement</code> class.
- * All the abstract methods in this class must be implemented by each
- * cryptographic service provider who wishes to supply the implementation
- * of a particular key agreement algorithm.
- *
- * <p> The keys involved in establishing a shared secret are created by one
- * of the
- * key generators (<code>KeyPairGenerator</code> or
- * <code>KeyGenerator</code>), a <code>KeyFactory</code>, or as a result from
- * an intermediate phase of the key agreement protocol
- * ({@link #engineDoPhase(java.security.Key, boolean) engineDoPhase}).
- *
- * <p> For each of the correspondents in the key exchange,
- * <code>engineDoPhase</code>
- * needs to be called. For example, if the key exchange is with one other
- * party, <code>engineDoPhase</code> needs to be called once, with the
- * <code>lastPhase</code> flag set to <code>true</code>.
- * If the key exchange is
- * with two other parties, <code>engineDoPhase</code> needs to be called twice,
- * the first time setting the <code>lastPhase</code> flag to
- * <code>false</code>, and the second time setting it to <code>true</code>.
- * There may be any number of parties involved in a key exchange.
- *
- * @author Jan Luehe
- *
- * @see KeyGenerator
- * @see SecretKey
- * @since 1.4
+ * The <i>Service Provider Interface</i> (<b>SPI</b>) definition for the
+ * {@code KeyAgreement} class.
  */
-
 public abstract class KeyAgreementSpi {
 
     /**
-     * Initializes this key agreement with the given key and source of
-     * randomness. The given key is required to contain all the algorithm
-     * parameters required for this key agreement.
-     *
-     * <p> If the key agreement algorithm requires random bytes, it gets them
-     * from the given source of randomness, <code>random</code>.
-     * However, if the underlying
-     * algorithm implementation does not require any random bytes,
-     * <code>random</code> is ignored.
-     *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
+     * Creates a new {@code KeyAgreementSpi} instance.
      */
-    protected abstract void engineInit(Key key, SecureRandom random)
-        throws InvalidKeyException;
+    public KeyAgreementSpi() {
+    }
 
     /**
-     * Initializes this key agreement with the given key, set of
-     * algorithm parameters, and source of randomness.
+     * Does the next (or the last) phase of the key agreement, using the
+     * specified key.
      *
-     * @param key the party's private information. For example, in the case
-     * of the Diffie-Hellman key agreement, this would be the party's own
-     * Diffie-Hellman private key.
-     * @param params the key agreement parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is
-     * inappropriate for this key agreement, e.g., is of the wrong type or
-     * has an incompatible algorithm type.
-     * @exception InvalidAlgorithmParameterException if the given parameters
-     * are inappropriate for this key agreement.
-     */
-    protected abstract void engineInit(Key key, AlgorithmParameterSpec params,
-                                       SecureRandom random)
-        throws InvalidKeyException, InvalidAlgorithmParameterException;
-
-    /**
-     * Executes the next phase of this key agreement with the given
-     * key that was received from one of the other parties involved in this key
-     * agreement.
-     *
-     * @param key the key for this phase. For example, in the case of
-     * Diffie-Hellman between 2 parties, this would be the other party's
-     * Diffie-Hellman public key.
-     * @param lastPhase flag which indicates whether or not this is the last
-     * phase of this key agreement.
-     *
-     * @return the (intermediate) key resulting from this phase, or null if
-     * this phase does not yield a key
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this phase.
-     * @exception IllegalStateException if this key agreement has not been
-     * initialized.
+     * @param key
+     *            the key received from the other party for this phase.
+     * @param lastPhase
+     *            set to {@code true} if this is the last phase of this key
+     *            agreement.
+     * @return the intermediate key from this phase or null if there is no
+     *         intermediate key for this phase.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used in this key agreement or
+     *             this phase,
+     * @throws IllegalStateException
+     *             if this instance has not been initialized.
      */
     protected abstract Key engineDoPhase(Key key, boolean lastPhase)
-        throws InvalidKeyException, IllegalStateException;
+            throws InvalidKeyException, IllegalStateException;
 
     /**
-     * Generates the shared secret and returns it in a new buffer.
+     * Generates the shared secret.
      *
-     * <p>This method resets this <code>KeyAgreementSpi</code> object,
-     * so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>engineInit</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @return the new buffer with the shared secret
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
+     * @return the generated shared secret.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
      */
     protected abstract byte[] engineGenerateSecret()
-        throws IllegalStateException;
+            throws IllegalStateException;
 
     /**
-     * Generates the shared secret, and places it into the buffer
-     * <code>sharedSecret</code>, beginning at <code>offset</code> inclusive.
+     * Generates the shared secret and stores it into the buffer {@code
+     * sharedSecred} at {@code offset}.
      *
-     * <p>If the <code>sharedSecret</code> buffer is too small to hold the
-     * result, a <code>ShortBufferException</code> is thrown.
-     * In this case, this call should be repeated with a larger output buffer.
-     *
-     * <p>This method resets this <code>KeyAgreementSpi</code> object,
-     * so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>engineInit</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @param sharedSecret the buffer for the shared secret
-     * @param offset the offset in <code>sharedSecret</code> where the
-     * shared secret will be stored
-     *
-     * @return the number of bytes placed into <code>sharedSecret</code>
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the secret
+     * @param sharedSecret
+     *            the buffer to store the shared secret.
+     * @param offset
+     *            the offset in the buffer.
+     * @return the number of bytes stored in the buffer.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
+     * @throws ShortBufferException
+     *             if the specified buffer is too small for the shared secret.
      */
-    protected abstract int engineGenerateSecret(byte[] sharedSecret,
-                                                int offset)
-        throws IllegalStateException, ShortBufferException;
+    protected abstract int engineGenerateSecret(byte[] sharedSecret, int offset)
+            throws IllegalStateException, ShortBufferException;
 
     /**
-     * Creates the shared secret and returns it as a secret key object
-     * of the requested algorithm type.
+     * Generates the shared secret.
      *
-     * <p>This method resets this <code>KeyAgreementSpi</code> object,
-     * so that it
-     * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>engineInit</code> methods, the same
-     * private information and algorithm parameters will be used for
-     * subsequent key agreements.
-     *
-     * @param algorithm the requested secret key algorithm
-     *
-     * @return the shared secret key
-     *
-     * @exception IllegalStateException if this key agreement has not been
-     * completed yet
-     * @exception NoSuchAlgorithmException if the requested secret key
-     * algorithm is not available
-     * @exception InvalidKeyException if the shared secret key material cannot
-     * be used to generate a secret key of the requested algorithm type (e.g.,
-     * the key material is too short)
+     * @param algorithm
+     *            the algorithm to for the {@code SecretKey}
+     * @return the shared secret as a {@code SecretKey} of the specified
+     *         algorithm.
+     * @throws IllegalStateException
+     *             if this key agreement is not complete.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm for the secret key does not
+     *             exists.
+     * @throws InvalidKeyException
+     *             if a {@code SecretKey} with the specified algorithm cannot be
+     *             created using the generated shared secret.
      */
     protected abstract SecretKey engineGenerateSecret(String algorithm)
-        throws IllegalStateException, NoSuchAlgorithmException,
+            throws IllegalStateException, NoSuchAlgorithmException,
             InvalidKeyException;
+
+    /**
+     * Initializes this {@code KeyAgreementSpi} with the specified key and the
+     * specified randomness source.
+     *
+     * @param key
+     *            the key to initialize this key agreement.
+     * @param random
+     *            the source for any randomness needed.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this key
+     *             agreement.
+     */
+    protected abstract void engineInit(Key key, SecureRandom random)
+            throws InvalidKeyException;
+
+    /**
+     * Initializes this {@code KeyAgreementSpi} with the specified key,
+     * algorithm parameters and randomness source.
+     *
+     * @param key
+     *            the key to initialize this key agreement.
+     * @param params
+     *            the parameters for this key agreement algorithm.
+     * @param random
+     *            the source for any randomness needed.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this key
+     *             agreement.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters are invalid for this key
+     *             agreement algorithm.
+     */
+    protected abstract void engineInit(Key key, AlgorithmParameterSpec params,
+            SecureRandom random) throws InvalidKeyException,
+            InvalidAlgorithmParameterException;
 }

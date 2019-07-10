@@ -28,7 +28,7 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(CopyOnWriteArraySetTest.class);
+    //     return new TestSuite(...);
     // }
 
     static CopyOnWriteArraySet<Integer> populatedSet(int n) {
@@ -64,7 +64,7 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
      */
     public void testConstructor3() {
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         CopyOnWriteArraySet a = new CopyOnWriteArraySet(Arrays.asList(ints));
         for (int i = 0; i < SIZE; ++i)
@@ -139,46 +139,14 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
         CopyOnWriteArraySet b = populatedSet(3);
         assertTrue(a.equals(b));
         assertTrue(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertTrue(b.containsAll(a));
         assertEquals(a.hashCode(), b.hashCode());
-        assertEquals(a.size(), b.size());
-
         a.add(m1);
         assertFalse(a.equals(b));
         assertFalse(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertFalse(b.containsAll(a));
         b.add(m1);
         assertTrue(a.equals(b));
         assertTrue(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertTrue(b.containsAll(a));
         assertEquals(a.hashCode(), b.hashCode());
-
-        Object x = a.iterator().next();
-        a.remove(x);
-        assertFalse(a.equals(b));
-        assertFalse(b.equals(a));
-        assertFalse(a.containsAll(b));
-        assertTrue(b.containsAll(a));
-        a.add(x);
-        assertTrue(a.equals(b));
-        assertTrue(b.equals(a));
-        assertTrue(a.containsAll(b));
-        assertTrue(b.containsAll(a));
-        assertEquals(a.hashCode(), b.hashCode());
-        assertEquals(a.size(), b.size());
-
-        CopyOnWriteArraySet empty1 = new CopyOnWriteArraySet(Arrays.asList());
-        CopyOnWriteArraySet empty2 = new CopyOnWriteArraySet(Arrays.asList());
-        assertTrue(empty1.equals(empty1));
-        assertTrue(empty1.equals(empty2));
-
-        assertFalse(empty1.equals(a));
-        assertFalse(a.equals(empty1));
-
-        assertFalse(a.equals(null));
     }
 
     /**
@@ -186,24 +154,11 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
      */
     public void testContainsAll() {
         Collection full = populatedSet(3);
-        assertTrue(full.containsAll(full));
         assertTrue(full.containsAll(Arrays.asList()));
         assertTrue(full.containsAll(Arrays.asList(one)));
         assertTrue(full.containsAll(Arrays.asList(one, two)));
         assertFalse(full.containsAll(Arrays.asList(one, two, six)));
         assertFalse(full.containsAll(Arrays.asList(six)));
-
-        CopyOnWriteArraySet empty1 = new CopyOnWriteArraySet(Arrays.asList());
-        CopyOnWriteArraySet empty2 = new CopyOnWriteArraySet(Arrays.asList());
-        assertTrue(empty1.containsAll(empty2));
-        assertTrue(empty1.containsAll(empty1));
-        assertFalse(empty1.containsAll(full));
-        assertTrue(full.containsAll(empty1));
-
-        try {
-            full.containsAll(null);
-            shouldThrow();
-        } catch (NullPointerException success) {}
     }
 
     /**
@@ -334,7 +289,7 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
         a = new Integer[0];
         assertSame(a, empty.toArray(a));
 
-        a = new Integer[SIZE / 2];
+        a = new Integer[SIZE/2];
         Arrays.fill(a, 42);
         assertSame(a, empty.toArray(a));
         assertNull(a[0]);
@@ -358,7 +313,7 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
         assertSame(a, full.toArray(a));
         assertTrue(Arrays.equals(elements, a));
 
-        a = new Integer[2 * SIZE];
+        a = new Integer[2*SIZE];
         Arrays.fill(a, 42);
         assertSame(a, full.toArray(a));
         assertTrue(Arrays.equals(elements, Arrays.copyOf(a, SIZE)));
@@ -372,10 +327,10 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
      * not store the objects inside the set
      */
     public void testToArray_ArrayStoreException() {
-        CopyOnWriteArraySet c = new CopyOnWriteArraySet();
-        c.add("zfasdfsdf");
-        c.add("asdadasd");
         try {
+            CopyOnWriteArraySet c = new CopyOnWriteArraySet();
+            c.add("zfasdfsdf");
+            c.add("asdadasd");
             c.toArray(new Long[5]);
             shouldThrow();
         } catch (ArrayStoreException success) {}

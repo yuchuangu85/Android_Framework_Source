@@ -36,7 +36,6 @@ import java.awt.geom.PathIterator;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
-import java.util.ArrayList;
 
 /**
  * Delegate implementing the native methods of android.graphics.Path
@@ -57,8 +56,6 @@ public final class Path_Delegate {
     private static final DelegateManager<Path_Delegate> sManager =
             new DelegateManager<Path_Delegate>(Path_Delegate.class);
 
-    private static final float EPSILON = 1e-4f;
-
     // ---- delegate data ----
     private FillType mFillType = FillType.WINDING;
     private Path2D mPath = new Path2D.Double();
@@ -66,39 +63,34 @@ public final class Path_Delegate {
     private float mLastX = 0;
     private float mLastY = 0;
 
-    // true if the path contains does not contain a curve or line.
-    private boolean mCachedIsEmpty = true;
-
     // ---- Public Helper methods ----
 
     public static Path_Delegate getDelegate(long nPath) {
         return sManager.getDelegate(nPath);
     }
 
-    public Path2D getJavaShape() {
+    public Shape getJavaShape() {
         return mPath;
     }
 
     public void setJavaShape(Shape shape) {
-        reset();
+        mPath.reset();
         mPath.append(shape, false /*connect*/);
     }
 
     public void reset() {
         mPath.reset();
-        mLastX = 0;
-        mLastY = 0;
     }
 
     public void setPathIterator(PathIterator iterator) {
-        reset();
+        mPath.reset();
         mPath.append(iterator, false /*connect*/);
     }
 
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nInit() {
+    /*package*/ static long init1() {
         // create the delegate
         Path_Delegate newDelegate = new Path_Delegate();
 
@@ -106,7 +98,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static long nInit(long nPath) {
+    /*package*/ static long init2(long nPath) {
         // create the delegate
         Path_Delegate newDelegate = new Path_Delegate();
 
@@ -120,30 +112,30 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nReset(long nPath) {
+    /*package*/ static void native_reset(long nPath) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
         }
 
-        pathDelegate.reset();
+        pathDelegate.mPath.reset();
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nRewind(long nPath) {
+    /*package*/ static void native_rewind(long nPath) {
         // call out to reset since there's nothing to optimize in
         // terms of data structs.
-        nReset(nPath);
+        native_reset(nPath);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSet(long native_dst, long nSrc) {
+    /*package*/ static void native_set(long native_dst, long native_src) {
         Path_Delegate pathDstDelegate = sManager.getDelegate(native_dst);
         if (pathDstDelegate == null) {
             return;
         }
 
-        Path_Delegate pathSrcDelegate = sManager.getDelegate(nSrc);
+        Path_Delegate pathSrcDelegate = sManager.getDelegate(native_src);
         if (pathSrcDelegate == null) {
             return;
         }
@@ -152,14 +144,14 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nIsConvex(long nPath) {
+    /*package*/ static boolean native_isConvex(long nPath) {
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Path.isConvex is not supported.", null, null);
         return true;
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetFillType(long nPath) {
+    /*package*/ static int native_getFillType(long nPath) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return 0;
@@ -169,24 +161,27 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    public static void nSetFillType(long nPath, int ft) {
+    /*package*/ static void native_setFillType(long nPath, int ft) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
         }
 
-        pathDelegate.setFillType(Path.sFillTypeArray[ft]);
+        pathDelegate.mFillType = Path.sFillTypeArray[ft];
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nIsEmpty(long nPath) {
+    /*package*/ static boolean native_isEmpty(long nPath) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
-        return pathDelegate == null || pathDelegate.isEmpty();
+        if (pathDelegate == null) {
+            return true;
+        }
 
+        return pathDelegate.isEmpty();
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nIsRect(long nPath, RectF rect) {
+    /*package*/ static boolean native_isRect(long nPath, RectF rect) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return false;
@@ -206,7 +201,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nComputeBounds(long nPath, RectF bounds) {
+    /*package*/ static void native_computeBounds(long nPath, RectF bounds) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -216,13 +211,13 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nIncReserve(long nPath, int extraPtCount) {
+    /*package*/ static void native_incReserve(long nPath, int extraPtCount) {
         // since we use a java2D path, there's no way to pre-allocate new points,
         // so we do nothing.
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nMoveTo(long nPath, float x, float y) {
+    /*package*/ static void native_moveTo(long nPath, float x, float y) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -232,7 +227,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nRMoveTo(long nPath, float dx, float dy) {
+    /*package*/ static void native_rMoveTo(long nPath, float dx, float dy) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -242,7 +237,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nLineTo(long nPath, float x, float y) {
+    /*package*/ static void native_lineTo(long nPath, float x, float y) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -252,7 +247,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nRLineTo(long nPath, float dx, float dy) {
+    /*package*/ static void native_rLineTo(long nPath, float dx, float dy) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -262,7 +257,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nQuadTo(long nPath, float x1, float y1, float x2, float y2) {
+    /*package*/ static void native_quadTo(long nPath, float x1, float y1, float x2, float y2) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -272,7 +267,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nRQuadTo(long nPath, float dx1, float dy1, float dx2, float dy2) {
+    /*package*/ static void native_rQuadTo(long nPath, float dx1, float dy1, float dx2, float dy2) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -282,7 +277,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nCubicTo(long nPath, float x1, float y1,
+    /*package*/ static void native_cubicTo(long nPath, float x1, float y1,
             float x2, float y2, float x3, float y3) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -293,7 +288,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nRCubicTo(long nPath, float x1, float y1,
+    /*package*/ static void native_rCubicTo(long nPath, float x1, float y1,
             float x2, float y2, float x3, float y3) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -304,7 +299,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nArcTo(long nPath, float left, float top, float right,
+    /*package*/ static void native_arcTo(long nPath, float left, float top, float right,
             float bottom,
                     float startAngle, float sweepAngle, boolean forceMoveTo) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
@@ -316,7 +311,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nClose(long nPath) {
+    /*package*/ static void native_close(long nPath) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -326,7 +321,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddRect(long nPath,
+    /*package*/ static void native_addRect(long nPath,
             float left, float top, float right, float bottom, int dir) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -337,7 +332,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddOval(long nPath, float left, float top, float right,
+    /*package*/ static void native_addOval(long nPath, float left, float top, float right,
             float bottom, int dir) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -349,7 +344,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddCircle(long nPath, float x, float y, float radius, int dir) {
+    /*package*/ static void native_addCircle(long nPath, float x, float y, float radius, int dir) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -361,7 +356,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddArc(long nPath, float left, float top, float right,
+    /*package*/ static void native_addArc(long nPath, float left, float top, float right,
             float bottom, float startAngle, float sweepAngle) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -375,7 +370,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddRoundRect(long nPath, float left, float top, float right,
+    /*package*/ static void native_addRoundRect(long nPath, float left, float top, float right,
             float bottom, float rx, float ry, int dir) {
 
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
@@ -388,34 +383,37 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddRoundRect(long nPath, float left, float top, float right,
+    /*package*/ static void native_addRoundRect(long nPath, float left, float top, float right,
             float bottom, float[] radii, int dir) {
+        // Java2D doesn't support different rounded corners in each corner, so just use the
+        // first value.
+        native_addRoundRect(nPath, left, top, right, bottom, radii[0], radii[1], dir);
 
-        Path_Delegate pathDelegate = sManager.getDelegate(nPath);
-        if (pathDelegate == null) {
-            return;
+        // there can be a case where this API is used but with similar values for all corners, so
+        // in that case we don't warn.
+        // we only care if 2 corners are different so just compare to the next one.
+        for (int i = 0 ; i < 3 ; i++) {
+            if (radii[i * 2] != radii[(i + 1) * 2] || radii[i * 2 + 1] != radii[(i + 1) * 2 + 1]) {
+                Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
+                        "Different corner sizes are not supported in Path.addRoundRect.",
+                        null, null /*data*/);
+                break;
+            }
         }
-
-        float[] cornerDimensions = new float[radii.length];
-        for (int i = 0; i < radii.length; i++) {
-            cornerDimensions[i] = 2 * radii[i];
-        }
-        pathDelegate.mPath.append(new RoundRectangle(left, top, right - left, bottom - top,
-                cornerDimensions), false);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddPath(long nPath, long src, float dx, float dy) {
+    /*package*/ static void native_addPath(long nPath, long src, float dx, float dy) {
         addPath(nPath, src, AffineTransform.getTranslateInstance(dx, dy));
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddPath(long nPath, long src) {
+    /*package*/ static void native_addPath(long nPath, long src) {
         addPath(nPath, src, null /*transform*/);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAddPath(long nPath, long src, long matrix) {
+    /*package*/ static void native_addPath(long nPath, long src, long matrix) {
         Matrix_Delegate matrixDelegate = Matrix_Delegate.getDelegate(matrix);
         if (matrixDelegate == null) {
             return;
@@ -425,17 +423,25 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nOffset(long nPath, float dx, float dy) {
+    /*package*/ static void native_offset(long nPath, float dx, float dy, long dst_path) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
         }
 
-        pathDelegate.offset(dx, dy);
+        // could be null if the int is 0;
+        Path_Delegate dstDelegate = sManager.getDelegate(dst_path);
+
+        pathDelegate.offset(dx, dy, dstDelegate);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetLastPoint(long nPath, float dx, float dy) {
+    /*package*/ static void native_offset(long nPath, float dx, float dy) {
+        native_offset(nPath, dx, dy, 0);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void native_setLastPoint(long nPath, float dx, float dy) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return;
@@ -446,7 +452,7 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nTransform(long nPath, long matrix,
+    /*package*/ static void native_transform(long nPath, long matrix,
                                                 long dst_path) {
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
@@ -465,64 +471,71 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nTransform(long nPath, long matrix) {
-        nTransform(nPath, matrix, 0);
+    /*package*/ static void native_transform(long nPath, long matrix) {
+        native_transform(nPath, matrix, 0);
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nOp(long nPath1, long nPath2, int op, long result) {
+    /*package*/ static boolean native_op(long nPath1, long nPath2, int op, long result) {
         Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED, "Path.op() not supported", null);
         return false;
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nFinalize(long nPath) {
+    /*package*/ static void finalizer(long nPath) {
         sManager.removeJavaReferenceFor(nPath);
     }
 
     @LayoutlibDelegate
-    /*package*/ static float[] nApproximate(long nPath, float error) {
+    /*package*/ static float[] native_approximate(long nPath, float error) {
+        Bridge.getLog().warning(LayoutLog.TAG_UNSUPPORTED, "Path.approximate() not fully supported",
+                null);
         Path_Delegate pathDelegate = sManager.getDelegate(nPath);
         if (pathDelegate == null) {
             return null;
         }
-        // Get a FlatteningIterator
-        PathIterator iterator = pathDelegate.getJavaShape().getPathIterator(null, error);
-
-        float segment[] = new float[6];
-        float totalLength = 0;
-        ArrayList<Point2D.Float> points = new ArrayList<Point2D.Float>();
-        Point2D.Float previousPoint = null;
-        while (!iterator.isDone()) {
-            int type = iterator.currentSegment(segment);
-            Point2D.Float currentPoint = new Point2D.Float(segment[0], segment[1]);
-            // MoveTo shouldn't affect the length
-            if (previousPoint != null && type != PathIterator.SEG_MOVETO) {
-                totalLength += currentPoint.distance(previousPoint);
+        PathIterator pathIterator = pathDelegate.mPath.getPathIterator(null);
+        float[] tmp = new float[6];
+        float[] coords = new float[6];
+        boolean isFirstPoint = true;
+        while (!pathIterator.isDone()) {
+            int type = pathIterator.currentSegment(tmp);
+            switch (type) {
+                case PathIterator.SEG_MOVETO:
+                case PathIterator.SEG_LINETO:
+                    store(tmp, coords, 1, isFirstPoint);
+                    break;
+                case PathIterator.SEG_QUADTO:
+                    store(tmp, coords, 2, isFirstPoint);
+                    break;
+                case PathIterator.SEG_CUBICTO:
+                    store(tmp, coords, 3, isFirstPoint);
+                    break;
+                case PathIterator.SEG_CLOSE:
+                    // No points returned.
             }
-            previousPoint = currentPoint;
-            points.add(currentPoint);
-            iterator.next();
+            isFirstPoint = false;
+            pathIterator.next();
         }
-
-        int nPoints = points.size();
-        float[] result = new float[nPoints * 3];
-        previousPoint = null;
-        // Distance that we've covered so far. Used to calculate the fraction of the path that
-        // we've covered up to this point.
-        float walkedDistance = .0f;
-        for (int i = 0; i < nPoints; i++) {
-            Point2D.Float point = points.get(i);
-            float distance = previousPoint != null ? (float) previousPoint.distance(point) : .0f;
-            walkedDistance += distance;
-            result[i * 3] = walkedDistance / totalLength;
-            result[i * 3 + 1] = point.x;
-            result[i * 3 + 2] = point.y;
-
-            previousPoint = point;
+        if (isFirstPoint) {
+            // No points found
+            return new float[0];
+        } else {
+            return coords;
         }
+    }
 
-        return result;
+    private static void store(float[] src, float[] dst, int count, boolean isFirst) {
+        if (isFirst) {
+            dst[0] = 0;       // fraction
+            dst[1] = src[0];  // abscissa
+            dst[2] = src[1];  // ordinate
+        }
+        if (count > 1 || !isFirst) {
+            dst[3] = 1;
+            dst[4] = src[2 * count - 2];
+            dst[5] = src[2 * count - 1];
+        }
     }
 
     // ---- Private helper methods ----
@@ -551,11 +564,10 @@ public final class Path_Delegate {
             case EVEN_ODD:
             case INVERSE_EVEN_ODD:
                 return GeneralPath.WIND_EVEN_ODD;
-
-            default:
-                assert false;
-                return GeneralPath.WIND_NON_ZERO;
         }
+
+        assert false;
+        throw new IllegalArgumentException();
     }
 
     @NonNull
@@ -570,7 +582,7 @@ public final class Path_Delegate {
         return null;
     }
 
-    public static void addPath(long destPath, long srcPath, AffineTransform transform) {
+    private static void addPath(long destPath, long srcPath, AffineTransform transform) {
         Path_Delegate destPathDelegate = sManager.getDelegate(destPath);
         if (destPathDelegate == null) {
             return;
@@ -591,44 +603,18 @@ public final class Path_Delegate {
 
 
     /**
-     * Returns whether the path already contains any points.
-     * Note that this is different to
-     * {@link #isEmpty} because if all elements are {@link PathIterator#SEG_MOVETO},
-     * {@link #isEmpty} will return true while hasPoints will return false.
+     * Returns whether the path is empty.
+     * @return true if the path is empty.
      */
-    public boolean hasPoints() {
-        return !mPath.getPathIterator(null).isDone();
-    }
-
-    /**
-     * Returns whether the path is empty (contains no lines or curves).
-     * @see Path#isEmpty
-     */
-    public boolean isEmpty() {
-        if (!mCachedIsEmpty) {
-            return false;
-        }
-
-        float[] coords = new float[6];
-        mCachedIsEmpty = Boolean.TRUE;
-        for (PathIterator it = mPath.getPathIterator(null); !it.isDone(); it.next()) {
-            int type = it.currentSegment(coords);
-            if (type != PathIterator.SEG_MOVETO) {
-                // Once we know that the path is not empty, we do not need to check again unless
-                // Path#reset is called.
-                mCachedIsEmpty = false;
-                return false;
-            }
-        }
-
-        return true;
+    private boolean isEmpty() {
+        return mPath.getCurrentPoint() == null;
     }
 
     /**
      * Fills the given {@link RectF} with the path bounds.
      * @param bounds the RectF to be filled.
      */
-    public void fillBounds(RectF bounds) {
+    private void fillBounds(RectF bounds) {
         Rectangle2D rect = mPath.getBounds2D();
         bounds.left = (float)rect.getMinX();
         bounds.right = (float)rect.getMaxX();
@@ -642,7 +628,7 @@ public final class Path_Delegate {
      * @param x The x-coordinate of the start of a new contour
      * @param y The y-coordinate of the start of a new contour
      */
-    public void moveTo(float x, float y) {
+    private void moveTo(float x, float y) {
         mPath.moveTo(mLastX = x, mLastY = y);
     }
 
@@ -656,7 +642,7 @@ public final class Path_Delegate {
      * @param dy The amount to add to the y-coordinate of the end of the
      *           previous contour, to specify the start of a new contour
      */
-    public void rMoveTo(float dx, float dy) {
+    private void rMoveTo(float dx, float dy) {
         dx += mLastX;
         dy += mLastY;
         mPath.moveTo(mLastX = dx, mLastY = dy);
@@ -670,8 +656,8 @@ public final class Path_Delegate {
      * @param x The x-coordinate of the end of a line
      * @param y The y-coordinate of the end of a line
      */
-    public void lineTo(float x, float y) {
-        if (!hasPoints()) {
+    private void lineTo(float x, float y) {
+        if (isEmpty()) {
             mPath.moveTo(mLastX = 0, mLastY = 0);
         }
         mPath.lineTo(mLastX = x, mLastY = y);
@@ -687,16 +673,10 @@ public final class Path_Delegate {
      * @param dy The amount to add to the y-coordinate of the previous point on
      *           this contour, to specify a line
      */
-    public void rLineTo(float dx, float dy) {
-        if (!hasPoints()) {
+    private void rLineTo(float dx, float dy) {
+        if (isEmpty()) {
             mPath.moveTo(mLastX = 0, mLastY = 0);
         }
-
-        if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON) {
-            // The delta is so small that this shouldn't generate a line
-            return;
-        }
-
         dx += mLastX;
         dy += mLastY;
         mPath.lineTo(mLastX = dx, mLastY = dy);
@@ -712,7 +692,7 @@ public final class Path_Delegate {
      * @param x2 The x-coordinate of the end point on a quadratic curve
      * @param y2 The y-coordinate of the end point on a quadratic curve
      */
-    public void quadTo(float x1, float y1, float x2, float y2) {
+    private void quadTo(float x1, float y1, float x2, float y2) {
         mPath.quadTo(x1, y1, mLastX = x2, mLastY = y2);
     }
 
@@ -730,8 +710,8 @@ public final class Path_Delegate {
      * @param dy2 The amount to add to the y-coordinate of the last point on
      *            this contour, for the end point of a quadratic curve
      */
-    public void rQuadTo(float dx1, float dy1, float dx2, float dy2) {
-        if (!hasPoints()) {
+    private void rQuadTo(float dx1, float dy1, float dx2, float dy2) {
+        if (isEmpty()) {
             mPath.moveTo(mLastX = 0, mLastY = 0);
         }
         dx1 += mLastX;
@@ -753,11 +733,8 @@ public final class Path_Delegate {
      * @param x3 The x-coordinate of the end point on a cubic curve
      * @param y3 The y-coordinate of the end point on a cubic curve
      */
-    public void cubicTo(float x1, float y1, float x2, float y2,
+    private void cubicTo(float x1, float y1, float x2, float y2,
                         float x3, float y3) {
-        if (!hasPoints()) {
-            mPath.moveTo(0, 0);
-        }
         mPath.curveTo(x1, y1, x2, y2, mLastX = x3, mLastY = y3);
     }
 
@@ -766,9 +743,9 @@ public final class Path_Delegate {
      * current point on this contour. If there is no previous point, then a
      * moveTo(0,0) is inserted automatically.
      */
-    public void rCubicTo(float dx1, float dy1, float dx2, float dy2,
+    private void rCubicTo(float dx1, float dy1, float dx2, float dy2,
                          float dx3, float dy3) {
-        if (!hasPoints()) {
+        if (isEmpty()) {
             mPath.moveTo(mLastX = 0, mLastY = 0);
         }
         dx1 += mLastX;
@@ -796,7 +773,7 @@ public final class Path_Delegate {
      *                    mod 360.
      * @param forceMoveTo If true, always begin a new contour with the arc
      */
-    public void arcTo(float left, float top, float right, float bottom, float startAngle,
+    private void arcTo(float left, float top, float right, float bottom, float startAngle,
             float sweepAngle,
             boolean forceMoveTo) {
         Arc2D arc = new Arc2D.Float(left, top, right - left, bottom - top, -startAngle,
@@ -810,7 +787,7 @@ public final class Path_Delegate {
      * Close the current contour. If the current point is not equal to the
      * first point of the contour, a line segment is automatically added.
      */
-    public void close() {
+    private void close() {
         mPath.closePath();
     }
 
@@ -829,7 +806,7 @@ public final class Path_Delegate {
      * @param bottom The bottom of a rectangle to add to the path
      * @param dir    The direction to wind the rectangle's contour
      */
-    public void addRect(float left, float top, float right, float bottom,
+    private void addRect(float left, float top, float right, float bottom,
                         int dir) {
         moveTo(left, top);
 
@@ -858,14 +835,21 @@ public final class Path_Delegate {
      *
      * @param dx  The amount in the X direction to offset the entire path
      * @param dy  The amount in the Y direction to offset the entire path
+     * @param dst The translated path is written here. If this is null, then
+     *            the original path is modified.
      */
-    public void offset(float dx, float dy) {
+    public void offset(float dx, float dy, Path_Delegate dst) {
         GeneralPath newPath = new GeneralPath();
 
         PathIterator iterator = mPath.getPathIterator(new AffineTransform(0, 0, dx, 0, 0, dy));
 
         newPath.append(iterator, false /*connect*/);
-        mPath = newPath;
+
+        if (dst != null) {
+            dst.mPath = newPath;
+        } else {
+            mPath = newPath;
+        }
     }
 
     /**

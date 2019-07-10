@@ -16,10 +16,7 @@
 
 package com.android.internal.view;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
-import android.graphics.Point;
 import android.graphics.Rect;
 import android.view.ActionMode;
 import android.view.Menu;
@@ -27,11 +24,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.ViewGroup;
-import android.view.ViewParent;
-import android.view.WindowManager;
 
-import android.widget.PopupWindow;
 import com.android.internal.R;
 import com.android.internal.util.Preconditions;
 import com.android.internal.view.menu.MenuBuilder;
@@ -39,65 +32,50 @@ import com.android.internal.widget.FloatingToolbar;
 
 import java.util.Arrays;
 
-public final class FloatingActionMode extends ActionMode {
+public class FloatingActionMode extends ActionMode {
 
     private static final int MAX_HIDE_DURATION = 3000;
-    private static final int MOVING_HIDE_DELAY = 50;
+    private static final int MOVING_HIDE_DELAY = 300;
 
-    @NonNull private final Context mContext;
-    @NonNull private final ActionMode.Callback2 mCallback;
-    @NonNull private final MenuBuilder mMenu;
-    @NonNull private final Rect mContentRect;
-    @NonNull private final Rect mContentRectOnScreen;
-    @NonNull private final Rect mPreviousContentRectOnScreen;
-    @NonNull private final int[] mViewPositionOnScreen;
-    @NonNull private final int[] mPreviousViewPositionOnScreen;
-    @NonNull private final int[] mRootViewPositionOnScreen;
-    @NonNull private final Rect mViewRectOnScreen;
-    @NonNull private final Rect mPreviousViewRectOnScreen;
-    @NonNull private final Rect mScreenRect;
-    @NonNull private final View mOriginatingView;
-    @NonNull private final Point mDisplaySize;
+    private final Context mContext;
+    private final ActionMode.Callback2 mCallback;
+    private final MenuBuilder mMenu;
+    private final Rect mContentRect;
+    private final Rect mContentRectOnScreen;
+    private final Rect mPreviousContentRectOnScreen;
+    private final int[] mViewPositionOnScreen;
+    private final int[] mPreviousViewPositionOnScreen;
+    private final int[] mRootViewPositionOnScreen;
+    private final Rect mViewRectOnScreen;
+    private final Rect mPreviousViewRectOnScreen;
+    private final Rect mScreenRect;
+    private final View mOriginatingView;
     private final int mBottomAllowance;
 
     private final Runnable mMovingOff = new Runnable() {
         public void run() {
-            if (isViewStillActive()) {
-                mFloatingToolbarVisibilityHelper.setMoving(false);
-                mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
-            }
+            mFloatingToolbarVisibilityHelper.setMoving(false);
+            mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
         }
     };
 
     private final Runnable mHideOff = new Runnable() {
         public void run() {
-            if (isViewStillActive()) {
-                mFloatingToolbarVisibilityHelper.setHideRequested(false);
-                mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
-            }
+            mFloatingToolbarVisibilityHelper.setHideRequested(false);
+            mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
         }
     };
 
-    @NonNull private FloatingToolbar mFloatingToolbar;
-    @NonNull private FloatingToolbarVisibilityHelper mFloatingToolbarVisibilityHelper;
+    private FloatingToolbar mFloatingToolbar;
+    private FloatingToolbarVisibilityHelper mFloatingToolbarVisibilityHelper;
 
     public FloatingActionMode(
-            Context context, ActionMode.Callback2 callback,
-            View originatingView, FloatingToolbar floatingToolbar) {
+            Context context, ActionMode.Callback2 callback, View originatingView) {
         mContext = Preconditions.checkNotNull(context);
         mCallback = Preconditions.checkNotNull(callback);
         mMenu = new MenuBuilder(context).setDefaultShowAsAction(
                 MenuItem.SHOW_AS_ACTION_IF_ROOM);
         setType(ActionMode.TYPE_FLOATING);
-        mMenu.setCallback(new MenuBuilder.Callback() {
-            @Override
-            public void onMenuModeChange(MenuBuilder menu) {}
-
-            @Override
-            public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
-                return mCallback.onActionItemClicked(FloatingActionMode.this, item);
-            }
-        });
         mContentRect = new Rect();
         mContentRectOnScreen = new Rect();
         mPreviousContentRectOnScreen = new Rect();
@@ -113,14 +91,17 @@ public final class FloatingActionMode extends ActionMode {
         // bottom view bound if necessary.
         mBottomAllowance = context.getResources()
                 .getDimensionPixelSize(R.dimen.content_rect_bottom_clip_allowance);
-        mDisplaySize = new Point();
-        setFloatingToolbar(Preconditions.checkNotNull(floatingToolbar));
     }
 
-    private void setFloatingToolbar(FloatingToolbar floatingToolbar) {
+    public void setFloatingToolbar(FloatingToolbar floatingToolbar) {
         mFloatingToolbar = floatingToolbar
                 .setMenu(mMenu)
-                .setOnMenuItemClickListener(item -> mMenu.performItemAction(item, 0));
+                .setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                        @Override
+                    public boolean onMenuItemClick(MenuItem item) {
+                        return mCallback.onActionItemClicked(FloatingActionMode.this, item);
+                    }
+                });
         mFloatingToolbarVisibilityHelper = new FloatingToolbarVisibilityHelper(mFloatingToolbar);
         mFloatingToolbarVisibilityHelper.activate();
     }
@@ -142,17 +123,21 @@ public final class FloatingActionMode extends ActionMode {
 
     @Override
     public void invalidate() {
+        checkToolbarInitialized();
         mCallback.onPrepareActionMode(this, mMenu);
         invalidateContentRect();  // Will re-layout and show the toolbar if necessary.
     }
 
     @Override
     public void invalidateContentRect() {
+        checkToolbarInitialized();
         mCallback.onGetContentRect(this, mOriginatingView, mContentRect);
         repositionToolbar();
     }
 
     public void updateViewLocationInWindow() {
+        checkToolbarInitialized();
+
         mOriginatingView.getLocationOnScreen(mViewPositionOnScreen);
         mOriginatingView.getRootView().getLocationOnScreen(mRootViewPositionOnScreen);
         mOriginatingView.getGlobalVisibleRect(mViewRectOnScreen);
@@ -168,19 +153,10 @@ public final class FloatingActionMode extends ActionMode {
     }
 
     private void repositionToolbar() {
-        mContentRectOnScreen.set(mContentRect);
+        checkToolbarInitialized();
 
-        // Offset the content rect into screen coordinates, taking into account any transformations
-        // that may be applied to the originating view or its ancestors.
-        final ViewParent parent = mOriginatingView.getParent();
-        if (parent instanceof ViewGroup) {
-            ((ViewGroup) parent).getChildVisibleRect(
-                    mOriginatingView, mContentRectOnScreen,
-                    null /* offset */, true /* forceParentCheck */);
-            mContentRectOnScreen.offset(mRootViewPositionOnScreen[0], mRootViewPositionOnScreen[1]);
-        } else {
-            mContentRectOnScreen.offset(mViewPositionOnScreen[0], mViewPositionOnScreen[1]);
-        }
+        mContentRectOnScreen.set(mContentRect);
+        mContentRectOnScreen.offset(mViewPositionOnScreen[0], mViewPositionOnScreen[1]);
 
         if (isContentRectWithinBounds()) {
             mFloatingToolbarVisibilityHelper.setOutOfBounds(false);
@@ -196,6 +172,7 @@ public final class FloatingActionMode extends ActionMode {
                 // Content rect is moving.
                 mOriginatingView.removeCallbacks(mMovingOff);
                 mFloatingToolbarVisibilityHelper.setMoving(true);
+                mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
                 mOriginatingView.postDelayed(mMovingOff, MOVING_HIDE_DELAY);
 
                 mFloatingToolbar.setContentRect(mContentRectOnScreen);
@@ -203,17 +180,19 @@ public final class FloatingActionMode extends ActionMode {
             }
         } else {
             mFloatingToolbarVisibilityHelper.setOutOfBounds(true);
+            mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
             mContentRectOnScreen.setEmpty();
         }
-        mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
 
         mPreviousContentRectOnScreen.set(mContentRectOnScreen);
     }
 
     private boolean isContentRectWithinBounds() {
-        mContext.getSystemService(WindowManager.class)
-            .getDefaultDisplay().getRealSize(mDisplaySize);
-        mScreenRect.set(0, 0, mDisplaySize.x, mDisplaySize.y);
+        mScreenRect.set(
+            0,
+            0,
+            mContext.getResources().getDisplayMetrics().widthPixels,
+            mContext.getResources().getDisplayMetrics().heightPixels);
 
         return intersectsClosed(mContentRectOnScreen, mScreenRect)
             && intersectsClosed(mContentRectOnScreen, mViewRectOnScreen);
@@ -229,6 +208,8 @@ public final class FloatingActionMode extends ActionMode {
 
     @Override
     public void hide(long duration) {
+        checkToolbarInitialized();
+
         if (duration == ActionMode.DEFAULT_HIDE_DURATION) {
             duration = ViewConfiguration.getDefaultActionModeHideDuration();
         }
@@ -243,31 +224,16 @@ public final class FloatingActionMode extends ActionMode {
         }
     }
 
-    /**
-     * If this is set to true, the action mode view will dismiss itself on touch events outside of
-     * its window. This only makes sense if the action mode view is a PopupWindow that is touchable
-     * but not focusable, which means touches outside of the window will be delivered to the window
-     * behind. The default is false.
-     *
-     * This is for internal use only and the approach to this may change.
-     * @hide
-     *
-     * @param outsideTouchable whether or not this action mode is "outside touchable"
-     * @param onDismiss optional. Sets a callback for when this action mode popup dismisses itself
-     */
-    public void setOutsideTouchable(
-            boolean outsideTouchable, @Nullable PopupWindow.OnDismissListener onDismiss) {
-        mFloatingToolbar.setOutsideTouchable(outsideTouchable, onDismiss);
-    }
-
     @Override
     public void onWindowFocusChanged(boolean hasWindowFocus) {
+        checkToolbarInitialized();
         mFloatingToolbarVisibilityHelper.setWindowFocused(hasWindowFocus);
         mFloatingToolbarVisibilityHelper.updateToolbarVisibility();
     }
 
     @Override
     public void finish() {
+        checkToolbarInitialized();
         reset();
         mCallback.onDestroyActionMode(this);
     }
@@ -297,6 +263,14 @@ public final class FloatingActionMode extends ActionMode {
         return new MenuInflater(mContext);
     }
 
+    /**
+     * @throws IllegalStateException
+     */
+    private void checkToolbarInitialized() {
+        Preconditions.checkState(mFloatingToolbar != null);
+        Preconditions.checkState(mFloatingToolbarVisibilityHelper != null);
+    }
+
     private void reset() {
         mFloatingToolbar.dismiss();
         mFloatingToolbarVisibilityHelper.deactivate();
@@ -304,17 +278,10 @@ public final class FloatingActionMode extends ActionMode {
         mOriginatingView.removeCallbacks(mHideOff);
     }
 
-    private boolean isViewStillActive() {
-        return mOriginatingView.getWindowVisibility() == View.VISIBLE
-                && mOriginatingView.isShown();
-    }
-
     /**
      * A helper for showing/hiding the floating toolbar depending on certain states.
      */
     private static final class FloatingToolbarVisibilityHelper {
-
-        private static final long MIN_SHOW_DURATION_FOR_MOVE_HIDE = 500;
 
         private final FloatingToolbar mToolbar;
 
@@ -324,8 +291,6 @@ public final class FloatingActionMode extends ActionMode {
         private boolean mWindowFocused = true;
 
         private boolean mActive;
-
-        private long mLastShowTime;
 
         public FloatingToolbarVisibilityHelper(FloatingToolbar toolbar) {
             mToolbar = Preconditions.checkNotNull(toolbar);
@@ -350,13 +315,7 @@ public final class FloatingActionMode extends ActionMode {
         }
 
         public void setMoving(boolean moving) {
-            // Avoid unintended flickering by allowing the toolbar to show long enough before
-            // triggering the 'moving' flag - which signals a hide.
-            final boolean showingLongEnough =
-                System.currentTimeMillis() - mLastShowTime > MIN_SHOW_DURATION_FOR_MOVE_HIDE;
-            if (!moving || showingLongEnough) {
-                mMoving = moving;
-            }
+            mMoving = moving;
         }
 
         public void setOutOfBounds(boolean outOfBounds) {
@@ -376,7 +335,6 @@ public final class FloatingActionMode extends ActionMode {
                 mToolbar.hide();
             } else {
                 mToolbar.show();
-                mLastShowTime = System.currentTimeMillis();
             }
         }
     }

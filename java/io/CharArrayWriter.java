@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
@@ -28,109 +20,211 @@ package java.io;
 import java.util.Arrays;
 
 /**
- * This class implements a character buffer that can be used as an Writer.
- * The buffer automatically grows when data is written to the stream.  The data
- * can be retrieved using toCharArray() and toString().
- * <P>
- * Note: Invoking close() on this class has no effect, and methods
- * of this class can be called after the stream has closed
- * without generating an IOException.
+ * A specialized {@link Writer} for class for writing content to an (internal)
+ * char array. As bytes are written to this writer, the char array may be
+ * expanded to hold more characters. When the writing is considered to be
+ * finished, a copy of the char array can be requested from the class.
  *
- * @author      Herb Jellinek
- * @since       JDK1.1
+ * @see CharArrayReader
  */
-public
-class CharArrayWriter extends Writer {
-    /**
-     * The buffer where data is stored.
-     */
-    protected char buf[];
+public class CharArrayWriter extends Writer {
 
     /**
-     * The number of chars in the buffer.
+     * The buffer for characters.
+     */
+    protected char[] buf;
+
+    /**
+     * The ending index of the buffer.
      */
     protected int count;
 
     /**
-     * Creates a new CharArrayWriter.
+     * Constructs a new {@code CharArrayWriter} which has a buffer allocated
+     * with the default size of 32 characters. This buffer is also used as the
+     * {@code lock} to synchronize access to this writer.
      */
     public CharArrayWriter() {
-        this(32);
+        buf = new char[32];
+        lock = buf;
     }
 
     /**
-     * Creates a new CharArrayWriter with the specified initial size.
+     * Constructs a new {@code CharArrayWriter} which has a buffer allocated
+     * with the size of {@code initialSize} characters. The buffer is also used
+     * as the {@code lock} to synchronize access to this writer.
      *
-     * @param initialSize  an int specifying the initial buffer size.
-     * @exception IllegalArgumentException if initialSize is negative
+     * @param initialSize
+     *            the initial size of this CharArrayWriters buffer.
+     * @throws IllegalArgumentException
+     *             if {@code initialSize < 0}.
      */
     public CharArrayWriter(int initialSize) {
         if (initialSize < 0) {
-            throw new IllegalArgumentException("Negative initial size: "
-                                               + initialSize);
+            throw new IllegalArgumentException("size < 0");
         }
         buf = new char[initialSize];
+        lock = buf;
     }
 
     /**
-     * Writes a character to the buffer.
+     * Closes this writer. The implementation in {@code CharArrayWriter} does nothing.
      */
-    public void write(int c) {
-        synchronized (lock) {
-            int newcount = count + 1;
-            if (newcount > buf.length) {
-                buf = Arrays.copyOf(buf, Math.max(buf.length << 1, newcount));
-            }
-            buf[count] = (char)c;
-            count = newcount;
-        }
+    @Override
+    public void close() {
+        /* empty */
     }
 
-    /**
-     * Writes characters to the buffer.
-     * @param c the data to be written
-     * @param off       the start offset in the data
-     * @param len       the number of chars that are written
-     */
-    public void write(char c[], int off, int len) {
-        if ((off < 0) || (off > c.length) || (len < 0) ||
-            ((off + len) > c.length) || ((off + len) < 0)) {
-            throw new IndexOutOfBoundsException();
-        } else if (len == 0) {
+    private void expand(int i) {
+        /* Can the buffer handle @i more chars, if not expand it */
+        if (count + i <= buf.length) {
             return;
         }
-        synchronized (lock) {
-            int newcount = count + len;
-            if (newcount > buf.length) {
-                buf = Arrays.copyOf(buf, Math.max(buf.length << 1, newcount));
-            }
-            System.arraycopy(c, off, buf, count, len);
-            count = newcount;
-        }
+
+        int newLen = Math.max(2 * buf.length, count + i);
+        char[] newbuf = new char[newLen];
+        System.arraycopy(buf, 0, newbuf, 0, count);
+        buf = newbuf;
     }
 
     /**
-     * Write a portion of a string to the buffer.
-     * @param  str  String to be written from
-     * @param  off  Offset from which to start reading characters
-     * @param  len  Number of characters to be written
+     * Flushes this writer. The implementation in {@code CharArrayWriter} does nothing.
      */
-    public void write(String str, int off, int len) {
+    @Override
+    public void flush() {
+        /* empty */
+    }
+
+    /**
+     * Resets this writer. The current write position is reset to the beginning
+     * of the buffer. All written characters are lost and the size of this
+     * writer is set to 0.
+     */
+    public void reset() {
         synchronized (lock) {
-            int newcount = count + len;
-            if (newcount > buf.length) {
-                buf = Arrays.copyOf(buf, Math.max(buf.length << 1, newcount));
-            }
-            str.getChars(off, off + len, buf, count);
-            count = newcount;
+            count = 0;
         }
     }
 
     /**
-     * Writes the contents of the buffer to another character stream.
+     * Returns the size of this writer, that is the number of characters it
+     * stores. This number changes if this writer is reset or when more
+     * characters are written to it.
      *
-     * @param out       the output stream to write to
-     * @throws IOException If an I/O error occurs.
+     * @return this CharArrayWriter's current size in characters.
+     */
+    public int size() {
+        synchronized (lock) {
+            return count;
+        }
+    }
+
+    /**
+     * Returns the contents of the receiver as a char array. The array returned
+     * is a copy and any modifications made to this writer after calling this
+     * method are not reflected in the result.
+     *
+     * @return this CharArrayWriter's contents as a new char array.
+     */
+    public char[] toCharArray() {
+        synchronized (lock) {
+            char[] result = new char[count];
+            System.arraycopy(buf, 0, result, 0, count);
+            return result;
+        }
+    }
+
+    /**
+     * Returns the contents of this {@code CharArrayWriter} as a string. The
+     * string returned is a copy and any modifications made to this writer after
+     * calling this method are not reflected in the result.
+     *
+     * @return this CharArrayWriters contents as a new string.
+     */
+    @Override
+    public String toString() {
+        synchronized (lock) {
+            return new String(buf, 0, count);
+        }
+    }
+
+    /**
+     * Writes {@code count} characters starting at {@code offset} in {@code c}
+     * to this writer.
+     *
+     * @param buffer
+     *            the non-null array containing characters to write.
+     * @param offset
+     *            the index of the first character in {@code buf} to write.
+     * @param len
+     *            maximum number of characters to write.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code len < 0}, or if
+     *             {@code offset + len} is bigger than the size of {@code c}.
+     */
+    @Override
+    public void write(char[] buffer, int offset, int len) {
+        Arrays.checkOffsetAndCount(buffer.length, offset, len);
+        synchronized (lock) {
+            expand(len);
+            System.arraycopy(buffer, offset, this.buf, this.count, len);
+            this.count += len;
+        }
+    }
+
+    /**
+     * Writes the specified character {@code oneChar} to this writer.
+     * This implementation writes the two low order bytes of the integer
+     * {@code oneChar} to the buffer.
+     *
+     * @param oneChar
+     *            the character to write.
+     */
+    @Override
+    public void write(int oneChar) {
+        synchronized (lock) {
+            expand(1);
+            buf[count++] = (char) oneChar;
+        }
+    }
+
+    /**
+     * Writes {@code count} characters starting at {@code offset} from
+     * the string {@code str} to this CharArrayWriter.
+     *
+     * @throws NullPointerException
+     *             if {@code str} is {@code null}.
+     * @throws StringIndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code count < 0}, or if
+     *             {@code offset + count} is bigger than the length of
+     *             {@code str}.
+     */
+    @Override
+    public void write(String str, int offset, int count) {
+        if (str == null) {
+            throw new NullPointerException("str == null");
+        }
+        if ((offset | count) < 0 || offset > str.length() - count) {
+            throw new StringIndexOutOfBoundsException(str, offset, count);
+        }
+        synchronized (lock) {
+            expand(count);
+            str.getChars(offset, offset + count, buf, this.count);
+            this.count += count;
+        }
+    }
+
+    /**
+     * Writes the contents of this {@code CharArrayWriter} to another {@code
+     * Writer}. The output is all the characters that have been written to the
+     * receiver since the last reset or since it was created.
+     *
+     * @param out
+     *            the non-null {@code Writer} on which to write the contents.
+     * @throws NullPointerException
+     *             if {@code out} is {@code null}.
+     * @throws IOException
+     *             if an error occurs attempting to write out the contents.
      */
     public void writeTo(Writer out) throws IOException {
         synchronized (lock) {
@@ -139,142 +233,68 @@ class CharArrayWriter extends Writer {
     }
 
     /**
-     * Appends the specified character sequence to this writer.
+     * Appends a char {@code c} to the {@code CharArrayWriter}. The method works
+     * the same way as {@code write(c)}.
      *
-     * <p> An invocation of this method of the form <tt>out.append(csq)</tt>
-     * behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(csq.toString()) </pre>
-     *
-     * <p> Depending on the specification of <tt>toString</tt> for the
-     * character sequence <tt>csq</tt>, the entire sequence may not be
-     * appended. For instance, invoking the <tt>toString</tt> method of a
-     * character buffer will return a subsequence whose content depends upon
-     * the buffer's position and limit.
-     *
-     * @param  csq
-     *         The character sequence to append.  If <tt>csq</tt> is
-     *         <tt>null</tt>, then the four characters <tt>"null"</tt> are
-     *         appended to this writer.
-     *
-     * @return  This writer
-     *
-     * @since  1.5
+     * @param c
+     *            the character appended to the CharArrayWriter.
+     * @return this CharArrayWriter.
      */
-    public CharArrayWriter append(CharSequence csq) {
-        String s = (csq == null ? "null" : csq.toString());
-        write(s, 0, s.length());
-        return this;
-    }
-
-    /**
-     * Appends a subsequence of the specified character sequence to this writer.
-     *
-     * <p> An invocation of this method of the form <tt>out.append(csq, start,
-     * end)</tt> when <tt>csq</tt> is not <tt>null</tt>, behaves in
-     * exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(csq.subSequence(start, end).toString()) </pre>
-     *
-     * @param  csq
-     *         The character sequence from which a subsequence will be
-     *         appended.  If <tt>csq</tt> is <tt>null</tt>, then characters
-     *         will be appended as if <tt>csq</tt> contained the four
-     *         characters <tt>"null"</tt>.
-     *
-     * @param  start
-     *         The index of the first character in the subsequence
-     *
-     * @param  end
-     *         The index of the character following the last character in the
-     *         subsequence
-     *
-     * @return  This writer
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If <tt>start</tt> or <tt>end</tt> are negative, <tt>start</tt>
-     *          is greater than <tt>end</tt>, or <tt>end</tt> is greater than
-     *          <tt>csq.length()</tt>
-     *
-     * @since  1.5
-     */
-    public CharArrayWriter append(CharSequence csq, int start, int end) {
-        String s = (csq == null ? "null" : csq).subSequence(start, end).toString();
-        write(s, 0, s.length());
-        return this;
-    }
-
-    /**
-     * Appends the specified character to this writer.
-     *
-     * <p> An invocation of this method of the form <tt>out.append(c)</tt>
-     * behaves in exactly the same way as the invocation
-     *
-     * <pre>
-     *     out.write(c) </pre>
-     *
-     * @param  c
-     *         The 16-bit character to append
-     *
-     * @return  This writer
-     *
-     * @since 1.5
-     */
+    @Override
     public CharArrayWriter append(char c) {
         write(c);
         return this;
     }
 
     /**
-     * Resets the buffer so that you can use it again without
-     * throwing away the already allocated buffer.
-     */
-    public void reset() {
-        count = 0;
-    }
-
-    /**
-     * Returns a copy of the input data.
+     * Appends a {@code CharSequence} to the {@code CharArrayWriter}. The method
+     * works the same way as {@code write(csq.toString())}. If {@code csq} is
+     * {@code null}, then it will be substituted with the string {@code "null"}.
      *
-     * @return an array of chars copied from the input data.
+     * @param csq
+     *            the {@code CharSequence} appended to the {@code
+     *            CharArrayWriter}, may be {@code null}.
+     * @return this CharArrayWriter.
      */
-    public char toCharArray()[] {
-        synchronized (lock) {
-            return Arrays.copyOf(buf, count);
+    @Override
+    public CharArrayWriter append(CharSequence csq) {
+        if (csq == null) {
+            csq = "null";
         }
+        append(csq, 0, csq.length());
+        return this;
     }
 
     /**
-     * Returns the current size of the buffer.
+     * Append a subsequence of a {@code CharSequence} to the {@code
+     * CharArrayWriter}. The first and last characters of the subsequence are
+     * specified by the parameters {@code start} and {@code end}. A call to
+     * {@code CharArrayWriter.append(csq)} works the same way as {@code
+     * CharArrayWriter.write(csq.subSequence(start, end).toString)}. If {@code
+     * csq} is {@code null}, then it will be substituted with the string {@code
+     * "null"}.
      *
-     * @return an int representing the current size of the buffer.
+     * @param csq
+     *            the {@code CharSequence} appended to the {@code
+     *            CharArrayWriter}, may be {@code null}.
+     * @param start
+     *            the index of the first character in the {@code CharSequence}
+     *            appended to the {@code CharArrayWriter}.
+     * @param end
+     *            the index of the character after the last one in the {@code
+     *            CharSequence} appended to the {@code CharArrayWriter}.
+     * @return this CharArrayWriter.
+     * @throws IndexOutOfBoundsException
+     *             if {@code start < 0}, {@code end < 0}, {@code start > end},
+     *             or if {@code end} is greater than the length of {@code csq}.
      */
-    public int size() {
-        return count;
-    }
-
-    /**
-     * Converts input data to a string.
-     * @return the string.
-     */
-    public String toString() {
-        synchronized (lock) {
-            return new String(buf, 0, count);
+    @Override
+    public CharArrayWriter append(CharSequence csq, int start, int end) {
+        if (csq == null) {
+            csq = "null";
         }
+        String output = csq.subSequence(start, end).toString();
+        write(output, 0, output.length());
+        return this;
     }
-
-    /**
-     * Flush the stream.
-     */
-    public void flush() { }
-
-    /**
-     * Close the stream.  This method does not release the buffer, since its
-     * contents might still be required. Note: Invoking this method in this class
-     * will have no effect.
-     */
-    public void close() { }
-
 }

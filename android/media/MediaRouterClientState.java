@@ -34,12 +34,20 @@ public final class MediaRouterClientState implements Parcelable {
      */
     public final ArrayList<RouteInfo> routes;
 
+    /**
+     * The id of the current globally selected route, or null if none.
+     * Globally selected routes override any other route selections that applications
+     * may have made.  Used for remote displays.
+     */
+    public String globallySelectedRouteId;
+
     public MediaRouterClientState() {
         routes = new ArrayList<RouteInfo>();
     }
 
     MediaRouterClientState(Parcel src) {
         routes = src.createTypedArrayList(RouteInfo.CREATOR);
+        globallySelectedRouteId = src.readString();
     }
 
     public RouteInfo getRoute(String id) {
@@ -61,11 +69,13 @@ public final class MediaRouterClientState implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeTypedList(routes);
+        dest.writeString(globallySelectedRouteId);
     }
 
     @Override
     public String toString() {
-        return "MediaRouterClientState{ routes=" + routes.toString() + " }";
+        return "MediaRouterClientState{ globallySelectedRouteId="
+                + globallySelectedRouteId + ", routes=" + routes.toString() + " }";
     }
 
     public static final Parcelable.Creator<MediaRouterClientState> CREATOR =
@@ -94,7 +104,6 @@ public final class MediaRouterClientState implements Parcelable {
         public int volumeMax;
         public int volumeHandling;
         public int presentationDisplayId;
-        public @MediaRouter.RouteInfo.DeviceType int deviceType;
 
         public RouteInfo(String id) {
             this.id = id;
@@ -104,7 +113,6 @@ public final class MediaRouterClientState implements Parcelable {
             playbackStream = -1;
             volumeHandling = MediaRouter.RouteInfo.PLAYBACK_VOLUME_FIXED;
             presentationDisplayId = -1;
-            deviceType = MediaRouter.RouteInfo.DEVICE_TYPE_UNKNOWN;
         }
 
         public RouteInfo(RouteInfo other) {
@@ -120,7 +128,6 @@ public final class MediaRouterClientState implements Parcelable {
             volumeMax = other.volumeMax;
             volumeHandling = other.volumeHandling;
             presentationDisplayId = other.presentationDisplayId;
-            deviceType = other.deviceType;
         }
 
         RouteInfo(Parcel in) {
@@ -136,7 +143,6 @@ public final class MediaRouterClientState implements Parcelable {
             volumeMax = in.readInt();
             volumeHandling = in.readInt();
             presentationDisplayId = in.readInt();
-            deviceType = in.readInt();
         }
 
         @Override
@@ -158,7 +164,6 @@ public final class MediaRouterClientState implements Parcelable {
             dest.writeInt(volumeMax);
             dest.writeInt(volumeHandling);
             dest.writeInt(presentationDisplayId);
-            dest.writeInt(deviceType);
         }
 
         @Override
@@ -175,7 +180,6 @@ public final class MediaRouterClientState implements Parcelable {
                     + ", volumeMax=" + volumeMax
                     + ", volumeHandling=" + volumeHandling
                     + ", presentationDisplayId=" + presentationDisplayId
-                    + ", deviceType=" + deviceType
                     + " }";
         }
 

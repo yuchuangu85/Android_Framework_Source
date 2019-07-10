@@ -16,13 +16,6 @@
 
 package android.mtp;
 
-import android.annotation.NonNull;
-import android.os.Build;
-
-import com.android.internal.util.Preconditions;
-
-import dalvik.system.VMRuntime;
-
 /**
  * This class encapsulates information about an object on an MTP device.
  * This corresponds to the ObjectInfo Dataset described in
@@ -45,12 +38,12 @@ public final class MtpObjectInfo {
     private int mAssociationType;
     private int mAssociationDesc;
     private int mSequenceNumber;
-    private String mName = "";
+    private String mName;
     private long mDateCreated;
     private long mDateModified;
-    private String mKeywords = "";
+    private String mKeywords;
 
-    // only instantiated via JNI or via a builder
+    // only instantiated via JNI
     private MtpObjectInfo() {
     }
 
@@ -103,17 +96,7 @@ public final class MtpObjectInfo {
      * @return the object size
      */
     public final int getCompressedSize() {
-        Preconditions.checkState(mCompressedSize >= 0);
         return mCompressedSize;
-    }
-
-    /**
-     * Returns the size of the MTP object
-     *
-     * @return the object size
-     */
-    public final long getCompressedSizeLong() {
-        return uint32ToLong(mCompressedSize);
     }
 
     /**
@@ -133,18 +116,7 @@ public final class MtpObjectInfo {
      * @return the thumbnail size
      */
     public final int getThumbCompressedSize() {
-        Preconditions.checkState(mThumbCompressedSize >= 0);
         return mThumbCompressedSize;
-    }
-
-    /**
-     * Returns the size of the MTP object's thumbnail
-     * Will be zero for objects with no thumbnail
-     *
-     * @return the thumbnail size
-     */
-    public final long getThumbCompressedSizeLong() {
-        return uint32ToLong(mThumbCompressedSize);
     }
 
     /**
@@ -154,18 +126,7 @@ public final class MtpObjectInfo {
      * @return the thumbnail width
      */
     public final int getThumbPixWidth() {
-        Preconditions.checkState(mThumbPixWidth >= 0);
         return mThumbPixWidth;
-    }
-
-    /**
-     * Returns the width of the MTP object's thumbnail in pixels
-     * Will be zero for objects with no thumbnail
-     *
-     * @return the thumbnail width
-     */
-    public final long getThumbPixWidthLong() {
-        return uint32ToLong(mThumbPixWidth);
     }
 
     /**
@@ -175,18 +136,7 @@ public final class MtpObjectInfo {
      * @return the thumbnail height
      */
     public final int getThumbPixHeight() {
-        Preconditions.checkState(mThumbPixHeight >= 0);
         return mThumbPixHeight;
-    }
-
-    /**
-     * Returns the height of the MTP object's thumbnail in pixels
-     * Will be zero for objects with no thumbnail
-     *
-     * @return the thumbnail height
-     */
-    public final long getThumbPixHeightLong() {
-        return uint32ToLong(mThumbPixHeight);
     }
 
     /**
@@ -196,18 +146,7 @@ public final class MtpObjectInfo {
      * @return the image width
      */
     public final int getImagePixWidth() {
-        Preconditions.checkState(mImagePixWidth >= 0);
         return mImagePixWidth;
-    }
-
-    /**
-     * Returns the width of the MTP object in pixels
-     * Will be zero for non-image objects
-     *
-     * @return the image width
-     */
-    public final long getImagePixWidthLong() {
-        return uint32ToLong(mImagePixWidth);
     }
 
     /**
@@ -217,18 +156,7 @@ public final class MtpObjectInfo {
      * @return the image height
      */
     public final int getImagePixHeight() {
-        Preconditions.checkState(mImagePixHeight >= 0);
         return mImagePixHeight;
-    }
-
-    /**
-     * Returns the height of the MTP object in pixels
-     * Will be zero for non-image objects
-     *
-     * @return the image height
-     */
-    public final long getImagePixHeightLong() {
-        return uint32ToLong(mImagePixHeight);
     }
 
     /**
@@ -238,18 +166,7 @@ public final class MtpObjectInfo {
      * @return the image depth
      */
     public final int getImagePixDepth() {
-        Preconditions.checkState(mImagePixDepth >= 0);
         return mImagePixDepth;
-    }
-
-    /**
-     * Returns the depth of the MTP object in bits per pixel
-     * Will be zero for non-image objects
-     *
-     * @return the image depth
-     */
-    public final long getImagePixDepthLong() {
-        return uint32ToLong(mImagePixDepth);
     }
 
     /**
@@ -286,7 +203,7 @@ public final class MtpObjectInfo {
         return mAssociationDesc;
     }
 
-    /**
+   /**
      * Returns the sequence number for the MTP object
      * This field is typically not used for MTP devices,
      * but is sometimes used to define a sequence of photos
@@ -295,20 +212,7 @@ public final class MtpObjectInfo {
      * @return the object's sequence number
      */
     public final int getSequenceNumber() {
-        Preconditions.checkState(mSequenceNumber >= 0);
         return mSequenceNumber;
-    }
-
-    /**
-     * Returns the sequence number for the MTP object
-     * This field is typically not used for MTP devices,
-     * but is sometimes used to define a sequence of photos
-     * on PTP cameras.
-     *
-     * @return the object's sequence number
-     */
-    public final long getSequenceNumberLong() {
-        return uint32ToLong(mSequenceNumber);
     }
 
    /**
@@ -316,7 +220,7 @@ public final class MtpObjectInfo {
      *
      * @return the object's name
      */
-    public final @NonNull String getName() {
+    public final String getName() {
         return mName;
     }
 
@@ -345,179 +249,7 @@ public final class MtpObjectInfo {
      *
      * @return the object's keyword list
      */
-    public final @NonNull String getKeywords() {
+    public final String getKeywords() {
         return mKeywords;
-    }
-
-    /**
-     * Builds a new object info instance.
-     */
-    public static class Builder {
-        private MtpObjectInfo mObjectInfo;
-
-        public Builder() {
-            mObjectInfo = new MtpObjectInfo();
-            mObjectInfo.mHandle = -1;
-        }
-
-        /**
-         * Creates a builder on a copy of an existing object info.
-         * All fields, except the object handle will be copied.
-         *
-         * @param objectInfo object info of an existing entry
-         */
-        public Builder(MtpObjectInfo objectInfo) {
-            mObjectInfo = new MtpObjectInfo();
-            mObjectInfo.mHandle = -1;
-            mObjectInfo.mAssociationDesc = objectInfo.mAssociationDesc;
-            mObjectInfo.mAssociationType = objectInfo.mAssociationType;
-            mObjectInfo.mCompressedSize = objectInfo.mCompressedSize;
-            mObjectInfo.mDateCreated = objectInfo.mDateCreated;
-            mObjectInfo.mDateModified = objectInfo.mDateModified;
-            mObjectInfo.mFormat = objectInfo.mFormat;
-            mObjectInfo.mImagePixDepth = objectInfo.mImagePixDepth;
-            mObjectInfo.mImagePixHeight = objectInfo.mImagePixHeight;
-            mObjectInfo.mImagePixWidth = objectInfo.mImagePixWidth;
-            mObjectInfo.mKeywords = objectInfo.mKeywords;
-            mObjectInfo.mName = objectInfo.mName;
-            mObjectInfo.mParent = objectInfo.mParent;
-            mObjectInfo.mProtectionStatus = objectInfo.mProtectionStatus;
-            mObjectInfo.mSequenceNumber = objectInfo.mSequenceNumber;
-            mObjectInfo.mStorageId = objectInfo.mStorageId;
-            mObjectInfo.mThumbCompressedSize = objectInfo.mThumbCompressedSize;
-            mObjectInfo.mThumbFormat = objectInfo.mThumbFormat;
-            mObjectInfo.mThumbPixHeight = objectInfo.mThumbPixHeight;
-            mObjectInfo.mThumbPixWidth = objectInfo.mThumbPixWidth;
-        }
-
-        public Builder setObjectHandle(int value) {
-            mObjectInfo.mHandle = value;
-            return this;
-        }
-
-        public Builder setAssociationDesc(int value) {
-            mObjectInfo.mAssociationDesc = value;
-            return this;
-        }
-
-        public Builder setAssociationType(int value) {
-            mObjectInfo.mAssociationType = value;
-            return this;
-        }
-
-        public Builder setCompressedSize(long value) {
-            mObjectInfo.mCompressedSize = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setDateCreated(long value) {
-            mObjectInfo.mDateCreated = value;
-            return this;
-        }
-
-        public Builder setDateModified(long value) {
-            mObjectInfo.mDateModified = value;
-            return this;
-        }
-
-        public Builder setFormat(int value) {
-            mObjectInfo.mFormat = value;
-            return this;
-        }
-
-        public Builder setImagePixDepth(long value) {
-            mObjectInfo.mImagePixDepth = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setImagePixHeight(long value) {
-            mObjectInfo.mImagePixHeight = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setImagePixWidth(long value) {
-            mObjectInfo.mImagePixWidth = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setKeywords(@NonNull String value) {
-            if (VMRuntime.getRuntime().getTargetSdkVersion() > Build.VERSION_CODES.N_MR1) {
-                Preconditions.checkNotNull(value);
-            } else if (value == null) {
-                // Before N_MR1 we accept null value and it was regarded as an empty string in
-                // MtpDevice#sendObjectInfo.
-                value = "";
-            }
-            mObjectInfo.mKeywords = value;
-            return this;
-        }
-
-        public Builder setName(@NonNull String value) {
-            Preconditions.checkNotNull(value);
-            mObjectInfo.mName = value;
-            return this;
-        }
-
-        public Builder setParent(int value) {
-            mObjectInfo.mParent = value;
-            return this;
-        }
-
-        public Builder setProtectionStatus(int value) {
-            mObjectInfo.mProtectionStatus = value;
-            return this;
-        }
-
-        public Builder setSequenceNumber(long value) {
-            mObjectInfo.mSequenceNumber = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setStorageId(int value) {
-            mObjectInfo.mStorageId = value;
-            return this;
-        }
-
-        public Builder setThumbCompressedSize(long value) {
-            mObjectInfo.mThumbCompressedSize = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setThumbFormat(int value) {
-            mObjectInfo.mThumbFormat = value;
-            return this;
-        }
-
-        public Builder setThumbPixHeight(long value) {
-            mObjectInfo.mThumbPixHeight = longToUint32(value, "value");
-            return this;
-        }
-
-        public Builder setThumbPixWidth(long value) {
-            mObjectInfo.mThumbPixWidth = longToUint32(value, "value");
-            return this;
-        }
-
-        /**
-         * Builds the object info instance. Once called, methods of the builder
-         * must not be called anymore.
-         *
-         * @return the object info of the newly created file, or NULL in case
-         *         of an error.
-         */
-        public MtpObjectInfo build() {
-            MtpObjectInfo result = mObjectInfo;
-            mObjectInfo = null;
-            return result;
-        }
-    }
-
-    private static long uint32ToLong(int value) {
-        return value < 0 ? 0x100000000L + value : value;
-    }
-
-    private static int longToUint32(long value, String valueName) {
-        Preconditions.checkArgumentInRange(value, 0, 0xffffffffL, valueName);
-        return (int) value;
     }
 }

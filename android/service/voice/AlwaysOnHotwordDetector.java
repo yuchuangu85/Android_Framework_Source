@@ -31,7 +31,6 @@ import android.hardware.soundtrigger.SoundTrigger.KeyphraseRecognitionExtra;
 import android.hardware.soundtrigger.SoundTrigger.KeyphraseSoundModel;
 import android.hardware.soundtrigger.SoundTrigger.ModuleProperties;
 import android.hardware.soundtrigger.SoundTrigger.RecognitionConfig;
-import android.hardware.soundtrigger.SoundTrigger.RecognitionEvent;
 import android.media.AudioFormat;
 import android.os.AsyncTask;
 import android.os.Handler;
@@ -87,11 +86,11 @@ public class AlwaysOnHotwordDetector {
 
     // Keyphrase management actions. Used in getManageIntent() ----//
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "MANAGE_ACTION_" }, value = {
-            MANAGE_ACTION_ENROLL,
-            MANAGE_ACTION_RE_ENROLL,
-            MANAGE_ACTION_UN_ENROLL
-    })
+    @IntDef(value = {
+                MANAGE_ACTION_ENROLL,
+                MANAGE_ACTION_RE_ENROLL,
+                MANAGE_ACTION_UN_ENROLL
+            })
     private @interface ManageActions {}
 
     /**
@@ -116,11 +115,12 @@ public class AlwaysOnHotwordDetector {
     //-- Flags for startRecognition    ----//
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag = true, prefix = { "RECOGNITION_FLAG_" }, value = {
-            RECOGNITION_FLAG_NONE,
-            RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO,
-            RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS
-    })
+    @IntDef(flag = true,
+            value = {
+                RECOGNITION_FLAG_NONE,
+                RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO,
+                RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS
+            })
     public @interface RecognitionFlags {}
 
     /**
@@ -149,10 +149,11 @@ public class AlwaysOnHotwordDetector {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag = true, prefix = { "RECOGNITION_MODE_" }, value = {
-            RECOGNITION_MODE_VOICE_TRIGGER,
-            RECOGNITION_MODE_USER_IDENTIFICATION,
-    })
+    @IntDef(flag = true,
+            value = {
+                RECOGNITION_MODE_VOICE_TRIGGER,
+                RECOGNITION_MODE_USER_IDENTIFICATION,
+            })
     public @interface RecognitionModes {}
 
     /**
@@ -615,7 +616,7 @@ public class AlwaysOnHotwordDetector {
         }
 
         @Override
-        public void onKeyphraseDetected(KeyphraseRecognitionEvent event) {
+        public void onDetected(KeyphraseRecognitionEvent event) {
             if (DBG) {
                 Slog.d(TAG, "onDetected(" + event + ")");
             } else {
@@ -625,10 +626,6 @@ public class AlwaysOnHotwordDetector {
                     new EventPayload(event.triggerInData, event.captureAvailable,
                             event.captureFormat, event.captureSession, event.data))
                     .sendToTarget();
-        }
-        @Override
-        public void onGenericSoundTriggerDetected(SoundTrigger.GenericRecognitionEvent event) {
-            Slog.w(TAG, "Generic sound trigger event detected at AOHD: " + event);
         }
 
         @Override

@@ -18,7 +18,7 @@ package android.widget;
 
 import android.content.Context;
 import android.util.AttributeSet;
-import android.view.accessibility.AccessibilityNodeInfo;
+
 
 
 /**
@@ -46,10 +46,8 @@ public class SeekBar extends AbsSeekBar {
          * to distinguish user-initiated changes from those that occurred programmatically.
          *
          * @param seekBar The SeekBar whose progress has changed
-         * @param progress The current progress level. This will be in the range min..max where min
-         *                 and max were set by {@link ProgressBar#setMin(int)} and
-         *                 {@link ProgressBar#setMax(int)}, respectively. (The default values for
-         *                 min is 0 and max is 100.)
+         * @param progress The current progress level. This will be in the range 0..max where max
+         *        was set by {@link ProgressBar#setMax(int)}. (The default value for max is 100.)
          * @param fromUser True if the progress change was initiated by the user.
          */
         void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser);
@@ -127,15 +125,5 @@ public class SeekBar extends AbsSeekBar {
     @Override
     public CharSequence getAccessibilityClassName() {
         return SeekBar.class.getName();
-    }
-
-    /** @hide */
-    @Override
-    public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfoInternal(info);
-
-        if (canUserSetProgress()) {
-            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS);
-        }
     }
 }

@@ -16,18 +16,16 @@
 
 package com.android.server.location;
 
-import android.net.TrafficStats;
 import android.text.TextUtils;
 import android.util.Log;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import libcore.io.Streams;
+
+import java.io.IOException;
 import java.util.Properties;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A class for downloading GPS XTRA data.
@@ -38,10 +36,7 @@ public class GpsXtraDownloader {
 
     private static final String TAG = "GpsXtraDownloader";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
-    private static final long MAXIMUM_CONTENT_LENGTH_BYTES = 1000000;  // 1MB.
     private static final String DEFAULT_USER_AGENT = "Android";
-    private static final int CONNECTION_TIMEOUT_MS = (int) TimeUnit.SECONDS.toMillis(30);
-    private static final int READ_TIMEOUT_MS = (int) TimeUnit.SECONDS.toMillis(60);
 
     private final String[] mXtraServers;
     // to load balance our server requests
@@ -92,12 +87,7 @@ public class GpsXtraDownloader {
 
         // load balance our requests among the available servers
         while (result == null) {
-            final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_GPS);
-            try {
-                result = doDownload(mXtraServers[mNextServerIndex]);
-            } finally {
-                TrafficStats.setThreadStatsTag(oldTag);
-            }
+            result = doDownload(mXtraServers[mNextServerIndex]);
 
             // increment mNextServerIndex and wrap around if necessary
             mNextServerIndex++;
@@ -123,8 +113,6 @@ public class GpsXtraDownloader {
             connection.setRequestProperty(
                     "x-wap-profile",
                     "http://www.openmobilealliance.org/tech/profiles/UAPROF/ccppschema-20021212#");
-            connection.setConnectTimeout(CONNECTION_TIMEOUT_MS);
-            connection.setReadTimeout(READ_TIMEOUT_MS);
 
             connection.connect();
             int statusCode = connection.getResponseCode();
@@ -133,19 +121,7 @@ public class GpsXtraDownloader {
                 return null;
             }
 
-            try (InputStream in = connection.getInputStream()) {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buffer = new byte[1024];
-                int count;
-                while ((count = in.read(buffer)) != -1) {
-                    bytes.write(buffer, 0, count);
-                    if (bytes.size() > MAXIMUM_CONTENT_LENGTH_BYTES) {
-                        if (DEBUG) Log.d(TAG, "XTRA file too large");
-                        return null;
-                    }
-                }
-                return bytes.toByteArray();
-            }
+            return Streams.readFully(connection.getInputStream());
         } catch (IOException ioe) {
             if (DEBUG) Log.d(TAG, "Error downloading gps XTRA: ", ioe);
         } finally {
@@ -157,4 +133,3 @@ public class GpsXtraDownloader {
     }
 
 }
-

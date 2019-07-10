@@ -1,782 +1,296 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1998, 2014, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.util.*;
-
-import java.security.*;
-import java.security.Provider.Service;
-import java.security.spec.AlgorithmParameterSpec;
-
 import java.nio.ByteBuffer;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.Provider;
+import java.security.ProviderException;
+import java.security.Security;
+import java.security.spec.AlgorithmParameterSpec;
+import java.util.ArrayList;
+import org.apache.harmony.security.fortress.Engine;
 
-import sun.security.jca.*;
-import sun.security.jca.GetInstance.Instance;
 
 /**
- * This class provides the functionality of a "Message Authentication Code"
- * (MAC) algorithm.
- *
- * <p> A MAC provides a way to check
- * the integrity of information transmitted over or stored in an unreliable
- * medium, based on a secret key. Typically, message
- * authentication codes are used between two parties that share a secret
- * key in order to validate information transmitted between these
- * parties.
- *
- * <p> A MAC mechanism that is based on cryptographic hash functions is
- * referred to as HMAC. HMAC can be used with any cryptographic hash function,
- * e.g., MD5 or SHA-1, in combination with a secret shared key. HMAC is
- * specified in RFC 2104.
- *
- * <p> Android provides the following <code>Mac</code> algorithms:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr class="deprecated">
- *       <td>DESMAC</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESMAC/CFB8</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESedeMAC</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESedeMAC/CFB8</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESedeMAC64</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESwithISO9797</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr>
- *       <td>HmacMD5</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA1</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA224</td>
- *       <td>1-8,22+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA256</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA384</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA512</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>ISO9797ALG3MAC</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA1</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA224</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA256</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA384</td>
- *       <td>26+</td>
- *     </tr>
- *     <tr>
- *       <td>PBEwithHmacSHA512</td>
- *       <td>26+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * These algorithms are described in the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
- * Mac section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * @author Jan Luehe
- *
- * @since 1.4
+ * This class provides the public API for <i>Message Authentication Code</i>
+ * (MAC) algorithms.
  */
-
 public class Mac implements Cloneable {
 
-    // Android-removed: this debugging mechanism is not used in Android.
-    /*
-    private static final Debug debug =
-                        Debug.getInstance("jca", "Mac");
+    // The service name.
+    private static final String SERVICE = "Mac";
 
-    private static final Debug pdebug =
-                        Debug.getInstance("provider", "Provider");
-    private static final boolean skipDebug =
-        Debug.isOn("engine=") && !Debug.isOn("mac");
-    */
+    //Used to access common engine functionality
+    private static final Engine ENGINE = new Engine(SERVICE);
 
-    // The provider
+    // Store used provider
     private Provider provider;
 
-    // The provider implementation (delegate)
-    private MacSpi spi;
+    // Provider that was requested during creation.
+    private final Provider specifiedProvider;
 
-    // The name of the MAC algorithm.
+    // Store used spi implementation
+    private MacSpi spiImpl;
+
+    // Store used algorithm name
     private final String algorithm;
 
-    // Has this object been initialized?
-    private boolean initialized = false;
+    /**
+     * Lock held while the SPI is initializing.
+     */
+    private final Object initLock = new Object();
 
-    // BEGIN Android-removed: Redo the provider selection logic to allow reselecting provider.
-    // When only the algorithm is specified, we want to allow the Mac provider for that
-    // algorithm to change if multiple providers exist and they support different subsets of
-    // keys.  To that end, we don't hold an iterator and exhaust it when we need to choose
-    // a provider like the upstream implementation, we reestablish the list of providers
-    // each time.
-    /*
-    // next service to try in provider selection
-    // null once provider is selected
-    private Service firstService;
-
-    // remaining services to try in provider selection
-    // null once provider is selected
-    private Iterator<Service> serviceIterator;
-    */
-    // END Android-removed: Redo the provider selection logic to allow reselecting provider.
-
-    private final Object lock;
+    // Store Mac state (initialized or not initialized)
+    private boolean isInitMac;
 
     /**
-     * Creates a MAC object.
+     * Creates a new {@code Mac} instance.
      *
-     * @param macSpi the delegate
-     * @param provider the provider
-     * @param algorithm the algorithm
+     * @param macSpi
+     *            the implementation delegate.
+     * @param provider
+     *            the implementation provider.
+     * @param algorithm
+     *            the name of the MAC algorithm.
      */
     protected Mac(MacSpi macSpi, Provider provider, String algorithm) {
-        this.spi = macSpi;
-        this.provider = provider;
+        this.specifiedProvider = provider;
         this.algorithm = algorithm;
-        lock = null;
-    }
-
-    // Android-changed: Remove Service and Iterator from constructor args.
-    private Mac(String algorithm) {
-        this.algorithm = algorithm;
-        lock = new Object();
+        this.spiImpl = macSpi;
+        this.isInitMac = false;
     }
 
     /**
-     * Returns the algorithm name of this <code>Mac</code> object.
+     * Returns the name of the MAC algorithm.
      *
-     * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this
-     * <code>Mac</code> object.
-     *
-     * @return the algorithm name of this <code>Mac</code> object.
+     * @return the name of the MAC algorithm.
      */
     public final String getAlgorithm() {
-        return this.algorithm;
+        return algorithm;
     }
 
     /**
-     * Returns a <code>Mac</code> object that implements the
-     * specified MAC algorithm.
+     * Returns the provider of this {@code Mac} instance.
      *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new Mac object encapsulating the
-     * MacSpi implementation from the first
-     * Provider that supports the specified algorithm is returned.
+     * @return the provider of this {@code Mac} instance.
+     */
+    public final Provider getProvider() {
+        getSpi();
+        return provider;
+    }
+
+    /**
+     * Creates a new {@code Mac} instance that provides the specified MAC
+     * algorithm.
      *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested MAC algorithm.
-     * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @return the new <code>Mac</code> object.
-     *
-     * @exception NoSuchAlgorithmException if no Provider supports a
-     *          MacSpi implementation for the
-     *          specified algorithm.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested MAC algorithm.
+     * @return the new {@code Mac} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not available by any provider.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release).
      */
     public static final Mac getInstance(String algorithm)
             throws NoSuchAlgorithmException {
-        List<Service> services = GetInstance.getServices("Mac", algorithm);
-        // make sure there is at least one service from a signed provider
-        Iterator<Service> t = services.iterator();
-        while (t.hasNext()) {
-            Service s = t.next();
-            if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                continue;
-            }
-            // Android-changed: Remove Service and Iterator from constructor args.
-            // return new Mac(s, t, algorithm);
-            return new Mac(algorithm);
-        }
-        throw new NoSuchAlgorithmException
-                                ("Algorithm " + algorithm + " not available");
+        return getMac(algorithm, null);
     }
 
     /**
-     * Returns a <code>Mac</code> object that implements the
-     * specified MAC algorithm.
+     * Creates a new {@code Mac} instance that provides the specified MAC
+     * algorithm from the specified provider.
      *
-     * <p> A new Mac object encapsulating the
-     * MacSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * @param algorithm the standard name of the requested MAC algorithm.
-     * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the name of the provider.
-     *
-     * @return the new <code>Mac</code> object.
-     *
-     * @exception NoSuchAlgorithmException if a MacSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
-     *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null or empty.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested MAC algorithm.
+     * @param provider
+     *            the name of the provider that is providing the algorithm.
+     * @return the new {@code Mac} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not provided by the specified
+     *             provider.
+     * @throws NoSuchProviderException
+     *             if the specified provider is not available.
+     * @throws IllegalArgumentException
+     *             if the specified provider name is {@code null} or empty.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release).
      */
     public static final Mac getInstance(String algorithm, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "Mac", algorithm);
-        Instance instance = JceSecurity.getInstance
-                ("Mac", MacSpi.class, algorithm, provider);
-        return new Mac((MacSpi)instance.impl, instance.provider, algorithm);
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("Provider is null or empty");
+        }
+        Provider impProvider = Security.getProvider(provider);
+        if (impProvider == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        return getMac(algorithm, impProvider);
     }
 
     /**
-     * Returns a <code>Mac</code> object that implements the
-     * specified MAC algorithm.
+     * Creates a new {@code Mac} instance that provides the specified MAC
+     * algorithm from the specified provider. The {@code provider} supplied
+     * does not have to be registered.
      *
-     * <p> A new Mac object encapsulating the
-     * MacSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * @param algorithm the standard name of the requested MAC algorithm.
-     * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
-     *
-     * @param provider the provider.
-     *
-     * @return the new <code>Mac</code> object.
-     *
-     * @exception NoSuchAlgorithmException if a MacSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
-     *
-     * @exception IllegalArgumentException if the <code>provider</code>
-     *          is null.
-     *
-     * @see java.security.Provider
+     * @param algorithm
+     *            the name of the requested MAC algorithm.
+     * @param provider
+     *            the provider that is providing the algorithm.
+     * @return the new {@code Mac} instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified algorithm is not provided by the specified
+     *             provider.
+     * @throws IllegalArgumentException
+     *             if {@code provider} is {@code null}.
+     * @throws NullPointerException
+     *             if {@code algorithm} is {@code null} (instead of
+     *             NoSuchAlgorithmException as in 1.4 release).
      */
     public static final Mac getInstance(String algorithm, Provider provider)
             throws NoSuchAlgorithmException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "Mac", algorithm);
-        Instance instance = JceSecurity.getInstance
-                ("Mac", MacSpi.class, algorithm, provider);
-        return new Mac((MacSpi)instance.impl, instance.provider, algorithm);
-    }
-
-    // max number of debug warnings to print from chooseFirstProvider()
-    private static int warnCount = 10;
-
-    /**
-     * Choose the Spi from the first provider available. Used if
-     * delayed provider selection is not possible because init()
-     * is not the first method called.
-     */
-    void chooseFirstProvider() {
-        // Android-changed: Check if lock is null rather than removed serviceIterator field.
-        // if ((spi != null) || (serviceIterator == null)) {
-        if (spi != null || lock == null) {
-            return;
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
         }
-        synchronized (lock) {
-            if (spi != null) {
-                return;
-            }
-            // Android-removed: this debugging mechanism is not used in Android.
-            /*
-            if (debug != null) {
-                int w = --warnCount;
-                if (w >= 0) {
-                    debug.println("Mac.init() not first method "
-                        + "called, disabling delayed provider selection");
-                    if (w == 0) {
-                        debug.println("Further warnings of this type will "
-                            + "be suppressed");
-                    }
-                    new Exception("Call trace").printStackTrace();
-                }
-            }
-            */
-            Exception lastException = null;
-            // Android-changed: Provider selection; loop over a new list each time.
-            for (Service s : GetInstance.getServices("Mac", algorithm)) {
-                if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                    continue;
-                }
-                try {
-                    Object obj = s.newInstance(null);
-                    if (obj instanceof MacSpi == false) {
-                        continue;
-                    }
-                    spi = (MacSpi)obj;
-                    provider = s.getProvider();
-                    // Android-removed: Provider selection; loop over a new list each time.
-                    /*
-                    // not needed any more
-                    firstService = null;
-                    serviceIterator = null;
-                    */
-                    return;
-                } catch (NoSuchAlgorithmException e) {
-                    lastException = e;
-                }
-            }
-            ProviderException e = new ProviderException
-                    ("Could not construct MacSpi instance");
-            if (lastException != null) {
-                e.initCause(lastException);
-            }
-            throw e;
+        return getMac(algorithm, provider);
+    }
+
+    private static Mac getMac(String algorithm, Provider provider)
+            throws NoSuchAlgorithmException {
+        if (algorithm == null) {
+            throw new NullPointerException("algorithm == null");
         }
-    }
 
-    private void chooseProvider(Key key, AlgorithmParameterSpec params)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-        synchronized (lock) {
-            // Android-changed: Use the currently-selected provider only if no key was provided.
-            // if (spi != null) {
-            if (spi != null && (key == null || lock == null)) {
-                spi.engineInit(key, params);
-                return;
-            }
-            Exception lastException = null;
-            // Android-changed: Provider selection; loop over a new list each time.
-            for (Service s : GetInstance.getServices("Mac", algorithm)) {
-                // if provider says it does not support this key, ignore it
-                if (s.supportsParameter(key) == false) {
-                    continue;
-                }
-                if (JceSecurity.canUseProvider(s.getProvider()) == false) {
-                    continue;
-                }
-                try {
-                    MacSpi spi = (MacSpi)s.newInstance(null);
-                    spi.engineInit(key, params);
-                    provider = s.getProvider();
-                    this.spi = spi;
-                    // Android-removed: Provider selection; loop over a new list each time.
-                    /*
-                    firstService = null;
-                    serviceIterator = null;
-                    */
-                    return;
-                } catch (Exception e) {
-                    // NoSuchAlgorithmException from newInstance()
-                    // InvalidKeyException from init()
-                    // RuntimeException (ProviderException) from init()
-                    if (lastException == null) {
-                        lastException = e;
-                    }
-                }
-            }
-            // no working provider found, fail
-            if (lastException instanceof InvalidKeyException) {
-                throw (InvalidKeyException)lastException;
-            }
-            if (lastException instanceof InvalidAlgorithmParameterException) {
-                throw (InvalidAlgorithmParameterException)lastException;
-            }
-            if (lastException instanceof RuntimeException) {
-                throw (RuntimeException)lastException;
-            }
-            String kName = (key != null) ? key.getClass().getName() : "(null)";
-            throw new InvalidKeyException
-                ("No installed provider supports this key: "
-                + kName, lastException);
-        }
-    }
-
-    /**
-     * Returns the provider of this <code>Mac</code> object.
-     *
-     * @return the provider of this <code>Mac</code> object.
-     */
-    public final Provider getProvider() {
-        chooseFirstProvider();
-        return this.provider;
-    }
-
-    /**
-     * Returns the length of the MAC in bytes.
-     *
-     * @return the MAC length in bytes.
-     */
-    public final int getMacLength() {
-        chooseFirstProvider();
-        return spi.engineGetMacLength();
-    }
-
-    /**
-     * Initializes this <code>Mac</code> object with the given key.
-     *
-     * @param key the key.
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this MAC.
-     */
-    public final void init(Key key) throws InvalidKeyException {
+        boolean providerSupportsAlgorithm;
         try {
-            // Android-changed: Use the currently-selected provider only if no key was provided.
-            // if (spi != null) {
-            if (spi != null && (key == null || lock == null)) {
-                spi.engineInit(key, null);
+            providerSupportsAlgorithm = tryAlgorithm(null /* key */, provider, algorithm) != null;
+        } catch (InvalidKeyException e) {
+            throw new IllegalStateException("InvalidKeyException thrown when key == null", e);
+        }
+        if (!providerSupportsAlgorithm) {
+            if (provider == null) {
+                throw new NoSuchAlgorithmException("No provider found for " + algorithm);
             } else {
-                chooseProvider(key, null);
+                throw new NoSuchAlgorithmException("Provider " + provider.getName()
+                        + " does not provide " + algorithm);
             }
-        } catch (InvalidAlgorithmParameterException e) {
-            throw new InvalidKeyException("init() failed", e);
         }
-        initialized = true;
+        return new Mac(null, provider, algorithm);
+    }
+    /**
+      * @throws InvalidKeyException if the specified key cannot be used to
+      *             initialize this mac.
+      */
+    private static Engine.SpiAndProvider tryAlgorithm(
+            Key key, Provider provider, String algorithm) throws InvalidKeyException {
+        if (provider != null) {
+            Provider.Service service = provider.getService(SERVICE, algorithm);
+            if (service == null) {
+                return null;
+            }
+            return tryAlgorithmWithProvider(service);
+        }
+        ArrayList<Provider.Service> services = ENGINE.getServices(algorithm);
+        if (services == null || services.isEmpty()) {
+            return null;
+        }
+        boolean keySupported = false;
+        for (Provider.Service service : services) {
+            if (key == null || service.supportsParameter(key)) {
+                keySupported = true;
+                Engine.SpiAndProvider sap = tryAlgorithmWithProvider(service);
+                if (sap != null) {
+                    return sap;
+                }
+            }
+        }
+        if (!keySupported) {
+            throw new InvalidKeyException("No provider supports the provided key");
+        }
+        return null;
+    }
 
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Mac." + algorithm + " algorithm from: " +
-                this.provider.getName());
+    private static Engine.SpiAndProvider tryAlgorithmWithProvider(Provider.Service service) {
+        try {
+            Engine.SpiAndProvider sap = ENGINE.getInstance(service, null);
+            if (sap.spi == null || sap.provider == null) {
+                return null;
+            }
+            if (!(sap.spi instanceof MacSpi)) {
+                return null;
+            }
+            return sap;
+        } catch (NoSuchAlgorithmException ignored) {
         }
-        */
+        return null;
     }
 
     /**
-     * Initializes this <code>Mac</code> object with the given key and
-     * algorithm parameters.
+     * Makes sure a MacSpi that matches this type is selected.
      *
-     * @param key the key.
-     * @param params the algorithm parameters.
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this MAC.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this MAC.
+     * @throws InvalidKeyException if the specified key cannot be used to
+     *             initialize this mac.
      */
-    public final void init(Key key, AlgorithmParameterSpec params)
-            throws InvalidKeyException, InvalidAlgorithmParameterException {
-        // Android-changed: Use the currently-selected provider only if no key was provided.
-        // if (spi != null) {
-        if (spi != null && (key == null || lock == null)) {
-            spi.engineInit(key, params);
-        } else {
-            chooseProvider(key, params);
-        }
-        initialized = true;
+    private MacSpi getSpi(Key key) throws InvalidKeyException {
+        synchronized (initLock) {
+            if (spiImpl != null && provider != null && key == null) {
+                return spiImpl;
+            }
 
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("Mac." + algorithm + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
-    }
+            if (algorithm == null) {
+                return null;
+            }
 
-    /**
-     * Processes the given byte.
-     *
-     * @param input the input byte to be processed.
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final void update(byte input) throws IllegalStateException {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-        spi.engineUpdate(input);
-    }
+            final Engine.SpiAndProvider sap = tryAlgorithm(key, specifiedProvider, algorithm);
+            if (sap == null) {
+                throw new ProviderException("No provider for " + getAlgorithm());
+            }
 
-    /**
-     * Processes the given array of bytes.
-     *
-     * @param input the array of bytes to be processed.
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final void update(byte[] input) throws IllegalStateException {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-        if (input != null) {
-            spi.engineUpdate(input, 0, input.length);
-        }
-    }
+            /*
+             * Set our Spi if we've never been initialized or if we have the Spi
+             * specified and have a null provider.
+             */
+            if (spiImpl == null || provider != null) {
+                spiImpl = (MacSpi) sap.spi;
+            }
+            provider = sap.provider;
 
-    /**
-     * Processes the first <code>len</code> bytes in <code>input</code>,
-     * starting at <code>offset</code> inclusive.
-     *
-     * @param input the input buffer.
-     * @param offset the offset in <code>input</code> where the input starts.
-     * @param len the number of bytes to process.
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final void update(byte[] input, int offset, int len)
-            throws IllegalStateException {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-
-        if (input != null) {
-            if ((offset < 0) || (len > (input.length - offset)) || (len < 0))
-                throw new IllegalArgumentException("Bad arguments");
-            spi.engineUpdate(input, offset, len);
+            return spiImpl;
         }
     }
 
     /**
-     * Processes <code>input.remaining()</code> bytes in the ByteBuffer
-     * <code>input</code>, starting at <code>input.position()</code>.
-     * Upon return, the buffer's position will be equal to its limit;
-     * its limit will not have changed.
-     *
-     * @param input the ByteBuffer
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     * @since 1.5
+     * Convenience call when the Key is not available.
      */
-    public final void update(ByteBuffer input) {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
+    private MacSpi getSpi() {
+        try {
+            return getSpi(null);
+        } catch (InvalidKeyException e) {
+            throw new IllegalStateException("InvalidKeyException thrown when key == null", e);
         }
-        if (input == null) {
-            throw new IllegalArgumentException("Buffer must not be null");
-        }
-        spi.engineUpdate(input);
     }
 
-    /**
-     * Finishes the MAC operation.
-     *
-     * <p>A call to this method resets this <code>Mac</code> object to the
-     * state it was in when previously initialized via a call to
-     * <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     * That is, the object is reset and available to generate another MAC from
-     * the same key, if desired, via new calls to <code>update</code> and
-     * <code>doFinal</code>.
-     * (In order to reuse this <code>Mac</code> object with a different key,
-     * it must be reinitialized via a call to <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     *
-     * @return the MAC result.
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final byte[] doFinal() throws IllegalStateException {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-        byte[] mac = spi.engineDoFinal();
-        spi.engineReset();
-        return mac;
-    }
-
-    /**
-     * Finishes the MAC operation.
-     *
-     * <p>A call to this method resets this <code>Mac</code> object to the
-     * state it was in when previously initialized via a call to
-     * <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     * That is, the object is reset and available to generate another MAC from
-     * the same key, if desired, via new calls to <code>update</code> and
-     * <code>doFinal</code>.
-     * (In order to reuse this <code>Mac</code> object with a different key,
-     * it must be reinitialized via a call to <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     *
-     * <p>The MAC result is stored in <code>output</code>, starting at
-     * <code>outOffset</code> inclusive.
-     *
-     * @param output the buffer where the MAC result is stored
-     * @param outOffset the offset in <code>output</code> where the MAC is
-     * stored
-     *
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final void doFinal(byte[] output, int outOffset)
-        throws ShortBufferException, IllegalStateException
-    {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-        int macLen = getMacLength();
-        if (output == null || output.length-outOffset < macLen) {
-            throw new ShortBufferException
-                ("Cannot store MAC in output buffer");
-        }
-        byte[] mac = doFinal();
-        System.arraycopy(mac, 0, output, outOffset, macLen);
-        return;
-    }
-
-    /**
-     * Processes the given array of bytes and finishes the MAC operation.
-     *
-     * <p>A call to this method resets this <code>Mac</code> object to the
-     * state it was in when previously initialized via a call to
-     * <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     * That is, the object is reset and available to generate another MAC from
-     * the same key, if desired, via new calls to <code>update</code> and
-     * <code>doFinal</code>.
-     * (In order to reuse this <code>Mac</code> object with a different key,
-     * it must be reinitialized via a call to <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     *
-     * @param input data in bytes
-     * @return the MAC result.
-     *
-     * @exception IllegalStateException if this <code>Mac</code> has not been
-     * initialized.
-     */
-    public final byte[] doFinal(byte[] input) throws IllegalStateException
-    {
-        chooseFirstProvider();
-        if (initialized == false) {
-            throw new IllegalStateException("MAC not initialized");
-        }
-        update(input);
-        return doFinal();
-    }
-
-    /**
-     * Resets this <code>Mac</code> object.
-     *
-     * <p>A call to this method resets this <code>Mac</code> object to the
-     * state it was in when previously initialized via a call to
-     * <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     * That is, the object is reset and available to generate another MAC from
-     * the same key, if desired, via new calls to <code>update</code> and
-     * <code>doFinal</code>.
-     * (In order to reuse this <code>Mac</code> object with a different key,
-     * it must be reinitialized via a call to <code>init(Key)</code> or
-     * <code>init(Key, AlgorithmParameterSpec)</code>.
-     */
-    public final void reset() {
-        chooseFirstProvider();
-        spi.engineReset();
-    }
-
-    /**
-     * Returns a clone if the provider implementation is cloneable.
-     *
-     * @return a clone if the provider implementation is cloneable.
-     *
-     * @exception CloneNotSupportedException if this is called on a
-     * delegate that does not support <code>Cloneable</code>.
-     */
-    public final Object clone() throws CloneNotSupportedException {
-        chooseFirstProvider();
-        Mac that = (Mac)super.clone();
-        that.spi = (MacSpi)this.spi.clone();
-        return that;
-    }
-
-    // BEGIN Android-added: Allow access to the current SPI for testing purposes.
     /**
      * Returns the {@code MacSpi} backing this {@code Mac} or {@code null} if no {@code MacSpi} is
      * backing this {@code Mac}.
@@ -784,7 +298,266 @@ public class Mac implements Cloneable {
      * @hide
      */
     public MacSpi getCurrentSpi() {
-        return spi;
+        synchronized (initLock) {
+            return spiImpl;
+        }
     }
-    // END Android-added: Allow access to the current SPI for testing purposes.
+
+    /**
+     * Returns the length of this MAC (in bytes).
+     *
+     * @return the length of this MAC (in bytes).
+     */
+    public final int getMacLength() {
+        return getSpi().engineGetMacLength();
+    }
+
+    /**
+     * Initializes this {@code Mac} instance with the specified key and
+     * algorithm parameters.
+     *
+     * @param key
+     *            the key to initialize this algorithm.
+     * @param params
+     *            the parameters for this algorithm.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this
+     *             algorithm, or it is null.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters cannot be used to initialize this
+     *             algorithm.
+     */
+    public final void init(Key key, AlgorithmParameterSpec params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
+        if (key == null) {
+            throw new InvalidKeyException("key == null");
+        }
+        getSpi(key).engineInit(key, params);
+        isInitMac = true;
+    }
+
+    /**
+     * Initializes this {@code Mac} instance with the specified key.
+     *
+     * @param key
+     *            the key to initialize this algorithm.
+     * @throws InvalidKeyException
+     *             if initialization fails because the provided key is {@code
+     *             null}.
+     * @throws RuntimeException
+     *             if the specified key cannot be used to initialize this
+     *             algorithm.
+     */
+    public final void init(Key key) throws InvalidKeyException {
+        if (key == null) {
+            throw new InvalidKeyException("key == null");
+        }
+        try {
+            getSpi(key).engineInit(key, null);
+            isInitMac = true;
+        } catch (InvalidAlgorithmParameterException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Updates this {@code Mac} instance with the specified byte.
+     *
+     * @param input
+     *            the byte
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final void update(byte input) throws IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        getSpi().engineUpdate(input);
+    }
+
+    /**
+     * Updates this {@code Mac} instance with the data from the specified buffer
+     * {@code input} from the specified {@code offset} and length {@code len}.
+     *
+     * @param input
+     *            the buffer.
+     * @param offset
+     *            the offset in the buffer.
+     * @param len
+     *            the length of the data in the buffer.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     * @throws IllegalArgumentException
+     *             if {@code offset} and {@code len} do not specified a valid
+     *             chunk in {@code input} buffer.
+     */
+    public final void update(byte[] input, int offset, int len) throws IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        if (input == null) {
+            return;
+        }
+        if ((offset < 0) || (len < 0) || ((offset + len) > input.length)) {
+            throw new IllegalArgumentException("Incorrect arguments."
+                                               + " input.length=" + input.length
+                                               + " offset=" + offset + ", len=" + len);
+        }
+        getSpi().engineUpdate(input, offset, len);
+    }
+
+    /**
+     * Copies the buffer provided as input for further processing.
+     *
+     * @param input
+     *            the buffer.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final void update(byte[] input) throws IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        if (input != null) {
+            getSpi().engineUpdate(input, 0, input.length);
+        }
+    }
+
+    /**
+     * Updates this {@code Mac} instance with the data from the specified
+     * buffer, starting at {@link ByteBuffer#position()}, including the next
+     * {@link ByteBuffer#remaining()} bytes.
+     *
+     * @param input
+     *            the buffer.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final void update(ByteBuffer input) {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        if (input != null) {
+            getSpi().engineUpdate(input);
+        } else {
+            throw new IllegalArgumentException("input == null");
+        }
+    }
+
+    /**
+     * Computes the digest of this MAC based on the data previously specified in
+     * {@link #update} calls.
+     * <p>
+     * This {@code Mac} instance is reverted to its initial state and can be
+     * used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
+     *
+     * @return the generated digest.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final byte[] doFinal() throws IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        return getSpi().engineDoFinal();
+    }
+
+    /**
+     * Computes the digest of this MAC based on the data previously specified in
+     * {@link #update} calls and stores the digest in the specified {@code
+     * output} buffer at offset {@code outOffset}.
+     * <p>
+     * This {@code Mac} instance is reverted to its initial state and can be
+     * used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
+     *
+     * @param output
+     *            the output buffer
+     * @param outOffset
+     *            the offset in the output buffer
+     * @throws ShortBufferException
+     *             if the specified output buffer is either too small for the
+     *             digest to be stored, the specified output buffer is {@code
+     *             null}, or the specified offset is negative or past the length
+     *             of the output buffer.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final void doFinal(byte[] output, int outOffset)
+            throws ShortBufferException, IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        if (output == null) {
+            throw new ShortBufferException("output == null");
+        }
+        if ((outOffset < 0) || (outOffset >= output.length)) {
+            throw new ShortBufferException("Incorrect outOffset: " + outOffset);
+        }
+        MacSpi spi = getSpi();
+        int t = spi.engineGetMacLength();
+        if (t > (output.length - outOffset)) {
+            throw new ShortBufferException("Output buffer is short. Needed " + t + " bytes.");
+        }
+        byte[] result = spi.engineDoFinal();
+        System.arraycopy(result, 0, output, outOffset, result.length);
+
+    }
+
+    /**
+     * Computes the digest of this MAC based on the data previously specified on
+     * {@link #update} calls and on the final bytes specified by {@code input}
+     * (or based on those bytes only).
+     * <p>
+     * This {@code Mac} instance is reverted to its initial state and can be
+     * used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
+     *
+     * @param input
+     *            the final bytes.
+     * @return the generated digest.
+     * @throws IllegalStateException
+     *             if this MAC is not initialized.
+     */
+    public final byte[] doFinal(byte[] input) throws IllegalStateException {
+        if (!isInitMac) {
+            throw new IllegalStateException();
+        }
+        MacSpi spi = getSpi();
+        if (input != null) {
+            spi.engineUpdate(input, 0, input.length);
+        }
+        return spi.engineDoFinal();
+    }
+
+    /**
+     * Resets this {@code Mac} instance to its initial state.
+     * <p>
+     * This {@code Mac} instance is reverted to its initial state and can be
+     * used to start the next MAC computation with the same parameters or
+     * initialized with different parameters.
+     */
+    public final void reset() {
+        getSpi().engineReset();
+    }
+
+    /**
+     * Clones this {@code Mac} instance and the underlying implementation.
+     *
+     * @return the cloned instance.
+     * @throws CloneNotSupportedException
+     *             if the underlying implementation does not support cloning.
+     */
+    @Override
+    public final Object clone() throws CloneNotSupportedException {
+        MacSpi newSpiImpl = null;
+        final MacSpi spi = getSpi();
+        if (spi != null) {
+            newSpiImpl = (MacSpi) spi.clone();
+        }
+        Mac mac = new Mac(newSpiImpl, this.provider, this.algorithm);
+        mac.isInitMac = this.isInitMac;
+        return mac;
+    }
 }

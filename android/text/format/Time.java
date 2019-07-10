@@ -18,12 +18,12 @@ package android.text.format;
 
 import android.util.TimeFormatException;
 
-import libcore.util.ZoneInfo;
-import libcore.util.ZoneInfoDB;
-
 import java.io.IOException;
 import java.util.Locale;
 import java.util.TimeZone;
+
+import libcore.util.ZoneInfo;
+import libcore.util.ZoneInfoDB;
 
 /**
  * An alternative to the {@link java.util.Calendar} and
@@ -331,7 +331,7 @@ public class Time {
      * @throws IllegalArgumentException if {@link #allDay} is true but {@code
      *             hour}, {@code minute}, and {@code second} are not 0.
      * @return a negative result if {@code a} is earlier, a positive result if
-     *         {@code b} is earlier, or 0 if they are equal.
+     *         {@code a} is earlier, or 0 if they are equal.
      */
     public static int compare(Time a, Time b) {
         if (a == null) {
@@ -358,7 +358,7 @@ public class Time {
     }
 
     /**
-     * Return the current time in YYYYMMDDTHHMMSS&lt;tz&gt; format
+     * Return the current time in YYYYMMDDTHHMMSS<tz> format
      */
     @Override
     public String toString() {
@@ -738,7 +738,6 @@ public class Time {
      * <p>
      * You should also use <tt>toMillis(false)</tt> if you want
      * to read back the same milliseconds that you set with {@link #set(long)}
-     * or {@link #set(Time)} or after parsing a date string.
      *
      * <p>
      * This method can return {@code -1} when the date / time fields have been
@@ -746,6 +745,8 @@ public class Time {
      * For example, when daylight savings transitions cause an hour to be
      * skipped: times within that hour will return {@code -1} if isDst =
      * {@code -1}.
+     *
+     * or {@link #set(Time)} or after parsing a date string.
      */
     public long toMillis(boolean ignoreDst) {
         calculator.copyFieldsFromTime(this);
@@ -841,7 +842,7 @@ public class Time {
      * the given time.
      *
      * <p>
-     * Equivalent to {@code Time.compare(this, that) < 0}. See
+     * Equivalent to {@code Time.compare(this, that) &lt; 0}. See
      * {@link #compare(Time, Time)} for details.
      *
      * @param that a given Time object to compare against
@@ -857,7 +858,7 @@ public class Time {
      * the given time.
      *
      * <p>
-     * Equivalent to {@code Time.compare(this, that) > 0}. See
+     * Equivalent to {@code Time.compare(this, that) &gt; 0}. See
      * {@link #compare(Time, Time)} for details.
      *
      * @param that a given Time object to compare against

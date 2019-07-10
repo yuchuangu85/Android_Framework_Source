@@ -18,8 +18,10 @@ package benchmarks.regression;
 
 import java.math.BigInteger;
 import java.util.Random;
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class BigIntegerBenchmark {
+public class BigIntegerBenchmark extends SimpleBenchmark {
     public void timeRandomDivision(int reps) throws Exception {
         Random r = new Random();
         BigInteger x = new BigInteger(1024, r);

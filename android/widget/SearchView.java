@@ -36,8 +36,6 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Parcel;
-import android.os.Parcelable;
 import android.speech.RecognizerIntent;
 import android.text.Editable;
 import android.text.InputType;
@@ -47,18 +45,12 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.style.ImageSpan;
 import android.util.AttributeSet;
-import android.util.DisplayMetrics;
 import android.util.Log;
-import android.util.TypedValue;
 import android.view.CollapsibleActionView;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
-import android.view.TouchDelegate;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView.OnItemSelectedListener;
@@ -115,12 +107,6 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
     private final ImageView mVoiceButton;
     private final View mDropDownAnchor;
 
-    private UpdatableTouchDelegate mTouchDelegate;
-    private Rect mSearchSrcTextViewBounds = new Rect();
-    private Rect mSearchSrtTextViewBoundsExpanded = new Rect();
-    private int[] mTemp = new int[2];
-    private int[] mTemp2 = new int[2];
-
     /** Icon optionally displayed when the SearchView is collapsed. */
     private final ImageView mCollapsedIcon;
 
@@ -159,6 +145,21 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
 
     private SearchableInfo mSearchable;
     private Bundle mAppSearchData;
+
+    /*
+     * SearchView can be set expanded before the IME is ready to be shown during
+     * initial UI setup. The show operation is asynchronous to account for this.
+     */
+    private Runnable mShowImeRunnable = new Runnable() {
+        public void run() {
+            InputMethodManager imm = (InputMethodManager)
+                    getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            if (imm != null) {
+                imm.showSoftInputUnchecked(0, null);
+            }
+        }
+    };
 
     private Runnable mUpdateDrawableStateRunnable = new Runnable() {
         public void run() {
@@ -344,9 +345,9 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
             setInputType(inputType);
         }
 
-        if (getFocusable() == FOCUSABLE_AUTO) {
-            setFocusable(FOCUSABLE);
-        }
+        boolean focusable = true;
+        focusable = a.getBoolean(R.styleable.SearchView_focusable, focusable);
+        setFocusable(focusable);
 
         a.recycle();
 
@@ -484,9 +485,9 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
     @Override
     public void clearFocus() {
         mClearingFocus = true;
+        setImeVisibility(false);
         super.clearFocus();
         mSearchSrcTextView.clearFocus();
-        mSearchSrcTextView.setImeVisibility(false);
         mClearingFocus = false;
     }
 
@@ -797,60 +798,12 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
             break;
         }
         widthMode = MeasureSpec.EXACTLY;
-
-        int heightMode = MeasureSpec.getMode(heightMeasureSpec);
-        int height = MeasureSpec.getSize(heightMeasureSpec);
-
-        switch (heightMode) {
-            case MeasureSpec.AT_MOST:
-                height = Math.min(getPreferredHeight(), height);
-                break;
-            case MeasureSpec.UNSPECIFIED:
-                height = getPreferredHeight();
-                break;
-        }
-        heightMode = MeasureSpec.EXACTLY;
-
-        super.onMeasure(MeasureSpec.makeMeasureSpec(width, widthMode),
-                MeasureSpec.makeMeasureSpec(height, heightMode));
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-
-        if (changed) {
-            // Expand mSearchSrcTextView touch target to be the height of the parent in order to
-            // allow it to be up to 48dp.
-            getChildBoundsWithinSearchView(mSearchSrcTextView, mSearchSrcTextViewBounds);
-            mSearchSrtTextViewBoundsExpanded.set(
-                    mSearchSrcTextViewBounds.left, 0, mSearchSrcTextViewBounds.right, bottom - top);
-            if (mTouchDelegate == null) {
-                mTouchDelegate = new UpdatableTouchDelegate(mSearchSrtTextViewBoundsExpanded,
-                        mSearchSrcTextViewBounds, mSearchSrcTextView);
-                setTouchDelegate(mTouchDelegate);
-            } else {
-                mTouchDelegate.setBounds(mSearchSrtTextViewBoundsExpanded, mSearchSrcTextViewBounds);
-            }
-        }
-    }
-
-    private void getChildBoundsWithinSearchView(View view, Rect rect) {
-        view.getLocationInWindow(mTemp);
-        getLocationInWindow(mTemp2);
-        final int top = mTemp[1] - mTemp2[1];
-        final int left = mTemp[0] - mTemp2[0];
-        rect.set(left , top, left + view.getWidth(), top + view.getHeight());
+        super.onMeasure(MeasureSpec.makeMeasureSpec(width, widthMode), heightMeasureSpec);
     }
 
     private int getPreferredWidth() {
         return getContext().getResources()
                 .getDimensionPixelSize(R.dimen.search_view_preferred_width);
-    }
-
-    private int getPreferredHeight() {
-        return getContext().getResources()
-                .getDimensionPixelSize(R.dimen.search_view_preferred_height);
     }
 
     private void updateViewsVisibility(final boolean collapsed) {
@@ -863,15 +816,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         mSearchButton.setVisibility(visCollapsed);
         updateSubmitButton(hasText);
         mSearchEditFrame.setVisibility(collapsed ? GONE : VISIBLE);
-
-        final int iconVisibility;
-        if (mCollapsedIcon.getDrawable() == null || mIconifiedByDefault) {
-            iconVisibility = GONE;
-        } else {
-            iconVisibility = VISIBLE;
-        }
-        mCollapsedIcon.setVisibility(iconVisibility);
-
+        mCollapsedIcon.setVisibility(mIconifiedByDefault ? GONE : VISIBLE);
         updateCloseButton();
         updateVoiceButton(!hasText);
         updateSubmitArea();
@@ -952,6 +897,20 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         removeCallbacks(mUpdateDrawableStateRunnable);
         post(mReleaseCursorRunnable);
         super.onDetachedFromWindow();
+    }
+
+    private void setImeVisibility(final boolean visible) {
+        if (visible) {
+            post(mShowImeRunnable);
+        } else {
+            removeCallbacks(mShowImeRunnable);
+            InputMethodManager imm = (InputMethodManager)
+                    getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(getWindowToken(), 0);
+            }
+        }
     }
 
     /**
@@ -1260,7 +1219,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
                 if (mSearchable != null) {
                     launchQuerySearch(KeyEvent.KEYCODE_UNKNOWN, null, query.toString());
                 }
-                mSearchSrcTextView.setImeVisibility(false);
+                setImeVisibility(false);
                 dismissSuggestions();
             }
         }
@@ -1285,7 +1244,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         } else {
             mSearchSrcTextView.setText("");
             mSearchSrcTextView.requestFocus();
-            mSearchSrcTextView.setImeVisibility(true);
+            setImeVisibility(true);
         }
 
     }
@@ -1293,7 +1252,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
     private void onSearchClicked() {
         updateViewsVisibility(false);
         mSearchSrcTextView.requestFocus();
-        mSearchSrcTextView.setImeVisibility(true);
+        setImeVisibility(true);
         if (mOnSearchClickListener != null) {
             mOnSearchClickListener.onClick(this);
         }
@@ -1365,59 +1324,6 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         setIconified(false);
     }
 
-    static class SavedState extends BaseSavedState {
-        boolean isIconified;
-
-        SavedState(Parcelable superState) {
-            super(superState);
-        }
-
-        public SavedState(Parcel source) {
-            super(source);
-            isIconified = (Boolean) source.readValue(null);
-        }
-
-        @Override
-        public void writeToParcel(Parcel dest, int flags) {
-            super.writeToParcel(dest, flags);
-            dest.writeValue(isIconified);
-        }
-
-        @Override
-        public String toString() {
-            return "SearchView.SavedState{"
-                    + Integer.toHexString(System.identityHashCode(this))
-                    + " isIconified=" + isIconified + "}";
-        }
-
-        public static final Parcelable.Creator<SavedState> CREATOR =
-                new Parcelable.Creator<SavedState>() {
-                    public SavedState createFromParcel(Parcel in) {
-                        return new SavedState(in);
-                    }
-
-                    public SavedState[] newArray(int size) {
-                        return new SavedState[size];
-                    }
-                };
-    }
-
-    @Override
-    protected Parcelable onSaveInstanceState() {
-        Parcelable superState = super.onSaveInstanceState();
-        SavedState ss = new SavedState(superState);
-        ss.isIconified = isIconified();
-        return ss;
-    }
-
-    @Override
-    protected void onRestoreInstanceState(Parcelable state) {
-        SavedState ss = (SavedState) state;
-        super.onRestoreInstanceState(ss.getSuperState());
-        updateViewsVisibility(ss.isIconified);
-        requestLayout();
-    }
-
     @Override
     public CharSequence getAccessibilityClassName() {
         return SearchView.class.getName();
@@ -1451,7 +1357,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         if (mOnSuggestionListener == null
                 || !mOnSuggestionListener.onSuggestionClick(position)) {
             launchSuggestion(position, KeyEvent.KEYCODE_UNKNOWN, null);
-            mSearchSrcTextView.setImeVisibility(false);
+            setImeVisibility(false);
             dismissSuggestions();
             return true;
         }
@@ -1780,101 +1686,6 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         }
     };
 
-    private static class UpdatableTouchDelegate extends TouchDelegate {
-        /**
-         * View that should receive forwarded touch events
-         */
-        private final View mDelegateView;
-
-        /**
-         * Bounds in local coordinates of the containing view that should be mapped to the delegate
-         * view. This rect is used for initial hit testing.
-         */
-        private final Rect mTargetBounds;
-
-        /**
-         * Bounds in local coordinates of the containing view that are actual bounds of the delegate
-         * view. This rect is used for event coordinate mapping.
-         */
-        private final Rect mActualBounds;
-
-        /**
-         * mTargetBounds inflated to include some slop. This rect is to track whether the motion events
-         * should be considered to be be within the delegate view.
-         */
-        private final Rect mSlopBounds;
-
-        private final int mSlop;
-
-        /**
-         * True if the delegate had been targeted on a down event (intersected mTargetBounds).
-         */
-        private boolean mDelegateTargeted;
-
-        public UpdatableTouchDelegate(Rect targetBounds, Rect actualBounds, View delegateView) {
-            super(targetBounds, delegateView);
-            mSlop = ViewConfiguration.get(delegateView.getContext()).getScaledTouchSlop();
-            mTargetBounds = new Rect();
-            mSlopBounds = new Rect();
-            mActualBounds = new Rect();
-            setBounds(targetBounds, actualBounds);
-            mDelegateView = delegateView;
-        }
-
-        public void setBounds(Rect desiredBounds, Rect actualBounds) {
-            mTargetBounds.set(desiredBounds);
-            mSlopBounds.set(desiredBounds);
-            mSlopBounds.inset(-mSlop, -mSlop);
-            mActualBounds.set(actualBounds);
-        }
-
-        @Override
-        public boolean onTouchEvent(MotionEvent event) {
-            final int x = (int) event.getX();
-            final int y = (int) event.getY();
-            boolean sendToDelegate = false;
-            boolean hit = true;
-            boolean handled = false;
-
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    if (mTargetBounds.contains(x, y)) {
-                        mDelegateTargeted = true;
-                        sendToDelegate = true;
-                    }
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_MOVE:
-                    sendToDelegate = mDelegateTargeted;
-                    if (sendToDelegate) {
-                        if (!mSlopBounds.contains(x, y)) {
-                            hit = false;
-                        }
-                    }
-                    break;
-                case MotionEvent.ACTION_CANCEL:
-                    sendToDelegate = mDelegateTargeted;
-                    mDelegateTargeted = false;
-                    break;
-            }
-            if (sendToDelegate) {
-                if (hit && !mActualBounds.contains(x, y)) {
-                    // Offset event coordinates to be in the center of the target view since we
-                    // are within the targetBounds, but not inside the actual bounds of
-                    // mDelegateView
-                    event.setLocation(mDelegateView.getWidth() / 2,
-                            mDelegateView.getHeight() / 2);
-                } else {
-                    // Offset event coordinates to the target view coordinates.
-                    event.setLocation(x - mActualBounds.left, y - mActualBounds.top);
-                }
-
-                handled = mDelegateView.dispatchTouchEvent(event);
-            }
-            return handled;
-        }
-    }
-
     /**
      * Local subclass for AutoCompleteTextView.
      * @hide
@@ -1883,9 +1694,6 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
 
         private int mThreshold;
         private SearchView mSearchView;
-
-        private boolean mHasPendingShowSoftInputRequest;
-        final Runnable mRunShowSoftInputIfNecessary = () -> showSoftInputIfNecessary();
 
         public SearchAutoComplete(Context context) {
             super(context);
@@ -1906,14 +1714,6 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
                 Context context, AttributeSet attrs, int defStyleAttrs, int defStyleRes) {
             super(context, attrs, defStyleAttrs, defStyleRes);
             mThreshold = getThreshold();
-        }
-
-        @Override
-        protected void onFinishInflate() {
-            super.onFinishInflate();
-            DisplayMetrics metrics = getResources().getDisplayMetrics();
-            setMinWidth((int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
-                    getSearchViewTextMinWidthDp(), metrics));
         }
 
         void setSearchView(SearchView searchView) {
@@ -1960,13 +1760,11 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
             super.onWindowFocusChanged(hasWindowFocus);
 
             if (hasWindowFocus && mSearchView.hasFocus() && getVisibility() == VISIBLE) {
-                // Since InputMethodManager#onPostWindowFocus() will be called after this callback,
-                // it is a bit too early to call InputMethodManager#showSoftInput() here. We still
-                // need to wait until the system calls back onCreateInputConnection() to call
-                // InputMethodManager#showSoftInput().
-                mHasPendingShowSoftInputRequest = true;
-
-                // If in landscape mode, then make sure that the ime is in front of the dropdown.
+                InputMethodManager inputManager = (InputMethodManager) getContext()
+                        .getSystemService(Context.INPUT_METHOD_SERVICE);
+                inputManager.showSoftInput(this, 0);
+                // If in landscape mode, then make sure that
+                // the ime is in front of the dropdown.
                 if (isLandscapeMode(getContext())) {
                     ensureImeVisible(true);
                 }
@@ -1990,78 +1788,29 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
 
         @Override
         public boolean onKeyPreIme(int keyCode, KeyEvent event) {
-            final boolean consume = super.onKeyPreIme(keyCode, event);
-            if (consume && keyCode == KeyEvent.KEYCODE_BACK
-                    && event.getAction() == KeyEvent.ACTION_UP) {
-                // If AutoCompleteTextView closed its pop-up, it will return true, in which case
-                // we should also close the IME. Otherwise, the popup is already closed and we can
-                // leave the BACK event alone.
-                setImeVisibility(false);
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                // special case for the back key, we do not even try to send it
+                // to the drop down list but instead, consume it immediately
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    KeyEvent.DispatcherState state = getKeyDispatcherState();
+                    if (state != null) {
+                        state.startTracking(event, this);
+                    }
+                    return true;
+                } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                    KeyEvent.DispatcherState state = getKeyDispatcherState();
+                    if (state != null) {
+                        state.handleUpEvent(event);
+                    }
+                    if (event.isTracking() && !event.isCanceled()) {
+                        mSearchView.clearFocus();
+                        mSearchView.setImeVisibility(false);
+                        return true;
+                    }
+                }
             }
-            return consume;
+            return super.onKeyPreIme(keyCode, event);
         }
 
-        /**
-         * Get minimum width of the search view text entry area.
-         */
-        private int getSearchViewTextMinWidthDp() {
-            final Configuration configuration = getResources().getConfiguration();
-            final int width = configuration.screenWidthDp;
-            final int height = configuration.screenHeightDp;
-            final int orientation = configuration.orientation;
-            if (width >= 960 && height >= 720
-                    && orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                return 256;
-            } else if (width >= 600 || (width >= 640 && height >= 480)) {
-                return 192;
-            };
-            return 160;
-        }
-
-        /**
-         * We override {@link View#onCreateInputConnection(EditorInfo)} as a signal to schedule a
-         * pending {@link InputMethodManager#showSoftInput(View, int)} request (if any).
-         */
-        @Override
-        public InputConnection onCreateInputConnection(EditorInfo editorInfo) {
-            final InputConnection ic = super.onCreateInputConnection(editorInfo);
-            if (mHasPendingShowSoftInputRequest) {
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                post(mRunShowSoftInputIfNecessary);
-            }
-            return ic;
-        }
-
-        private void showSoftInputIfNecessary() {
-            if (mHasPendingShowSoftInputRequest) {
-                final InputMethodManager imm =
-                        getContext().getSystemService(InputMethodManager.class);
-                imm.showSoftInput(this, 0);
-                mHasPendingShowSoftInputRequest = false;
-            }
-        }
-
-        private void setImeVisibility(final boolean visible) {
-            final InputMethodManager imm = getContext().getSystemService(InputMethodManager.class);
-            if (!visible) {
-                mHasPendingShowSoftInputRequest = false;
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                imm.hideSoftInputFromWindow(getWindowToken(), 0);
-                return;
-            }
-
-            if (imm.isActive(this)) {
-                // This means that SearchAutoComplete is already connected to the IME.
-                // InputMethodManager#showSoftInput() is guaranteed to pass client-side focus check.
-                mHasPendingShowSoftInputRequest = false;
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                imm.showSoftInput(this, 0);
-                return;
-            }
-
-            // Otherwise, InputMethodManager#showSoftInput() should be deferred after
-            // onCreateInputConnection().
-            mHasPendingShowSoftInputRequest = true;
-        }
     }
 }

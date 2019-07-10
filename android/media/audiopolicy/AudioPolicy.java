@@ -42,7 +42,6 @@ import android.util.Slog;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * @hide
@@ -69,7 +68,6 @@ public class AudioPolicy {
     private int mStatus;
     private String mRegistrationId;
     private AudioPolicyStatusListener mStatusListener;
-    private boolean mIsFocusPolicy;
 
     /**
      * The behavior of a policy with regards to audio focus where it relies on the application
@@ -90,8 +88,6 @@ public class AudioPolicy {
 
     private AudioPolicyFocusListener mFocusListener;
 
-    private final AudioPolicyVolumeCallback mVolCb;
-
     private Context mContext;
 
     private AudioPolicyConfig mConfig;
@@ -100,17 +96,12 @@ public class AudioPolicy {
     public AudioPolicyConfig getConfig() { return mConfig; }
     /** @hide */
     public boolean hasFocusListener() { return mFocusListener != null; }
-    /** @hide */
-    public boolean isFocusPolicy() { return mIsFocusPolicy; }
-    /** @hide */
-    public boolean isVolumeController() { return mVolCb != null; }
 
     /**
      * The parameter is guaranteed non-null through the Builder
      */
     private AudioPolicy(AudioPolicyConfig config, Context context, Looper looper,
-            AudioPolicyFocusListener fl, AudioPolicyStatusListener sl, boolean isFocusPolicy,
-            AudioPolicyVolumeCallback vc) {
+            AudioPolicyFocusListener fl, AudioPolicyStatusListener sl) {
         mConfig = config;
         mStatus = POLICY_STATUS_UNREGISTERED;
         mContext = context;
@@ -125,13 +116,10 @@ public class AudioPolicy {
         }
         mFocusListener = fl;
         mStatusListener = sl;
-        mIsFocusPolicy = isFocusPolicy;
-        mVolCb = vc;
     }
 
     /**
-     * Builder class for {@link AudioPolicy} objects.
-     * By default the policy to be created doesn't govern audio focus decisions.
+     * Builder class for {@link AudioPolicy} objects
      */
     @SystemApi
     public static class Builder {
@@ -140,8 +128,6 @@ public class AudioPolicy {
         private Looper mLooper;
         private AudioPolicyFocusListener mFocusListener;
         private AudioPolicyStatusListener mStatusListener;
-        private boolean mIsFocusPolicy = false;
-        private AudioPolicyVolumeCallback mVolCb;
 
         /**
          * Constructs a new Builder with no audio mixes.
@@ -193,21 +179,6 @@ public class AudioPolicy {
         }
 
         /**
-         * Declares whether this policy will grant and deny audio focus through
-         * the {@link AudioPolicy.AudioPolicyFocusListener}.
-         * If set to {@code true}, it is mandatory to set an
-         * {@link AudioPolicy.AudioPolicyFocusListener} in order to successfully build
-         * an {@code AudioPolicy} instance.
-         * @param enforce true if the policy will govern audio focus decisions.
-         * @return the same Builder instance.
-         */
-        @SystemApi
-        public Builder setIsAudioFocusPolicy(boolean isFocusPolicy) {
-            mIsFocusPolicy = isFocusPolicy;
-            return this;
-        }
-
-        /**
          * Sets the audio policy status listener.
          * @param l a {@link AudioPolicy.AudioPolicyStatusListener}
          */
@@ -217,30 +188,6 @@ public class AudioPolicy {
         }
 
         @SystemApi
-        /**
-         * Sets the callback to receive all volume key-related events.
-         * The callback will only be called if the device is configured to handle volume events
-         * in the PhoneWindowManager (see config_handleVolumeKeysInWindowManager)
-         * @param vc
-         * @return the same Builder instance.
-         */
-        public Builder setAudioPolicyVolumeCallback(@NonNull AudioPolicyVolumeCallback vc) {
-            if (vc == null) {
-                throw new IllegalArgumentException("Invalid null volume callback");
-            }
-            mVolCb = vc;
-            return this;
-        }
-
-        /**
-         * Combines all of the attributes that have been set on this {@code Builder} and returns a
-         * new {@link AudioPolicy} object.
-         * @return a new {@code AudioPolicy} object.
-         * @throws IllegalStateException if there is no
-         *     {@link AudioPolicy.AudioPolicyStatusListener} but the policy was configured
-         *     as an audio focus policy with {@link #setIsAudioFocusPolicy(boolean)}.
-         */
-        @SystemApi
         public AudioPolicy build() {
             if (mStatusListener != null) {
                 // the AudioPolicy status listener includes updates on each mix activity state
@@ -248,95 +195,8 @@ public class AudioPolicy {
                     mix.mCallbackFlags |= AudioMix.CALLBACK_FLAG_NOTIFY_ACTIVITY;
                 }
             }
-            if (mIsFocusPolicy && mFocusListener == null) {
-                throw new IllegalStateException("Cannot be a focus policy without "
-                        + "an AudioPolicyFocusListener");
-            }
             return new AudioPolicy(new AudioPolicyConfig(mMixes), mContext, mLooper,
-                    mFocusListener, mStatusListener, mIsFocusPolicy, mVolCb);
-        }
-    }
-
-    /**
-     * @hide
-     * Update the current configuration of the set of audio mixes by adding new ones, while
-     * keeping the policy registered.
-     * This method can only be called on a registered policy.
-     * @param mixes the list of {@link AudioMix} to add
-     * @return {@link AudioManager#SUCCESS} if the change was successful, {@link AudioManager#ERROR}
-     *    otherwise.
-     */
-    @SystemApi
-    public int attachMixes(@NonNull List<AudioMix> mixes) {
-        if (mixes == null) {
-            throw new IllegalArgumentException("Illegal null list of AudioMix");
-        }
-        synchronized (mLock) {
-            if (mStatus != POLICY_STATUS_REGISTERED) {
-                throw new IllegalStateException("Cannot alter unregistered AudioPolicy");
-            }
-            final ArrayList<AudioMix> zeMixes = new ArrayList<AudioMix>(mixes.size());
-            for (AudioMix mix : mixes) {
-                if (mix == null) {
-                    throw new IllegalArgumentException("Illegal null AudioMix in attachMixes");
-                } else {
-                    zeMixes.add(mix);
-                }
-            }
-            final AudioPolicyConfig cfg = new AudioPolicyConfig(zeMixes);
-            IAudioService service = getService();
-            try {
-                final int status = service.addMixForPolicy(cfg, this.cb());
-                if (status == AudioManager.SUCCESS) {
-                    mConfig.add(zeMixes);
-                }
-                return status;
-            } catch (RemoteException e) {
-                Log.e(TAG, "Dead object in attachMixes", e);
-                return AudioManager.ERROR;
-            }
-        }
-    }
-
-    /**
-     * @hide
-     * Update the current configuration of the set of audio mixes by removing some, while
-     * keeping the policy registered.
-     * This method can only be called on a registered policy.
-     * @param mixes the list of {@link AudioMix} to remove
-     * @return {@link AudioManager#SUCCESS} if the change was successful, {@link AudioManager#ERROR}
-     *    otherwise.
-     */
-    @SystemApi
-    public int detachMixes(@NonNull List<AudioMix> mixes) {
-        if (mixes == null) {
-            throw new IllegalArgumentException("Illegal null list of AudioMix");
-        }
-        synchronized (mLock) {
-            if (mStatus != POLICY_STATUS_REGISTERED) {
-                throw new IllegalStateException("Cannot alter unregistered AudioPolicy");
-            }
-            final ArrayList<AudioMix> zeMixes = new ArrayList<AudioMix>(mixes.size());
-            for (AudioMix mix : mixes) {
-                if (mix == null) {
-                    throw new IllegalArgumentException("Illegal null AudioMix in detachMixes");
-                    // TODO also check mix is currently contained in list of mixes
-                } else {
-                    zeMixes.add(mix);
-                }
-            }
-            final AudioPolicyConfig cfg = new AudioPolicyConfig(zeMixes);
-            IAudioService service = getService();
-            try {
-                final int status = service.removeMixForPolicy(cfg, this.cb());
-                if (status == AudioManager.SUCCESS) {
-                    mConfig.remove(zeMixes);
-                }
-                return status;
-            } catch (RemoteException e) {
-                Log.e(TAG, "Dead object in detachMixes", e);
-                return AudioManager.ERROR;
-            }
+                    mFocusListener, mStatusListener);
         }
     }
 
@@ -484,7 +344,6 @@ public class AudioPolicy {
                 new AudioAttributes.Builder()
                         .setInternalCapturePreset(MediaRecorder.AudioSource.REMOTE_SUBMIX)
                         .addTag(addressForTag(mix))
-                        .addTag(AudioRecord.SUBMIX_FIXED_VOLUME)
                         .build(),
                 mixFormat,
                 AudioRecord.getMinBufferSize(mix.getFormat().getSampleRate(),
@@ -543,41 +402,6 @@ public class AudioPolicy {
     public static abstract class AudioPolicyFocusListener {
         public void onAudioFocusGrant(AudioFocusInfo afi, int requestResult) {}
         public void onAudioFocusLoss(AudioFocusInfo afi, boolean wasNotified) {}
-        /**
-         * Called whenever an application requests audio focus.
-         * Only ever called if the {@link AudioPolicy} was built with
-         * {@link AudioPolicy.Builder#setIsAudioFocusPolicy(boolean)} set to {@code true}.
-         * @param afi information about the focus request and the requester
-         * @param requestResult deprecated after the addition of
-         *     {@link AudioManager#setFocusRequestResult(AudioFocusInfo, int, AudioPolicy)}
-         *     in Android P, always equal to {@link #AUDIOFOCUS_REQUEST_GRANTED}.
-         */
-        public void onAudioFocusRequest(AudioFocusInfo afi, int requestResult) {}
-        /**
-         * Called whenever an application abandons audio focus.
-         * Only ever called if the {@link AudioPolicy} was built with
-         * {@link AudioPolicy.Builder#setIsAudioFocusPolicy(boolean)} set to {@code true}.
-         * @param afi information about the focus request being abandoned and the original
-         *     requester.
-         */
-        public void onAudioFocusAbandon(AudioFocusInfo afi) {}
-    }
-
-    @SystemApi
-    /**
-     * Callback class to receive volume change-related events.
-     * See {@link #Builder.setAudioPolicyVolumeCallback(AudioPolicyCallback)} to configure the
-     * {@link AudioPolicy} to receive those events.
-     *
-     */
-    public static abstract class AudioPolicyVolumeCallback {
-        /** @hide */
-        public AudioPolicyVolumeCallback() {}
-        /**
-         * Called when volume key-related changes are triggered, on the key down event.
-         * @param adjustment the type of volume adjustment for the key.
-         */
-        public void onVolumeAdjustment(@AudioManager.VolumeAdjustment int adjustment) {}
     }
 
     private void onPolicyStatusChange() {
@@ -615,22 +439,6 @@ public class AudioPolicy {
             }
         }
 
-        public void notifyAudioFocusRequest(AudioFocusInfo afi, int requestResult) {
-            sendMsg(MSG_FOCUS_REQUEST, afi, requestResult);
-            if (DEBUG) {
-                Log.v(TAG, "notifyAudioFocusRequest: pack=" + afi.getPackageName() + " client="
-                        + afi.getClientId() + " gen=" + afi.getGen());
-            }
-        }
-
-        public void notifyAudioFocusAbandon(AudioFocusInfo afi) {
-            sendMsg(MSG_FOCUS_ABANDON, afi, 0 /* ignored */);
-            if (DEBUG) {
-                Log.v(TAG, "notifyAudioFocusAbandon: pack=" + afi.getPackageName() + " client="
-                        + afi.getClientId());
-            }
-        }
-
         public void notifyMixStateUpdate(String regId, int state) {
             for (AudioMix mix : mConfig.getMixes()) {
                 if (mix.getRegistration().equals(regId)) {
@@ -642,13 +450,6 @@ public class AudioPolicy {
                 }
             }
         }
-
-        public void notifyVolumeAdjust(int adjustment) {
-            sendMsg(MSG_VOL_ADJUST, null /* ignored */, adjustment);
-            if (DEBUG) {
-                Log.v(TAG, "notifyVolumeAdjust: " + adjustment);
-            }
-        }
     };
 
     //==================================================
@@ -658,9 +459,6 @@ public class AudioPolicy {
     private final static int MSG_FOCUS_GRANT = 1;
     private final static int MSG_FOCUS_LOSS = 2;
     private final static int MSG_MIX_STATE_UPDATE = 3;
-    private final static int MSG_FOCUS_REQUEST = 4;
-    private final static int MSG_FOCUS_ABANDON = 5;
-    private final static int MSG_VOL_ADJUST = 6;
 
     private class EventHandler extends Handler {
         public EventHandler(AudioPolicy ap, Looper looper) {
@@ -688,27 +486,6 @@ public class AudioPolicy {
                 case MSG_MIX_STATE_UPDATE:
                     if (mStatusListener != null) {
                         mStatusListener.onMixStateUpdate((AudioMix) msg.obj);
-                    }
-                    break;
-                case MSG_FOCUS_REQUEST:
-                    if (mFocusListener != null) {
-                        mFocusListener.onAudioFocusRequest((AudioFocusInfo) msg.obj, msg.arg1);
-                    } else { // should never be null, but don't crash
-                        Log.e(TAG, "Invalid null focus listener for focus request event");
-                    }
-                    break;
-                case MSG_FOCUS_ABANDON:
-                    if (mFocusListener != null) { // should never be null
-                        mFocusListener.onAudioFocusAbandon((AudioFocusInfo) msg.obj);
-                    } else { // should never be null, but don't crash
-                        Log.e(TAG, "Invalid null focus listener for focus abandon event");
-                    }
-                    break;
-                case MSG_VOL_ADJUST:
-                    if (mVolCb != null) {
-                        mVolCb.onVolumeAdjustment(msg.arg1);
-                    } else { // should never be null, but don't crash
-                        Log.e(TAG, "Invalid null volume event");
                     }
                     break;
                 default:

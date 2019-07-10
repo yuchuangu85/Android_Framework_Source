@@ -16,7 +16,10 @@
 
 package benchmarks.regression;
 
-public class StringLengthBenchmark {
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
+public class StringLengthBenchmark extends SimpleBenchmark {
     public void timeLength(int reps) {
         int length = 0;
         for (int i = 0; i < reps; ++i) {

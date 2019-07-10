@@ -29,7 +29,7 @@ public class TreeMapTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(TreeMapTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**

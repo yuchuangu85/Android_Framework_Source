@@ -1,83 +1,67 @@
 /*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang.reflect;
 
 /**
- * WildcardType represents a wildcard type expression, such as
- * {@code ?}, {@code ? extends Number}, or {@code ? super Integer}.
+ * A pattern type, such as the upper bounded wildcard {@code
+ * ? extends Closeable} or the lower bounded wildcard {@code ? super String}.
  *
- * @since 1.5
+ * <p>Although this interface permits an arbitrary number of upper and lower
+ * bounds, all wildcard types of Java language programs are in one of two forms:
+ * <ol>
+ * <li><strong>No lower bound and one upper bound.</strong> Such types are
+ *     written like {@code ? extends java.lang.Number}. When the upper bound is
+ *     {@code java.lang.Object}, the {@code extends java.lang.Object} suffix is
+ *     optional: {@code Set<?>} is shorthand for {@code
+ *     Set<? extends java.lang.Object>}.
+ * <li><strong>One lower bound and an upper bound of {@code
+ *     java.lang.Object}.</strong> Such types are written like {@code
+ *     ? super java.lang.String}.
+ * </ol>
  */
 public interface WildcardType extends Type {
     /**
-     * Returns an array of {@code Type} objects representing the  upper
-     * bound(s) of this type variable.  Note that if no upper bound is
-     * explicitly declared, the upper bound is {@code Object}.
+     * Returns the array of types that represent the upper bounds of this type.
+     * The default upper bound is {@code Object}.
      *
-     * <p>For each upper bound B :
-     * <ul>
-     *  <li>if B is a parameterized type or a type variable, it is created,
-     *  (see {@link java.lang.reflect.ParameterizedType ParameterizedType}
-     *  for the details of the creation process for parameterized types).
-     *  <li>Otherwise, B is resolved.
-     * </ul>
+     * @return an array containing the upper bounds types
      *
-     * @return an array of Types representing the upper bound(s) of this
-     *     type variable
-     * @throws TypeNotPresentException if any of the
-     *     bounds refers to a non-existent type declaration
-     * @throws MalformedParameterizedTypeException if any of the
-     *     bounds refer to a parameterized type that cannot be instantiated
-     *     for any reason
+     * @throws TypeNotPresentException
+     *             if any of the bounds points to a missing type
+     * @throws MalformedParameterizedTypeException
+     *             if any bound points to a type that cannot be instantiated for
+     *             some reason
      */
     Type[] getUpperBounds();
 
     /**
-     * Returns an array of {@code Type} objects representing the
-     * lower bound(s) of this type variable.  Note that if no lower bound is
-     * explicitly declared, the lower bound is the type of {@code null}.
-     * In this case, a zero length array is returned.
+     * Returns the array of types that represent the lower bounds of this type.
+     * The default lower bound is {@code null}, in which case an empty array is
+     * returned. Since only one lower bound is allowed, the returned array's
+     * length will never exceed one.
      *
-     * <p>For each lower bound B :
-     * <ul>
-     *   <li>if B is a parameterized type or a type variable, it is created,
-     *  (see {@link java.lang.reflect.ParameterizedType ParameterizedType}
-     *  for the details of the creation process for parameterized types).
-     *   <li>Otherwise, B is resolved.
-     * </ul>
+     * @return an array containing the lower bounds types
      *
-     * @return an array of Types representing the lower bound(s) of this
-     *     type variable
-     * @throws TypeNotPresentException if any of the
-     *     bounds refers to a non-existent type declaration
-     * @throws MalformedParameterizedTypeException if any of the
-     *     bounds refer to a parameterized type that cannot be instantiated
-     *     for any reason
+     * @throws TypeNotPresentException
+     *             if any of the bounds points to a missing type
+     * @throws MalformedParameterizedTypeException
+     *             if any of the bounds points to a type that cannot be
+     *             instantiated for some reason
      */
     Type[] getLowerBounds();
-    // one or many? Up to language spec; currently only one, but this API
-    // allows for generalization.
 }

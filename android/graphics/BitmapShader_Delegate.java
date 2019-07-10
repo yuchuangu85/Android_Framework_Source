@@ -31,9 +31,7 @@ import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
-import java.awt.image.DataBufferInt;
 import java.awt.image.Raster;
-import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.BitmapShader
@@ -77,14 +75,14 @@ public class BitmapShader_Delegate extends Shader_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate(long nativeMatrix, Bitmap androidBitmap,
-            int shaderTileModeX, int shaderTileModeY) {
+    /*package*/ static long nativeCreate(Bitmap androidBitmap, int shaderTileModeX,
+            int shaderTileModeY) {
         Bitmap_Delegate bitmap = Bitmap_Delegate.getDelegate(androidBitmap);
         if (bitmap == null) {
             return 0;
         }
 
-        BitmapShader_Delegate newDelegate = new BitmapShader_Delegate(nativeMatrix,
+        BitmapShader_Delegate newDelegate = new BitmapShader_Delegate(
                 bitmap.getImage(),
                 Shader_Delegate.getTileMode(shaderTileModeX),
                 Shader_Delegate.getTileMode(shaderTileModeY));
@@ -93,9 +91,8 @@ public class BitmapShader_Delegate extends Shader_Delegate {
 
     // ---- Private delegate/helper methods ----
 
-    private BitmapShader_Delegate(long matrix, BufferedImage image,
+    private BitmapShader_Delegate(BufferedImage image,
             TileMode tileModeX, TileMode tileModeY) {
-        super(matrix);
         mJavaPaint = new BitmapShaderPaint(image, tileModeX, tileModeY);
     }
 
@@ -191,9 +188,9 @@ public class BitmapShader_Delegate extends Shader_Delegate {
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
         }
 

@@ -18,32 +18,31 @@ package android.os;
 
 import android.annotation.Nullable;
 import android.util.ArrayMap;
-import android.util.proto.ProtoOutputStream;
-
 import com.android.internal.util.XmlUtils;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * A mapping from String keys to values of various types. The set of types
- * supported by this class is purposefully restricted to simple objects that can
- * safely be persisted to and restored from disk.
+ * A mapping from String values to various types that can be saved to persistent and later
+ * restored.
  *
- * @see Bundle
  */
 public final class PersistableBundle extends BaseBundle implements Cloneable, Parcelable,
         XmlUtils.WriteMapCallback {
     private static final String TAG_PERSISTABLEMAP = "pbundle_as_map";
     public static final PersistableBundle EMPTY;
+    static final Parcel EMPTY_PARCEL;
 
     static {
         EMPTY = new PersistableBundle();
         EMPTY.mMap = ArrayMap.EMPTY;
+        EMPTY_PARCEL = BaseBundle.EMPTY_PARCEL;
     }
 
     /** @hide */
@@ -61,7 +60,6 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
      */
     public PersistableBundle() {
         super();
-        mFlags = FLAG_DEFUSABLE;
     }
 
     /**
@@ -72,35 +70,16 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
      */
     public PersistableBundle(int capacity) {
         super(capacity);
-        mFlags = FLAG_DEFUSABLE;
     }
 
     /**
      * Constructs a PersistableBundle containing a copy of the mappings from the given
-     * PersistableBundle.  Does only a shallow copy of the original PersistableBundle -- see
-     * {@link #deepCopy()} if that is not what you want.
+     * PersistableBundle.
      *
      * @param b a PersistableBundle to be copied.
-     *
-     * @see #deepCopy()
      */
     public PersistableBundle(PersistableBundle b) {
         super(b);
-        mFlags = b.mFlags;
-    }
-
-
-    /**
-     * Constructs a PersistableBundle from a Bundle.  Does only a shallow copy of the Bundle.
-     *
-     * @param b a Bundle to be copied.
-     *
-     * @throws IllegalArgumentException if any element of {@code b} cannot be persisted.
-     *
-     * @hide
-     */
-    public PersistableBundle(Bundle b) {
-        this(b.getMap());
     }
 
     /**
@@ -111,7 +90,6 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
      */
     private PersistableBundle(ArrayMap<String, Object> map) {
         super();
-        mFlags = FLAG_DEFUSABLE;
 
         // First stuff everything in.
         putAll(map);
@@ -123,8 +101,6 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
             if (value instanceof ArrayMap) {
                 // Fix up any Maps by replacing them with PersistableBundles.
                 mMap.setValueAt(i, new PersistableBundle((ArrayMap<String, Object>) value));
-            } else if (value instanceof Bundle) {
-                mMap.setValueAt(i, new PersistableBundle(((Bundle) value)));
             } else if (!isValidType(value)) {
                 throw new IllegalArgumentException("Bad value in PersistableBundle key="
                         + mMap.keyAt(i) + " value=" + value);
@@ -134,14 +110,6 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
 
     /* package */ PersistableBundle(Parcel parcelledData, int length) {
         super(parcelledData, length);
-        mFlags = FLAG_DEFUSABLE;
-    }
-
-    /**
-     * Constructs a PersistableBundle without initializing it.
-     */
-    PersistableBundle(boolean doInit) {
-        super(doInit);
     }
 
     /**
@@ -162,19 +130,6 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
     @Override
     public Object clone() {
         return new PersistableBundle(this);
-    }
-
-    /**
-     * Make a deep copy of the given bundle.  Traverses into inner containers and copies
-     * them as well, so they are not shared across bundles.  Will traverse in to
-     * {@link Bundle}, {@link PersistableBundle}, {@link ArrayList}, and all types of
-     * primitive arrays.  Other types of objects (such as Parcelable or Serializable)
-     * are referenced as-is and not copied in any way.
-     */
-    public PersistableBundle deepCopy() {
-        PersistableBundle b = new PersistableBundle(false);
-        b.copyInternal(this, true);
-        return b;
     }
 
     /**
@@ -301,7 +256,7 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
     @Override
     synchronized public String toString() {
         if (mParcelledData != null) {
-            if (isEmptyParcel()) {
+            if (mParcelledData == EMPTY_PARCEL) {
                 return "PersistableBundle[EMPTY_PARCEL]";
             } else {
                 return "PersistableBundle[mParcelledData.dataSize=" +
@@ -311,32 +266,4 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
         return "PersistableBundle[" + mMap.toString() + "]";
     }
 
-    /** @hide */
-    synchronized public String toShortString() {
-        if (mParcelledData != null) {
-            if (isEmptyParcel()) {
-                return "EMPTY_PARCEL";
-            } else {
-                return "mParcelledData.dataSize=" + mParcelledData.dataSize();
-            }
-        }
-        return mMap.toString();
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long token = proto.start(fieldId);
-
-        if (mParcelledData != null) {
-            if (isEmptyParcel()) {
-                proto.write(PersistableBundleProto.PARCELLED_DATA_SIZE, 0);
-            } else {
-                proto.write(PersistableBundleProto.PARCELLED_DATA_SIZE, mParcelledData.dataSize());
-            }
-        } else {
-            proto.write(PersistableBundleProto.MAP_DATA, mMap.toString());
-        }
-
-        proto.end(token);
-    }
 }

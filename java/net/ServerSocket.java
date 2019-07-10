@@ -1,932 +1,457 @@
 /*
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
-import java.io.FileDescriptor;
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.ServerSocketChannel;
-import java.security.AccessController;
-import java.security.PrivilegedExceptionAction;
+
+import libcore.io.IoBridge;
 
 /**
- * This class implements server sockets. A server socket waits for
- * requests to come in over the network. It performs some operation
- * based on that request, and then possibly returns a result to the requester.
- * <p>
- * The actual work of the server socket is performed by an instance
- * of the {@code SocketImpl} class. An application can
- * change the socket factory that creates the socket
- * implementation to configure itself to create sockets
- * appropriate to the local firewall.
- *
- * @author  unascribed
- * @see     java.net.SocketImpl
- * @see     java.net.ServerSocket#setSocketFactory(java.net.SocketImplFactory)
- * @see     java.nio.channels.ServerSocketChannel
- * @since   JDK1.0
+ * This class represents a server-side socket that waits for incoming client
+ * connections. A {@code ServerSocket} handles the requests and sends back an
+ * appropriate reply. The actual tasks that a server socket must accomplish are
+ * implemented by an internal {@code SocketImpl} instance.
  */
-public
-class ServerSocket implements java.io.Closeable {
+public class ServerSocket implements Closeable {
     /**
-     * Various states of this socket.
+     * The RI specifies that where the caller doesn't give an explicit backlog,
+     * the default is 50. The OS disagrees, so we need to explicitly call listen(2).
      */
-    private boolean created = false;
-    private boolean bound = false;
-    private boolean closed = false;
-    private Object closeLock = new Object();
+    private static final int DEFAULT_BACKLOG = 50;
+
+    private final SocketImpl impl;
 
     /**
-     * The implementation of this Socket.
+     * @hide internal use only
      */
-    private SocketImpl impl;
-
-    /**
-     * Are we using an older SocketImpl?
-     */
-    private boolean oldImpl = false;
-
-    /**
-     * Package-private constructor to create a ServerSocket associated with
-     * the given SocketImpl.
-     */
-    ServerSocket(SocketImpl impl) {
-        this.impl = impl;
-        impl.setServerSocket(this);
-    }
-
-    /**
-     * Creates an unbound server socket.
-     *
-     * @exception IOException IO error when opening the socket.
-     * @revised 1.4
-     */
-    public ServerSocket() throws IOException {
-        setImpl();
-    }
-
-    /**
-     * Creates a server socket, bound to the specified port. A port number
-     * of {@code 0} means that the port number is automatically
-     * allocated, typically from an ephemeral port range. This port
-     * number can then be retrieved by calling {@link #getLocalPort getLocalPort}.
-     * <p>
-     * The maximum queue length for incoming connection indications (a
-     * request to connect) is set to {@code 50}. If a connection
-     * indication arrives when the queue is full, the connection is refused.
-     * <p>
-     * If the application has specified a server socket factory, that
-     * factory's {@code createSocketImpl} method is called to create
-     * the actual socket implementation. Otherwise a "plain" socket is created.
-     * <p>
-     * If there is a security manager,
-     * its {@code checkListen} method is called
-     * with the {@code port} argument
-     * as its argument to ensure the operation is allowed.
-     * This could result in a SecurityException.
-     *
-     *
-     * @param      port  the port number, or {@code 0} to use a port
-     *                   number that is automatically allocated.
-     *
-     * @exception  IOException  if an I/O error occurs when opening the socket.
-     * @exception  SecurityException
-     * if a security manager exists and its {@code checkListen}
-     * method doesn't allow the operation.
-     * @exception  IllegalArgumentException if the port parameter is outside
-     *             the specified range of valid port values, which is between
-     *             0 and 65535, inclusive.
-     *
-     * @see        java.net.SocketImpl
-     * @see        java.net.SocketImplFactory#createSocketImpl()
-     * @see        java.net.ServerSocket#setSocketFactory(java.net.SocketImplFactory)
-     * @see        SecurityManager#checkListen
-     */
-    public ServerSocket(int port) throws IOException {
-        this(port, 50, null);
-    }
-
-    /**
-     * Creates a server socket and binds it to the specified local port
-     * number, with the specified backlog.
-     * A port number of {@code 0} means that the port number is
-     * automatically allocated, typically from an ephemeral port range.
-     * This port number can then be retrieved by calling
-     * {@link #getLocalPort getLocalPort}.
-     * <p>
-     * The maximum queue length for incoming connection indications (a
-     * request to connect) is set to the {@code backlog} parameter. If
-     * a connection indication arrives when the queue is full, the
-     * connection is refused.
-     * <p>
-     * If the application has specified a server socket factory, that
-     * factory's {@code createSocketImpl} method is called to create
-     * the actual socket implementation. Otherwise a "plain" socket is created.
-     * <p>
-     * If there is a security manager,
-     * its {@code checkListen} method is called
-     * with the {@code port} argument
-     * as its argument to ensure the operation is allowed.
-     * This could result in a SecurityException.
-     *
-     * The {@code backlog} argument is the requested maximum number of
-     * pending connections on the socket. Its exact semantics are implementation
-     * specific. In particular, an implementation may impose a maximum length
-     * or may choose to ignore the parameter altogther. The value provided
-     * should be greater than {@code 0}. If it is less than or equal to
-     * {@code 0}, then an implementation specific default will be used.
-     * <P>
-     *
-     * @param      port     the port number, or {@code 0} to use a port
-     *                      number that is automatically allocated.
-     * @param      backlog  requested maximum length of the queue of incoming
-     *                      connections.
-     *
-     * @exception  IOException  if an I/O error occurs when opening the socket.
-     * @exception  SecurityException
-     * if a security manager exists and its {@code checkListen}
-     * method doesn't allow the operation.
-     * @exception  IllegalArgumentException if the port parameter is outside
-     *             the specified range of valid port values, which is between
-     *             0 and 65535, inclusive.
-     *
-     * @see        java.net.SocketImpl
-     * @see        java.net.SocketImplFactory#createSocketImpl()
-     * @see        java.net.ServerSocket#setSocketFactory(java.net.SocketImplFactory)
-     * @see        SecurityManager#checkListen
-     */
-    public ServerSocket(int port, int backlog) throws IOException {
-        this(port, backlog, null);
-    }
-
-    /**
-     * Create a server with the specified port, listen backlog, and
-     * local IP address to bind to.  The <i>bindAddr</i> argument
-     * can be used on a multi-homed host for a ServerSocket that
-     * will only accept connect requests to one of its addresses.
-     * If <i>bindAddr</i> is null, it will default accepting
-     * connections on any/all local addresses.
-     * The port must be between 0 and 65535, inclusive.
-     * A port number of {@code 0} means that the port number is
-     * automatically allocated, typically from an ephemeral port range.
-     * This port number can then be retrieved by calling
-     * {@link #getLocalPort getLocalPort}.
-     *
-     * <P>If there is a security manager, this method
-     * calls its {@code checkListen} method
-     * with the {@code port} argument
-     * as its argument to ensure the operation is allowed.
-     * This could result in a SecurityException.
-     *
-     * The {@code backlog} argument is the requested maximum number of
-     * pending connections on the socket. Its exact semantics are implementation
-     * specific. In particular, an implementation may impose a maximum length
-     * or may choose to ignore the parameter altogther. The value provided
-     * should be greater than {@code 0}. If it is less than or equal to
-     * {@code 0}, then an implementation specific default will be used.
-     * <P>
-     * @param port  the port number, or {@code 0} to use a port
-     *              number that is automatically allocated.
-     * @param backlog requested maximum length of the queue of incoming
-     *                connections.
-     * @param bindAddr the local InetAddress the server will bind to
-     *
-     * @throws  SecurityException if a security manager exists and
-     * its {@code checkListen} method doesn't allow the operation.
-     *
-     * @throws  IOException if an I/O error occurs when opening the socket.
-     * @exception  IllegalArgumentException if the port parameter is outside
-     *             the specified range of valid port values, which is between
-     *             0 and 65535, inclusive.
-     *
-     * @see SocketOptions
-     * @see SocketImpl
-     * @see SecurityManager#checkListen
-     * @since   JDK1.1
-     */
-    public ServerSocket(int port, int backlog, InetAddress bindAddr) throws IOException {
-        setImpl();
-        if (port < 0 || port > 0xFFFF)
-            throw new IllegalArgumentException(
-                       "Port value out of range: " + port);
-        if (backlog < 1)
-          backlog = 50;
-        try {
-            bind(new InetSocketAddress(bindAddr, port), backlog);
-        } catch(SecurityException e) {
-            close();
-            throw e;
-        } catch(IOException e) {
-            close();
-            throw e;
-        }
-    }
-
-    /**
-     * Get the {@code SocketImpl} attached to this socket, creating
-     * it if necessary.
-     *
-     * @return  the {@code SocketImpl} attached to that ServerSocket.
-     * @throws SocketException if creation fails.
-     * @since 1.4
-     * @hide
-     */
-    // Android-changed: Make ctor public and @hide, for internal use.
-    public SocketImpl getImpl() throws SocketException {
-        if (!created)
-            createImpl();
+    public SocketImpl getImpl$() {
         return impl;
     }
 
-    private void checkOldImpl() {
-        if (impl == null)
-            return;
-        // SocketImpl.connect() is a protected method, therefore we need to use
-        // getDeclaredMethod, therefore we need permission to access the member
-        try {
-            AccessController.doPrivileged(
-                new PrivilegedExceptionAction<Void>() {
-                    public Void run() throws NoSuchMethodException {
-                        impl.getClass().getDeclaredMethod("connect",
-                                                          SocketAddress.class,
-                                                          int.class);
-                        return null;
-                    }
-                });
-        } catch (java.security.PrivilegedActionException e) {
-            oldImpl = true;
-        }
-    }
+    static SocketImplFactory factory;
 
-    private void setImpl() {
-        if (factory != null) {
-            impl = factory.createSocketImpl();
-            checkOldImpl();
-        } else {
-            // No need to do a checkOldImpl() here, we know it's an up to date
-            // SocketImpl!
-            impl = new SocksSocketImpl();
-        }
-        if (impl != null)
-            impl.setServerSocket(this);
+    private boolean isBound;
+
+    private boolean isClosed;
+
+    private InetAddress localAddress;
+
+    /**
+     * Constructs a new unbound {@code ServerSocket}.
+     *
+     * @throws IOException if an error occurs while creating the socket.
+     */
+    public ServerSocket() throws IOException {
+        this.impl = factory != null ? factory.createSocketImpl()
+                : new PlainServerSocketImpl();
+        impl.create(true);
     }
 
     /**
-     * Creates the socket implementation.
+     * Constructs a new {@code ServerSocket} instance bound to the given {@code port} using a
+     * wildcard address. The backlog is set to 50. If {@code port == 0}, a port will be assigned by
+     * the OS.
      *
-     * @throws IOException if creation fails
-     * @since 1.4
+     * @throws IOException if an error occurs while creating the socket.
      */
-    void createImpl() throws SocketException {
-        if (impl == null)
-            setImpl();
-        try {
+    public ServerSocket(int port) throws IOException {
+        this(port, DEFAULT_BACKLOG, Inet6Address.ANY);
+    }
+
+    /**
+     * Constructs a new {@code ServerSocket} instance bound to the given {@code port} using a
+     * wildcard address. The backlog is set to {@code backlog}.
+     * If {@code port == 0}, a port will be assigned by the OS.
+     *
+     * @throws IOException if an error occurs while creating the socket.
+     */
+    public ServerSocket(int port, int backlog) throws IOException {
+        this(port, backlog, Inet6Address.ANY);
+    }
+
+    /**
+     * Constructs a new {@code ServerSocket} instance bound to the given {@code localAddress}
+     * and {@code port}. The backlog is set to {@code backlog}.
+     * If {@code localAddress == null}, the ANY address is used.
+     * If {@code port == 0}, a port will be assigned by the OS.
+     *
+     * @throws IOException if an error occurs while creating the socket.
+     */
+    public ServerSocket(int port, int backlog, InetAddress localAddress) throws IOException {
+        checkListen(port);
+        this.impl = factory != null ? factory.createSocketImpl()
+                : new PlainServerSocketImpl();
+        InetAddress addr = (localAddress == null) ? Inet6Address.ANY : localAddress;
+
+        synchronized (this) {
             impl.create(true);
-            created = true;
-        } catch (IOException e) {
-            throw new SocketException(e.getMessage());
+            try {
+                impl.bind(addr, port);
+                readBackBindState();
+                impl.listen(backlog > 0 ? backlog : DEFAULT_BACKLOG);
+            } catch (IOException e) {
+                close();
+                throw e;
+            }
         }
     }
 
     /**
-     *
-     * Binds the {@code ServerSocket} to a specific address
-     * (IP address and port number).
-     * <p>
-     * If the address is {@code null}, then the system will pick up
-     * an ephemeral port and a valid local address to bind the socket.
-     * <p>
-     * @param   endpoint        The IP address and port number to bind to.
-     * @throws  IOException if the bind operation fails, or if the socket
-     *                     is already bound.
-     * @throws  SecurityException       if a {@code SecurityManager} is present and
-     * its {@code checkListen} method doesn't allow the operation.
-     * @throws  IllegalArgumentException if endpoint is a
-     *          SocketAddress subclass not supported by this socket
-     * @since 1.4
+     * Read the cached isBound and localAddress state from the underlying OS socket.
      */
-    public void bind(SocketAddress endpoint) throws IOException {
-        bind(endpoint, 50);
+    private void readBackBindState() throws SocketException {
+        localAddress = IoBridge.getSocketLocalAddress(impl.fd);
+        isBound = true;
     }
 
     /**
+     * Waits for an incoming request and blocks until the connection is opened.
+     * This method returns a socket object representing the just opened
+     * connection.
      *
-     * Binds the {@code ServerSocket} to a specific address
-     * (IP address and port number).
-     * <p>
-     * If the address is {@code null}, then the system will pick up
-     * an ephemeral port and a valid local address to bind the socket.
-     * <P>
-     * The {@code backlog} argument is the requested maximum number of
-     * pending connections on the socket. Its exact semantics are implementation
-     * specific. In particular, an implementation may impose a maximum length
-     * or may choose to ignore the parameter altogther. The value provided
-     * should be greater than {@code 0}. If it is less than or equal to
-     * {@code 0}, then an implementation specific default will be used.
-     * @param   endpoint        The IP address and port number to bind to.
-     * @param   backlog         requested maximum length of the queue of
-     *                          incoming connections.
-     * @throws  IOException if the bind operation fails, or if the socket
-     *                     is already bound.
-     * @throws  SecurityException       if a {@code SecurityManager} is present and
-     * its {@code checkListen} method doesn't allow the operation.
-     * @throws  IllegalArgumentException if endpoint is a
-     *          SocketAddress subclass not supported by this socket
-     * @since 1.4
-     */
-    public void bind(SocketAddress endpoint, int backlog) throws IOException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        if (!oldImpl && isBound())
-            throw new SocketException("Already bound");
-        if (endpoint == null)
-            endpoint = new InetSocketAddress(0);
-        if (!(endpoint instanceof InetSocketAddress))
-            throw new IllegalArgumentException("Unsupported address type");
-        InetSocketAddress epoint = (InetSocketAddress) endpoint;
-        if (epoint.isUnresolved())
-            throw new SocketException("Unresolved address");
-        if (backlog < 1)
-          backlog = 50;
-        try {
-            SecurityManager security = System.getSecurityManager();
-            if (security != null)
-                security.checkListen(epoint.getPort());
-            getImpl().bind(epoint.getAddress(), epoint.getPort());
-            getImpl().listen(backlog);
-            bound = true;
-        } catch(SecurityException e) {
-            bound = false;
-            throw e;
-        } catch(IOException e) {
-            bound = false;
-            throw e;
-        }
-    }
-
-    /**
-     * Returns the local address of this server socket.
-     * <p>
-     * If the socket was bound prior to being {@link #close closed},
-     * then this method will continue to return the local address
-     * after the socket is closed.
-     * <p>
-     * If there is a security manager set, its {@code checkConnect} method is
-     * called with the local address and {@code -1} as its arguments to see
-     * if the operation is allowed. If the operation is not allowed,
-     * the {@link InetAddress#getLoopbackAddress loopback} address is returned.
-     *
-     * @return  the address to which this socket is bound,
-     *          or the loopback address if denied by the security manager,
-     *          or {@code null} if the socket is unbound.
-     *
-     * @see SecurityManager#checkConnect
-     */
-    public InetAddress getInetAddress() {
-        if (!isBound())
-            return null;
-        try {
-            InetAddress in = getImpl().getInetAddress();
-            SecurityManager sm = System.getSecurityManager();
-            if (sm != null)
-                sm.checkConnect(in.getHostAddress(), -1);
-            return in;
-        } catch (SecurityException e) {
-            return InetAddress.getLoopbackAddress();
-        } catch (SocketException e) {
-            // nothing
-            // If we're bound, the impl has been created
-            // so we shouldn't get here
-        }
-        return null;
-    }
-
-    /**
-     * Returns the port number on which this socket is listening.
-     * <p>
-     * If the socket was bound prior to being {@link #close closed},
-     * then this method will continue to return the port number
-     * after the socket is closed.
-     *
-     * @return  the port number to which this socket is listening or
-     *          -1 if the socket is not bound yet.
-     */
-    public int getLocalPort() {
-        if (!isBound())
-            return -1;
-        try {
-            return getImpl().getLocalPort();
-        } catch (SocketException e) {
-            // nothing
-            // If we're bound, the impl has been created
-            // so we shouldn't get here
-        }
-        return -1;
-    }
-
-    /**
-     * Returns the address of the endpoint this socket is bound to.
-     * <p>
-     * If the socket was bound prior to being {@link #close closed},
-     * then this method will continue to return the address of the endpoint
-     * after the socket is closed.
-     * <p>
-     * If there is a security manager set, its {@code checkConnect} method is
-     * called with the local address and {@code -1} as its arguments to see
-     * if the operation is allowed. If the operation is not allowed,
-     * a {@code SocketAddress} representing the
-     * {@link InetAddress#getLoopbackAddress loopback} address and the local
-     * port to which the socket is bound is returned.
-     *
-     * @return a {@code SocketAddress} representing the local endpoint of
-     *         this socket, or a {@code SocketAddress} representing the
-     *         loopback address if denied by the security manager,
-     *         or {@code null} if the socket is not bound yet.
-     *
-     * @see #getInetAddress()
-     * @see #getLocalPort()
-     * @see #bind(SocketAddress)
-     * @see SecurityManager#checkConnect
-     * @since 1.4
-     */
-
-    public SocketAddress getLocalSocketAddress() {
-        if (!isBound())
-            return null;
-        return new InetSocketAddress(getInetAddress(), getLocalPort());
-    }
-
-    /**
-     * Listens for a connection to be made to this socket and accepts
-     * it. The method blocks until a connection is made.
-     *
-     * <p>A new Socket {@code s} is created and, if there
-     * is a security manager,
-     * the security manager's {@code checkAccept} method is called
-     * with {@code s.getInetAddress().getHostAddress()} and
-     * {@code s.getPort()}
-     * as its arguments to ensure the operation is allowed.
-     * This could result in a SecurityException.
-     *
-     * @exception  IOException  if an I/O error occurs when waiting for a
-     *               connection.
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkAccept} method doesn't allow the operation.
-     * @exception  SocketTimeoutException if a timeout was previously set with setSoTimeout and
-     *             the timeout has been reached.
-     * @exception  java.nio.channels.IllegalBlockingModeException
-     *             if this socket has an associated channel, the channel is in
-     *             non-blocking mode, and there is no connection ready to be
-     *             accepted
-     *
-     * @return the new Socket
-     * @see SecurityManager#checkAccept
-     * @revised 1.4
-     * @spec JSR-51
+     * @return the connection representing socket.
+     * @throws IOException
+     *             if an error occurs while accepting a new connection.
      */
     public Socket accept() throws IOException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        if (!isBound())
-            throw new SocketException("Socket is not bound yet");
-        Socket s = new Socket((SocketImpl) null);
-        implAccept(s);
-        return s;
-    }
+        checkOpen();
+        if (!isBound()) {
+            throw new SocketException("Socket is not bound");
+        }
 
-    /**
-     * Subclasses of ServerSocket use this method to override accept()
-     * to return their own subclass of socket.  So a FooServerSocket
-     * will typically hand this method an <i>empty</i> FooSocket.  On
-     * return from implAccept the FooSocket will be connected to a client.
-     *
-     * @param s the Socket
-     * @throws java.nio.channels.IllegalBlockingModeException
-     *         if this socket has an associated channel,
-     *         and the channel is in non-blocking mode
-     * @throws IOException if an I/O error occurs when waiting
-     * for a connection.
-     * @since   JDK1.1
-     * @revised 1.4
-     * @spec JSR-51
-     */
-    protected final void implAccept(Socket s) throws IOException {
-        SocketImpl si = null;
+        Socket aSocket = new Socket();
         try {
-            if (s.impl == null)
-              s.setImpl();
-            else {
-                s.impl.reset();
-            }
-            si = s.impl;
-            s.impl = null;
-            si.address = new InetAddress();
-            si.fd = new FileDescriptor();
-            getImpl().accept(si);
-
-            SecurityManager security = System.getSecurityManager();
-            if (security != null) {
-                security.checkAccept(si.getInetAddress().getHostAddress(),
-                                     si.getPort());
-            }
+            implAccept(aSocket);
         } catch (IOException e) {
-            if (si != null)
-                si.reset();
-            s.impl = si;
-            throw e;
-        } catch (SecurityException e) {
-            if (si != null)
-                si.reset();
-            s.impl = si;
+            aSocket.close();
             throw e;
         }
-        s.impl = si;
-        s.postAccept();
+        return aSocket;
+    }
+
+    private void checkListen(int aPort) {
+        if (aPort < 0 || aPort > 65535) {
+            throw new IllegalArgumentException("Port out of range: " + aPort);
+        }
     }
 
     /**
-     * Closes this socket.
+     * Closes this server socket and its implementation. Any attempt to connect
+     * to this socket thereafter will fail.
      *
-     * Any thread currently blocked in {@link #accept()} will throw
-     * a {@link SocketException}.
-     *
-     * <p> If this socket has an associated channel then the channel is closed
-     * as well.
-     *
-     * @exception  IOException  if an I/O error occurs when closing the socket.
-     * @revised 1.4
-     * @spec JSR-51
+     * @throws IOException
+     *             if an error occurs while closing this socket.
      */
     public void close() throws IOException {
-        synchronized(closeLock) {
-            if (isClosed())
-                return;
-            if (created)
-                impl.close();
-            closed = true;
+        isClosed = true;
+        impl.close();
+    }
+
+    /**
+     * Gets the local IP address of this server socket if this socket has ever been bound,
+     * {@code null} otherwise. This is useful for multihomed hosts.
+     *
+     * @return the local address of this server socket.
+     */
+    public InetAddress getInetAddress() {
+        if (!isBound()) {
+            return null;
+        }
+        return localAddress;
+    }
+
+    /**
+     * Gets the local port of this server socket or {@code -1} if the socket is not bound.
+     * If the socket has ever been bound this method will return the local port it was bound to,
+     * even after it has been closed.
+     *
+     * @return the local port this server is listening on.
+     */
+    public int getLocalPort() {
+        if (!isBound()) {
+            return -1;
+        }
+        return impl.getLocalPort();
+    }
+
+    /**
+     * Gets the socket {@link SocketOptions#SO_TIMEOUT accept timeout}.
+     *
+     * @throws IOException
+     *             if the option cannot be retrieved.
+     */
+    public synchronized int getSoTimeout() throws IOException {
+        checkOpen();
+        return ((Integer) impl.getOption(SocketOptions.SO_TIMEOUT)).intValue();
+    }
+
+    /**
+     * Invokes the server socket implementation to accept a connection on the
+     * given socket {@code aSocket}.
+     *
+     * @param aSocket
+     *            the concrete {@code SocketImpl} to accept the connection
+     *            request on.
+     * @throws IOException
+     *             if the connection cannot be accepted.
+     */
+    protected final void implAccept(Socket aSocket) throws IOException {
+        synchronized (this) {
+            impl.accept(aSocket.impl);
+            aSocket.accepted();
         }
     }
 
     /**
-     * Returns the unique {@link java.nio.channels.ServerSocketChannel} object
-     * associated with this socket, if any.
+     * Sets the server socket implementation factory of this instance. This
+     * method may only be invoked with sufficient security privilege and only
+     * once during the application lifetime.
      *
-     * <p> A server socket will have a channel if, and only if, the channel
-     * itself was created via the {@link
-     * java.nio.channels.ServerSocketChannel#open ServerSocketChannel.open}
-     * method.
+     * @param aFactory
+     *            the streaming socket factory to be used for further socket
+     *            instantiations.
+     * @throws IOException
+     *             if the factory could not be set or is already set.
+     */
+    public static synchronized void setSocketFactory(SocketImplFactory aFactory) throws IOException {
+        if (factory != null) {
+            throw new SocketException("Factory already set");
+        }
+        factory = aFactory;
+    }
+
+    /**
+     * Sets the {@link SocketOptions#SO_TIMEOUT accept timeout} in milliseconds for this socket.
+     * This accept timeout defines the period the socket will block waiting to
+     * accept a connection before throwing an {@code InterruptedIOException}. The value
+     * {@code 0} (default) is used to set an infinite timeout. To have effect
+     * this option must be set before the blocking method was called.
      *
-     * @return  the server-socket channel associated with this socket,
-     *          or {@code null} if this socket was not created
-     *          for a channel
+     * @param timeout the timeout in milliseconds or 0 for no timeout.
+     * @throws SocketException
+     *             if an error occurs while setting the option.
+     */
+    public synchronized void setSoTimeout(int timeout) throws SocketException {
+        checkOpen();
+        if (timeout < 0) {
+            throw new IllegalArgumentException("timeout < 0");
+        }
+        impl.setOption(SocketOptions.SO_TIMEOUT, Integer.valueOf(timeout));
+    }
+
+    /**
+     * Returns a textual representation of this server socket including the
+     * address, port and the state. The port field is set to {@code 0} if there
+     * is no connection to the server socket.
      *
-     * @since 1.4
-     * @spec JSR-51
+     * @return the textual socket representation.
+     */
+    @Override
+    public String toString() {
+        StringBuilder result = new StringBuilder(64);
+        result.append("ServerSocket[");
+        if (!isBound()) {
+            return result.append("unbound]").toString();
+        }
+        return result.append("addr=")
+                .append(getInetAddress().getHostName()).append("/")
+                .append(getInetAddress().getHostAddress()).append(
+                        ",port=0,localport=")
+                .append(getLocalPort()).append("]")
+                .toString();
+    }
+
+    /**
+     * Binds this server socket to the given local socket address with a maximum
+     * backlog of 50 unaccepted connections. If the {@code localAddr} is set to
+     * {@code null} the socket will be bound to an available local address on
+     * any free port of the system.
+     *
+     * @param localAddr
+     *            the local address and port to bind on.
+     * @throws IllegalArgumentException
+     *             if the {@code SocketAddress} is not supported.
+     * @throws IOException
+     *             if the socket is already bound or a problem occurs during
+     *             binding.
+     */
+    public void bind(SocketAddress localAddr) throws IOException {
+        bind(localAddr, DEFAULT_BACKLOG);
+    }
+
+    /**
+     * Binds this server socket to the given local socket address. If the
+     * {@code localAddr} is set to {@code null} the socket will be bound to an
+     * available local address on any free port of the system.
+     *
+     * @param localAddr the local machine address and port to bind on.
+     * @param backlog the maximum number of unaccepted connections. Passing 0 or
+     *     a negative value yields the default backlog of 50.
+     * @throws IllegalArgumentException if the {@code SocketAddress} is not
+     *     supported.
+     * @throws IOException if the socket is already bound or a problem occurs
+     *     during binding.
+     */
+    public void bind(SocketAddress localAddr, int backlog) throws IOException {
+        checkOpen();
+        if (isBound()) {
+            throw new BindException("Socket is already bound");
+        }
+        InetAddress addr;
+        int port;
+        if (localAddr == null) {
+            addr = Inet6Address.ANY;
+            port = 0;
+        } else {
+            if (!(localAddr instanceof InetSocketAddress)) {
+                throw new IllegalArgumentException("Local address not an InetSocketAddress: " +
+                        localAddr.getClass());
+            }
+            InetSocketAddress inetAddr = (InetSocketAddress) localAddr;
+            if ((addr = inetAddr.getAddress()) == null) {
+                throw new SocketException("Host is unresolved: " + inetAddr.getHostName());
+            }
+            port = inetAddr.getPort();
+        }
+
+        synchronized (this) {
+            try {
+                impl.bind(addr, port);
+                readBackBindState();
+                impl.listen(backlog > 0 ? backlog : DEFAULT_BACKLOG);
+            } catch (IOException e) {
+                close();
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Gets the local socket address of this server socket or {@code null} if the socket is unbound.
+     * This is useful on multihomed hosts. If the socket has ever been bound this method will return
+     * the local address it was bound to, even after it has been closed.
+     *
+     * @return the local socket address and port this socket is bound to.
+     */
+    public SocketAddress getLocalSocketAddress() {
+        if (!isBound()) {
+            return null;
+        }
+        return new InetSocketAddress(localAddress, getLocalPort());
+    }
+
+    /**
+     * Returns whether this server socket is bound to a local address and port
+     * or not.
+     *
+     * @return {@code true} if this socket is bound, {@code false} otherwise.
+     */
+    public boolean isBound() {
+        return isBound;
+    }
+
+    /**
+     * Returns whether this server socket is closed or not.
+     *
+     * @return {@code true} if this socket is closed, {@code false} otherwise.
+     */
+    public boolean isClosed() {
+        return isClosed;
+    }
+
+    private void checkOpen() throws SocketException {
+        if (isClosed()) {
+            throw new SocketException("Socket is closed");
+        }
+    }
+
+    /**
+     * Sets the value for the socket option {@code SocketOptions.SO_REUSEADDR}.
+     *
+     * @param reuse
+     *            the socket option setting.
+     * @throws SocketException
+     *             if an error occurs while setting the option value.
+     */
+    public void setReuseAddress(boolean reuse) throws SocketException {
+        checkOpen();
+        impl.setOption(SocketOptions.SO_REUSEADDR, Boolean.valueOf(reuse));
+    }
+
+    /**
+     * Gets the value of the socket option {@code SocketOptions.SO_REUSEADDR}.
+     *
+     * @return {@code true} if the option is enabled, {@code false} otherwise.
+     * @throws SocketException
+     *             if an error occurs while reading the option value.
+     */
+    public boolean getReuseAddress() throws SocketException {
+        checkOpen();
+        return ((Boolean) impl.getOption(SocketOptions.SO_REUSEADDR)).booleanValue();
+    }
+
+    /**
+     * Sets this socket's {@link SocketOptions#SO_SNDBUF receive buffer size}.
+     */
+    public void setReceiveBufferSize(int size) throws SocketException {
+        checkOpen();
+        if (size < 1) {
+            throw new IllegalArgumentException("size < 1");
+        }
+        impl.setOption(SocketOptions.SO_RCVBUF, Integer.valueOf(size));
+    }
+
+    /**
+     * Returns this socket's {@link SocketOptions#SO_RCVBUF receive buffer size}.
+     */
+    public int getReceiveBufferSize() throws SocketException {
+        checkOpen();
+        return ((Integer) impl.getOption(SocketOptions.SO_RCVBUF)).intValue();
+    }
+
+    /**
+     * Returns this socket's {@code ServerSocketChannel}, if one exists. A channel is
+     * available only if this socket wraps a channel. (That is, you can go from a
+     * channel to a socket and back again, but you can't go from an arbitrary socket to a channel.)
+     * In practice, this means that the socket must have been created by
+     * {@link java.nio.channels.ServerSocketChannel#open}.
      */
     public ServerSocketChannel getChannel() {
         return null;
     }
 
     /**
-     * Returns the binding state of the ServerSocket.
-     *
-     * @return true if the ServerSocket successfully bound to an address
-     * @since 1.4
-     */
-    public boolean isBound() {
-        // Before 1.3 ServerSockets were always bound during creation
-        return bound || oldImpl;
-    }
-
-    /**
-     * Returns the closed state of the ServerSocket.
-     *
-     * @return true if the socket has been closed
-     * @since 1.4
-     */
-    public boolean isClosed() {
-        synchronized(closeLock) {
-            return closed;
-        }
-    }
-
-    /**
-     * Enable/disable {@link SocketOptions#SO_TIMEOUT SO_TIMEOUT} with the
-     * specified timeout, in milliseconds.  With this option set to a non-zero
-     * timeout, a call to accept() for this ServerSocket
-     * will block for only this amount of time.  If the timeout expires,
-     * a <B>java.net.SocketTimeoutException</B> is raised, though the
-     * ServerSocket is still valid.  The option <B>must</B> be enabled
-     * prior to entering the blocking operation to have effect.  The
-     * timeout must be {@code > 0}.
-     * A timeout of zero is interpreted as an infinite timeout.
-     * @param timeout the specified timeout, in milliseconds
-     * @exception SocketException if there is an error in
-     * the underlying protocol, such as a TCP error.
-     * @since   JDK1.1
-     * @see #getSoTimeout()
-     */
-    public synchronized void setSoTimeout(int timeout) throws SocketException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        getImpl().setOption(SocketOptions.SO_TIMEOUT, new Integer(timeout));
-    }
-
-    /**
-     * Retrieve setting for {@link SocketOptions#SO_TIMEOUT SO_TIMEOUT}.
-     * 0 returns implies that the option is disabled (i.e., timeout of infinity).
-     * @return the {@link SocketOptions#SO_TIMEOUT SO_TIMEOUT} value
-     * @exception IOException if an I/O error occurs
-     * @since   JDK1.1
-     * @see #setSoTimeout(int)
-     */
-    public synchronized int getSoTimeout() throws IOException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        Object o = getImpl().getOption(SocketOptions.SO_TIMEOUT);
-        /* extra type safety */
-        if (o instanceof Integer) {
-            return ((Integer) o).intValue();
-        } else {
-            return 0;
-        }
-    }
-
-    /**
-     * Enable/disable the {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR}
-     * socket option.
+     * Sets performance preferences for connection time, latency and bandwidth.
      * <p>
-     * When a TCP connection is closed the connection may remain
-     * in a timeout state for a period of time after the connection
-     * is closed (typically known as the {@code TIME_WAIT} state
-     * or {@code 2MSL} wait state).
-     * For applications using a well known socket address or port
-     * it may not be possible to bind a socket to the required
-     * {@code SocketAddress} if there is a connection in the
-     * timeout state involving the socket address or port.
-     * <p>
-     * Enabling {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR} prior to
-     * binding the socket using {@link #bind(SocketAddress)} allows the socket
-     * to be bound even though a previous connection is in a timeout state.
-     * <p>
-     * When a {@code ServerSocket} is created the initial setting
-     * of {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR} is not defined.
-     * Applications can use {@link #getReuseAddress()} to determine the initial
-     * setting of {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR}.
-     * <p>
-     * The behaviour when {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR} is
-     * enabled or disabled after a socket is bound (See {@link #isBound()})
-     * is not defined.
+     * This method does currently nothing.
      *
-     * @param on  whether to enable or disable the socket option
-     * @exception SocketException if an error occurs enabling or
-     *            disabling the {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR}
-     *            socket option, or the socket is closed.
-     * @since 1.4
-     * @see #getReuseAddress()
-     * @see #bind(SocketAddress)
-     * @see #isBound()
-     * @see #isClosed()
+     * @param connectionTime
+     *            the value representing the importance of a short connecting
+     *            time.
+     * @param latency
+     *            the value representing the importance of low latency.
+     * @param bandwidth
+     *            the value representing the importance of high bandwidth.
      */
-    public void setReuseAddress(boolean on) throws SocketException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        getImpl().setOption(SocketOptions.SO_REUSEADDR, Boolean.valueOf(on));
-    }
-
-    /**
-     * Tests if {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR} is enabled.
-     *
-     * @return a {@code boolean} indicating whether or not
-     *         {@link SocketOptions#SO_REUSEADDR SO_REUSEADDR} is enabled.
-     * @exception SocketException if there is an error
-     * in the underlying protocol, such as a TCP error.
-     * @since   1.4
-     * @see #setReuseAddress(boolean)
-     */
-    public boolean getReuseAddress() throws SocketException {
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        return ((Boolean) (getImpl().getOption(SocketOptions.SO_REUSEADDR))).booleanValue();
-    }
-
-    /**
-     * Returns the implementation address and implementation port of
-     * this socket as a {@code String}.
-     * <p>
-     * If there is a security manager set, its {@code checkConnect} method is
-     * called with the local address and {@code -1} as its arguments to see
-     * if the operation is allowed. If the operation is not allowed,
-     * an {@code InetAddress} representing the
-     * {@link InetAddress#getLoopbackAddress loopback} address is returned as
-     * the implementation address.
-     *
-     * @return  a string representation of this socket.
-     */
-    public String toString() {
-        if (!isBound())
-            return "ServerSocket[unbound]";
-        InetAddress in;
-        if (System.getSecurityManager() != null)
-            in = InetAddress.getLoopbackAddress();
-        else
-            in = impl.getInetAddress();
-        return "ServerSocket[addr=" + in +
-                ",localport=" + impl.getLocalPort()  + "]";
-    }
-
-    void setBound() {
-        bound = true;
-    }
-
-    void setCreated() {
-        created = true;
-    }
-
-    /**
-     * The factory for all server sockets.
-     */
-    private static SocketImplFactory factory = null;
-
-    /**
-     * Sets the server socket implementation factory for the
-     * application. The factory can be specified only once.
-     * <p>
-     * When an application creates a new server socket, the socket
-     * implementation factory's {@code createSocketImpl} method is
-     * called to create the actual socket implementation.
-     * <p>
-     * Passing {@code null} to the method is a no-op unless the factory
-     * was already set.
-     * <p>
-     * If there is a security manager, this method first calls
-     * the security manager's {@code checkSetFactory} method
-     * to ensure the operation is allowed.
-     * This could result in a SecurityException.
-     *
-     * @param      fac   the desired factory.
-     * @exception  IOException  if an I/O error occurs when setting the
-     *               socket factory.
-     * @exception  SocketException  if the factory has already been defined.
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkSetFactory} method doesn't allow the operation.
-     * @see        java.net.SocketImplFactory#createSocketImpl()
-     * @see        SecurityManager#checkSetFactory
-     */
-    public static synchronized void setSocketFactory(SocketImplFactory fac) throws IOException {
-        if (factory != null) {
-            throw new SocketException("factory already defined");
-        }
-        SecurityManager security = System.getSecurityManager();
-        if (security != null) {
-            security.checkSetFactory();
-        }
-        factory = fac;
-    }
-
-    /**
-     * Sets a default proposed value for the
-     * {@link SocketOptions#SO_RCVBUF SO_RCVBUF} option for sockets
-     * accepted from this {@code ServerSocket}. The value actually set
-     * in the accepted socket must be determined by calling
-     * {@link Socket#getReceiveBufferSize()} after the socket
-     * is returned by {@link #accept()}.
-     * <p>
-     * The value of {@link SocketOptions#SO_RCVBUF SO_RCVBUF} is used both to
-     * set the size of the internal socket receive buffer, and to set the size
-     * of the TCP receive window that is advertized to the remote peer.
-     * <p>
-     * It is possible to change the value subsequently, by calling
-     * {@link Socket#setReceiveBufferSize(int)}. However, if the application
-     * wishes to allow a receive window larger than 64K bytes, as defined by RFC1323
-     * then the proposed value must be set in the ServerSocket <B>before</B>
-     * it is bound to a local address. This implies, that the ServerSocket must be
-     * created with the no-argument constructor, then setReceiveBufferSize() must
-     * be called and lastly the ServerSocket is bound to an address by calling bind().
-     * <p>
-     * Failure to do this will not cause an error, and the buffer size may be set to the
-     * requested value but the TCP receive window in sockets accepted from
-     * this ServerSocket will be no larger than 64K bytes.
-     *
-     * @exception SocketException if there is an error
-     * in the underlying protocol, such as a TCP error.
-     *
-     * @param size the size to which to set the receive buffer
-     * size. This value must be greater than 0.
-     *
-     * @exception IllegalArgumentException if the
-     * value is 0 or is negative.
-     *
-     * @since 1.4
-     * @see #getReceiveBufferSize
-     */
-     public synchronized void setReceiveBufferSize (int size) throws SocketException {
-        if (!(size > 0)) {
-            throw new IllegalArgumentException("negative receive size");
-        }
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        getImpl().setOption(SocketOptions.SO_RCVBUF, new Integer(size));
-    }
-
-    /**
-     * Gets the value of the {@link SocketOptions#SO_RCVBUF SO_RCVBUF} option
-     * for this {@code ServerSocket}, that is the proposed buffer size that
-     * will be used for Sockets accepted from this {@code ServerSocket}.
-     *
-     * <p>Note, the value actually set in the accepted socket is determined by
-     * calling {@link Socket#getReceiveBufferSize()}.
-     * @return the value of the {@link SocketOptions#SO_RCVBUF SO_RCVBUF}
-     *         option for this {@code Socket}.
-     * @exception SocketException if there is an error
-     *            in the underlying protocol, such as a TCP error.
-     * @see #setReceiveBufferSize(int)
-     * @since 1.4
-     */
-    public synchronized int getReceiveBufferSize()
-    throws SocketException{
-        if (isClosed())
-            throw new SocketException("Socket is closed");
-        int result = 0;
-        Object o = getImpl().getOption(SocketOptions.SO_RCVBUF);
-        if (o instanceof Integer) {
-            result = ((Integer)o).intValue();
-        }
-        return result;
-    }
-
-    /**
-     * Sets performance preferences for this ServerSocket.
-     *
-     * <p> Sockets use the TCP/IP protocol by default.  Some implementations
-     * may offer alternative protocols which have different performance
-     * characteristics than TCP/IP.  This method allows the application to
-     * express its own preferences as to how these tradeoffs should be made
-     * when the implementation chooses from the available protocols.
-     *
-     * <p> Performance preferences are described by three integers
-     * whose values indicate the relative importance of short connection time,
-     * low latency, and high bandwidth.  The absolute values of the integers
-     * are irrelevant; in order to choose a protocol the values are simply
-     * compared, with larger values indicating stronger preferences.  If the
-     * application prefers short connection time over both low latency and high
-     * bandwidth, for example, then it could invoke this method with the values
-     * {@code (1, 0, 0)}.  If the application prefers high bandwidth above low
-     * latency, and low latency above short connection time, then it could
-     * invoke this method with the values {@code (0, 1, 2)}.
-     *
-     * <p> Invoking this method after this socket has been bound
-     * will have no effect. This implies that in order to use this capability
-     * requires the socket to be created with the no-argument constructor.
-     *
-     * @param  connectionTime
-     *         An {@code int} expressing the relative importance of a short
-     *         connection time
-     *
-     * @param  latency
-     *         An {@code int} expressing the relative importance of low
-     *         latency
-     *
-     * @param  bandwidth
-     *         An {@code int} expressing the relative importance of high
-     *         bandwidth
-     *
-     * @since 1.5
-     */
-    public void setPerformancePreferences(int connectionTime,
-                                          int latency,
-                                          int bandwidth)
-    {
-        /* Not implemented yet */
-    }
-
-    // Android-added: getFileDescriptor$(), for testing / internal use.
-    /**
-     * @hide internal use only
-     */
-    public FileDescriptor getFileDescriptor$() {
-        return impl.getFileDescriptor();
+    public void setPerformancePreferences(int connectionTime, int latency, int bandwidth) {
+        // Our socket implementation only provide one protocol: TCP/IP, so
+        // we do nothing for this method
     }
 }

@@ -16,7 +16,6 @@
 
 package android.view;
 
-import android.annotation.NonNull;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.view.accessibility.AccessibilityEvent;
@@ -35,8 +34,7 @@ public interface ViewParent {
     public void requestLayout();
 
     /**
-     * Indicates whether layout was requested（被请求） on this view parent.
-     * 是否被强制布局
+     * Indicates whether layout was requested on this view parent.
      *
      * @return true if layout was requested, false otherwise
      */
@@ -55,36 +53,12 @@ public interface ViewParent {
      */
     public void requestTransparentRegion(View child);
 
-
-    /**
-     * The target View has been invalidated, or has had a drawing property changed that
-     * requires the hierarchy to re-render.
-     *
-     * This method is called by the View hierarchy to signal ancestors that a View either needs to
-     * re-record its drawing commands, or drawing properties have changed. This is how Views
-     * schedule a drawing traversal.
-     *
-     * This signal is generally only dispatched for attached Views, since only they need to draw.
-     *
-     * @param child Direct child of this ViewParent containing target
-     * @param target The view that needs to redraw
-     */
-    default void onDescendantInvalidated(@NonNull View child, @NonNull View target) {
-        if (getParent() != null) {
-            // Note: should pass 'this' as default, but can't since we may not be a View
-            getParent().onDescendantInvalidated(child, target);
-        }
-    }
-
     /**
      * All or part of a child is dirty and needs to be redrawn.
      * 
      * @param child The child which is dirty
      * @param r The area within the child that is invalid
-     *
-     * @deprecated Use {@link #onDescendantInvalidated(View, View)} instead.
      */
-    @Deprecated
     public void invalidateChild(View child, Rect r);
 
     /**
@@ -106,10 +80,7 @@ public interface ViewParent {
      * @param r The area within the child that is invalid
      *
      * @return the parent of this ViewParent or null
-     *
-     * @deprecated Use {@link #onDescendantInvalidated(View, View)} instead.
      */
-    @Deprecated
     public ViewParent invalidateChildInParent(int[] location, Rect r);
 
     /**
@@ -176,19 +147,6 @@ public interface ViewParent {
     public View focusSearch(View v, int direction);
 
     /**
-     * Find the nearest keyboard navigation cluster in the specified direction.
-     * This does not actually give focus to that cluster.
-     *
-     * @param currentCluster The starting point of the search. Null means the current cluster is not
-     *                       found yet
-     * @param direction Direction to look
-     *
-     * @return The nearest keyboard navigation cluster in the specified direction, or null if none
-     *         can be found
-     */
-    View keyboardNavigationClusterSearch(View currentCluster, int direction);
-
-    /**
      * Change the z order of the child so it's on top of all other children.
      * This ordering change may affect layout, if this container
      * uses an order-dependent layout scheme (e.g., LinearLayout). Prior
@@ -211,45 +169,17 @@ public interface ViewParent {
     public void focusableViewAvailable(View v);
 
     /**
-     * Shows the context menu for the specified view or its ancestors.
-     * <p>
-     * In most cases, a subclass does not need to override this. However, if
+     * Bring up a context menu for the specified view or its ancestors.
+     *
+     * <p>In most cases, a subclass does not need to override this.  However, if
      * the subclass is added directly to the window manager (for example,
      * {@link ViewManager#addView(View, android.view.ViewGroup.LayoutParams)})
-     * then it should override this and show the context menu.
-     *
-     * @param originalView the source view where the context menu was first
-     *                     invoked
-     * @return {@code true} if the context menu was shown, {@code false}
-     *         otherwise
-     * @see #showContextMenuForChild(View, float, float)
+     * then it should override this and show the context menu.</p>
+     * 
+     * @param originalView The source view where the context menu was first invoked
+     * @return true if a context menu was displayed
      */
     public boolean showContextMenuForChild(View originalView);
-
-    /**
-     * Shows the context menu for the specified view or its ancestors anchored
-     * to the specified view-relative coordinate.
-     * <p>
-     * In most cases, a subclass does not need to override this. However, if
-     * the subclass is added directly to the window manager (for example,
-     * {@link ViewManager#addView(View, android.view.ViewGroup.LayoutParams)})
-     * then it should override this and show the context menu.
-     * <p>
-     * If a subclass overrides this method it should also override
-     * {@link #showContextMenuForChild(View)}.
-     *
-     * @param originalView the source view where the context menu was first
-     *                     invoked
-     * @param x the X coordinate in pixels relative to the original view to
-     *          which the menu should be anchored, or {@link Float#NaN} to
-     *          disable anchoring
-     * @param y the Y coordinate in pixels relative to the original view to
-     *          which the menu should be anchored, or {@link Float#NaN} to
-     *          disable anchoring
-     * @return {@code true} if the context menu was shown, {@code false}
-     *         otherwise
-     */
-    boolean showContextMenuForChild(View originalView, float x, float y);
 
     /**
      * Have the parent populate the specified context menu if it has anything to
@@ -301,8 +231,8 @@ public interface ViewParent {
     public void childDrawableStateChanged(View child);
 
     /**
-     * Called when a child does not want this parent and its ancestors(上代) to
-     * intercept（拦截） touch events with
+     * Called when a child does not want this parent and its ancestors to
+     * intercept touch events with
      * {@link ViewGroup#onInterceptTouchEvent(MotionEvent)}.
      *
      * <p>This parent should pass this call onto its parents. This parent must obey
@@ -310,17 +240,17 @@ public interface ViewParent {
      * after this parent has received an up or a cancel.</p>
      * 
      * @param disallowIntercept True if the child does not want the parent to
-     *                          intercept touch events.不允许拦截
+     *            intercept touch events.
      */
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept);
-
+    
     /**
      * Called when a child of this group wants a particular rectangle to be
      * positioned onto the screen.  {@link ViewGroup}s overriding this can trust
      * that:
      * <ul>
      *   <li>child will be a direct child of this group</li>
-     *   <li>rectangle will be in the child's content coordinates</li>
+     *   <li>rectangle will be in the child's coordinates</li>
      * </ul>
      *
      * <p>{@link ViewGroup}s overriding this should uphold the contract:</p>
@@ -403,7 +333,7 @@ public interface ViewParent {
      * descendants has changed and that the structure of the subtree is
      * different.
      * @param child The direct child whose subtree has changed.
-     * @param source The descendant view that changed. May not be {@code null}.
+     * @param source The descendant view that changed.
      * @param changeType A bit mask of the types of changes that occurred. One
      *            or more of:
      *            <ul>
@@ -413,8 +343,7 @@ public interface ViewParent {
      *            <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_UNDEFINED}
      *            </ul>
      */
-    public void notifySubtreeAccessibilityStateChanged(
-            View child, @NonNull View source, int changeType);
+    public void notifySubtreeAccessibilityStateChanged(View child, View source, int changeType);
 
     /**
      * Tells if this view parent can resolve the layout direction.
@@ -515,19 +444,16 @@ public interface ViewParent {
      * will receive a call to {@link #onStopNestedScroll(View)}.
      * </p>
      *
-     * @param child            Direct child of this ViewParent containing target(嵌套父View的直系子View)
-     * @param target           View that initiated the nested scroll(嵌套滑动子View)
+     * @param child Direct child of this ViewParent containing target
+     * @param target View that initiated the nested scroll
      * @param nestedScrollAxes Flags consisting of {@link View#SCROLL_AXIS_HORIZONTAL},
      *                         {@link View#SCROLL_AXIS_VERTICAL} or both
-     *
      * @return true if this ViewParent accepts the nested scroll operation
      */
     public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes);
 
     /**
      * React to the successful claiming of a nested scroll operation.
-     * <p>
-     * 反应了一个嵌套滑动操作的成功声明(也就是允许嵌套滑动)
      *
      * <p>This method will be called after
      * {@link #onStartNestedScroll(View, View, int) onStartNestedScroll} returns true. It offers
@@ -552,8 +478,6 @@ public interface ViewParent {
      * scroll ends with a {@link MotionEvent#ACTION_UP} or {@link MotionEvent#ACTION_CANCEL} event.
      * Implementations of this method should always call their superclass's implementation of this
      * method if one is present.</p>
-     * <p>
-     * 父View的onStopNestedScroll()来对整个系列的滑动来收尾
      *
      * @param target View that initiated the nested scroll
      */
@@ -573,8 +497,6 @@ public interface ViewParent {
      * allow continuous dragging of multiple scrolling or draggable elements, such as scrolling
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
-     * <p>
-     * 父View在这里将最后子View滑动完后剩余的距离进行收尾处理
      *
      * @param target The descendent view controlling the nested scroll
      * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
@@ -599,17 +521,11 @@ public interface ViewParent {
      * <code>consumed</code> array. Index 0 corresponds to dx and index 1 corresponds to dy.
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
-     * <p>
-     * 计算父View滑动的距离，并将父ViewY方向消耗的距离记录下来，放到consumed里面
      *
-     * @param target   View that initiated the nested scroll
-     *                 嵌套滑动子View
-     * @param dx       Horizontal scroll distance in pixels
-     *                 手指横向滑动距离
-     * @param dy       Vertical scroll distance in pixels
-     *                 手指纵向滑动距离
+     * @param target View that initiated the nested scroll
+     * @param dx Horizontal scroll distance in pixels
+     * @param dy Vertical scroll distance in pixels
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
-     *                 父View复写该方法是为了判断是否需要消费滑动距离，如果需要，计算后放到consumed里面
      */
     public void onNestedPreScroll(View target, int dx, int dy, int[] consumed);
 

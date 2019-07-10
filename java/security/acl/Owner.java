@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.acl;
@@ -28,68 +20,50 @@ package java.security.acl;
 import java.security.Principal;
 
 /**
- * Interface for managing owners of Access Control Lists (ACLs) or ACL
- * configurations. (Note that the Acl interface in the
- * {@code  java.security.acl} package extends this Owner
- * interface.) The initial owner Principal should be specified as an
- * argument to the constructor of the class implementing this interface.
+ * The interface to manage owners of objects that require ownership.
  *
- * @see java.security.acl.Acl
- *
+ * @see Acl
+ * @see Principal
  */
 public interface Owner {
 
     /**
-     * Adds an owner. Only owners can modify ACL contents. The caller
-     * principal must be an owner of the ACL in order to invoke this method.
-     * That is, only an owner can add another owner. The initial owner is
-     * configured at ACL construction time.
+     * Adds a principal to the list of owners.
      *
-     * @param caller the principal invoking this method. It must be an owner
-     * of the ACL.
-     *
-     * @param owner the owner that should be added to the list of owners.
-     *
-     * @return true if successful, false if owner is already an owner.
-     * @exception NotOwnerException if the caller principal is not an owner
-     * of the ACL.
+     * @param caller
+     *            the invoking principal.
+     * @param owner
+     *            the owner to added.
+     * @return {@code true} if the owner was added, {@code false} if it was already an owner.
+     * @throws NotOwnerException
+     *             if the invoking principal is not an owner.
      */
-    public boolean addOwner(Principal caller, Principal owner)
-      throws NotOwnerException;
+    boolean addOwner(Principal caller, Principal owner)
+                 throws NotOwnerException;
 
     /**
-     * Deletes an owner. If this is the last owner in the ACL, an exception is
-     * raised.<p>
+     * Removes a principal from the list of owners.
      *
-     * The caller principal must be an owner of the ACL in order to invoke
-     * this method.
-     *
-     * @param caller the principal invoking this method. It must be an owner
-     * of the ACL.
-     *
-     * @param owner the owner to be removed from the list of owners.
-     *
-     * @return true if the owner is removed, false if the owner is not part
-     * of the list of owners.
-     *
-     * @exception NotOwnerException if the caller principal is not an owner
-     * of the ACL.
-     *
-     * @exception LastOwnerException if there is only one owner left, so that
-     * deleteOwner would leave the ACL owner-less.
+     * @param caller
+     *            the invoking principal.
+     * @param owner
+     *            the owner to be removed.
+     * @return {@code true} if the owner was removed, {@code false} if it was not an owner.
+     * @throws NotOwnerException
+     *             if the invoking principal is not an owner.
+     * @throws LastOwnerException
+     *             if the owner to be removed is the last owner and hence removing it
+     *             would make this object owner-less.
      */
-    public boolean deleteOwner(Principal caller, Principal owner)
-      throws NotOwnerException, LastOwnerException;
+    boolean deleteOwner(Principal caller, Principal owner)
+                throws NotOwnerException, LastOwnerException;
 
     /**
-     * Returns true if the given principal is an owner of the ACL.
+     * Checks whether the specified principal is an owner of this object.
      *
-     * @param owner the principal to be checked to determine whether or not
-     * it is an owner.
-     *
-     * @return true if the passed principal is in the list of owners, false
-     * if not.
+     * @param owner
+     *            the principal to check.
+     * @return {@code true} if the specified principal is an owner, otherwise {@code false}.
      */
-    public boolean isOwner(Principal owner);
-
+    boolean isOwner(Principal owner);
 }

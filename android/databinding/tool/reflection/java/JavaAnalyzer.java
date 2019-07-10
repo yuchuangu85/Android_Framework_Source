@@ -19,18 +19,11 @@ import android.databinding.tool.reflection.SdkUtil;
 import android.databinding.tool.reflection.TypeUtil;
 import android.databinding.tool.util.L;
 
-import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
-
-import org.apache.commons.io.FileUtils;
-
 import java.io.File;
-import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class JavaAnalyzer extends ModelAnalyzer {
@@ -66,17 +59,13 @@ public class JavaAnalyzer extends ModelAnalyzer {
         }
     }
 
-    public ClassLoader getClassLoader() {
-        return mClassLoader;
-    }
-
     @Override
     protected ModelClass[] getObservableFieldTypes() {
         return new ModelClass[0];
     }
 
     @Override
-    public ModelClass findClassInternal(String className, Map<String, String> imports) {
+    public ModelClass findClass(String className, Map<String, String> imports) {
         // TODO handle imports
         JavaClass loaded = mClassCache.get(className);
         if (loaded != null) {
@@ -135,40 +124,13 @@ public class JavaAnalyzer extends ModelAnalyzer {
         }
     }
 
-    private static String loadAndroidHome() {
+    public static void initForTests() {
         Map<String, String> env = System.getenv();
         for (Map.Entry<String, String> entry : env.entrySet()) {
             L.d("%s %s", entry.getKey(), entry.getValue());
         }
-        if(env.containsKey("ANDROID_HOME")) {
-            return env.get("ANDROID_HOME");
-        }
-        // check for local.properties file
-        File folder = new File(".").getAbsoluteFile();
-        while (folder != null && folder.exists()) {
-            File f = new File(folder, "local.properties");
-            if (f.exists() && f.canRead()) {
-                try {
-                    for (String line : FileUtils.readLines(f)) {
-                        List<String> keyValue = Splitter.on('=').splitToList(line);
-                        if (keyValue.size() == 2) {
-                            String key = keyValue.get(0).trim();
-                            if (key.equals("sdk.dir")) {
-                                return keyValue.get(1).trim();
-                            }
-                        }
-                    }
-                } catch (IOException ignored) {}
-            }
-            folder = folder.getParentFile();
-        }
-
-        return null;
-    }
-
-    public static void initForTests() {
-        String androidHome = loadAndroidHome();
-        if (Strings.isNullOrEmpty(androidHome) || !new File(androidHome).exists()) {
+        String androidHome = env.get("ANDROID_HOME");
+        if (androidHome == null) {
             throw new IllegalStateException(
                     "you need to have ANDROID_HOME set in your environment"
                             + " to run compiler tests");

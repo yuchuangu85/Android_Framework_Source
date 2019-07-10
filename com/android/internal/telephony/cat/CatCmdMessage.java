@@ -34,7 +34,7 @@ public class CatCmdMessage implements Parcelable {
     private ToneSettings mToneSettings = null;
     private CallSettings mCallSettings = null;
     private SetupEventListSettings mSetupEventListSettings = null;
-    private boolean mLoadIconFailed = false;
+
 
     /*
      * Container for Launch Browser command settings.
@@ -72,7 +72,6 @@ public class CatCmdMessage implements Parcelable {
 
     CatCmdMessage(CommandParams cmdParams) {
         mCmdDet = cmdParams.mCmdDet;
-        mLoadIconFailed =  cmdParams.mLoadIconFailed;
         switch(getCmdType()) {
         case SET_UP_MENU:
         case SELECT_ITEM:
@@ -132,7 +131,6 @@ public class CatCmdMessage implements Parcelable {
         mTextMsg = in.readParcelable(null);
         mMenu = in.readParcelable(null);
         mInput = in.readParcelable(null);
-        mLoadIconFailed = (in.readByte() == 1);
         switch (getCmdType()) {
         case LAUNCH_BROWSER:
             mBrowserSettings = new BrowserSettings();
@@ -166,7 +164,6 @@ public class CatCmdMessage implements Parcelable {
         dest.writeParcelable(mTextMsg, 0);
         dest.writeParcelable(mMenu, 0);
         dest.writeParcelable(mInput, 0);
-        dest.writeByte((byte) (mLoadIconFailed ? 1 : 0));
         switch(getCmdType()) {
         case LAUNCH_BROWSER:
             dest.writeString(mBrowserSettings.url);
@@ -235,13 +232,5 @@ public class CatCmdMessage implements Parcelable {
 
     public SetupEventListSettings getSetEventList() {
         return mSetupEventListSettings;
-    }
-
-    /**
-     * API to be used by application to check if loading optional icon
-     * has failed
-     */
-    public boolean hasIconLoadFailed() {
-        return mLoadIconFailed;
     }
 }

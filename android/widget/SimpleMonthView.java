@@ -16,7 +16,6 @@
 
 package android.widget;
 
-import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -27,9 +26,6 @@ import android.graphics.Paint.Align;
 import android.graphics.Paint.Style;
 import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.icu.text.DisplayContext;
-import android.icu.text.SimpleDateFormat;
-import android.icu.util.Calendar;
 import android.os.Bundle;
 import android.text.TextPaint;
 import android.text.format.DateFormat;
@@ -37,11 +33,8 @@ import android.util.AttributeSet;
 import android.util.IntArray;
 import android.util.MathUtils;
 import android.util.StateSet;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.PointerIcon;
 import android.view.View;
-import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
@@ -49,9 +42,9 @@ import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import com.android.internal.R;
 import com.android.internal.widget.ExploreByTouchHelper;
 
-import libcore.icu.LocaleData;
-
 import java.text.NumberFormat;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Locale;
 
 /**
@@ -65,25 +58,22 @@ class SimpleMonthView extends View {
     private static final int DEFAULT_SELECTED_DAY = -1;
     private static final int DEFAULT_WEEK_START = Calendar.SUNDAY;
 
-    private static final String MONTH_YEAR_FORMAT = "MMMMy";
-
-    private static final int SELECTED_HIGHLIGHT_ALPHA = 0xB0;
+    private static final String DEFAULT_TITLE_FORMAT = "MMMMy";
+    private static final String DAY_OF_WEEK_FORMAT = "EEEEE";
 
     private final TextPaint mMonthPaint = new TextPaint();
     private final TextPaint mDayOfWeekPaint = new TextPaint();
     private final TextPaint mDayPaint = new TextPaint();
     private final Paint mDaySelectorPaint = new Paint();
     private final Paint mDayHighlightPaint = new Paint();
-    private final Paint mDayHighlightSelectorPaint = new Paint();
 
-    /** Array of single-character weekday labels ordered by column index. */
-    private final String[] mDayOfWeekLabels = new String[7];
-
-    private final Calendar mCalendar;
-    private final Locale mLocale;
+    private final Calendar mCalendar = Calendar.getInstance();
+    private final Calendar mDayOfWeekLabelCalendar = Calendar.getInstance();
 
     private final MonthViewTouchHelper mTouchHelper;
 
+    private final SimpleDateFormat mTitleFormatter;
+    private final SimpleDateFormat mDayOfWeekFormatter;
     private final NumberFormat mDayFormatter;
 
     // Desired dimensions.
@@ -93,7 +83,7 @@ class SimpleMonthView extends View {
     private final int mDesiredCellWidth;
     private final int mDesiredDaySelectorRadius;
 
-    private String mMonthYearLabel;
+    private CharSequence mTitle;
 
     private int mMonth;
     private int mYear;
@@ -117,7 +107,7 @@ class SimpleMonthView extends View {
      */
     private int mToday = DEFAULT_SELECTED_DAY;
 
-    /** The first day of the week (ex. Calendar.SUNDAY) indexed from one. */
+    /** The first day of the week (ex. Calendar.SUNDAY). */
     private int mWeekStart = DEFAULT_WEEK_START;
 
     /** The number of days (ex. 28) in the current month. */
@@ -140,9 +130,7 @@ class SimpleMonthView extends View {
 
     private ColorStateList mDayTextColor;
 
-    private int mHighlightedDay = -1;
-    private int mPreviouslyHighlightedDay = -1;
-    private boolean mIsTouchHighlighted = false;
+    private int mTouchedItem = -1;
 
     public SimpleMonthView(Context context) {
         this(context, null);
@@ -172,31 +160,13 @@ class SimpleMonthView extends View {
         setAccessibilityDelegate(mTouchHelper);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
 
-        mLocale = res.getConfiguration().locale;
-        mCalendar = Calendar.getInstance(mLocale);
-
-        mDayFormatter = NumberFormat.getIntegerInstance(mLocale);
-
-        updateMonthYearLabel();
-        updateDayOfWeekLabels();
+        final Locale locale = res.getConfiguration().locale;
+        final String titleFormat = DateFormat.getBestDateTimePattern(locale, DEFAULT_TITLE_FORMAT);
+        mTitleFormatter = new SimpleDateFormat(titleFormat, locale);
+        mDayOfWeekFormatter = new SimpleDateFormat(DAY_OF_WEEK_FORMAT, locale);
+        mDayFormatter = NumberFormat.getIntegerInstance(locale);
 
         initPaints(res);
-    }
-
-    private void updateMonthYearLabel() {
-        final String format = DateFormat.getBestDateTimePattern(mLocale, MONTH_YEAR_FORMAT);
-        final SimpleDateFormat formatter = new SimpleDateFormat(format, mLocale);
-        formatter.setContext(DisplayContext.CAPITALIZATION_FOR_STANDALONE);
-        mMonthYearLabel = formatter.format(mCalendar.getTime());
-    }
-
-    private void updateDayOfWeekLabels() {
-        // Use tiny (e.g. single-character) weekday names from ICU. The indices
-        // for this list correspond to Calendar days, e.g. SUNDAY is index 1.
-        final String[] tinyWeekdayNames = LocaleData.get(mLocale).tinyWeekdayNames;
-        for (int i = 0; i < DAYS_IN_WEEK; i++) {
-            mDayOfWeekLabels[i] = tinyWeekdayNames[(mWeekStart + i - 1) % DAYS_IN_WEEK + 1];
-        }
     }
 
     /**
@@ -258,6 +228,13 @@ class SimpleMonthView extends View {
         invalidate();
     }
 
+    public CharSequence getTitle() {
+        if (mTitle == null) {
+            mTitle = mTitleFormatter.format(mCalendar.getTime());
+        }
+        return mTitle;
+    }
+
     /**
      * Sets up the text and style properties for painting.
      */
@@ -291,9 +268,6 @@ class SimpleMonthView extends View {
         mDayHighlightPaint.setAntiAlias(true);
         mDayHighlightPaint.setStyle(Style.FILL);
 
-        mDayHighlightSelectorPaint.setAntiAlias(true);
-        mDayHighlightSelectorPaint.setStyle(Style.FILL);
-
         mDayPaint.setAntiAlias(true);
         mDayPaint.setTextSize(dayTextSize);
         mDayPaint.setTypeface(Typeface.create(dayTypeface, 0));
@@ -322,8 +296,6 @@ class SimpleMonthView extends View {
         final int activatedColor = dayBackgroundColor.getColorForState(
                 StateSet.get(StateSet.VIEW_STATE_ENABLED | StateSet.VIEW_STATE_ACTIVATED), 0);
         mDaySelectorPaint.setColor(activatedColor);
-        mDayHighlightSelectorPaint.setColor(activatedColor);
-        mDayHighlightSelectorPaint.setAlpha(SELECTED_HIGHLIGHT_ALPHA);
         invalidate();
     }
 
@@ -354,10 +326,8 @@ class SimpleMonthView extends View {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_MOVE:
                 final int touchedItem = getDayAtLocation(x, y);
-                mIsTouchHighlighted = true;
-                if (mHighlightedDay != touchedItem) {
-                    mHighlightedDay = touchedItem;
-                    mPreviouslyHighlightedDay = touchedItem;
+                if (mTouchedItem != touchedItem) {
+                    mTouchedItem = touchedItem;
                     invalidate();
                 }
                 if (action == MotionEvent.ACTION_DOWN && touchedItem < 0) {
@@ -372,238 +342,11 @@ class SimpleMonthView extends View {
                 // Fall through.
             case MotionEvent.ACTION_CANCEL:
                 // Reset touched day on stream end.
-                mHighlightedDay = -1;
-                mIsTouchHighlighted = false;
+                mTouchedItem = -1;
                 invalidate();
                 break;
         }
         return true;
-    }
-
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // We need to handle focus change within the SimpleMonthView because we are simulating
-        // multiple Views. The arrow keys will move between days until there is no space (no
-        // day to the left, top, right, or bottom). Focus forward and back jumps out of the
-        // SimpleMonthView, skipping over other SimpleMonthViews in the parent ViewPager
-        // to the next focusable View in the hierarchy.
-        boolean focusChanged = false;
-        switch (event.getKeyCode()) {
-            case KeyEvent.KEYCODE_DPAD_LEFT:
-                if (event.hasNoModifiers()) {
-                    focusChanged = moveOneDay(isLayoutRtl());
-                }
-                break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT:
-                if (event.hasNoModifiers()) {
-                    focusChanged = moveOneDay(!isLayoutRtl());
-                }
-                break;
-            case KeyEvent.KEYCODE_DPAD_UP:
-                if (event.hasNoModifiers()) {
-                    ensureFocusedDay();
-                    if (mHighlightedDay > 7) {
-                        mHighlightedDay -= 7;
-                        focusChanged = true;
-                    }
-                }
-                break;
-            case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (event.hasNoModifiers()) {
-                    ensureFocusedDay();
-                    if (mHighlightedDay <= mDaysInMonth - 7) {
-                        mHighlightedDay += 7;
-                        focusChanged = true;
-                    }
-                }
-                break;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-            case KeyEvent.KEYCODE_ENTER:
-                if (mHighlightedDay != -1) {
-                    onDayClicked(mHighlightedDay);
-                    return true;
-                }
-                break;
-            case KeyEvent.KEYCODE_TAB: {
-                int focusChangeDirection = 0;
-                if (event.hasNoModifiers()) {
-                    focusChangeDirection = View.FOCUS_FORWARD;
-                } else if (event.hasModifiers(KeyEvent.META_SHIFT_ON)) {
-                    focusChangeDirection = View.FOCUS_BACKWARD;
-                }
-                if (focusChangeDirection != 0) {
-                    final ViewParent parent = getParent();
-                    // move out of the ViewPager next/previous
-                    View nextFocus = this;
-                    do {
-                        nextFocus = nextFocus.focusSearch(focusChangeDirection);
-                    } while (nextFocus != null && nextFocus != this &&
-                            nextFocus.getParent() == parent);
-                    if (nextFocus != null) {
-                        nextFocus.requestFocus();
-                        return true;
-                    }
-                }
-                break;
-            }
-        }
-        if (focusChanged) {
-            invalidate();
-            return true;
-        } else {
-            return super.onKeyDown(keyCode, event);
-        }
-    }
-
-    private boolean moveOneDay(boolean positive) {
-        ensureFocusedDay();
-        boolean focusChanged = false;
-        if (positive) {
-            if (!isLastDayOfWeek(mHighlightedDay) && mHighlightedDay < mDaysInMonth) {
-                mHighlightedDay++;
-                focusChanged = true;
-            }
-        } else {
-            if (!isFirstDayOfWeek(mHighlightedDay) && mHighlightedDay > 1) {
-                mHighlightedDay--;
-                focusChanged = true;
-            }
-        }
-        return focusChanged;
-    }
-
-    @Override
-    protected void onFocusChanged(boolean gainFocus, @FocusDirection int direction,
-            @Nullable Rect previouslyFocusedRect) {
-        if (gainFocus) {
-            // If we've gained focus through arrow keys, we should find the day closest
-            // to the focus rect. If we've gained focus through forward/back, we should
-            // focus on the selected day if there is one.
-            final int offset = findDayOffset();
-            switch(direction) {
-                case View.FOCUS_RIGHT: {
-                    int row = findClosestRow(previouslyFocusedRect);
-                    mHighlightedDay = row == 0 ? 1 : (row * DAYS_IN_WEEK) - offset + 1;
-                    break;
-                }
-                case View.FOCUS_LEFT: {
-                    int row = findClosestRow(previouslyFocusedRect) + 1;
-                    mHighlightedDay = Math.min(mDaysInMonth, (row * DAYS_IN_WEEK) - offset);
-                    break;
-                }
-                case View.FOCUS_DOWN: {
-                    final int col = findClosestColumn(previouslyFocusedRect);
-                    final int day = col - offset + 1;
-                    mHighlightedDay = day < 1 ? day + DAYS_IN_WEEK : day;
-                    break;
-                }
-                case View.FOCUS_UP: {
-                    final int col = findClosestColumn(previouslyFocusedRect);
-                    final int maxWeeks = (offset + mDaysInMonth) / DAYS_IN_WEEK;
-                    final int day = col - offset + (DAYS_IN_WEEK * maxWeeks) + 1;
-                    mHighlightedDay = day > mDaysInMonth ? day - DAYS_IN_WEEK : day;
-                    break;
-                }
-            }
-            ensureFocusedDay();
-            invalidate();
-        }
-        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
-    }
-
-    /**
-     * Returns the row (0 indexed) closest to previouslyFocusedRect or center if null.
-     */
-    private int findClosestRow(@Nullable Rect previouslyFocusedRect) {
-        if (previouslyFocusedRect == null) {
-            return 3;
-        } else if (mDayHeight == 0) {
-            return 0; // There hasn't been a layout, so just choose the first row
-        } else {
-            int centerY = previouslyFocusedRect.centerY();
-
-            final TextPaint p = mDayPaint;
-            final int headerHeight = mMonthHeight + mDayOfWeekHeight;
-            final int rowHeight = mDayHeight;
-
-            // Text is vertically centered within the row height.
-            final float halfLineHeight = (p.ascent() + p.descent()) / 2f;
-            final int rowCenter = headerHeight + rowHeight / 2;
-
-            centerY -= rowCenter - halfLineHeight;
-            int row = Math.round(centerY / (float) rowHeight);
-            final int maxDay = findDayOffset() + mDaysInMonth;
-            final int maxRows = (maxDay / DAYS_IN_WEEK) - ((maxDay % DAYS_IN_WEEK == 0) ? 1 : 0);
-
-            row = MathUtils.constrain(row, 0, maxRows);
-            return row;
-        }
-    }
-
-    /**
-     * Returns the column (0 indexed) closest to the previouslyFocusedRect or center if null.
-     * The 0 index is related to the first day of the week.
-     */
-    private int findClosestColumn(@Nullable Rect previouslyFocusedRect) {
-        if (previouslyFocusedRect == null) {
-            return DAYS_IN_WEEK / 2;
-        } else if (mCellWidth == 0) {
-            return 0; // There hasn't been a layout, so we can just choose the first column
-        } else {
-            int centerX = previouslyFocusedRect.centerX() - mPaddingLeft;
-            final int columnFromLeft =
-                    MathUtils.constrain(centerX / mCellWidth, 0, DAYS_IN_WEEK - 1);
-            return isLayoutRtl() ? DAYS_IN_WEEK - columnFromLeft - 1: columnFromLeft;
-        }
-    }
-
-    @Override
-    public void getFocusedRect(Rect r) {
-        if (mHighlightedDay > 0) {
-            getBoundsForDay(mHighlightedDay, r);
-        } else {
-            super.getFocusedRect(r);
-        }
-    }
-
-    @Override
-    protected void onFocusLost() {
-        if (!mIsTouchHighlighted) {
-            // Unhighlight a day.
-            mPreviouslyHighlightedDay = mHighlightedDay;
-            mHighlightedDay = -1;
-            invalidate();
-        }
-        super.onFocusLost();
-    }
-
-    /**
-     * Ensure some day is highlighted. If a day isn't highlighted, it chooses the selected day,
-     * if possible, or the first day of the month if not.
-     */
-    private void ensureFocusedDay() {
-        if (mHighlightedDay != -1) {
-            return;
-        }
-        if (mPreviouslyHighlightedDay != -1) {
-            mHighlightedDay = mPreviouslyHighlightedDay;
-            return;
-        }
-        if (mActivatedDay != -1) {
-            mHighlightedDay = mActivatedDay;
-            return;
-        }
-        mHighlightedDay = 1;
-    }
-
-    private boolean isFirstDayOfWeek(int day) {
-        final int offset = findDayOffset();
-        return (offset + day - 1) % DAYS_IN_WEEK == 0;
-    }
-
-    private boolean isLastDayOfWeek(int day) {
-        final int offset = findDayOffset();
-        return (offset + day) % DAYS_IN_WEEK == 0;
     }
 
     @Override
@@ -626,11 +369,7 @@ class SimpleMonthView extends View {
         final float lineHeight = mMonthPaint.ascent() + mMonthPaint.descent();
         final float y = (mMonthHeight - lineHeight) / 2f;
 
-        canvas.drawText(mMonthYearLabel, x, y, mMonthPaint);
-    }
-
-    public String getMonthYearLabel() {
-        return mMonthYearLabel;
+        canvas.drawText(getTitle().toString(), x, y, mMonthPaint);
     }
 
     private void drawDaysOfWeek(Canvas canvas) {
@@ -652,9 +391,15 @@ class SimpleMonthView extends View {
                 colCenterRtl = colCenter;
             }
 
-            final String label = mDayOfWeekLabels[col];
+            final int dayOfWeek = (col + mWeekStart) % DAYS_IN_WEEK;
+            final String label = getDayOfWeekLabel(dayOfWeek);
             canvas.drawText(label, colCenterRtl, rowCenter - halfLineHeight, p);
         }
+    }
+
+    private String getDayOfWeekLabel(int dayOfWeek) {
+        mDayOfWeekLabelCalendar.set(Calendar.DAY_OF_WEEK, dayOfWeek);
+        return mDayOfWeekFormatter.format(mDayOfWeekLabelCalendar.getTime());
     }
 
     /**
@@ -687,15 +432,12 @@ class SimpleMonthView extends View {
             }
 
             final boolean isDayActivated = mActivatedDay == day;
-            final boolean isDayHighlighted = mHighlightedDay == day;
             if (isDayActivated) {
                 stateMask |= StateSet.VIEW_STATE_ACTIVATED;
 
                 // Adjust the circle to be centered on the row.
-                final Paint paint = isDayHighlighted ? mDayHighlightSelectorPaint :
-                        mDaySelectorPaint;
-                canvas.drawCircle(colCenterRtl, rowCenter, mDaySelectorRadius, paint);
-            } else if (isDayHighlighted) {
+                canvas.drawCircle(colCenterRtl, rowCenter, mDaySelectorRadius, mDaySelectorPaint);
+            } else if (mTouchedItem == day) {
                 stateMask |= StateSet.VIEW_STATE_PRESSED;
 
                 if (isDayEnabled) {
@@ -769,8 +511,6 @@ class SimpleMonthView extends View {
             mWeekStart = mCalendar.getFirstDayOfWeek();
         }
 
-        updateDayOfWeekLabels();
-
         // Invalidate cached accessibility information.
         mTouchHelper.invalidateRoot();
         invalidate();
@@ -826,12 +566,11 @@ class SimpleMonthView extends View {
         mEnabledDayStart = MathUtils.constrain(enabledDayStart, 1, mDaysInMonth);
         mEnabledDayEnd = MathUtils.constrain(enabledDayEnd, mEnabledDayStart, mDaysInMonth);
 
-        updateMonthYearLabel();
-        updateDayOfWeekLabels();
+        // Invalidate the old title.
+        mTitle = null;
 
         // Invalidate cached accessibility information.
         mTouchHelper.invalidateRoot();
-        invalidate();
     }
 
     private static int getDaysInMonth(int month, int year) {
@@ -980,7 +719,7 @@ class SimpleMonthView extends View {
      * @param id the day of the month
      * @param outBounds the rect to populate with bounds
      */
-    public boolean getBoundsForDay(int id, Rect outBounds) {
+    private boolean getBoundsForDay(int id, Rect outBounds) {
         if (!isValidDayOfMonth(id)) {
             return false;
         }
@@ -1028,21 +767,6 @@ class SimpleMonthView extends View {
         // This is a no-op if accessibility is turned off.
         mTouchHelper.sendEventForVirtualView(day, AccessibilityEvent.TYPE_VIEW_CLICKED);
         return true;
-    }
-
-    @Override
-    public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
-        if (!isEnabled()) {
-            return null;
-        }
-        // Add 0.5f to event coordinates to match the logic in onTouchEvent.
-        final int x = (int) (event.getX() + 0.5f);
-        final int y = (int) (event.getY() + 0.5f);
-        final int dayUnderPointer = getDayAtLocation(x, y);
-        if (dayUnderPointer >= 0) {
-            return PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_HAND);
-        }
-        return super.onResolvePointerIcon(event, pointerIndex);
     }
 
     /**

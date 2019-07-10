@@ -16,7 +16,6 @@
 
 package android.database.sqlite;
 
-import android.annotation.TestApi;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.os.CancellationSignal;
@@ -26,7 +25,6 @@ import android.os.CancellationSignal;
  * 
  * @hide
  */
-@TestApi
 public final class SQLiteDirectCursorDriver implements SQLiteCursorDriver {
     private final SQLiteDatabase mDatabase;
     private final String mEditTable; 

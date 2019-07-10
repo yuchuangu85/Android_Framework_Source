@@ -16,50 +16,68 @@
 
 package android.os;
 
-import android.system.ErrnoException;
+import android.util.Log;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 
 
 /**
- * MemoryFile is a wrapper for {@link SharedMemory} which can optionally be set to purgeable.
- *
- * Applications should generally prefer to use {@link SharedMemory} which offers more flexible
- * access & control over the shared memory region than MemoryFile does.
- *
+ * MemoryFile is a wrapper for the Linux ashmem driver.
+ * MemoryFiles are backed by shared memory, which can be optionally
+ * set to be purgeable.
  * Purgeable files may have their contents reclaimed by the kernel
  * in low memory conditions (only if allowPurging is set to true).
  * After a file is purged, attempts to read or write the file will
  * cause an IOException to be thrown.
  */
-public class MemoryFile {
+public class MemoryFile
+{
     private static String TAG = "MemoryFile";
 
-    // Returns 'true' if purged, 'false' otherwise
-    private static native boolean native_pin(FileDescriptor fd, boolean pin) throws IOException;
+    // mmap(2) protection flags from <sys/mman.h>
+    private static final int PROT_READ = 0x1;
+    private static final int PROT_WRITE = 0x2;
+
+    private static native FileDescriptor native_open(String name, int length) throws IOException;
+    // returns memory address for ashmem region
+    private static native long native_mmap(FileDescriptor fd, int length, int mode)
+            throws IOException;
+    private static native void native_munmap(long addr, int length) throws IOException;
+    private static native void native_close(FileDescriptor fd);
+    private static native int native_read(FileDescriptor fd, long address, byte[] buffer,
+            int srcOffset, int destOffset, int count, boolean isUnpinned) throws IOException;
+    private static native void native_write(FileDescriptor fd, long address, byte[] buffer,
+            int srcOffset, int destOffset, int count, boolean isUnpinned) throws IOException;
+    private static native void native_pin(FileDescriptor fd, boolean pin) throws IOException;
     private static native int native_get_size(FileDescriptor fd) throws IOException;
 
-    private SharedMemory mSharedMemory;
-    private ByteBuffer mMapping;
+    private FileDescriptor mFD;        // ashmem file descriptor
+    private long mAddress;   // address of ashmem memory
+    private int mLength;    // total length of our ashmem region
     private boolean mAllowPurging = false;  // true if our ashmem region is unpinned
 
     /**
      * Allocates a new ashmem region. The region is initially not purgable.
      *
      * @param name optional name for the file (can be null).
-     * @param length of the memory file in bytes, must be positive.
+     * @param length of the memory file in bytes, must be non-negative.
      * @throws IOException if the memory file could not be created.
      */
     public MemoryFile(String name, int length) throws IOException {
-        try {
-            mSharedMemory = SharedMemory.create(name, length);
-            mMapping = mSharedMemory.mapReadWrite();
-        } catch (ErrnoException ex) {
-            ex.rethrowAsIOException();
+        mLength = length;
+        if (length >= 0) {
+            mFD = native_open(name, length);
+        } else {
+            throw new IOException("Invalid length: " + length);
+        }
+
+        if (length > 0) {
+            mAddress = native_mmap(mFD, length, PROT_READ | PROT_WRITE);
+        } else {
+            mAddress = 0;
         }
     }
 
@@ -69,7 +87,9 @@ public class MemoryFile {
      */
     public void close() {
         deactivate();
-        mSharedMemory.close();
+        if (!isClosed()) {
+            native_close(mFD);
+        }
     }
 
     /**
@@ -80,30 +100,35 @@ public class MemoryFile {
      * @hide
      */
     void deactivate() {
-        if (mMapping != null) {
-            SharedMemory.unmap(mMapping);
-            mMapping = null;
-        }
-    }
-
-    private void checkActive() throws IOException {
-        if (mMapping == null) {
-            throw new IOException("MemoryFile has been deactivated");
-        }
-    }
-
-    private void beginAccess() throws IOException {
-        checkActive();
-        if (mAllowPurging) {
-            if (native_pin(mSharedMemory.getFileDescriptor(), true)) {
-                throw new IOException("MemoryFile has been purged");
+        if (!isDeactivated()) {
+            try {
+                native_munmap(mAddress, mLength);
+                mAddress = 0;
+            } catch (IOException ex) {
+                Log.e(TAG, ex.toString());
             }
         }
     }
 
-    private void endAccess() throws IOException {
-        if (mAllowPurging) {
-            native_pin(mSharedMemory.getFileDescriptor(), false);
+    /**
+     * Checks whether the memory file has been deactivated.
+     */
+    private boolean isDeactivated() {
+        return mAddress == 0;
+    }
+
+    /**
+     * Checks whether the memory file has been closed.
+     */
+    private boolean isClosed() {
+        return !mFD.valid();
+    }
+
+    @Override
+    protected void finalize() {
+        if (!isClosed()) {
+            Log.e(TAG, "MemoryFile.finalize() called while ashmem still open");
+            close();
         }
     }
 
@@ -113,19 +138,14 @@ public class MemoryFile {
      * @return file length.
      */
     public int length() {
-        return mSharedMemory.getSize();
+        return mLength;
     }
 
     /**
      * Is memory file purging enabled?
      *
      * @return true if the file may be purged.
-     *
-     * @deprecated Purgable is considered generally fragile and hard to use safely. Applications
-     * are recommend to instead use {@link android.content.ComponentCallbacks2#onTrimMemory(int)}
-     * to react to memory events and release shared memory regions as appropriate.
      */
-    @Deprecated
     public boolean isPurgingAllowed() {
         return mAllowPurging;
     }
@@ -136,16 +156,11 @@ public class MemoryFile {
      * @param allowPurging true if the operating system can purge the contents
      * of the file in low memory situations
      * @return previous value of allowPurging
-     *
-     * @deprecated Purgable is considered generally fragile and hard to use safely. Applications
-     * are recommend to instead use {@link android.content.ComponentCallbacks2#onTrimMemory(int)}
-     * to react to memory events and release shared memory regions as appropriate.
      */
-    @Deprecated
     synchronized public boolean allowPurging(boolean allowPurging) throws IOException {
         boolean oldValue = mAllowPurging;
         if (oldValue != allowPurging) {
-            native_pin(mSharedMemory.getFileDescriptor(), !allowPurging);
+            native_pin(mFD, !allowPurging);
             mAllowPurging = allowPurging;
         }
         return oldValue;
@@ -182,14 +197,16 @@ public class MemoryFile {
      */
     public int readBytes(byte[] buffer, int srcOffset, int destOffset, int count)
             throws IOException {
-        beginAccess();
-        try {
-            mMapping.position(srcOffset);
-            mMapping.get(buffer, destOffset, count);
-        } finally {
-            endAccess();
+        if (isDeactivated()) {
+            throw new IOException("Can't read from deactivated memory file.");
         }
-        return count;
+        if (destOffset < 0 || destOffset > buffer.length || count < 0
+                || count > buffer.length - destOffset
+                || srcOffset < 0 || srcOffset > mLength
+                || count > mLength - srcOffset) {
+            throw new IndexOutOfBoundsException();
+        }
+        return native_read(mFD, mAddress, buffer, srcOffset, destOffset, count, mAllowPurging);
     }
 
     /**
@@ -204,13 +221,16 @@ public class MemoryFile {
      */
     public void writeBytes(byte[] buffer, int srcOffset, int destOffset, int count)
             throws IOException {
-        beginAccess();
-        try {
-            mMapping.position(destOffset);
-            mMapping.put(buffer, srcOffset, count);
-        } finally {
-            endAccess();
+        if (isDeactivated()) {
+            throw new IOException("Can't write to deactivated memory file.");
         }
+        if (srcOffset < 0 || srcOffset > buffer.length || count < 0
+                || count > buffer.length - srcOffset
+                || destOffset < 0 || destOffset > mLength
+                || count > mLength - destOffset) {
+            throw new IndexOutOfBoundsException();
+        }
+        native_write(mFD, mAddress, buffer, srcOffset, destOffset, count, mAllowPurging);
     }
 
     /**
@@ -223,7 +243,7 @@ public class MemoryFile {
      * @hide
      */
     public FileDescriptor getFileDescriptor() throws IOException {
-        return mSharedMemory.getFileDescriptor();
+        return mFD;
     }
 
     /**
@@ -246,10 +266,10 @@ public class MemoryFile {
 
         @Override
         public int available() throws IOException {
-            if (mOffset >= mSharedMemory.getSize()) {
+            if (mOffset >= mLength) {
                 return 0;
             }
-            return mSharedMemory.getSize() - mOffset;
+            return mLength - mOffset;
         }
 
         @Override
@@ -299,8 +319,8 @@ public class MemoryFile {
 
         @Override
         public long skip(long n) throws IOException {
-            if (mOffset + n > mSharedMemory.getSize()) {
-                n = mSharedMemory.getSize() - mOffset;
+            if (mOffset + n > mLength) {
+                n = mLength - mOffset;
             }
             mOffset += n;
             return n;

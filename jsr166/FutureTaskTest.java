@@ -38,7 +38,7 @@ public class FutureTaskTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(FutureTaskTest.class);
+    //     return new TestSuite(...);
     // }
 
     void checkIsDone(Future<?> f) {
@@ -272,8 +272,8 @@ public class FutureTaskTest extends JSR166TestCase {
         for (int i = 0; i < 3; i++) {
             assertTrue(task.runAndReset());
             checkNotDone(task);
-            assertEquals(i + 1, task.runCount());
-            assertEquals(i + 1, task.runAndResetCount());
+            assertEquals(i+1, task.runCount());
+            assertEquals(i+1, task.runAndResetCount());
             assertEquals(0, task.setCount());
             assertEquals(0, task.setExceptionCount());
         }
@@ -289,7 +289,7 @@ public class FutureTaskTest extends JSR166TestCase {
             for (int i = 0; i < 3; i++) {
                 assertFalse(task.runAndReset());
                 assertEquals(0, task.runCount());
-                assertEquals(i + 1, task.runAndResetCount());
+                assertEquals(i+1, task.runAndResetCount());
                 assertEquals(0, task.setCount());
                 assertEquals(0, task.setExceptionCount());
             }

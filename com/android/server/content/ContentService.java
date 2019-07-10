@@ -18,20 +18,13 @@ package com.android.server.content;
 
 import android.Manifest;
 import android.accounts.Account;
-import android.annotation.Nullable;
 import android.app.ActivityManager;
-import android.app.ActivityManagerInternal;
-import android.app.AppOpsManager;
-import android.app.job.JobInfo;
-import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
-import android.content.ContentResolver.SyncExemption;
 import android.content.Context;
 import android.content.IContentService;
-import android.content.ISyncStatusObserver;
 import android.content.Intent;
-import android.content.IntentFilter;
+import android.content.ISyncStatusObserver;
 import android.content.PeriodicSync;
 import android.content.SyncAdapterType;
 import android.content.SyncInfo;
@@ -39,38 +32,26 @@ import android.content.SyncRequest;
 import android.content.SyncStatusInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManagerInternal;
-import android.content.pm.ProviderInfo;
 import android.database.IContentObserver;
 import android.database.sqlite.SQLiteException;
 import android.net.Uri;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.FactoryTest;
 import android.os.IBinder;
 import android.os.Parcel;
-import android.os.Process;
 import android.os.RemoteException;
-import android.os.ResultReceiver;
-import android.os.ShellCallback;
+import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.text.TextUtils;
-import android.util.ArrayMap;
 import android.util.Log;
-import android.util.Pair;
 import android.util.Slog;
-import android.util.SparseArray;
 import android.util.SparseIntArray;
-
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.ArrayUtils;
-import com.android.internal.util.DumpUtils;
-import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.LocalServices;
-import com.android.server.SystemService;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -80,93 +61,21 @@ import java.util.List;
  * {@hide}
  */
 public final class ContentService extends IContentService.Stub {
-    static final String TAG = "ContentService";
-    static final boolean DEBUG = false;
-
-    public static class Lifecycle extends SystemService {
-        private ContentService mService;
-
-        public Lifecycle(Context context) {
-            super(context);
-        }
-
-        @Override
-        public void onStart() {
-            final boolean factoryTest = (FactoryTest
-                    .getMode() == FactoryTest.FACTORY_TEST_LOW_LEVEL);
-            mService = new ContentService(getContext(), factoryTest);
-            publishBinderService(ContentResolver.CONTENT_SERVICE_NAME, mService);
-        }
-
-        @Override
-        public void onBootPhase(int phase) {
-            mService.onBootPhase(phase);
-        }
-
-
-        @Override
-        public void onStartUser(int userHandle) {
-            mService.onStartUser(userHandle);
-        }
-
-        @Override
-        public void onUnlockUser(int userHandle) {
-            mService.onUnlockUser(userHandle);
-        }
-
-        @Override
-        public void onStopUser(int userHandle) {
-            mService.onStopUser(userHandle);
-        }
-
-        @Override
-        public void onCleanupUser(int userHandle) {
-            synchronized (mService.mCache) {
-                mService.mCache.remove(userHandle);
-            }
-        }
-    }
-
+    private static final String TAG = "ContentService";
     private Context mContext;
     private boolean mFactoryTest;
-
     private final ObserverNode mRootNode = new ObserverNode("");
-
     private SyncManager mSyncManager = null;
     private final Object mSyncManagerLock = new Object();
 
-    /**
-     * Map from userId to providerPackageName to [clientPackageName, uri] to
-     * value. This structure is carefully optimized to keep invalidation logic
-     * as cheap as possible.
-     */
-    @GuardedBy("mCache")
-    private final SparseArray<ArrayMap<String, ArrayMap<Pair<String, Uri>, Bundle>>>
-            mCache = new SparseArray<>();
-
-    private BroadcastReceiver mCacheReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            synchronized (mCache) {
-                if (Intent.ACTION_LOCALE_CHANGED.equals(intent.getAction())) {
-                    mCache.clear();
-                } else {
-                    final Uri data = intent.getData();
-                    if (data != null) {
-                        final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
-                                UserHandle.USER_NULL);
-                        final String packageName = data.getSchemeSpecificPart();
-                        invalidateCacheLocked(userId, packageName, null);
-                    }
-                }
-            }
-        }
-    };
-
     private SyncManager getSyncManager() {
+        if (SystemProperties.getBoolean("config.disable_network", false)) {
+            return null;
+        }
+
         synchronized(mSyncManagerLock) {
             try {
-                // Try to create the SyncManager, return null if it fails (which it shouldn't).
+                // Try to create the SyncManager, return null if it fails (e.g. the disk is full).
                 if (mSyncManager == null) mSyncManager = new SyncManager(mContext, mFactoryTest);
             } catch (SQLiteException e) {
                 Log.e(TAG, "Can't create SyncManager", e);
@@ -175,33 +84,19 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    void onStartUser(int userHandle) {
-        if (mSyncManager != null) mSyncManager.onStartUser(userHandle);
-    }
-
-    void onUnlockUser(int userHandle) {
-        if (mSyncManager != null) mSyncManager.onUnlockUser(userHandle);
-    }
-
-    void onStopUser(int userHandle) {
-        if (mSyncManager != null) mSyncManager.onStopUser(userHandle);
-    }
-
     @Override
-    protected synchronized void dump(FileDescriptor fd, PrintWriter pw_, String[] args) {
-        if (!DumpUtils.checkDumpAndUsageStatsPermission(mContext, TAG, pw_)) return;
-        final IndentingPrintWriter pw = new IndentingPrintWriter(pw_, "  ");
-
-        final boolean dumpAll = ArrayUtils.contains(args, "-a");
+    protected synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        mContext.enforceCallingOrSelfPermission(Manifest.permission.DUMP,
+                "caller doesn't have the DUMP permission");
 
         // This makes it so that future permission checks will be in the context of this
         // process rather than the caller's process. We will restore this before returning.
-        final long identityToken = clearCallingIdentity();
+        long identityToken = clearCallingIdentity();
         try {
             if (mSyncManager == null) {
-                pw.println("SyncManager not available yet");
+                pw.println("No SyncManager created!  (Disk full?)");
             } else {
-                mSyncManager.dump(fd, pw, dumpAll);
+                mSyncManager.dump(fd, pw);
             }
             pw.println();
             pw.println("Observer tree:");
@@ -231,24 +126,11 @@ public final class ContentService extends IContentService.Stub {
                 for (int i=0; i<sorted.size(); i++) {
                     int pid = sorted.get(i);
                     pw.print("  pid "); pw.print(pid); pw.print(": ");
-                    pw.print(pidCounts.get(pid)); pw.println(" observers");
+                            pw.print(pidCounts.get(pid)); pw.println(" observers");
                 }
                 pw.println();
                 pw.print(" Total number of nodes: "); pw.println(counts[0]);
                 pw.print(" Total number of observers: "); pw.println(counts[1]);
-            }
-
-            synchronized (mCache) {
-                pw.println();
-                pw.println("Cached content:");
-                pw.increaseIndent();
-                for (int i = 0; i < mCache.size(); i++) {
-                    pw.println("User " + mCache.keyAt(i) + ":");
-                    pw.increaseIndent();
-                    pw.println(mCache.valueAt(i));
-                    pw.decreaseIndent();
-                }
-                pw.decreaseIndent();
             }
         } finally {
             restoreCallingIdentity(identityToken);
@@ -275,41 +157,20 @@ public final class ContentService extends IContentService.Stub {
         mFactoryTest = factoryTest;
 
         // Let the package manager query for the sync adapters for a given authority
-        // as we grant default permissions to sync adapters for specific authorities.
+        // as we grant default permissions to sync adapters for specifix authorities.
         PackageManagerInternal packageManagerInternal = LocalServices.getService(
                 PackageManagerInternal.class);
         packageManagerInternal.setSyncAdapterPackagesprovider(
                 new PackageManagerInternal.SyncAdapterPackagesProvider() {
-                    @Override
-                    public String[] getPackages(String authority, int userId) {
-                        return getSyncAdapterPackagesForAuthorityAsUser(authority, userId);
-                    }
-                });
-
-        final IntentFilter packageFilter = new IntentFilter();
-        packageFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
-        packageFilter.addAction(Intent.ACTION_PACKAGE_CHANGED);
-        packageFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
-        packageFilter.addAction(Intent.ACTION_PACKAGE_DATA_CLEARED);
-        packageFilter.addDataScheme("package");
-        mContext.registerReceiverAsUser(mCacheReceiver, UserHandle.ALL,
-                packageFilter, null, null);
-
-        final IntentFilter localeFilter = new IntentFilter();
-        localeFilter.addAction(Intent.ACTION_LOCALE_CHANGED);
-        mContext.registerReceiverAsUser(mCacheReceiver, UserHandle.ALL,
-                localeFilter, null, null);
+            @Override
+            public String[] getPackages(String authority, int userId) {
+                return getSyncAdapterPackagesForAuthorityAsUser(authority, userId);
+            }
+        });
     }
 
-    void onBootPhase(int phase) {
-        switch (phase) {
-            case SystemService.PHASE_ACTIVITY_MANAGER_READY:
-                getSyncManager();
-                break;
-        }
-        if (mSyncManager != null) {
-            mSyncManager.onBootPhase(phase);
-        }
+    public void systemReady() {
+        getSyncManager();
     }
 
     /**
@@ -322,30 +183,29 @@ public final class ContentService extends IContentService.Stub {
      */
     @Override
     public void registerContentObserver(Uri uri, boolean notifyForDescendants,
-            IContentObserver observer, int userHandle, int targetSdkVersion) {
+            IContentObserver observer, int userHandle) {
         if (observer == null || uri == null) {
             throw new IllegalArgumentException("You must pass a valid uri and observer");
         }
 
         final int uid = Binder.getCallingUid();
         final int pid = Binder.getCallingPid();
+        final int callingUserHandle = UserHandle.getCallingUserId();
+        // Registering an observer for any user other than the calling user requires uri grant or
+        // cross user permission
+        if (callingUserHandle != userHandle &&
+                mContext.checkUriPermission(uri, pid, uid, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        != PackageManager.PERMISSION_GRANTED) {
+            enforceCrossUserPermission(userHandle,
+                    "no permission to observe other users' provider view");
+        }
 
-        userHandle = handleIncomingUser(uri, pid, uid,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION, true, userHandle);
-
-        final String msg = LocalServices.getService(ActivityManagerInternal.class)
-                .checkContentProviderAccess(uri.getAuthority(), userHandle);
-        if (msg != null) {
-            if (targetSdkVersion >= Build.VERSION_CODES.O) {
-                throw new SecurityException(msg);
-            } else {
-                if (msg.startsWith("Failed to find provider")) {
-                    // Sigh, we need to quietly let apps targeting older API
-                    // levels notify on non-existent providers.
-                } else {
-                    Log.w(TAG, "Ignoring content changes for " + uri + " from " + uid + ": " + msg);
-                    return;
-                }
+        if (userHandle < 0) {
+            if (userHandle == UserHandle.USER_CURRENT) {
+                userHandle = ActivityManager.getCurrentUser();
+            } else if (userHandle != UserHandle.USER_ALL) {
+                throw new InvalidParameterException("Bad user handle for registerContentObserver: "
+                        + userHandle);
             }
         }
 
@@ -358,12 +218,11 @@ public final class ContentService extends IContentService.Stub {
     }
 
     public void registerContentObserver(Uri uri, boolean notifyForDescendants,
-                                        IContentObserver observer) {
+            IContentObserver observer) {
         registerContentObserver(uri, notifyForDescendants, observer,
-                UserHandle.getCallingUserId(), Build.VERSION_CODES.CUR_DEVELOPMENT);
+                UserHandle.getCallingUserId());
     }
 
-    @Override
     public void unregisterContentObserver(IContentObserver observer) {
         if (observer == null) {
             throw new IllegalArgumentException("You must pass a valid observer");
@@ -384,35 +243,30 @@ public final class ContentService extends IContentService.Stub {
      */
     @Override
     public void notifyChange(Uri uri, IContentObserver observer,
-            boolean observerWantsSelfNotifications, int flags, int userHandle,
-            int targetSdkVersion) {
-        if (DEBUG) Slog.d(TAG, "Notifying update of " + uri + " for user " + userHandle
-                + " from observer " + observer + ", flags " + Integer.toHexString(flags));
-
-        if (uri == null) {
-            throw new NullPointerException("Uri must not be null");
+            boolean observerWantsSelfNotifications, boolean syncToNetwork,
+            int userHandle) {
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+            Log.v(TAG, "Notifying update of " + uri + " for user " + userHandle
+                    + " from observer " + observer + ", syncToNetwork " + syncToNetwork);
         }
 
         final int uid = Binder.getCallingUid();
         final int pid = Binder.getCallingPid();
         final int callingUserHandle = UserHandle.getCallingUserId();
+        // Notify for any user other than the caller requires uri grant or cross user permission
+        if (callingUserHandle != userHandle &&
+                mContext.checkUriPermission(uri, pid, uid, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        != PackageManager.PERMISSION_GRANTED) {
+            enforceCrossUserPermission(userHandle, "no permission to notify other users");
+        }
 
-        userHandle = handleIncomingUser(uri, pid, uid,
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION, true, userHandle);
-
-        final String msg = LocalServices.getService(ActivityManagerInternal.class)
-                .checkContentProviderAccess(uri.getAuthority(), userHandle);
-        if (msg != null) {
-            if (targetSdkVersion >= Build.VERSION_CODES.O) {
-                throw new SecurityException(msg);
-            } else {
-                if (msg.startsWith("Failed to find provider")) {
-                    // Sigh, we need to quietly let apps targeting older API
-                    // levels notify on non-existent providers.
-                } else {
-                    Log.w(TAG, "Ignoring notify for " + uri + " from " + uid + ": " + msg);
-                    return;
-                }
+        // We passed the permission check; resolve pseudouser targets as appropriate
+        if (userHandle < 0) {
+            if (userHandle == UserHandle.USER_CURRENT) {
+                userHandle = ActivityManager.getCurrentUser();
+            } else if (userHandle != UserHandle.USER_ALL) {
+                throw new InvalidParameterException("Bad user handle for notifyChange: "
+                        + userHandle);
             }
         }
 
@@ -423,15 +277,16 @@ public final class ContentService extends IContentService.Stub {
             ArrayList<ObserverCall> calls = new ArrayList<ObserverCall>();
             synchronized (mRootNode) {
                 mRootNode.collectObserversLocked(uri, 0, observer, observerWantsSelfNotifications,
-                        flags, userHandle, calls);
+                        userHandle, calls);
             }
             final int numCalls = calls.size();
             for (int i=0; i<numCalls; i++) {
                 ObserverCall oc = calls.get(i);
                 try {
                     oc.mObserver.onChange(oc.mSelfChange, uri, userHandle);
-                    if (DEBUG) Slog.d(TAG, "Notified " + oc.mObserver + " of " + "update at "
-                            + uri);
+                    if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                        Log.v(TAG, "Notified " + oc.mObserver + " of " + "update at " + uri);
+                    }
                 } catch (RemoteException ex) {
                     synchronized (mRootNode) {
                         Log.w(TAG, "Found dead observer, removing");
@@ -450,37 +305,22 @@ public final class ContentService extends IContentService.Stub {
                     }
                 }
             }
-            if ((flags&ContentResolver.NOTIFY_SYNC_TO_NETWORK) != 0) {
+            if (syncToNetwork) {
                 SyncManager syncManager = getSyncManager();
                 if (syncManager != null) {
                     syncManager.scheduleLocalSync(null /* all accounts */, callingUserHandle, uid,
-                            uri.getAuthority(), getSyncExemptionForCaller(uid));
+                            uri.getAuthority());
                 }
-            }
-
-            synchronized (mCache) {
-                final String providerPackageName = getProviderPackageName(uri);
-                invalidateCacheLocked(userHandle, providerPackageName, uri);
             }
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    private int checkUriPermission(Uri uri, int pid, int uid, int modeFlags, int userHandle) {
-        try {
-            return ActivityManager.getService().checkUriPermission(
-                    uri, pid, uid, modeFlags, userHandle, null);
-        } catch (RemoteException e) {
-            return PackageManager.PERMISSION_DENIED;
-        }
-    }
-
     public void notifyChange(Uri uri, IContentObserver observer,
-                             boolean observerWantsSelfNotifications, boolean syncToNetwork) {
-        notifyChange(uri, observer, observerWantsSelfNotifications,
-                syncToNetwork ? ContentResolver.NOTIFY_SYNC_TO_NETWORK : 0,
-                UserHandle.getCallingUserId(), Build.VERSION_CODES.CUR_DEVELOPMENT);
+            boolean observerWantsSelfNotifications, boolean syncToNetwork) {
+        notifyChange(uri, observer, observerWantsSelfNotifications, syncToNetwork,
+                UserHandle.getCallingUserId());
     }
 
     /**
@@ -493,25 +333,18 @@ public final class ContentService extends IContentService.Stub {
         final ObserverNode mNode;
         final IContentObserver mObserver;
         final boolean mSelfChange;
-        final int mObserverUserId;
 
-        ObserverCall(ObserverNode node, IContentObserver observer, boolean selfChange, int observerUserId) {
+        ObserverCall(ObserverNode node, IContentObserver observer, boolean selfChange) {
             mNode = node;
             mObserver = observer;
             mSelfChange = selfChange;
-            mObserverUserId = observerUserId;
         }
     }
 
-    @Override
     public void requestSync(Account account, String authority, Bundle extras) {
-        Bundle.setDefusable(extras, true);
         ContentResolver.validateSyncExtrasBundle(extras);
         int userId = UserHandle.getCallingUserId();
         int uId = Binder.getCallingUid();
-
-        validateExtras(uId, extras);
-        final int syncExemption = getSyncExemptionAndCleanUpExtrasForCaller(uId, extras);
 
         // This makes it so that future permission checks will be in the context of this
         // process rather than the caller's process. We will restore this before returning.
@@ -520,8 +353,8 @@ public final class ContentService extends IContentService.Stub {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
                 syncManager.scheduleSync(account, userId, uId, authority, extras,
-                        SyncStorageEngine.AuthorityInfo.UNDEFINED,
-                        syncExemption);
+                        0 /* no delay */, 0 /* no delay */,
+                        false /* onlyThoseWithUnkownSyncableState */);
             }
         } finally {
             restoreCallingIdentity(identityToken);
@@ -537,35 +370,17 @@ public final class ContentService extends IContentService.Stub {
      * Depending on the request, we enqueue to suit in the SyncManager.
      * @param request The request object. Validation of this object is done by its builder.
      */
-    @Override
     public void sync(SyncRequest request) {
         syncAsUser(request, UserHandle.getCallingUserId());
-    }
-
-    private long clampPeriod(long period) {
-        long minPeriod = JobInfo.getMinPeriodMillis() / 1000;
-        if (period < minPeriod) {
-            Slog.w(TAG, "Requested poll frequency of " + period
-                    + " seconds being rounded up to " + minPeriod + "s.");
-            period = minPeriod;
-        }
-        return period;
     }
 
     /**
      * If the user id supplied is different to the calling user, the caller must hold the
      * INTERACT_ACROSS_USERS_FULL permission.
      */
-    @Override
     public void syncAsUser(SyncRequest request, int userId) {
         enforceCrossUserPermission(userId, "no permission to request sync as user: " + userId);
         int callerUid = Binder.getCallingUid();
-
-        final Bundle extras = request.getBundle();
-
-        validateExtras(callerUid, extras);
-        final int syncExemption = getSyncExemptionAndCleanUpExtrasForCaller(callerUid, extras);
-
         // This makes it so that future permission checks will be in the context of this
         // process rather than the caller's process. We will restore this before returning.
         long identityToken = clearCallingIdentity();
@@ -574,6 +389,8 @@ public final class ContentService extends IContentService.Stub {
             if (syncManager == null) {
                 return;
             }
+
+            Bundle extras = request.getBundle();
             long flextime = request.getSyncFlexTime();
             long runAtTime = request.getSyncRunTime();
             if (request.isPeriodic()) {
@@ -583,16 +400,21 @@ public final class ContentService extends IContentService.Stub {
                 SyncStorageEngine.EndPoint info;
                 info = new SyncStorageEngine.EndPoint(
                         request.getAccount(), request.getProvider(), userId);
-
-                runAtTime = clampPeriod(runAtTime);
+                if (runAtTime < 60) {
+                    Slog.w(TAG, "Requested poll frequency of " + runAtTime
+                            + " seconds being rounded up to 60 seconds.");
+                    runAtTime = 60;
+                }
                 // Schedule periodic sync.
-                getSyncManager().updateOrAddPeriodicSync(info, runAtTime,
-                        flextime, extras);
+                getSyncManager().getSyncStorageEngine()
+                    .updateOrAddPeriodicSync(info, runAtTime, flextime, extras);
             } else {
+                long beforeRuntimeMillis = (flextime) * 1000;
+                long runtimeMillis = runAtTime * 1000;
                 syncManager.scheduleSync(
                         request.getAccount(), userId, callerUid, request.getProvider(), extras,
-                        SyncStorageEngine.AuthorityInfo.UNDEFINED,
-                        syncExemption);
+                        beforeRuntimeMillis, runtimeMillis,
+                        false /* onlyThoseWithUnknownSyncableState */);
             }
         } finally {
             restoreCallingIdentity(identityToken);
@@ -628,7 +450,7 @@ public final class ContentService extends IContentService.Stub {
      */
     @Override
     public void cancelSyncAsUser(Account account, String authority, ComponentName cname,
-                                 int userId) {
+            int userId) {
         if (authority != null && authority.length() == 0) {
             throw new IllegalArgumentException("Authority must be non-empty");
         }
@@ -637,53 +459,44 @@ public final class ContentService extends IContentService.Stub {
         // This makes it so that future permission checks will be in the context of this
         // process rather than the caller's process. We will restore this before returning.
         long identityToken = clearCallingIdentity();
-        if (cname != null) {
-            Slog.e(TAG, "cname not null.");
-            return;
-        }
         try {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
                 SyncStorageEngine.EndPoint info;
-                info = new SyncStorageEngine.EndPoint(account, authority, userId);
+                if (cname == null) {
+                    info = new SyncStorageEngine.EndPoint(account, authority, userId);
+                } else {
+                    info = new SyncStorageEngine.EndPoint(cname, userId);
+                }
                 syncManager.clearScheduledSyncOperations(info);
-                syncManager.cancelActiveSync(info, null /* all syncs for this adapter */, "API");
+                syncManager.cancelActiveSync(info, null /* all syncs for this adapter */);
             }
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
     public void cancelRequest(SyncRequest request) {
         SyncManager syncManager = getSyncManager();
         if (syncManager == null) return;
         int userId = UserHandle.getCallingUserId();
-        final int callingUid = Binder.getCallingUid();
-
-        if (request.isPeriodic()) {
-            mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
-                    "no permission to write the sync settings");
-        }
-
-        Bundle extras = new Bundle(request.getBundle());
-        validateExtras(callingUid, extras);
 
         long identityToken = clearCallingIdentity();
         try {
             SyncStorageEngine.EndPoint info;
-
+            Bundle extras = new Bundle(request.getBundle());
             Account account = request.getAccount();
             String provider = request.getProvider();
             info = new SyncStorageEngine.EndPoint(account, provider, userId);
             if (request.isPeriodic()) {
                 // Remove periodic sync.
-                getSyncManager().removePeriodicSync(info, extras,
-                        "cancelRequest() by uid=" + callingUid);
+                mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
+                        "no permission to write the sync settings");
+                getSyncManager().getSyncStorageEngine().removePeriodicSync(info, extras);
             }
             // Cancel active syncs and clear pending syncs from the queue.
             syncManager.cancelScheduledSyncOperation(info, extras);
-            syncManager.cancelActiveSync(info, extras, "API");
+            syncManager.cancelActiveSync(info, extras);
         } finally {
             restoreCallingIdentity(identityToken);
         }
@@ -772,7 +585,7 @@ public final class ContentService extends IContentService.Stub {
 
     @Override
     public void setSyncAutomaticallyAsUser(Account account, String providerName, boolean sync,
-                                           int userId) {
+            int userId) {
         if (TextUtils.isEmpty(providerName)) {
             throw new IllegalArgumentException("Authority must be non-empty");
         }
@@ -780,26 +593,23 @@ public final class ContentService extends IContentService.Stub {
                 "no permission to write the sync settings");
         enforceCrossUserPermission(userId,
                 "no permission to modify the sync settings for user " + userId);
-        final int callingUid = Binder.getCallingUid();
-        final int syncExemptionFlag = getSyncExemptionForCaller(callingUid);
 
         long identityToken = clearCallingIdentity();
         try {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
                 syncManager.getSyncStorageEngine().setSyncAutomatically(account, userId,
-                        providerName, sync, syncExemptionFlag, callingUid);
+                        providerName, sync);
             }
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    /** Old API. Schedule periodic sync with default flexMillis time. */
+    /** Old API. Schedule periodic sync with default flex time. */
     @Override
     public void addPeriodicSync(Account account, String authority, Bundle extras,
-                                long pollFrequency) {
-        Bundle.setDefusable(extras, true);
+            long pollFrequency) {
         if (account == null) {
             throw new IllegalArgumentException("Account must not be null");
         }
@@ -809,27 +619,29 @@ public final class ContentService extends IContentService.Stub {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
                 "no permission to write the sync settings");
 
-        validateExtras(Binder.getCallingUid(), extras);
-
         int userId = UserHandle.getCallingUserId();
-
-        pollFrequency = clampPeriod(pollFrequency);
+        if (pollFrequency < 60) {
+            Slog.w(TAG, "Requested poll frequency of " + pollFrequency
+                    + " seconds being rounded up to 60 seconds.");
+            pollFrequency = 60;
+        }
         long defaultFlex = SyncStorageEngine.calculateDefaultFlexTime(pollFrequency);
 
         long identityToken = clearCallingIdentity();
         try {
             SyncStorageEngine.EndPoint info =
                     new SyncStorageEngine.EndPoint(account, authority, userId);
-            getSyncManager().updateOrAddPeriodicSync(info, pollFrequency,
-                    defaultFlex, extras);
+            getSyncManager().getSyncStorageEngine()
+                .updateOrAddPeriodicSync(info,
+                        pollFrequency,
+                        defaultFlex,
+                        extras);
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
     public void removePeriodicSync(Account account, String authority, Bundle extras) {
-        Bundle.setDefusable(extras, true);
         if (account == null) {
             throw new IllegalArgumentException("Account must not be null");
         }
@@ -839,25 +651,21 @@ public final class ContentService extends IContentService.Stub {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
                 "no permission to write the sync settings");
 
-        validateExtras(Binder.getCallingUid(), extras);
-
-        final int callingUid = Binder.getCallingUid();
-
         int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
-            getSyncManager()
-                    .removePeriodicSync(
-                            new SyncStorageEngine.EndPoint(account, authority, userId),
-                            extras, "removePeriodicSync() by uid=" + callingUid);
+            getSyncManager().getSyncStorageEngine()
+                .removePeriodicSync(
+                        new SyncStorageEngine.EndPoint(account, authority, userId),
+                        extras);
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
+
     public List<PeriodicSync> getPeriodicSyncs(Account account, String providerName,
-                                               ComponentName cname) {
+            ComponentName cname) {
         if (account == null) {
             throw new IllegalArgumentException("Account must not be null");
         }
@@ -870,14 +678,13 @@ public final class ContentService extends IContentService.Stub {
         int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
-            return getSyncManager().getPeriodicSyncs(
+            return getSyncManager().getSyncStorageEngine().getPeriodicSyncs(
                     new SyncStorageEngine.EndPoint(account, providerName, userId));
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
     public int getIsSyncable(Account account, String providerName) {
         return getIsSyncableAsUser(account, providerName, UserHandle.getCallingUserId());
     }
@@ -886,7 +693,6 @@ public final class ContentService extends IContentService.Stub {
      * If the user id supplied is different to the calling user, the caller must hold the
      * INTERACT_ACROSS_USERS_FULL permission.
      */
-    @Override
     public int getIsSyncableAsUser(Account account, String providerName, int userId) {
         enforceCrossUserPermission(userId,
                 "no permission to read the sync settings for user " + userId);
@@ -897,8 +703,8 @@ public final class ContentService extends IContentService.Stub {
         try {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
-                return syncManager.computeSyncable(
-                        account, userId, providerName, false);
+                return syncManager.getIsSyncable(
+                        account, userId, providerName);
             }
         } finally {
             restoreCallingIdentity(identityToken);
@@ -906,7 +712,6 @@ public final class ContentService extends IContentService.Stub {
         return -1;
     }
 
-    @Override
     public void setIsSyncable(Account account, String providerName, int syncable) {
         if (TextUtils.isEmpty(providerName)) {
             throw new IllegalArgumentException("Authority must not be empty");
@@ -914,16 +719,13 @@ public final class ContentService extends IContentService.Stub {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
                 "no permission to write the sync settings");
 
-        syncable = normalizeSyncable(syncable);
-        final int callingUid = Binder.getCallingUid();
-
         int userId = UserHandle.getCallingUserId();
         long identityToken = clearCallingIdentity();
         try {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
                 syncManager.getSyncStorageEngine().setIsSyncable(
-                        account, userId, providerName, syncable, callingUid);
+                        account, userId, providerName, syncable);
             }
         } finally {
             restoreCallingIdentity(identityToken);
@@ -970,25 +772,22 @@ public final class ContentService extends IContentService.Stub {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
                 "no permission to write the sync settings");
 
-        final int callingUid = Binder.getCallingUid();
-
         long identityToken = clearCallingIdentity();
         try {
             SyncManager syncManager = getSyncManager();
             if (syncManager != null) {
-                syncManager.getSyncStorageEngine().setMasterSyncAutomatically(flag, userId,
-                        getSyncExemptionForCaller(callingUid), callingUid);
+                syncManager.getSyncStorageEngine().setMasterSyncAutomatically(flag, userId);
             }
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
     public boolean isSyncActive(Account account, String authority, ComponentName cname) {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_STATS,
                 "no permission to read the sync stats");
         int userId = UserHandle.getCallingUserId();
+        int callingUid = Binder.getCallingUid();
         long identityToken = clearCallingIdentity();
         try {
             SyncManager syncManager = getSyncManager();
@@ -1002,7 +801,6 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    @Override
     public List<SyncInfo> getCurrentSyncs() {
         return getCurrentSyncsAsUser(UserHandle.getCallingUserId());
     }
@@ -1011,26 +809,20 @@ public final class ContentService extends IContentService.Stub {
      * If the user id supplied is different to the calling user, the caller must hold the
      * INTERACT_ACROSS_USERS_FULL permission.
      */
-    @Override
     public List<SyncInfo> getCurrentSyncsAsUser(int userId) {
         enforceCrossUserPermission(userId,
                 "no permission to read the sync settings for user " + userId);
         mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_STATS,
                 "no permission to read the sync stats");
 
-        final boolean canAccessAccounts =
-            mContext.checkCallingOrSelfPermission(Manifest.permission.GET_ACCOUNTS)
-                == PackageManager.PERMISSION_GRANTED;
         long identityToken = clearCallingIdentity();
         try {
-            return getSyncManager().getSyncStorageEngine()
-                .getCurrentSyncsCopy(userId, canAccessAccounts);
+            return getSyncManager().getSyncStorageEngine().getCurrentSyncsCopy(userId);
         } finally {
             restoreCallingIdentity(identityToken);
         }
     }
 
-    @Override
     public SyncStatusInfo getSyncStatus(Account account, String authority, ComponentName cname) {
         return getSyncStatusAsUser(account, authority, cname, UserHandle.getCallingUserId());
     }
@@ -1039,9 +831,8 @@ public final class ContentService extends IContentService.Stub {
      * If the user id supplied is different to the calling user, the caller must hold the
      * INTERACT_ACROSS_USERS_FULL permission.
      */
-    @Override
     public SyncStatusInfo getSyncStatusAsUser(Account account, String authority,
-                                              ComponentName cname, int userId) {
+            ComponentName cname, int userId) {
         if (TextUtils.isEmpty(authority)) {
             throw new IllegalArgumentException("Authority must not be empty");
         }
@@ -1051,6 +842,7 @@ public final class ContentService extends IContentService.Stub {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_STATS,
                 "no permission to read the sync stats");
 
+        int callerUid = Binder.getCallingUid();
         long identityToken = clearCallingIdentity();
         try {
             SyncManager syncManager = getSyncManager();
@@ -1069,18 +861,18 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    @Override
     public boolean isSyncPending(Account account, String authority, ComponentName cname) {
         return isSyncPendingAsUser(account, authority, cname, UserHandle.getCallingUserId());
     }
 
     @Override
     public boolean isSyncPendingAsUser(Account account, String authority, ComponentName cname,
-                                       int userId) {
+            int userId) {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_STATS,
                 "no permission to read the sync stats");
         enforceCrossUserPermission(userId,
                 "no permission to retrieve the sync settings for user " + userId);
+        int callerUid = Binder.getCallingUid();
         long identityToken = clearCallingIdentity();
         SyncManager syncManager = getSyncManager();
         if (syncManager == null) return false;
@@ -1098,7 +890,6 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    @Override
     public void addStatusChangeListener(int mask, ISyncStatusObserver callback) {
         long identityToken = clearCallingIdentity();
         try {
@@ -1111,7 +902,6 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    @Override
     public void removeStatusChangeListener(ISyncStatusObserver callback) {
         long identityToken = clearCallingIdentity();
         try {
@@ -1124,127 +914,10 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    private @Nullable String getProviderPackageName(Uri uri) {
-        final ProviderInfo pi = mContext.getPackageManager()
-                .resolveContentProvider(uri.getAuthority(), 0);
-        return (pi != null) ? pi.packageName : null;
-    }
-
-    @GuardedBy("mCache")
-    private ArrayMap<Pair<String, Uri>, Bundle> findOrCreateCacheLocked(int userId,
-            String providerPackageName) {
-        ArrayMap<String, ArrayMap<Pair<String, Uri>, Bundle>> userCache = mCache.get(userId);
-        if (userCache == null) {
-            userCache = new ArrayMap<>();
-            mCache.put(userId, userCache);
-        }
-        ArrayMap<Pair<String, Uri>, Bundle> packageCache = userCache.get(providerPackageName);
-        if (packageCache == null) {
-            packageCache = new ArrayMap<>();
-            userCache.put(providerPackageName, packageCache);
-        }
-        return packageCache;
-    }
-
-    @GuardedBy("mCache")
-    private void invalidateCacheLocked(int userId, String providerPackageName, Uri uri) {
-        ArrayMap<String, ArrayMap<Pair<String, Uri>, Bundle>> userCache = mCache.get(userId);
-        if (userCache == null) return;
-
-        ArrayMap<Pair<String, Uri>, Bundle> packageCache = userCache.get(providerPackageName);
-        if (packageCache == null) return;
-
-        if (uri != null) {
-            for (int i = 0; i < packageCache.size();) {
-                final Pair<String, Uri> key = packageCache.keyAt(i);
-                if (key.second != null && key.second.toString().startsWith(uri.toString())) {
-                    if (DEBUG) Slog.d(TAG, "Invalidating cache for key " + key);
-                    packageCache.removeAt(i);
-                } else {
-                    i++;
-                }
-            }
-        } else {
-            if (DEBUG) Slog.d(TAG, "Invalidating cache for package " + providerPackageName);
-            packageCache.clear();
-        }
-    }
-
-    @Override
-    public void putCache(String packageName, Uri key, Bundle value, int userId) {
-        Bundle.setDefusable(value, true);
-        enforceCrossUserPermission(userId, TAG);
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.CACHE_CONTENT, TAG);
-        mContext.getSystemService(AppOpsManager.class).checkPackage(Binder.getCallingUid(),
-                packageName);
-
-        final String providerPackageName = getProviderPackageName(key);
-        final Pair<String, Uri> fullKey = Pair.create(packageName, key);
-
-        synchronized (mCache) {
-            final ArrayMap<Pair<String, Uri>, Bundle> cache = findOrCreateCacheLocked(userId,
-                    providerPackageName);
-            if (value != null) {
-                cache.put(fullKey, value);
-            } else {
-                cache.remove(fullKey);
-            }
-        }
-    }
-
-    @Override
-    public Bundle getCache(String packageName, Uri key, int userId) {
-        enforceCrossUserPermission(userId, TAG);
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.CACHE_CONTENT, TAG);
-        mContext.getSystemService(AppOpsManager.class).checkPackage(Binder.getCallingUid(),
-                packageName);
-
-        final String providerPackageName = getProviderPackageName(key);
-        final Pair<String, Uri> fullKey = Pair.create(packageName, key);
-
-        synchronized (mCache) {
-            final ArrayMap<Pair<String, Uri>, Bundle> cache = findOrCreateCacheLocked(userId,
-                    providerPackageName);
-            return cache.get(fullKey);
-        }
-    }
-
-    private int handleIncomingUser(Uri uri, int pid, int uid, int modeFlags, boolean allowNonFull,
-            int userId) {
-        if (userId == UserHandle.USER_CURRENT) {
-            userId = ActivityManager.getCurrentUser();
-        }
-
-        if (userId == UserHandle.USER_ALL) {
-            mContext.enforceCallingOrSelfPermission(
-                    Manifest.permission.INTERACT_ACROSS_USERS_FULL, TAG);
-        } else if (userId < 0) {
-            throw new IllegalArgumentException("Invalid user: " + userId);
-        } else if (userId != UserHandle.getCallingUserId()) {
-            if (checkUriPermission(uri, pid, uid, modeFlags,
-                    userId) != PackageManager.PERMISSION_GRANTED) {
-                boolean allow = false;
-                if (mContext.checkCallingOrSelfPermission(
-                        Manifest.permission.INTERACT_ACROSS_USERS_FULL)
-                                == PackageManager.PERMISSION_GRANTED) {
-                    allow = true;
-                } else if (allowNonFull && mContext.checkCallingOrSelfPermission(
-                        Manifest.permission.INTERACT_ACROSS_USERS)
-                                == PackageManager.PERMISSION_GRANTED) {
-                    allow = true;
-                }
-                if (!allow) {
-                    final String permissions = allowNonFull
-                            ? (Manifest.permission.INTERACT_ACROSS_USERS_FULL + " or " +
-                                    Manifest.permission.INTERACT_ACROSS_USERS)
-                            : Manifest.permission.INTERACT_ACROSS_USERS_FULL;
-                    throw new SecurityException(TAG + "Neither user " + uid
-                            + " nor current process has " + permissions);
-                }
-            }
-        }
-
-        return userId;
+    public static ContentService main(Context context, boolean factoryTest) {
+        ContentService service = new ContentService(context, factoryTest);
+        ServiceManager.addService(ContentResolver.CONTENT_SERVICE_NAME, service);
+        return service;
     }
 
     /**
@@ -1262,62 +935,6 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
-    private static int normalizeSyncable(int syncable) {
-        if (syncable > 0) {
-            return SyncStorageEngine.AuthorityInfo.SYNCABLE;
-        } else if (syncable == 0) {
-            return SyncStorageEngine.AuthorityInfo.NOT_SYNCABLE;
-        }
-        return SyncStorageEngine.AuthorityInfo.UNDEFINED;
-    }
-
-    private void validateExtras(int callingUid, Bundle extras) {
-        if (extras.containsKey(ContentResolver.SYNC_VIRTUAL_EXTRAS_EXEMPTION_FLAG)) {
-            switch (callingUid) {
-                case Process.ROOT_UID:
-                case Process.SHELL_UID:
-                case Process.SYSTEM_UID:
-                    break; // Okay
-                default:
-                    final String msg = "Invalid extras specified.";
-                    Log.w(TAG, msg + " requestsync -f/-F needs to run on 'adb shell'");
-                    throw new SecurityException(msg);
-            }
-        }
-    }
-
-    @SyncExemption
-    private int getSyncExemptionForCaller(int callingUid) {
-        return getSyncExemptionAndCleanUpExtrasForCaller(callingUid, null);
-    }
-
-    @SyncExemption
-    private int getSyncExemptionAndCleanUpExtrasForCaller(int callingUid, Bundle extras) {
-        if (extras != null) {
-            final int exemption =
-                    extras.getInt(ContentResolver.SYNC_VIRTUAL_EXTRAS_EXEMPTION_FLAG, -1);
-
-            // Need to remove the virtual extra.
-            extras.remove(ContentResolver.SYNC_VIRTUAL_EXTRAS_EXEMPTION_FLAG);
-            if (exemption != -1) {
-                return exemption;
-            }
-        }
-        final ActivityManagerInternal ami =
-                LocalServices.getService(ActivityManagerInternal.class);
-        final int procState = (ami != null)
-                ? ami.getUidProcessState(callingUid)
-                : ActivityManager.PROCESS_STATE_NONEXISTENT;
-
-        if (procState <= ActivityManager.PROCESS_STATE_TOP) {
-            return ContentResolver.SYNC_EXEMPTION_PROMOTE_BUCKET_WITH_TEMP;
-        }
-        if (procState <= ActivityManager.PROCESS_STATE_IMPORTANT_FOREGROUND) {
-            return ContentResolver.SYNC_EXEMPTION_PROMOTE_BUCKET;
-        }
-        return ContentResolver.SYNC_EXEMPTION_NONE;
-    }
-
     /**
      * Hide this class since it is not part of api,
      * but current unittest framework requires it to be public
@@ -1333,7 +950,7 @@ public final class ContentService extends IContentService.Stub {
             private final Object observersLock;
 
             public ObserverEntry(IContentObserver o, boolean n, Object observersLock,
-                                 int _uid, int _pid, int _userHandle) {
+                    int _uid, int _pid, int _userHandle) {
                 this.observersLock = observersLock;
                 observer = o;
                 uid = _uid;
@@ -1347,7 +964,6 @@ public final class ContentService extends IContentService.Stub {
                 }
             }
 
-            @Override
             public void binderDied() {
                 synchronized (observersLock) {
                     removeObserverLocked(observer);
@@ -1355,14 +971,14 @@ public final class ContentService extends IContentService.Stub {
             }
 
             public void dumpLocked(FileDescriptor fd, PrintWriter pw, String[] args,
-                                   String name, String prefix, SparseIntArray pidCounts) {
+                    String name, String prefix, SparseIntArray pidCounts) {
                 pidCounts.put(pid, pidCounts.get(pid)+1);
                 pw.print(prefix); pw.print(name); pw.print(": pid=");
-                pw.print(pid); pw.print(" uid=");
-                pw.print(uid); pw.print(" user=");
-                pw.print(userHandle); pw.print(" target=");
-                pw.println(Integer.toHexString(System.identityHashCode(
-                        observer != null ? observer.asBinder() : null)));
+                        pw.print(pid); pw.print(" uid=");
+                        pw.print(uid); pw.print(" user=");
+                        pw.print(userHandle); pw.print(" target=");
+                        pw.println(Integer.toHexString(System.identityHashCode(
+                                observer != null ? observer.asBinder() : null)));
             }
         }
 
@@ -1379,7 +995,7 @@ public final class ContentService extends IContentService.Stub {
         }
 
         public void dumpLocked(FileDescriptor fd, PrintWriter pw, String[] args,
-                               String name, String prefix, int[] counts, SparseIntArray pidCounts) {
+                String name, String prefix, int[] counts, SparseIntArray pidCounts) {
             String innerName = null;
             if (mObservers.size() > 0) {
                 if ("".equals(name)) {
@@ -1430,15 +1046,15 @@ public final class ContentService extends IContentService.Stub {
 
         // Invariant:  userHandle is either a hard user number or is USER_ALL
         public void addObserverLocked(Uri uri, IContentObserver observer,
-                                      boolean notifyForDescendants, Object observersLock,
-                                      int uid, int pid, int userHandle) {
+                boolean notifyForDescendants, Object observersLock,
+                int uid, int pid, int userHandle) {
             addObserverLocked(uri, 0, observer, notifyForDescendants, observersLock,
                     uid, pid, userHandle);
         }
 
         private void addObserverLocked(Uri uri, int index, IContentObserver observer,
-                                       boolean notifyForDescendants, Object observersLock,
-                                       int uid, int pid, int userHandle) {
+                boolean notifyForDescendants, Object observersLock,
+                int uid, int pid, int userHandle) {
             // If this is the leaf node add the observer
             if (index == countUriSegments(uri)) {
                 mObservers.add(new ObserverEntry(observer, notifyForDescendants, observersLock,
@@ -1498,8 +1114,8 @@ public final class ContentService extends IContentService.Stub {
         }
 
         private void collectMyObserversLocked(boolean leaf, IContentObserver observer,
-                                              boolean observerWantsSelfNotifications, int flags,
-                                              int targetUserHandle, ArrayList<ObserverCall> calls) {
+                boolean observerWantsSelfNotifications, int targetUserHandle,
+                ArrayList<ObserverCall> calls) {
             int N = mObservers.size();
             IBinder observerBinder = observer == null ? null : observer.asBinder();
             for (int i = 0; i < N; i++) {
@@ -1517,30 +1133,9 @@ public final class ContentService extends IContentService.Stub {
                         || entry.userHandle == UserHandle.USER_ALL
                         || targetUserHandle == entry.userHandle) {
                     // Make sure the observer is interested in the notification
-                    if (leaf) {
-                        // If we are at the leaf: we always report, unless the sender has asked
-                        // to skip observers that are notifying for descendants (since they will
-                        // be sending another more specific URI for them).
-                        if ((flags&ContentResolver.NOTIFY_SKIP_NOTIFY_FOR_DESCENDANTS) != 0
-                                && entry.notifyForDescendants) {
-                            if (DEBUG) Slog.d(TAG, "Skipping " + entry.observer
-                                    + ": skip notify for descendants");
-                            continue;
-                        }
-                    } else {
-                        // If we are not at the leaf: we report if the observer says it wants
-                        // to be notified for all descendants.
-                        if (!entry.notifyForDescendants) {
-                            if (DEBUG) Slog.d(TAG, "Skipping " + entry.observer
-                                    + ": not monitor descendants");
-                            continue;
-                        }
+                    if (leaf || (!leaf && entry.notifyForDescendants)) {
+                        calls.add(new ObserverCall(this, entry.observer, selfChange));
                     }
-                    if (DEBUG) Slog.d(TAG, "Reporting to " + entry.observer + ": leaf=" + leaf
-                            + " flags=" + Integer.toHexString(flags)
-                            + " desc=" + entry.notifyForDescendants);
-                    calls.add(new ObserverCall(this, entry.observer, selfChange,
-                            UserHandle.getUserId(entry.uid)));
                 }
             }
         }
@@ -1549,22 +1144,19 @@ public final class ContentService extends IContentService.Stub {
          * targetUserHandle is either a hard user handle or is USER_ALL
          */
         public void collectObserversLocked(Uri uri, int index, IContentObserver observer,
-                                           boolean observerWantsSelfNotifications, int flags,
-                                           int targetUserHandle, ArrayList<ObserverCall> calls) {
+                boolean observerWantsSelfNotifications, int targetUserHandle,
+                ArrayList<ObserverCall> calls) {
             String segment = null;
             int segmentCount = countUriSegments(uri);
             if (index >= segmentCount) {
                 // This is the leaf node, notify all observers
-                if (DEBUG) Slog.d(TAG, "Collecting leaf observers @ #" + index + ", node " + mName);
                 collectMyObserversLocked(true, observer, observerWantsSelfNotifications,
-                        flags, targetUserHandle, calls);
+                        targetUserHandle, calls);
             } else if (index < segmentCount){
                 segment = getUriSegment(uri, index);
-                if (DEBUG) Slog.d(TAG, "Collecting non-leaf observers @ #" + index + " / "
-                        + segment);
                 // Notify any observers at this level who are interested in descendants
                 collectMyObserversLocked(false, observer, observerWantsSelfNotifications,
-                        flags, targetUserHandle, calls);
+                        targetUserHandle, calls);
             }
 
             int N = mChildren.size();
@@ -1572,41 +1164,13 @@ public final class ContentService extends IContentService.Stub {
                 ObserverNode node = mChildren.get(i);
                 if (segment == null || node.mName.equals(segment)) {
                     // We found the child,
-                    node.collectObserversLocked(uri, index + 1, observer,
-                            observerWantsSelfNotifications, flags, targetUserHandle, calls);
+                    node.collectObserversLocked(uri, index + 1,
+                            observer, observerWantsSelfNotifications, targetUserHandle, calls);
                     if (segment != null) {
                         break;
                     }
                 }
             }
         }
-    }
-
-    private void enforceShell(String method) {
-        final int callingUid = Binder.getCallingUid();
-        if (callingUid != Process.SHELL_UID && callingUid != Process.ROOT_UID) {
-            throw new SecurityException("Non-shell user attempted to call " + method);
-        }
-    }
-
-    @Override
-    public void resetTodayStats() {
-        enforceShell("resetTodayStats");
-
-        if (mSyncManager != null) {
-            final long token = Binder.clearCallingIdentity();
-            try {
-                mSyncManager.resetTodayStats();
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-    }
-
-    @Override
-    public void onShellCommand(FileDescriptor in, FileDescriptor out,
-            FileDescriptor err, String[] args, ShellCallback callback,
-            ResultReceiver resultReceiver) {
-        (new ContentShellCommand(this)).exec(this, in, out, err, args, callback, resultReceiver);
     }
 }

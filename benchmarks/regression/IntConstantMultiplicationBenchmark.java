@@ -16,7 +16,11 @@
 
 package benchmarks.regression;
 
-public class IntConstantMultiplicationBenchmark {
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
+public class IntConstantMultiplicationBenchmark extends SimpleBenchmark {
     public int timeMultiplyIntByConstant6(int reps) {
         int result = 1;
         for (int i = 0; i < reps; ++i) {

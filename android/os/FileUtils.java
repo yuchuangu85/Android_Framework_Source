@@ -16,27 +16,16 @@
 
 package android.os;
 
-import static android.system.OsConstants.SPLICE_F_MORE;
-import static android.system.OsConstants.SPLICE_F_MOVE;
-import static android.system.OsConstants.S_ISFIFO;
-import static android.system.OsConstants.S_ISREG;
-
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.provider.DocumentsContract.Document;
 import android.system.ErrnoException;
 import android.system.Os;
-import android.system.StructStat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
 import android.webkit.MimeTypeMap;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.SizedInputStream;
-
-import libcore.io.IoUtils;
-import libcore.util.EmptyArray;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -45,15 +34,13 @@ import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FilenameFilter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
@@ -80,23 +67,10 @@ public class FileUtils {
     public static final int S_IWOTH = 00002;
     public static final int S_IXOTH = 00001;
 
-    /** Regular expression for safe filenames: no spaces or metacharacters.
-      *
-      * Use a preload holder so that FileUtils can be compile-time initialized.
-      */
-    private static class NoImagePreloadHolder {
-        public static final Pattern SAFE_FILENAME_PATTERN = Pattern.compile("[\\w%+,./=_-]+");
-    }
+    /** Regular expression for safe filenames: no spaces or metacharacters */
+    private static final Pattern SAFE_FILENAME_PATTERN = Pattern.compile("[\\w%+,./=_-]+");
 
     private static final File[] EMPTY = new File[0];
-
-    private static final boolean ENABLE_COPY_OPTIMIZATIONS = true;
-
-    private static final long COPY_CHECKPOINT_BYTES = 524288;
-
-    public interface ProgressListener {
-        public void onProgress(long progress);
-    }
 
     /**
      * Set owner and mode of of given {@link File}.
@@ -166,16 +140,6 @@ public class FileUtils {
         return 0;
     }
 
-    public static void copyPermissions(File from, File to) throws IOException {
-        try {
-            final StructStat stat = Os.stat(from.getAbsolutePath());
-            Os.chmod(to.getAbsolutePath(), stat.st_mode);
-            Os.chown(to.getAbsolutePath(), stat.st_uid, stat.st_gid);
-        } catch (ErrnoException e) {
-            throw e.rethrowAsIOException();
-        }
-    }
-
     /**
      * Return owning UID of given path, otherwise -1.
      */
@@ -202,293 +166,51 @@ public class FileUtils {
         return false;
     }
 
-    /**
-     * @deprecated use {@link #copy(File, File)} instead.
-     */
-    @Deprecated
+    // copy a file from srcFile to destFile, return true if succeed, return
+    // false if fail
     public static boolean copyFile(File srcFile, File destFile) {
+        boolean result = false;
         try {
-            copyFileOrThrow(srcFile, destFile);
-            return true;
+            InputStream in = new FileInputStream(srcFile);
+            try {
+                result = copyToFile(in, destFile);
+            } finally  {
+                in.close();
+            }
         } catch (IOException e) {
-            return false;
+            result = false;
         }
+        return result;
     }
 
     /**
-     * @deprecated use {@link #copy(File, File)} instead.
+     * Copy data from a source stream to destFile.
+     * Return true if succeed, return false if failed.
      */
-    @Deprecated
-    public static void copyFileOrThrow(File srcFile, File destFile) throws IOException {
-        try (InputStream in = new FileInputStream(srcFile)) {
-            copyToFileOrThrow(in, destFile);
-        }
-    }
-
-    /**
-     * @deprecated use {@link #copy(InputStream, OutputStream)} instead.
-     */
-    @Deprecated
     public static boolean copyToFile(InputStream inputStream, File destFile) {
         try {
-            copyToFileOrThrow(inputStream, destFile);
+            if (destFile.exists()) {
+                destFile.delete();
+            }
+            FileOutputStream out = new FileOutputStream(destFile);
+            try {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) >= 0) {
+                    out.write(buffer, 0, bytesRead);
+                }
+            } finally {
+                out.flush();
+                try {
+                    out.getFD().sync();
+                } catch (IOException e) {
+                }
+                out.close();
+            }
             return true;
         } catch (IOException e) {
             return false;
         }
-    }
-
-    /**
-     * @deprecated use {@link #copy(InputStream, OutputStream)} instead.
-     */
-    @Deprecated
-    public static void copyToFileOrThrow(InputStream in, File destFile) throws IOException {
-        if (destFile.exists()) {
-            destFile.delete();
-        }
-        try (FileOutputStream out = new FileOutputStream(destFile)) {
-            copy(in, out);
-            try {
-                Os.fsync(out.getFD());
-            } catch (ErrnoException e) {
-                throw e.rethrowAsIOException();
-            }
-        }
-    }
-
-    /**
-     * Copy the contents of one file to another, replacing any existing content.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull File from, @NonNull File to) throws IOException {
-        return copy(from, to, null, null);
-    }
-
-    /**
-     * Copy the contents of one file to another, replacing any existing content.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @param listener to be periodically notified as the copy progresses.
-     * @param signal to signal if the copy should be cancelled early.
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull File from, @NonNull File to,
-            @Nullable ProgressListener listener, @Nullable CancellationSignal signal)
-            throws IOException {
-        try (FileInputStream in = new FileInputStream(from);
-                FileOutputStream out = new FileOutputStream(to)) {
-            return copy(in, out, listener, signal);
-        }
-    }
-
-    /**
-     * Copy the contents of one stream to another.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull InputStream in, @NonNull OutputStream out) throws IOException {
-        return copy(in, out, null, null);
-    }
-
-    /**
-     * Copy the contents of one stream to another.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @param listener to be periodically notified as the copy progresses.
-     * @param signal to signal if the copy should be cancelled early.
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull InputStream in, @NonNull OutputStream out,
-            @Nullable ProgressListener listener, @Nullable CancellationSignal signal)
-            throws IOException {
-        if (ENABLE_COPY_OPTIMIZATIONS) {
-            if (in instanceof FileInputStream && out instanceof FileOutputStream) {
-                return copy(((FileInputStream) in).getFD(), ((FileOutputStream) out).getFD(),
-                        listener, signal);
-            }
-        }
-
-        // Worse case fallback to userspace
-        return copyInternalUserspace(in, out, listener, signal);
-    }
-
-    /**
-     * Copy the contents of one FD to another.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out)
-            throws IOException {
-        return copy(in, out, null, null);
-    }
-
-    /**
-     * Copy the contents of one FD to another.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @param listener to be periodically notified as the copy progresses.
-     * @param signal to signal if the copy should be cancelled early.
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out,
-            @Nullable ProgressListener listener, @Nullable CancellationSignal signal)
-            throws IOException {
-        return copy(in, out, listener, signal, Long.MAX_VALUE);
-    }
-
-    /**
-     * Copy the contents of one FD to another.
-     * <p>
-     * Attempts to use several optimization strategies to copy the data in the
-     * kernel before falling back to a userspace copy as a last resort.
-     *
-     * @param listener to be periodically notified as the copy progresses.
-     * @param signal to signal if the copy should be cancelled early.
-     * @param count the number of bytes to copy.
-     * @return number of bytes copied.
-     */
-    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out,
-            @Nullable ProgressListener listener, @Nullable CancellationSignal signal, long count)
-            throws IOException {
-        if (ENABLE_COPY_OPTIMIZATIONS) {
-            try {
-                final StructStat st_in = Os.fstat(in);
-                final StructStat st_out = Os.fstat(out);
-                if (S_ISREG(st_in.st_mode) && S_ISREG(st_out.st_mode)) {
-                    return copyInternalSendfile(in, out, listener, signal, count);
-                } else if (S_ISFIFO(st_in.st_mode) || S_ISFIFO(st_out.st_mode)) {
-                    return copyInternalSplice(in, out, listener, signal, count);
-                }
-            } catch (ErrnoException e) {
-                throw e.rethrowAsIOException();
-            }
-        }
-
-        // Worse case fallback to userspace
-        return copyInternalUserspace(in, out, listener, signal, count);
-    }
-
-    /**
-     * Requires one of input or output to be a pipe.
-     */
-    @VisibleForTesting
-    public static long copyInternalSplice(FileDescriptor in, FileDescriptor out,
-            ProgressListener listener, CancellationSignal signal, long count)
-            throws ErrnoException {
-        long progress = 0;
-        long checkpoint = 0;
-
-        long t;
-        while ((t = Os.splice(in, null, out, null, Math.min(count, COPY_CHECKPOINT_BYTES),
-                SPLICE_F_MOVE | SPLICE_F_MORE)) != 0) {
-            progress += t;
-            checkpoint += t;
-            count -= t;
-
-            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
-                if (signal != null) {
-                    signal.throwIfCanceled();
-                }
-                if (listener != null) {
-                    listener.onProgress(progress);
-                }
-                checkpoint = 0;
-            }
-        }
-        if (listener != null) {
-            listener.onProgress(progress);
-        }
-        return progress;
-    }
-
-    /**
-     * Requires both input and output to be a regular file.
-     */
-    @VisibleForTesting
-    public static long copyInternalSendfile(FileDescriptor in, FileDescriptor out,
-            ProgressListener listener, CancellationSignal signal, long count)
-            throws ErrnoException {
-        long progress = 0;
-        long checkpoint = 0;
-
-        long t;
-        while ((t = Os.sendfile(out, in, null, Math.min(count, COPY_CHECKPOINT_BYTES))) != 0) {
-            progress += t;
-            checkpoint += t;
-            count -= t;
-
-            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
-                if (signal != null) {
-                    signal.throwIfCanceled();
-                }
-                if (listener != null) {
-                    listener.onProgress(progress);
-                }
-                checkpoint = 0;
-            }
-        }
-        if (listener != null) {
-            listener.onProgress(progress);
-        }
-        return progress;
-    }
-
-    @VisibleForTesting
-    public static long copyInternalUserspace(FileDescriptor in, FileDescriptor out,
-            ProgressListener listener, CancellationSignal signal, long count) throws IOException {
-        if (count != Long.MAX_VALUE) {
-            return copyInternalUserspace(new SizedInputStream(new FileInputStream(in), count),
-                    new FileOutputStream(out), listener, signal);
-        } else {
-            return copyInternalUserspace(new FileInputStream(in),
-                    new FileOutputStream(out), listener, signal);
-        }
-    }
-
-    @VisibleForTesting
-    public static long copyInternalUserspace(InputStream in, OutputStream out,
-            ProgressListener listener, CancellationSignal signal) throws IOException {
-        long progress = 0;
-        long checkpoint = 0;
-        byte[] buffer = new byte[8192];
-
-        int t;
-        while ((t = in.read(buffer)) != -1) {
-            out.write(buffer, 0, t);
-
-            progress += t;
-            checkpoint += t;
-
-            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
-                if (signal != null) {
-                    signal.throwIfCanceled();
-                }
-                if (listener != null) {
-                    listener.onProgress(progress);
-                }
-                checkpoint = 0;
-            }
-        }
-        if (listener != null) {
-            listener.onProgress(progress);
-        }
-        return progress;
     }
 
     /**
@@ -499,7 +221,7 @@ public class FileUtils {
         // Note, we check whether it matches what's known to be safe,
         // rather than what's known to be unsafe.  Non-ASCII, control
         // characters, etc. are all unsafe by default.
-        return NoImagePreloadHolder.SAFE_FILENAME_PATTERN.matcher(file.getPath()).matches();
+        return SAFE_FILENAME_PATTERN.matcher(file.getPath()).matches();
     }
 
     /**
@@ -563,30 +285,7 @@ public class FileUtils {
         }
     }
 
-    public static void stringToFile(File file, String string) throws IOException {
-        stringToFile(file.getAbsolutePath(), string);
-    }
-
-    /*
-     * Writes the bytes given in {@code content} to the file whose absolute path
-     * is {@code filename}.
-     */
-    public static void bytesToFile(String filename, byte[] content) throws IOException {
-        if (filename.startsWith("/proc/")) {
-            final int oldMask = StrictMode.allowThreadDiskWritesMask();
-            try (FileOutputStream fos = new FileOutputStream(filename)) {
-                fos.write(content);
-            } finally {
-                StrictMode.setThreadPolicyMask(oldMask);
-            }
-        } else {
-            try (FileOutputStream fos = new FileOutputStream(filename)) {
-                fos.write(content);
-            }
-        }
-    }
-
-    /**
+   /**
      * Writes string to file. Basically same as "echo -n $string > $filename"
      *
      * @param filename
@@ -594,7 +293,12 @@ public class FileUtils {
      * @throws IOException
      */
     public static void stringToFile(String filename, String string) throws IOException {
-        bytesToFile(filename, string.getBytes(StandardCharsets.UTF_8));
+        FileWriter out = new FileWriter(filename);
+        try {
+            out.write(string);
+        } finally {
+            out.close();
+        }
     }
 
     /**
@@ -630,11 +334,11 @@ public class FileUtils {
      * constraints remain.
      *
      * @param minCount Always keep at least this many files.
-     * @param minAgeMs Always keep files younger than this age, in milliseconds.
+     * @param minAge Always keep files younger than this age.
      * @return if any files were deleted.
      */
-    public static boolean deleteOlderFiles(File dir, int minCount, long minAgeMs) {
-        if (minCount < 0 || minAgeMs < 0) {
+    public static boolean deleteOlderFiles(File dir, int minCount, long minAge) {
+        if (minCount < 0 || minAge < 0) {
             throw new IllegalArgumentException("Constraints must be positive or 0");
         }
 
@@ -645,7 +349,7 @@ public class FileUtils {
         Arrays.sort(files, new Comparator<File>() {
             @Override
             public int compare(File lhs, File rhs) {
-                return Long.compare(rhs.lastModified(), lhs.lastModified());
+                return (int) (rhs.lastModified() - lhs.lastModified());
             }
         });
 
@@ -654,9 +358,9 @@ public class FileUtils {
         for (int i = minCount; i < files.length; i++) {
             final File file = files[i];
 
-            // Keep files newer than minAgeMs
+            // Keep files newer than minAge
             final long age = System.currentTimeMillis() - file.lastModified();
-            if (age > minAgeMs) {
+            if (age > minAge) {
                 if (file.delete()) {
                     Log.d(TAG, "Deleted old file " + file);
                     deleted = true;
@@ -693,25 +397,18 @@ public class FileUtils {
      */
     public static boolean contains(File dir, File file) {
         if (dir == null || file == null) return false;
-        return contains(dir.getAbsolutePath(), file.getAbsolutePath());
-    }
 
-    public static boolean contains(String dirPath, String filePath) {
+        String dirPath = dir.getAbsolutePath();
+        String filePath = file.getAbsolutePath();
+
         if (dirPath.equals(filePath)) {
             return true;
         }
+
         if (!dirPath.endsWith("/")) {
             dirPath += "/";
         }
         return filePath.startsWith(dirPath);
-    }
-
-    public static boolean deleteContentsAndDir(File dir) {
-        if (deleteContents(dir)) {
-            return dir.delete();
-        } else {
-            return false;
-        }
     }
 
     public static boolean deleteContents(File dir) {
@@ -869,22 +566,6 @@ public class FileUtils {
         return null;
     }
 
-    private static File buildUniqueFileWithExtension(File parent, String name, String ext)
-            throws FileNotFoundException {
-        File file = buildFile(parent, name, ext);
-
-        // If conflicting file, try adding counter suffix
-        int n = 0;
-        while (file.exists()) {
-            if (n++ >= 32) {
-                throw new FileNotFoundException("Failed to create unique file");
-            }
-            file = buildFile(parent, name + " (" + n + ")", ext);
-        }
-
-        return file;
-    }
-
     /**
      * Generates a unique file name under the given parent directory. If the display name doesn't
      * have an extension that matches the requested MIME type, the default extension for that MIME
@@ -898,39 +579,6 @@ public class FileUtils {
      */
     public static File buildUniqueFile(File parent, String mimeType, String displayName)
             throws FileNotFoundException {
-        final String[] parts = splitFileName(mimeType, displayName);
-        return buildUniqueFileWithExtension(parent, parts[0], parts[1]);
-    }
-
-    /**
-     * Generates a unique file name under the given parent directory, keeping
-     * any extension intact.
-     */
-    public static File buildUniqueFile(File parent, String displayName)
-            throws FileNotFoundException {
-        final String name;
-        final String ext;
-
-        // Extract requested extension from display name
-        final int lastDot = displayName.lastIndexOf('.');
-        if (lastDot >= 0) {
-            name = displayName.substring(0, lastDot);
-            ext = displayName.substring(lastDot + 1);
-        } else {
-            name = displayName;
-            ext = null;
-        }
-
-        return buildUniqueFileWithExtension(parent, name, ext);
-    }
-
-    /**
-     * Splits file name into base name and extension.
-     * If the display name doesn't have an extension that matches the requested MIME type, the
-     * extension is regarded as a part of filename and default extension for that MIME type is
-     * appended.
-     */
-    public static String[] splitFileName(String mimeType, String displayName) {
         String name;
         String ext;
 
@@ -968,11 +616,18 @@ public class FileUtils {
             }
         }
 
-        if (ext == null) {
-            ext = "";
+        File file = buildFile(parent, name, ext);
+
+        // If conflicting file, try adding counter suffix
+        int n = 0;
+        while (file.exists()) {
+            if (n++ >= 32) {
+                throw new FileNotFoundException("Failed to create unique file");
+            }
+            file = buildFile(parent, name + " (" + n + ")", ext);
         }
 
-        return new String[] { name, ext };
+        return file;
     }
 
     private static File buildFile(File parent, String name, String ext) {
@@ -983,135 +638,12 @@ public class FileUtils {
         }
     }
 
-    public static @NonNull String[] listOrEmpty(@Nullable File dir) {
-        if (dir == null) return EmptyArray.STRING;
-        final String[] res = dir.list();
-        if (res != null) {
-            return res;
-        } else {
-            return EmptyArray.STRING;
-        }
-    }
-
-    public static @NonNull File[] listFilesOrEmpty(@Nullable File dir) {
-        if (dir == null) return EMPTY;
-        final File[] res = dir.listFiles();
+    public static @NonNull File[] listFilesOrEmpty(File dir) {
+        File[] res = dir.listFiles();
         if (res != null) {
             return res;
         } else {
             return EMPTY;
-        }
-    }
-
-    public static @NonNull File[] listFilesOrEmpty(@Nullable File dir, FilenameFilter filter) {
-        if (dir == null) return EMPTY;
-        final File[] res = dir.listFiles(filter);
-        if (res != null) {
-            return res;
-        } else {
-            return EMPTY;
-        }
-    }
-
-    public static @Nullable File newFileOrNull(@Nullable String path) {
-        return (path != null) ? new File(path) : null;
-    }
-
-    /**
-     * Creates a directory with name {@code name} under an existing directory {@code baseDir}.
-     * Returns a {@code File} object representing the directory on success, {@code null} on
-     * failure.
-     */
-    public static @Nullable File createDir(File baseDir, String name) {
-        final File dir = new File(baseDir, name);
-
-        if (dir.exists()) {
-            return dir.isDirectory() ? dir : null;
-        }
-
-        return dir.mkdir() ? dir : null;
-    }
-
-    /**
-     * Round the given size of a storage device to a nice round power-of-two
-     * value, such as 256MB or 32GB. This avoids showing weird values like
-     * "29.5GB" in UI.
-     */
-    public static long roundStorageSize(long size) {
-        long val = 1;
-        long pow = 1;
-        while ((val * pow) < size) {
-            val <<= 1;
-            if (val > 512) {
-                val = 1;
-                pow *= 1000;
-            }
-        }
-        return val * pow;
-    }
-
-    @VisibleForTesting
-    public static class MemoryPipe extends Thread implements AutoCloseable {
-        private final FileDescriptor[] pipe;
-        private final byte[] data;
-        private final boolean sink;
-
-        private MemoryPipe(byte[] data, boolean sink) throws IOException {
-            try {
-                this.pipe = Os.pipe();
-            } catch (ErrnoException e) {
-                throw e.rethrowAsIOException();
-            }
-            this.data = data;
-            this.sink = sink;
-        }
-
-        private MemoryPipe startInternal() {
-            super.start();
-            return this;
-        }
-
-        public static MemoryPipe createSource(byte[] data) throws IOException {
-            return new MemoryPipe(data, false).startInternal();
-        }
-
-        public static MemoryPipe createSink(byte[] data) throws IOException {
-            return new MemoryPipe(data, true).startInternal();
-        }
-
-        public FileDescriptor getFD() {
-            return sink ? pipe[1] : pipe[0];
-        }
-
-        public FileDescriptor getInternalFD() {
-            return sink ? pipe[0] : pipe[1];
-        }
-
-        @Override
-        public void run() {
-            final FileDescriptor fd = getInternalFD();
-            try {
-                int i = 0;
-                while (i < data.length) {
-                    if (sink) {
-                        i += Os.read(fd, data, i, data.length - i);
-                    } else {
-                        i += Os.write(fd, data, i, data.length - i);
-                    }
-                }
-            } catch (IOException | ErrnoException e) {
-                // Ignored
-            } finally {
-                if (sink) {
-                    SystemClock.sleep(TimeUnit.SECONDS.toMillis(1));
-                }
-                IoUtils.closeQuietly(fd);
-            }
-        }
-
-        @Override
-        public void close() throws Exception {
-            IoUtils.closeQuietly(getFD());
         }
     }
 }

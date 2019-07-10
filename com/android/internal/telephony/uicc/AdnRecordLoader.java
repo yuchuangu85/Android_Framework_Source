@@ -227,23 +227,16 @@ public class AdnRecordLoader extends Handler {
                     data = (byte[])(ar.result);
                     adn = (AdnRecord)(ar.userObj);
 
-                    if (ar.exception == null) {
-                        Rlog.d(LOG_TAG,"ADN extension EF: 0x"
-                                + Integer.toHexString(mExtensionEF)
-                                + ":" + adn.mExtRecord
-                                + "\n" + IccUtils.bytesToHexString(data));
-
-                        adn.appendExtRecord(data);
+                    if (ar.exception != null) {
+                        throw new RuntimeException("load failed", ar.exception);
                     }
-                    else {
-                        // If we can't get the rest of the number from EF_EXT1, rather than
-                        // providing the partial number, we clear the number since it's not
-                        // dialable anyway. Do not throw exception here otherwise the rest
-                        // of the good records will be dropped.
 
-                        Rlog.e(LOG_TAG, "Failed to read ext record. Clear the number now.");
-                        adn.setNumber("");
-                    }
+                    Rlog.d(LOG_TAG,"ADN extension EF: 0x"
+                        + Integer.toHexString(mExtensionEF)
+                        + ":" + adn.mExtRecord
+                        + "\n" + IccUtils.bytesToHexString(data));
+
+                    adn.appendExtRecord(data);
 
                     mPendingExtLoads--;
                     // result should have been set in
@@ -300,4 +293,6 @@ public class AdnRecordLoader extends Handler {
             mUserResponse = null;
         }
     }
+
+
 }

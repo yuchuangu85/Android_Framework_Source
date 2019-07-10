@@ -28,7 +28,6 @@ import android.graphics.Paint.Style;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.text.Layout.Alignment;
-import android.text.SpannableStringBuilder;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.util.AttributeSet;
@@ -55,8 +54,8 @@ public class SubtitleView extends View {
     /** Temporary rectangle used for computing line bounds. */
     private final RectF mLineBounds = new RectF();
 
-    /** Reusable spannable string builder used for holding text. */
-    private final SpannableStringBuilder mText = new SpannableStringBuilder();
+    /** Reusable string builder used for holding text. */
+    private final StringBuilder mText = new StringBuilder();
 
     private Alignment mAlignment;
     private TextPaint mTextPaint;
@@ -142,7 +141,7 @@ public class SubtitleView extends View {
     }
 
     public void setText(CharSequence text) {
-        mText.clear();
+        mText.setLength(0);
         mText.append(text);
 
         mHasMeasurements = false;
@@ -256,11 +255,8 @@ public class SubtitleView extends View {
         // StaticLayout.getWidth(), so this is non-trivial.
         mHasMeasurements = true;
         mLastMeasuredWidth = maxWidth;
-        mLayout = StaticLayout.Builder.obtain(mText, 0, mText.length(), mTextPaint, maxWidth)
-                .setAlignment(mAlignment)
-                .setLineSpacing(mSpacingAdd, mSpacingMult)
-                .setUseLineSpacingFromFallbacks(true)
-                .build();
+        mLayout = new StaticLayout(
+                mText, mTextPaint, maxWidth, mAlignment, mSpacingMult, mSpacingAdd, true);
 
         return true;
     }

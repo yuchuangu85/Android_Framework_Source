@@ -73,7 +73,7 @@ public class SubMenuBuilder extends MenuBuilder implements SubMenu {
 
     @Override
     public MenuBuilder getRootMenu() {
-        return mParentMenu.getRootMenu();
+        return mParentMenu;
     }
 
     @Override
@@ -129,15 +129,5 @@ public class SubMenuBuilder extends MenuBuilder implements SubMenu {
             return null;
         }
         return super.getActionViewStatesKey() + ":" + itemId;
-    }
-
-    @Override
-    public void setGroupDividerEnabled(boolean groupDividerEnabled) {
-        mParentMenu.setGroupDividerEnabled(groupDividerEnabled);
-    }
-
-    @Override
-    public boolean isGroupDividerEnabled() {
-        return mParentMenu.isGroupDividerEnabled();
     }
 }

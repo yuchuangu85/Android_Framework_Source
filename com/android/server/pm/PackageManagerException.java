@@ -16,19 +16,11 @@
 
 package com.android.server.pm;
 
-import android.content.pm.PackageManager;
 import android.content.pm.PackageParser.PackageParserException;
-
-import com.android.server.pm.Installer.InstallerException;
 
 /** {@hide} */
 public class PackageManagerException extends Exception {
     public final int error;
-
-    public PackageManagerException(String detailMessage) {
-        super(detailMessage);
-        this.error = PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
-    }
 
     public PackageManagerException(int error, String detailMessage) {
         super(detailMessage);
@@ -40,19 +32,8 @@ public class PackageManagerException extends Exception {
         this.error = error;
     }
 
-    public PackageManagerException(Throwable e) {
-        super(e);
-        this.error = PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
-    }
-
     public static PackageManagerException from(PackageParserException e)
             throws PackageManagerException {
         throw new PackageManagerException(e.error, e.getMessage(), e.getCause());
-    }
-
-    public static PackageManagerException from(InstallerException e)
-            throws PackageManagerException {
-        throw new PackageManagerException(PackageManager.INSTALL_FAILED_INTERNAL_ERROR,
-                e.getMessage(), e.getCause());
     }
 }

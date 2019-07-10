@@ -16,11 +16,11 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
+import com.google.caliper.SimpleBenchmark;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-public final class PropertyAccessBenchmark {
+public final class PropertyAccessBenchmark extends SimpleBenchmark {
     private View view = new View();
     private Method setX;
     private GeneratedProperty generatedSetter = new GeneratedSetter();
@@ -28,8 +28,7 @@ public final class PropertyAccessBenchmark {
     private Field x;
     private Object[] argsBox = new Object[1];
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         setX = View.class.getDeclaredMethod("setX", float.class);
         x = View.class.getDeclaredField("x");
     }

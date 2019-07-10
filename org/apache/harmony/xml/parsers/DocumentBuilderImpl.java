@@ -129,12 +129,11 @@ class DocumentBuilderImpl extends DocumentBuilder {
 
             parser.require(XmlPullParser.END_DOCUMENT, null, null);
         } catch (XmlPullParserException ex) {
-            Throwable detail = ex.getDetail();
-            if (detail instanceof IOException) {
-                throw (IOException) detail;
+            if (ex.getDetail() instanceof IOException) {
+                throw (IOException) ex.getDetail();
             }
-            if (detail instanceof RuntimeException) {
-                throw (RuntimeException) detail;
+            if (ex.getDetail() instanceof RuntimeException) {
+                throw (RuntimeException) ex.getDetail();
             }
 
             LocatorImpl locator = new LocatorImpl();

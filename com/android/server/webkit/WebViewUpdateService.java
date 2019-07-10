@@ -20,25 +20,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.os.Binder;
-import android.os.PatternMatcher;
 import android.os.Process;
-import android.os.ResultReceiver;
-import android.os.ShellCallback;
-import android.os.UserHandle;
 import android.util.Slog;
 import android.webkit.IWebViewUpdateService;
-import android.webkit.WebViewProviderInfo;
-import android.webkit.WebViewProviderResponse;
+import android.webkit.WebViewFactory;
 
-import com.android.internal.util.DumpUtils;
 import com.android.server.SystemService;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.Arrays;
 
 /**
  * Private service to wait for the updatable WebView to be ready for use.
@@ -47,18 +35,15 @@ import java.util.Arrays;
 public class WebViewUpdateService extends SystemService {
 
     private static final String TAG = "WebViewUpdateService";
+    private static final int WAIT_TIMEOUT_MS = 5000; // Same as KEY_DISPATCHING_TIMEOUT.
+
+    private boolean mRelroReady32Bit = false;
+    private boolean mRelroReady64Bit = false;
 
     private BroadcastReceiver mWebViewUpdatedReceiver;
-    private WebViewUpdateServiceImpl mImpl;
-
-    static final int PACKAGE_CHANGED = 0;
-    static final int PACKAGE_ADDED = 1;
-    static final int PACKAGE_ADDED_REPLACED = 2;
-    static final int PACKAGE_REMOVED = 3;
 
     public WebViewUpdateService(Context context) {
         super(context);
-        mImpl = new WebViewUpdateServiceImpl(context, SystemImpl.getInstance());
     }
 
     @Override
@@ -66,93 +51,31 @@ public class WebViewUpdateService extends SystemService {
         mWebViewUpdatedReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL);
-                    switch (intent.getAction()) {
-                        case Intent.ACTION_PACKAGE_REMOVED:
-                            // When a package is replaced we will receive two intents, one
-                            // representing the removal of the old package and one representing the
-                            // addition of the new package.
-                            // In the case where we receive an intent to remove the old version of
-                            // the package that is being replaced we early-out here so that we don't
-                            // run the update-logic twice.
-                            if (intent.getExtras().getBoolean(Intent.EXTRA_REPLACING)) return;
-                            mImpl.packageStateChanged(packageNameFromIntent(intent),
-                                    PACKAGE_REMOVED, userId);
-                            break;
-                        case Intent.ACTION_PACKAGE_CHANGED:
-                            // Ensure that we only heed PACKAGE_CHANGED intents if they change an
-                            // entire package, not just a component
-                            if (entirePackageChanged(intent)) {
-                                mImpl.packageStateChanged(packageNameFromIntent(intent),
-                                        PACKAGE_CHANGED, userId);
-                            }
-                            break;
-                        case Intent.ACTION_PACKAGE_ADDED:
-                            mImpl.packageStateChanged(packageNameFromIntent(intent),
-                                    (intent.getExtras().getBoolean(Intent.EXTRA_REPLACING)
-                                     ? PACKAGE_ADDED_REPLACED : PACKAGE_ADDED), userId);
-                            break;
-                        case Intent.ACTION_USER_STARTED:
-                            mImpl.handleNewUser(userId);
-                            break;
-                        case Intent.ACTION_USER_REMOVED:
-                            mImpl.handleUserRemoved(userId);
-                            break;
+                    String webviewPackage = "package:" + WebViewFactory.getWebViewPackageName();
+                    if (webviewPackage.equals(intent.getDataString())) {
+                        onWebViewUpdateInstalled();
                     }
                 }
         };
         IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_PACKAGE_ADDED);
-        filter.addAction(Intent.ACTION_PACKAGE_REMOVED);
-        filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        filter.addAction(Intent.ACTION_PACKAGE_REPLACED);
         filter.addDataScheme("package");
-        // Make sure we only receive intents for WebView packages from our config file.
-        for (WebViewProviderInfo provider : mImpl.getWebViewPackages()) {
-            filter.addDataSchemeSpecificPart(provider.packageName, PatternMatcher.PATTERN_LITERAL);
+        getContext().registerReceiver(mWebViewUpdatedReceiver, filter);
+
+        publishBinderService("webviewupdate", new BinderService());
+    }
+
+    private void onWebViewUpdateInstalled() {
+        Slog.d(TAG, "WebView Package updated!");
+
+        synchronized (this) {
+            mRelroReady32Bit = false;
+            mRelroReady64Bit = false;
         }
-
-        getContext().registerReceiverAsUser(mWebViewUpdatedReceiver, UserHandle.ALL, filter,
-                null /* broadcast permission */, null /* handler */);
-
-        IntentFilter userAddedFilter = new IntentFilter();
-        userAddedFilter.addAction(Intent.ACTION_USER_STARTED);
-        userAddedFilter.addAction(Intent.ACTION_USER_REMOVED);
-        getContext().registerReceiverAsUser(mWebViewUpdatedReceiver, UserHandle.ALL,
-                userAddedFilter, null /* broadcast permission */, null /* handler */);
-
-        publishBinderService("webviewupdate", new BinderService(), true /*allowIsolated*/);
-    }
-
-    public void prepareWebViewInSystemServer() {
-        mImpl.prepareWebViewInSystemServer();
-    }
-
-    private static String packageNameFromIntent(Intent intent) {
-        return intent.getDataString().substring("package:".length());
-    }
-
-    /**
-     * Returns whether the entire package from an ACTION_PACKAGE_CHANGED intent was changed (rather
-     * than just one of its components).
-     * @hide
-     */
-    public static boolean entirePackageChanged(Intent intent) {
-        String[] componentList =
-            intent.getStringArrayExtra(Intent.EXTRA_CHANGED_COMPONENT_NAME_LIST);
-        return Arrays.asList(componentList).contains(
-                intent.getDataString().substring("package:".length()));
+        WebViewFactory.onWebViewUpdateInstalled();
     }
 
     private class BinderService extends IWebViewUpdateService.Stub {
-
-        @Override
-        public void onShellCommand(FileDescriptor in, FileDescriptor out,
-                FileDescriptor err, String[] args, ShellCallback callback,
-                ResultReceiver resultReceiver) {
-            (new WebViewUpdateServiceShellCommand(this)).exec(
-                    this, in, out, err, args, callback, resultReceiver);
-        }
-
 
         /**
          * The shared relro process calls this to notify us that it's done trying to create a relro
@@ -160,7 +83,7 @@ public class WebViewUpdateService extends SystemService {
          * crashed.
          */
         @Override // Binder call
-        public void notifyRelroCreationCompleted() {
+        public void notifyRelroCreationCompleted(boolean is64Bit, boolean success) {
             // Verify that the caller is either the shared relro process (nominal case) or the
             // system server (only in the case the relro process crashes and we get here via the
             // crashHandler).
@@ -169,20 +92,21 @@ public class WebViewUpdateService extends SystemService {
                 return;
             }
 
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                WebViewUpdateService.this.mImpl.notifyRelroCreationCompleted();
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
+            synchronized (WebViewUpdateService.this) {
+                if (is64Bit) {
+                    mRelroReady64Bit = true;
+                } else {
+                    mRelroReady32Bit = true;
+                }
+                WebViewUpdateService.this.notifyAll();
             }
         }
 
         /**
          * WebViewFactory calls this to block WebView loading until the relro file is created.
-         * Returns the WebView provider for which we create relro files.
          */
         @Override // Binder call
-        public WebViewProviderResponse waitForAndGetProvider() {
+        public void waitForRelroCreationCompleted(boolean is64Bit) {
             // The WebViewUpdateService depends on the prepareWebViewInSystemServer call, which
             // happens later (during the PHASE_ACTIVITY_MANAGER_READY) in SystemServer.java. If
             // another service there tries to bring up a WebView in the between, the wait below
@@ -191,111 +115,21 @@ public class WebViewUpdateService extends SystemService {
                 throw new IllegalStateException("Cannot create a WebView from the SystemServer");
             }
 
-            return WebViewUpdateService.this.mImpl.waitForAndGetProvider();
-        }
-
-        /**
-         * This is called from DeveloperSettings when the user changes WebView provider.
-         */
-        @Override // Binder call
-        public String changeProviderAndSetting(String newProvider) {
-            if (getContext().checkCallingPermission(
-                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: changeProviderAndSetting() from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
-                Slog.w(TAG, msg);
-                throw new SecurityException(msg);
+            final long NS_PER_MS = 1000000;
+            final long timeoutTimeMs = System.nanoTime() / NS_PER_MS + WAIT_TIMEOUT_MS;
+            boolean relroReady = (is64Bit ? mRelroReady64Bit : mRelroReady32Bit);
+            synchronized (WebViewUpdateService.this) {
+                while (!relroReady) {
+                    final long timeNowMs = System.nanoTime() / NS_PER_MS;
+                    if (timeNowMs >= timeoutTimeMs) break;
+                    try {
+                        WebViewUpdateService.this.wait(timeoutTimeMs - timeNowMs);
+                    } catch (InterruptedException e) {}
+                    relroReady = (is64Bit ? mRelroReady64Bit : mRelroReady32Bit);
+                }
             }
-
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                return WebViewUpdateService.this.mImpl.changeProviderAndSetting(
-                        newProvider);
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
-            }
-        }
-
-        @Override // Binder call
-        public WebViewProviderInfo[] getValidWebViewPackages() {
-            return WebViewUpdateService.this.mImpl.getValidWebViewPackages();
-        }
-
-        @Override // Binder call
-        public WebViewProviderInfo[] getAllWebViewPackages() {
-            return WebViewUpdateService.this.mImpl.getWebViewPackages();
-        }
-
-        @Override // Binder call
-        public String getCurrentWebViewPackageName() {
-            PackageInfo pi = WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
-            return pi == null ? null : pi.packageName;
-        }
-
-        @Override // Binder call
-        public PackageInfo getCurrentWebViewPackage() {
-            return WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
-        }
-
-        @Override // Binder call
-        public boolean isFallbackPackage(String packageName) {
-            return WebViewUpdateService.this.mImpl.isFallbackPackage(packageName);
-        }
-
-        @Override // Binder call
-        public void enableFallbackLogic(boolean enable) {
-            if (getContext().checkCallingPermission(
-                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: enableFallbackLogic() from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
-                Slog.w(TAG, msg);
-                throw new SecurityException(msg);
-            }
-
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                WebViewUpdateService.this.mImpl.enableFallbackLogic(enable);
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
-            }
-        }
-
-        @Override // Binder call
-        public boolean isMultiProcessEnabled() {
-            return WebViewUpdateService.this.mImpl.isMultiProcessEnabled();
-        }
-
-        @Override // Binder call
-        public void enableMultiProcess(boolean enable) {
-            if (getContext().checkCallingPermission(
-                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: enableMultiProcess() from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
-                Slog.w(TAG, msg);
-                throw new SecurityException(msg);
-            }
-
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                WebViewUpdateService.this.mImpl.enableMultiProcess(enable);
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
-            }
-        }
-
-        @Override
-        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (!DumpUtils.checkDumpPermission(getContext(), TAG, pw)) return;
-            WebViewUpdateService.this.mImpl.dumpState(pw);
+            if (!relroReady) Slog.w(TAG, "creating relro file timed out");
         }
     }
+
 }

@@ -30,34 +30,20 @@ import android.util.Log;
  * @hide
  */
 public class ActivityRecognitionHardware extends IActivityRecognitionHardware.Stub {
-    private static final String TAG = "ActivityRecognitionHW";
-    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+    private static final String TAG = "ActivityRecognitionHardware";
 
     private static final String HARDWARE_PERMISSION = Manifest.permission.LOCATION_HARDWARE;
-    private static final String ENFORCE_HW_PERMISSION_MESSAGE = "Permission '"
-            + HARDWARE_PERMISSION + "' not granted to access ActivityRecognitionHardware";
-
     private static final int INVALID_ACTIVITY_TYPE = -1;
     private static final int NATIVE_SUCCESS_RESULT = 0;
-    private static final int EVENT_TYPE_DISABLED = 0;
-    private static final int EVENT_TYPE_ENABLED = 1;
 
-    /**
-     * Contains the number of supported Event Types.
-     *
-     * NOTE: increment this counter every time a new EVENT_TYPE_ is added to
-     *       com.android.location.provider.ActivityRecognitionProvider
-     */
-    private static final int EVENT_TYPE_COUNT = 3;
-
-    private static ActivityRecognitionHardware sSingletonInstance;
+    private static ActivityRecognitionHardware sSingletonInstance = null;
     private static final Object sSingletonInstanceLock = new Object();
 
     private final Context mContext;
-    private final int mSupportedActivitiesCount;
     private final String[] mSupportedActivities;
-    private final int[][] mSupportedActivitiesEnabledEvents;
-    private final SinkList mSinks = new SinkList();
+
+    private final RemoteCallbackList<IActivityRecognitionHardwareSink> mSinks =
+            new RemoteCallbackList<IActivityRecognitionHardwareSink>();
 
     private static class Event {
         public int activity;
@@ -70,8 +56,6 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
 
         mContext = context;
         mSupportedActivities = fetchSupportedActivities();
-        mSupportedActivitiesCount = mSupportedActivities.length;
-        mSupportedActivitiesEnabledEvents = new int[mSupportedActivitiesCount][EVENT_TYPE_COUNT];
     }
 
     public static ActivityRecognitionHardware getInstance(Context context) {
@@ -123,11 +107,7 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
         }
 
         int result = nativeEnableActivityEvent(activityType, eventType, reportLatencyNs);
-        if (result == NATIVE_SUCCESS_RESULT) {
-            mSupportedActivitiesEnabledEvents[activityType][eventType] = EVENT_TYPE_ENABLED;
-            return true;
-        }
-        return false;
+        return result == NATIVE_SUCCESS_RESULT;
     }
 
     @Override
@@ -140,11 +120,7 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
         }
 
         int result = nativeDisableActivityEvent(activityType, eventType);
-        if (result == NATIVE_SUCCESS_RESULT) {
-            mSupportedActivitiesEnabledEvents[activityType][eventType] = EVENT_TYPE_DISABLED;
-            return true;
-        }
-        return false;
+        return result == NATIVE_SUCCESS_RESULT;
     }
 
     @Override
@@ -159,7 +135,7 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
      */
     private void onActivityChanged(Event[] events) {
         if (events == null || events.length == 0) {
-            if (DEBUG) Log.d(TAG, "No events to broadcast for onActivityChanged.");
+            Log.d(TAG, "No events to broadcast for onActivityChanged.");
             return;
         }
 
@@ -185,6 +161,7 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
             }
         }
         mSinks.finishBroadcast();
+
     }
 
     private String getActivityName(int activityType) {
@@ -216,7 +193,10 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
     }
 
     private void checkPermissions() {
-        mContext.enforceCallingPermission(HARDWARE_PERMISSION, ENFORCE_HW_PERMISSION_MESSAGE);
+        String message = String.format(
+                "Permission '%s' not granted to access ActivityRecognitionHardware",
+                HARDWARE_PERMISSION);
+        mContext.enforceCallingPermission(HARDWARE_PERMISSION, message);
     }
 
     private String[] fetchSupportedActivities() {
@@ -226,39 +206,6 @@ public class ActivityRecognitionHardware extends IActivityRecognitionHardware.St
         }
 
         return new String[0];
-    }
-
-    private class SinkList extends RemoteCallbackList<IActivityRecognitionHardwareSink> {
-        @Override
-        public void onCallbackDied(IActivityRecognitionHardwareSink callback) {
-            int callbackCount = mSinks.getRegisteredCallbackCount();
-            if (DEBUG) Log.d(TAG, "RegisteredCallbackCount: " + callbackCount);
-            if (callbackCount != 0) {
-                return;
-            }
-            // currently there is only one client for this, so if all its sinks have died, we clean
-            // up after them, this ensures that the AR HAL is not out of sink
-            for (int activity = 0; activity < mSupportedActivitiesCount; ++activity) {
-                for (int event = 0; event < EVENT_TYPE_COUNT; ++event) {
-                    disableActivityEventIfEnabled(activity, event);
-                }
-            }
-        }
-
-        private void disableActivityEventIfEnabled(int activityType, int eventType) {
-            if (mSupportedActivitiesEnabledEvents[activityType][eventType] != EVENT_TYPE_ENABLED) {
-                return;
-            }
-
-            int result = nativeDisableActivityEvent(activityType, eventType);
-            mSupportedActivitiesEnabledEvents[activityType][eventType] = EVENT_TYPE_DISABLED;
-            String message = String.format(
-                    "DisableActivityEvent: activityType=%d, eventType=%d, result=%d",
-                    activityType,
-                    eventType,
-                    result);
-            Log.e(TAG, message);
-        }
     }
 
     // native bindings

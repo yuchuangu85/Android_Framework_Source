@@ -1,444 +1,450 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
-import java.security.*;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+import java.nio.ByteOrder;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import libcore.io.Memory;
 
 /**
- * A class that represents an immutable universally unique identifier (UUID).
- * A UUID represents a 128-bit value.
+ * UUID is an immutable representation of a 128-bit universally unique
+ * identifier (UUID).
+ * <p>
+ * There are multiple, variant layouts of UUIDs, but this class is based upon
+ * variant 2 of <a href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>, the
+ * Leach-Salz variant. This class can be used to model alternate variants, but
+ * most of the methods will be unsupported in those cases; see each method for
+ * details.
  *
- * <p> There exist different variants of these global identifiers.  The methods
- * of this class are for manipulating the Leach-Salz variant, although the
- * constructors allow the creation of any variant of UUID (described below).
- *
- * <p> The layout of a variant 2 (Leach-Salz) UUID is as follows:
- *
- * The most significant long consists of the following unsigned fields:
- * <pre>
- * 0xFFFFFFFF00000000 time_low
- * 0x00000000FFFF0000 time_mid
- * 0x000000000000F000 version
- * 0x0000000000000FFF time_hi
- * </pre>
- * The least significant long consists of the following unsigned fields:
- * <pre>
- * 0xC000000000000000 variant
- * 0x3FFF000000000000 clock_seq
- * 0x0000FFFFFFFFFFFF node
- * </pre>
- *
- * <p> The variant field contains a value which identifies the layout of the
- * {@code UUID}.  The bit layout described above is valid only for a {@code
- * UUID} with a variant value of 2, which indicates the Leach-Salz variant.
- *
- * <p> The version field holds a value that describes the type of this {@code
- * UUID}.  There are four different basic types of UUIDs: time-based, DCE
- * security, name-based, and randomly generated UUIDs.  These types have a
- * version value of 1, 2, 3 and 4, respectively.
- *
- * <p> For more information including algorithms used to create {@code UUID}s,
- * see <a href="http://www.ietf.org/rfc/rfc4122.txt"> <i>RFC&nbsp;4122: A
- * Universally Unique IDentifier (UUID) URN Namespace</i></a>, section 4.2
- * &quot;Algorithms for Creating a Time-Based UUID&quot;.
- *
- * @since   1.5
+ * @since 1.5
  */
-public final class UUID implements java.io.Serializable, Comparable<UUID> {
+public final class UUID implements Serializable, Comparable<UUID> {
 
-    /**
-     * Explicit serialVersionUID for interoperability.
-     */
     private static final long serialVersionUID = -4856846361193249489L;
 
-    /*
-     * The most significant 64 bits of this UUID.
-     *
-     * @serial
-     */
-    private final long mostSigBits;
+    private static SecureRandom rng;
 
-    /*
-     * The least significant 64 bits of this UUID.
-     *
-     * @serial
-     */
-    private final long leastSigBits;
+    private long mostSigBits;
+    private long leastSigBits;
 
-    /*
-     * The random number generator used by this class to create random
-     * based UUIDs. In a holder class to defer initialization until needed.
-     */
-    private static class Holder {
-        static final SecureRandom numberGenerator = new SecureRandom();
-    }
-
-    // Constructors and Factories
-
-    /*
-     * Private constructor which uses a byte array to construct the new UUID.
-     */
-    private UUID(byte[] data) {
-        long msb = 0;
-        long lsb = 0;
-        assert data.length == 16 : "data must be 16 bytes in length";
-        for (int i=0; i<8; i++)
-            msb = (msb << 8) | (data[i] & 0xff);
-        for (int i=8; i<16; i++)
-            lsb = (lsb << 8) | (data[i] & 0xff);
-        this.mostSigBits = msb;
-        this.leastSigBits = lsb;
-    }
+    private transient int variant;
+    private transient int version;
+    private transient long timestamp;
+    private transient int clockSequence;
+    private transient long node;
+    private transient int hash;
 
     /**
-     * Constructs a new {@code UUID} using the specified data.  {@code
-     * mostSigBits} is used for the most significant 64 bits of the {@code
-     * UUID} and {@code leastSigBits} becomes the least significant 64 bits of
-     * the {@code UUID}.
+     * <p>
+     * Constructs an instance with the specified bits.
      *
-     * @param  mostSigBits
-     *         The most significant bits of the {@code UUID}
-     *
-     * @param  leastSigBits
-     *         The least significant bits of the {@code UUID}
+     * @param mostSigBits
+     *            The 64 most significant bits of the UUID.
+     * @param leastSigBits
+     *            The 64 least significant bits of the UUID.
      */
     public UUID(long mostSigBits, long leastSigBits) {
         this.mostSigBits = mostSigBits;
         this.leastSigBits = leastSigBits;
+        init();
     }
 
     /**
-     * Static factory to retrieve a type 4 (pseudo randomly generated) UUID.
+     * <p>
+     * Sets up the transient fields of this instance based on the current values
+     * of the {@code mostSigBits} and {@code leastSigBits} fields.
+     */
+    private void init() {
+        // setup hash field
+        int msbHash = (int) (mostSigBits ^ (mostSigBits >>> 32));
+        int lsbHash = (int) (leastSigBits ^ (leastSigBits >>> 32));
+        hash = msbHash ^ lsbHash;
+
+        // setup variant field
+        if ((leastSigBits & 0x8000000000000000L) == 0) {
+            // MSB0 not set, NCS backwards compatibility variant
+            variant = 0;
+        } else if ((leastSigBits & 0x4000000000000000L) != 0) {
+            // MSB1 set, either MS reserved or future reserved
+            variant = (int) ((leastSigBits & 0xE000000000000000L) >>> 61);
+        } else {
+            // MSB1 not set, RFC 4122 variant
+            variant = 2;
+        }
+
+        // setup version field
+        version = (int) ((mostSigBits & 0x000000000000F000) >>> 12);
+
+        if (variant != 2 && version != 1) {
+            return;
+        }
+
+        // setup timestamp field
+        long timeLow = (mostSigBits & 0xFFFFFFFF00000000L) >>> 32;
+        long timeMid = (mostSigBits & 0x00000000FFFF0000L) << 16;
+        long timeHigh = (mostSigBits & 0x0000000000000FFFL) << 48;
+        timestamp = timeLow | timeMid | timeHigh;
+
+        // setup clock sequence field
+        clockSequence = (int) ((leastSigBits & 0x3FFF000000000000L) >>> 48);
+
+        // setup node field
+        node = (leastSigBits & 0x0000FFFFFFFFFFFFL);
+    }
+
+    /**
+     * <p>
+     * Generates a variant 2, version 4 (randomly generated number) UUID as per
+     * <a href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * The {@code UUID} is generated using a cryptographically strong pseudo
-     * random number generator.
-     *
-     * @return  A randomly generated {@code UUID}
+     * @return an UUID instance.
      */
     public static UUID randomUUID() {
-        SecureRandom ng = Holder.numberGenerator;
-
-        byte[] randomBytes = new byte[16];
-        ng.nextBytes(randomBytes);
-        randomBytes[6]  &= 0x0f;  /* clear version        */
-        randomBytes[6]  |= 0x40;  /* set to version 4     */
-        randomBytes[8]  &= 0x3f;  /* clear variant        */
-        randomBytes[8]  |= 0x80;  /* set to IETF variant  */
-        return new UUID(randomBytes);
+        byte[] data = new byte[16];
+        // lock on the class to protect lazy init
+        synchronized (UUID.class) {
+            if (rng == null) {
+                rng = new SecureRandom();
+            }
+        }
+        rng.nextBytes(data);
+        return makeUuid(data, 4);
     }
 
     /**
-     * Static factory to retrieve a type 3 (name based) {@code UUID} based on
-     * the specified byte array.
+     * <p>
+     * Generates a variant 2, version 3 (name-based, MD5-hashed) UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * @param  name
-     *         A byte array to be used to construct a {@code UUID}
-     *
-     * @return  A {@code UUID} generated from the specified array
+     * @param name
+     *            the name used as byte array to create an UUID.
+     * @return an UUID instance.
      */
     public static UUID nameUUIDFromBytes(byte[] name) {
-        MessageDigest md;
-        try {
-            md = MessageDigest.getInstance("MD5");
-        } catch (NoSuchAlgorithmException nsae) {
-            throw new InternalError("MD5 not supported", nsae);
+        if (name == null) {
+            throw new NullPointerException("name == null");
         }
-        byte[] md5Bytes = md.digest(name);
-        md5Bytes[6]  &= 0x0f;  /* clear version        */
-        md5Bytes[6]  |= 0x30;  /* set to version 3     */
-        md5Bytes[8]  &= 0x3f;  /* clear variant        */
-        md5Bytes[8]  |= 0x80;  /* set to IETF variant  */
-        return new UUID(md5Bytes);
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            return makeUuid(md.digest(name), 3);
+        } catch (NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static UUID makeUuid(byte[] hash, int version) {
+        long msb = Memory.peekLong(hash, 0, ByteOrder.BIG_ENDIAN);
+        long lsb = Memory.peekLong(hash, 8, ByteOrder.BIG_ENDIAN);
+        // Set the version field.
+        msb &= ~(0xfL << 12);
+        msb |= ((long) version) << 12;
+        // Set the variant field to 2. Note that the variant field is variable-width,
+        // so supporting other variants is not just a matter of changing the constant 2 below!
+        lsb &= ~(0x3L << 62);
+        lsb |= 2L << 62;
+        return new UUID(msb, lsb);
     }
 
     /**
-     * Creates a {@code UUID} from the string standard representation as
-     * described in the {@link #toString} method.
+     * <p>
+     * Parses a UUID string with the format defined by {@link #toString()}.
      *
-     * @param  name
-     *         A string that specifies a {@code UUID}
-     *
-     * @return  A {@code UUID} with the specified value
-     *
-     * @throws  IllegalArgumentException
-     *          If name does not conform to the string representation as
-     *          described in {@link #toString}
-     *
+     * @param uuid
+     *            the UUID string to parse.
+     * @return an UUID instance.
+     * @throws NullPointerException
+     *             if {@code uuid} is {@code null}.
+     * @throws IllegalArgumentException
+     *             if {@code uuid} is not formatted correctly.
      */
-    public static UUID fromString(String name) {
-        String[] components = name.split("-");
-        if (components.length != 5)
-            throw new IllegalArgumentException("Invalid UUID string: "+name);
-        for (int i=0; i<5; i++)
-            components[i] = "0x"+components[i];
+    public static UUID fromString(String uuid) {
+        if (uuid == null) {
+            throw new NullPointerException("uuid == null");
+        }
 
-        long mostSigBits = Long.decode(components[0]).longValue();
-        mostSigBits <<= 16;
-        mostSigBits |= Long.decode(components[1]).longValue();
-        mostSigBits <<= 16;
-        mostSigBits |= Long.decode(components[2]).longValue();
+        String[] parts = uuid.split("-");
+        if (parts.length != 5) {
+            throw new IllegalArgumentException("Invalid UUID: " + uuid);
+        }
 
-        long leastSigBits = Long.decode(components[3]).longValue();
-        leastSigBits <<= 48;
-        leastSigBits |= Long.decode(components[4]).longValue();
+        long m1 = Long.parsePositiveLong(parts[0], 16);
+        long m2 = Long.parsePositiveLong(parts[1], 16);
+        long m3 = Long.parsePositiveLong(parts[2], 16);
 
-        return new UUID(mostSigBits, leastSigBits);
+        long lsb1 = Long.parsePositiveLong(parts[3], 16);
+        long lsb2 = Long.parsePositiveLong(parts[4], 16);
+
+        long msb = (m1 << 32) | (m2 << 16) | m3;
+        long lsb = (lsb1 << 48) | lsb2;
+
+        return new UUID(msb, lsb);
     }
 
-    // Field Accessor Methods
-
     /**
-     * Returns the least significant 64 bits of this UUID's 128 bit value.
+     * <p>
+     * The 64 least significant bits of the UUID.
      *
-     * @return  The least significant 64 bits of this UUID's 128 bit value
+     * @return the 64 least significant bits.
      */
     public long getLeastSignificantBits() {
         return leastSigBits;
     }
 
     /**
-     * Returns the most significant 64 bits of this UUID's 128 bit value.
+     * <p>
+     * The 64 most significant bits of the UUID.
      *
-     * @return  The most significant 64 bits of this UUID's 128 bit value
+     * @return the 64 most significant bits.
      */
     public long getMostSignificantBits() {
         return mostSigBits;
     }
 
     /**
-     * The version number associated with this {@code UUID}.  The version
-     * number describes how this {@code UUID} was generated.
-     *
-     * The version number has the following meaning:
+     * <p>
+     * The version of the variant 2 UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>. If the variant
+     * is not 2, then the version will be 0.
      * <ul>
-     * <li>1    Time-based UUID
-     * <li>2    DCE security UUID
-     * <li>3    Name-based UUID
-     * <li>4    Randomly generated UUID
+     * <li>1 - Time-based UUID</li>
+     * <li>2 - DCE Security UUID</li>
+     * <li>3 - Name-based with MD5 hashing UUID ({@link #nameUUIDFromBytes(byte[])})</li>
+     * <li>4 - Randomly generated UUID ({@link #randomUUID()})</li>
+     * <li>5 - Name-based with SHA-1 hashing UUID</li>
      * </ul>
      *
-     * @return  The version number of this {@code UUID}
+     * @return an {@code int} value.
      */
     public int version() {
-        // Version is bits masked by 0x000000000000F000 in MS long
-        return (int)((mostSigBits >> 12) & 0x0f);
+        return version;
     }
 
     /**
-     * The variant number associated with this {@code UUID}.  The variant
-     * number describes the layout of the {@code UUID}.
-     *
-     * The variant number has the following meaning:
+     * <p>
+     * The variant of the UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      * <ul>
-     * <li>0    Reserved for NCS backward compatibility
-     * <li>2    <a href="http://www.ietf.org/rfc/rfc4122.txt">IETF&nbsp;RFC&nbsp;4122</a>
-     * (Leach-Salz), used by this class
-     * <li>6    Reserved, Microsoft Corporation backward compatibility
-     * <li>7    Reserved for future definition
+     * <li>0 - Reserved for NCS compatibility</li>
+     * <li>2 - RFC 4122/Leach-Salz</li>
+     * <li>6 - Reserved for Microsoft Corporation compatibility</li>
+     * <li>7 - Reserved for future use</li>
      * </ul>
      *
-     * @return  The variant number of this {@code UUID}
+     * @return an {@code int} value.
      */
     public int variant() {
-        // This field is composed of a varying number of bits.
-        // 0    -    -    Reserved for NCS backward compatibility
-        // 1    0    -    The IETF aka Leach-Salz variant (used by this class)
-        // 1    1    0    Reserved, Microsoft backward compatibility
-        // 1    1    1    Reserved for future definition.
-        return (int) ((leastSigBits >>> (64 - (leastSigBits >>> 62)))
-                      & (leastSigBits >> 63));
+        return variant;
     }
 
     /**
-     * The timestamp value associated with this UUID.
+     * <p>
+     * The timestamp value of the version 1, variant 2 UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * <p> The 60 bit timestamp value is constructed from the time_low,
-     * time_mid, and time_hi fields of this {@code UUID}.  The resulting
-     * timestamp is measured in 100-nanosecond units since midnight,
-     * October 15, 1582 UTC.
-     *
-     * <p> The timestamp value is only meaningful in a time-based UUID, which
-     * has version type 1.  If this {@code UUID} is not a time-based UUID then
-     * this method throws UnsupportedOperationException.
-     *
+     * @return a {@code long} value.
      * @throws UnsupportedOperationException
-     *         If this UUID is not a version 1 UUID
-     * @return The timestamp of this {@code UUID}.
+     *             if {@link #version()} is not 1.
      */
     public long timestamp() {
-        if (version() != 1) {
-            throw new UnsupportedOperationException("Not a time-based UUID");
+        if (version != 1) {
+            throw new UnsupportedOperationException();
         }
-
-        return (mostSigBits & 0x0FFFL) << 48
-             | ((mostSigBits >> 16) & 0x0FFFFL) << 32
-             | mostSigBits >>> 32;
+        return timestamp;
     }
 
     /**
-     * The clock sequence value associated with this UUID.
+     * <p>
+     * The clock sequence value of the version 1, variant 2 UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * <p> The 14 bit clock sequence value is constructed from the clock
-     * sequence field of this UUID.  The clock sequence field is used to
-     * guarantee temporal uniqueness in a time-based UUID.
-     *
-     * <p> The {@code clockSequence} value is only meaningful in a time-based
-     * UUID, which has version type 1.  If this UUID is not a time-based UUID
-     * then this method throws UnsupportedOperationException.
-     *
-     * @return  The clock sequence of this {@code UUID}
-     *
-     * @throws  UnsupportedOperationException
-     *          If this UUID is not a version 1 UUID
+     * @return a {@code long} value.
+     * @throws UnsupportedOperationException
+     *             if {@link #version()} is not 1.
      */
     public int clockSequence() {
-        if (version() != 1) {
-            throw new UnsupportedOperationException("Not a time-based UUID");
+        if (version != 1) {
+            throw new UnsupportedOperationException();
         }
-
-        return (int)((leastSigBits & 0x3FFF000000000000L) >>> 48);
+        return clockSequence;
     }
 
     /**
-     * The node value associated with this UUID.
+     * <p>
+     * The node value of the version 1, variant 2 UUID as per <a
+     * href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * <p> The 48 bit node value is constructed from the node field of this
-     * UUID.  This field is intended to hold the IEEE 802 address of the machine
-     * that generated this UUID to guarantee spatial uniqueness.
-     *
-     * <p> The node value is only meaningful in a time-based UUID, which has
-     * version type 1.  If this UUID is not a time-based UUID then this method
-     * throws UnsupportedOperationException.
-     *
-     * @return  The node value of this {@code UUID}
-     *
-     * @throws  UnsupportedOperationException
-     *          If this UUID is not a version 1 UUID
+     * @return a {@code long} value.
+     * @throws UnsupportedOperationException
+     *             if {@link #version()} is not 1.
      */
     public long node() {
-        if (version() != 1) {
-            throw new UnsupportedOperationException("Not a time-based UUID");
+        if (version != 1) {
+            throw new UnsupportedOperationException();
+        }
+        return node;
+    }
+
+    /**
+     * <p>
+     * Compares this UUID to the specified UUID. The natural ordering of UUIDs
+     * is based upon the value of the bits from most significant to least
+     * significant.
+     *
+     * @param uuid
+     *            the UUID to compare to.
+     * @return a value of -1, 0 or 1 if this UUID is less than, equal to or
+     *         greater than {@code uuid}.
+     */
+    public int compareTo(UUID uuid) {
+        if (uuid == this) {
+            return 0;
         }
 
-        return leastSigBits & 0x0000FFFFFFFFFFFFL;
-    }
+        if (this.mostSigBits != uuid.mostSigBits) {
+            return this.mostSigBits < uuid.mostSigBits ? -1 : 1;
+        }
 
-    // Object Inherited Methods
+        // assert this.mostSigBits == uuid.mostSigBits;
 
-    /**
-     * Returns a {@code String} object representing this {@code UUID}.
-     *
-     * <p> The UUID string representation is as described by this BNF:
-     * <blockquote><pre>
-     * {@code
-     * UUID                   = <time_low> "-" <time_mid> "-"
-     *                          <time_high_and_version> "-"
-     *                          <variant_and_sequence> "-"
-     *                          <node>
-     * time_low               = 4*<hexOctet>
-     * time_mid               = 2*<hexOctet>
-     * time_high_and_version  = 2*<hexOctet>
-     * variant_and_sequence   = 2*<hexOctet>
-     * node                   = 6*<hexOctet>
-     * hexOctet               = <hexDigit><hexDigit>
-     * hexDigit               =
-     *       "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-     *       | "a" | "b" | "c" | "d" | "e" | "f"
-     *       | "A" | "B" | "C" | "D" | "E" | "F"
-     * }</pre></blockquote>
-     *
-     * @return  A string representation of this {@code UUID}
-     */
-    public String toString() {
-        return (digits(mostSigBits >> 32, 8) + "-" +
-                digits(mostSigBits >> 16, 4) + "-" +
-                digits(mostSigBits, 4) + "-" +
-                digits(leastSigBits >> 48, 4) + "-" +
-                digits(leastSigBits, 12));
-    }
+        if (this.leastSigBits != uuid.leastSigBits) {
+            return this.leastSigBits < uuid.leastSigBits ? -1 : 1;
+        }
 
-    /** Returns val represented by the specified number of hex digits. */
-    private static String digits(long val, int digits) {
-        long hi = 1L << (digits * 4);
-        return Long.toHexString(hi | (val & (hi - 1))).substring(1);
+        // assert this.leastSigBits == uuid.leastSigBits;
+
+        return 0;
     }
 
     /**
-     * Returns a hash code for this {@code UUID}.
+     * <p>
+     * Compares this UUID to another object for equality. If {@code object}
+     * is not {@code null}, is a UUID instance, and all bits are equal, then
+     * {@code true} is returned.
      *
-     * @return  A hash code value for this {@code UUID}
+     * @param object
+     *            the {@code Object} to compare to.
+     * @return {@code true} if this UUID is equal to {@code object}
+     *         or {@code false} if not.
      */
-    public int hashCode() {
-        long hilo = mostSigBits ^ leastSigBits;
-        return ((int)(hilo >> 32)) ^ (int) hilo;
-    }
-
-    /**
-     * Compares this object to the specified object.  The result is {@code
-     * true} if and only if the argument is not {@code null}, is a {@code UUID}
-     * object, has the same variant, and contains the same value, bit for bit,
-     * as this {@code UUID}.
-     *
-     * @param  obj
-     *         The object to be compared
-     *
-     * @return  {@code true} if the objects are the same; {@code false}
-     *          otherwise
-     */
-    public boolean equals(Object obj) {
-        if ((null == obj) || (obj.getClass() != UUID.class))
+    @Override
+    public boolean equals(Object object) {
+        if (object == null) {
             return false;
-        UUID id = (UUID)obj;
-        return (mostSigBits == id.mostSigBits &&
-                leastSigBits == id.leastSigBits);
+        }
+
+        if (this == object) {
+            return true;
+        }
+
+        if (!(object instanceof UUID)) {
+            return false;
+        }
+
+        UUID that = (UUID) object;
+
+        return (this.leastSigBits == that.leastSigBits)
+                && (this.mostSigBits == that.mostSigBits);
     }
 
-    // Comparison Operations
+    /**
+     * <p>
+     * Returns a hash value for this UUID that is consistent with the
+     * {@link #equals(Object)} method.
+     *
+     * @return an {@code int} value.
+     */
+    @Override
+    public int hashCode() {
+        return hash;
+    }
 
     /**
-     * Compares this UUID with the specified UUID.
+     * <p>
+     * Returns a string representation of this UUID in the following format, as
+     * per <a href="http://www.ietf.org/rfc/rfc4122.txt">RFC 4122</a>.
      *
-     * <p> The first of two UUIDs is greater than the second if the most
-     * significant field in which the UUIDs differ is greater for the first
-     * UUID.
+     * <pre>
+     *            UUID                   = time-low &quot;-&quot; time-mid &quot;-&quot;
+     *                                     time-high-and-version &quot;-&quot;
+     *                                     clock-seq-and-reserved
+     *                                     clock-seq-low &quot;-&quot; node
+     *            time-low               = 4hexOctet
+     *            time-mid               = 2hexOctet
+     *            time-high-and-version  = 2hexOctet
+     *            clock-seq-and-reserved = hexOctet
+     *            clock-seq-low          = hexOctet
+     *            node                   = 6hexOctet
+     *            hexOctet               = hexDigit hexDigit
+     *            hexDigit =
+     *                &quot;0&quot; / &quot;1&quot; / &quot;2&quot; / &quot;3&quot; / &quot;4&quot; / &quot;5&quot; / &quot;6&quot; / &quot;7&quot; / &quot;8&quot; / &quot;9&quot; /
+     *                &quot;a&quot; / &quot;b&quot; / &quot;c&quot; / &quot;d&quot; / &quot;e&quot; / &quot;f&quot; /
+     *                &quot;A&quot; / &quot;B&quot; / &quot;C&quot; / &quot;D&quot; / &quot;E&quot; / &quot;F&quot;
+     * </pre>
      *
-     * @param  val
-     *         {@code UUID} to which this {@code UUID} is to be compared
-     *
-     * @return  -1, 0 or 1 as this {@code UUID} is less than, equal to, or
-     *          greater than {@code val}
-     *
+     * @return a String instance.
      */
-    public int compareTo(UUID val) {
-        // The ordering is intentionally set up so that the UUIDs
-        // can simply be numerically compared as two numbers
-        return (this.mostSigBits < val.mostSigBits ? -1 :
-                (this.mostSigBits > val.mostSigBits ? 1 :
-                 (this.leastSigBits < val.leastSigBits ? -1 :
-                  (this.leastSigBits > val.leastSigBits ? 1 :
-                   0))));
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder(36);
+        String msbStr = Long.toHexString(mostSigBits);
+        if (msbStr.length() < 16) {
+            int diff = 16 - msbStr.length();
+            for (int i = 0; i < diff; i++) {
+                builder.append('0');
+            }
+        }
+        builder.append(msbStr);
+        builder.insert(8, '-');
+        builder.insert(13, '-');
+        builder.append('-');
+        String lsbStr = Long.toHexString(leastSigBits);
+        if (lsbStr.length() < 16) {
+            int diff = 16 - lsbStr.length();
+            for (int i = 0; i < diff; i++) {
+                builder.append('0');
+            }
+        }
+        builder.append(lsbStr);
+        builder.insert(23, '-');
+        return builder.toString();
+    }
+
+    /**
+     * <p>
+     * Resets the transient fields to match the behavior of the constructor.
+     *
+     * @param in
+     *            the {@code InputStream} to read from.
+     * @throws IOException
+     *             if {@code in} throws it.
+     * @throws ClassNotFoundException
+     *             if {@code in} throws it.
+     */
+    private void readObject(ObjectInputStream in) throws IOException,
+            ClassNotFoundException {
+        // read in non-transient fields
+        in.defaultReadObject();
+        // setup transient fields
+        init();
     }
 }

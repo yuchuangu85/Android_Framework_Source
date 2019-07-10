@@ -16,6 +16,10 @@
 
 package android.inputmethodservice;
 
+import com.android.internal.os.HandlerCaller;
+import com.android.internal.os.SomeArgs;
+import com.android.internal.view.IInputMethodSession;
+
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -30,13 +34,9 @@ import android.view.InputEventReceiver;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.inputmethod.CompletionInfo;
-import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.InputMethodSession;
-
-import com.android.internal.os.HandlerCaller;
-import com.android.internal.os.SomeArgs;
-import com.android.internal.view.IInputMethodSession;
+import android.view.inputmethod.CursorAnchorInfo;
 
 class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         implements HandlerCaller.Callback {
@@ -218,7 +218,7 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         @Override
-        public void onInputEvent(InputEvent event, int displayId) {
+        public void onInputEvent(InputEvent event) {
             if (mInputMethodSession == null) {
                 // The session has been finished.
                 finishInputEvent(event, false);

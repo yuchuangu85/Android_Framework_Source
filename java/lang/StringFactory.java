@@ -17,7 +17,6 @@
 
 package java.lang;
 
-import dalvik.annotation.optimization.FastNative;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -29,7 +28,7 @@ import libcore.util.CharsetUtils;
 import libcore.util.EmptyArray;
 
 /**
- * Class used to generate strings instead of calling String.&lt;init&gt;.
+ * Class used to generate strings instead of calling String.&lt;init>.
  *
  * @hide
  */
@@ -54,7 +53,6 @@ public final class StringFactory {
         return newStringFromBytes(data, offset, byteCount, Charset.defaultCharset());
     }
 
-    @FastNative
     public static native String newStringFromBytes(byte[] data, int high, int offset, int byteCount);
 
     public static String newStringFromBytes(byte[] data, int offset, int byteCount, String charsetName) throws UnsupportedEncodingException {
@@ -64,14 +62,6 @@ public final class StringFactory {
     public static String newStringFromBytes(byte[] data, String charsetName) throws UnsupportedEncodingException {
         return newStringFromBytes(data, 0, data.length, Charset.forNameUEE(charsetName));
     }
-
-    private static final int[] TABLE_UTF8_NEEDED = new int[] {
-    //      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
-            0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xc0 - 0xcf
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 0xd0 - 0xdf
-            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 0xe0 - 0xef
-            3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 0xf0 - 0xff
-    };
 
     // TODO: Implement this method natively.
     public static String newStringFromBytes(byte[] data, int offset, int byteCount, Charset charset) {
@@ -85,135 +75,96 @@ public final class StringFactory {
         // We inline UTF-8, ISO-8859-1, and US-ASCII decoders for speed.
         String canonicalCharsetName = charset.name();
         if (canonicalCharsetName.equals("UTF-8")) {
-            /*
-            This code converts a UTF-8 byte sequence to a Java String (UTF-16).
-            It implements the W3C recommended UTF-8 decoder.
-            https://www.w3.org/TR/encoding/#utf-8-decoder
-
-            Unicode 3.2 Well-Formed UTF-8 Byte Sequences
-            Code Points        First  Second Third Fourth
-            U+0000..U+007F     00..7F
-            U+0080..U+07FF     C2..DF 80..BF
-            U+0800..U+0FFF     E0     A0..BF 80..BF
-            U+1000..U+CFFF     E1..EC 80..BF 80..BF
-            U+D000..U+D7FF     ED     80..9F 80..BF
-            U+E000..U+FFFF     EE..EF 80..BF 80..BF
-            U+10000..U+3FFFF   F0     90..BF 80..BF 80..BF
-            U+40000..U+FFFFF   F1..F3 80..BF 80..BF 80..BF
-            U+100000..U+10FFFF F4     80..8F 80..BF 80..BF
-
-            Please refer to Unicode as the authority.
-            p.126 Table 3-7 in http://www.unicode.org/versions/Unicode10.0.0/ch03.pdf
-
-            Handling Malformed Input
-            The maximal subpart should be replaced by a single U+FFFD. Maximal subpart is
-            the longest code unit subsequence starting at an unconvertible offset that is either
-            1) the initial subsequence of a well-formed code unit sequence, or
-            2) a subsequence of length one:
-            One U+FFFD should be emitted for every sequence of bytes that is an incomplete prefix
-            of a valid sequence, and with the conversion to restart after the incomplete sequence.
-
-            For example, in byte sequence "41 C0 AF 41 F4 80 80 41", the maximal subparts are
-            "C0", "AF", and "F4 80 80". "F4 80 80" can be the initial subsequence of "F4 80 80 80",
-            but "C0" can't be the initial subsequence of any well-formed code unit sequence.
-            Thus, the output should be "A\ufffd\ufffdA\ufffdA".
-
-            Please refer to section "Best Practices for Using U+FFFD." in
-            http://www.unicode.org/versions/Unicode10.0.0/ch03.pdf
-            */
             byte[] d = data;
             char[] v = new char[byteCount];
 
             int idx = offset;
             int last = offset + byteCount;
             int s = 0;
-
-            int codePoint = 0;
-            int utf8BytesSeen = 0;
-            int utf8BytesNeeded = 0;
-            int lowerBound = 0x80;
-            int upperBound = 0xbf;
-
+outer:
             while (idx < last) {
-                int b = d[idx++] & 0xff;
-                if (utf8BytesNeeded == 0) {
-                    if ((b & 0x80) == 0) { // ASCII char. 0xxxxxxx
-                        v[s++] = (char) b;
-                        continue;
-                    }
+                byte b0 = d[idx++];
+                if ((b0 & 0x80) == 0) {
+                    // 0xxxxxxx
+                    // Range:  U-00000000 - U-0000007F
+                    int val = b0 & 0xff;
+                    v[s++] = (char) val;
+                } else if (((b0 & 0xe0) == 0xc0) || ((b0 & 0xf0) == 0xe0) ||
+                        ((b0 & 0xf8) == 0xf0) || ((b0 & 0xfc) == 0xf8) || ((b0 & 0xfe) == 0xfc)) {
+                    int utfCount = 1;
+                    if ((b0 & 0xf0) == 0xe0) utfCount = 2;
+                    else if ((b0 & 0xf8) == 0xf0) utfCount = 3;
+                    else if ((b0 & 0xfc) == 0xf8) utfCount = 4;
+                    else if ((b0 & 0xfe) == 0xfc) utfCount = 5;
 
-                    if ((b & 0x40) == 0) { // 10xxxxxx is illegal as first byte
+                    // 110xxxxx (10xxxxxx)+
+                    // Range:  U-00000080 - U-000007FF (count == 1)
+                    // Range:  U-00000800 - U-0000FFFF (count == 2)
+                    // Range:  U-00010000 - U-001FFFFF (count == 3)
+                    // Range:  U-00200000 - U-03FFFFFF (count == 4)
+                    // Range:  U-04000000 - U-7FFFFFFF (count == 5)
+
+                    if (idx + utfCount > last) {
                         v[s++] = REPLACEMENT_CHAR;
                         continue;
                     }
 
-                    // 11xxxxxx
-                    int tableLookupIndex = b & 0x3f;
-                    utf8BytesNeeded = TABLE_UTF8_NEEDED[tableLookupIndex];
-                    if (utf8BytesNeeded == 0) {
+                    // Extract usable bits from b0
+                    int val = b0 & (0x1f >> (utfCount - 1));
+                    for (int i = 0; i < utfCount; ++i) {
+                        byte b = d[idx++];
+                        if ((b & 0xc0) != 0x80) {
+                            v[s++] = REPLACEMENT_CHAR;
+                            idx--; // Put the input char back
+                            continue outer;
+                        }
+                        // Push new bits in from the right side
+                        val <<= 6;
+                        val |= b & 0x3f;
+                    }
+
+                    // Note: Java allows overlong char
+                    // specifications To disallow, check that val
+                    // is greater than or equal to the minimum
+                    // value for each count:
+                    //
+                    // count    min value
+                    // -----   ----------
+                    //   1           0x80
+                    //   2          0x800
+                    //   3        0x10000
+                    //   4       0x200000
+                    //   5      0x4000000
+
+                    // Allow surrogate values (0xD800 - 0xDFFF) to
+                    // be specified using 3-byte UTF values only
+                    if ((utfCount != 2) && (val >= 0xD800) && (val <= 0xDFFF)) {
                         v[s++] = REPLACEMENT_CHAR;
                         continue;
                     }
 
-                    // utf8BytesNeeded
-                    // 1: b & 0x1f
-                    // 2: b & 0x0f
-                    // 3: b & 0x07
-                    codePoint = b & (0x3f >> utf8BytesNeeded);
-                    if (b == 0xe0) {
-                        lowerBound = 0xa0;
-                    } else if (b == 0xed) {
-                        upperBound = 0x9f;
-                    } else if (b == 0xf0) {
-                        lowerBound = 0x90;
-                    } else if (b == 0xf4) {
-                        upperBound = 0x8f;
-                    }
-                } else {
-                    if (b < lowerBound || b > upperBound) {
-                        // The bytes seen are ill-formed. Substitute them with U+FFFD
+                    // Reject chars greater than the Unicode maximum of U+10FFFF.
+                    if (val > 0x10FFFF) {
                         v[s++] = REPLACEMENT_CHAR;
-                        codePoint = 0;
-                        utf8BytesNeeded = 0;
-                        utf8BytesSeen = 0;
-                        lowerBound = 0x80;
-                        upperBound = 0xbf;
-                        /*
-                         * According to the Unicode Standard,
-                         * "a UTF-8 conversion process is required to never consume well-formed
-                         * subsequences as part of its error handling for ill-formed subsequences"
-                         * The current byte could be part of well-formed subsequences. Reduce the
-                         * index by 1 to parse it in next loop.
-                         */
-                        idx--;
-                        continue;
-                    }
-
-                    lowerBound = 0x80;
-                    upperBound = 0xbf;
-                    codePoint = (codePoint << 6) | (b & 0x3f);
-                    utf8BytesSeen++;
-                    if (utf8BytesNeeded != utf8BytesSeen) {
                         continue;
                     }
 
                     // Encode chars from U+10000 up as surrogate pairs
-                    if (codePoint < 0x10000) {
-                        v[s++] = (char) codePoint;
+                    if (val < 0x10000) {
+                        v[s++] = (char) val;
                     } else {
-                        v[s++] = (char) ((codePoint >> 10) + 0xd7c0);
-                        v[s++] = (char) ((codePoint & 0x3ff) + 0xdc00);
+                        int x = val & 0xffff;
+                        int u = (val >> 16) & 0x1f;
+                        int w = (u - 1) & 0xffff;
+                        int hi = 0xd800 | (w << 6) | (x >> 10);
+                        int lo = 0xdc00 | (x & 0x3ff);
+                        v[s++] = (char) hi;
+                        v[s++] = (char) lo;
                     }
-
-                    utf8BytesSeen = 0;
-                    utf8BytesNeeded = 0;
-                    codePoint = 0;
+                } else {
+                    // Illegal values 0x8*, 0x9*, 0xa*, 0xb*, 0xfd-0xff
+                    v[s++] = REPLACEMENT_CHAR;
                 }
-            }
-
-            // The bytes seen are ill-formed. Substitute them by U+FFFD
-            if (utf8BytesNeeded != 0) {
-                v[s++] = REPLACEMENT_CHAR;
             }
 
             if (s == byteCount) {
@@ -267,11 +218,8 @@ public final class StringFactory {
         return newStringFromChars(offset, charCount, data);
     }
 
-    // The char array passed as {@code java_data} must not be a null reference.
-    @FastNative
     static native String newStringFromChars(int offset, int charCount, char[] data);
 
-    @FastNative
     public static native String newStringFromString(String toCopy);
 
     public static String newStringFromStringBuffer(StringBuffer stringBuffer) {

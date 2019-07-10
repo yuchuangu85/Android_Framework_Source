@@ -1,80 +1,52 @@
 /*
- * Copyright (c) 2005, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
 /**
- * Interface for JDBC classes which provide the ability to retrieve the delegate instance when the instance
- * in question is in fact a proxy class.
- * <p>
- * The wrapper pattern is employed by many JDBC driver implementations to provide extensions beyond
- * the traditional JDBC API that are specific to a data source. Developers may wish to gain access to
- * these resources that are wrapped (the delegates) as  proxy class instances representing the
- * the actual resources. This interface describes a standard mechanism to access
- * these wrapped resources
- * represented by their proxy, to permit direct access to the resource delegates.
+ * This class is an actual usage of the wrapper pattern for JDBC classes.
+ * Developers can get the delegate instance when the instance may be a proxy
+ * class.
  *
  * @since 1.6
  */
-
 public interface Wrapper {
 
     /**
-     * Returns an object that implements the given interface to allow access to
-     * non-standard methods, or standard methods not exposed by the proxy.
+     * Returns an object that implements the given interface. If the caller is
+     * not a wrapper, a SQLException will be thrown.
      *
-     * If the receiver implements the interface then the result is the receiver
-     * or a proxy for the receiver. If the receiver is a wrapper
-     * and the wrapped object implements the interface then the result is the
-     * wrapped object or a proxy for the wrapped object. Otherwise return the
-     * the result of calling <code>unwrap</code> recursively on the wrapped object
-     * or a proxy for that result. If the receiver is not a
-     * wrapper and does not implement the interface, then an <code>SQLException</code> is thrown.
-     *
-     * @param iface A Class defining an interface that the result must implement.
-     * @return an object that implements the interface. May be a proxy for the actual implementing object.
-     * @throws java.sql.SQLException If no object found that implements the interface
-     * @since 1.6
+     * @param iface -
+     *            the class that defines the interface
+     * @return - an object that implements the interface
+     * @throws SQLException -
+     *             if there is no object implementing the specific interface
      */
-        <T> T unwrap(java.lang.Class<T> iface) throws java.sql.SQLException;
+    <T> T unwrap(Class<T> iface) throws SQLException;
 
     /**
-     * Returns true if this either implements the interface argument or is directly or indirectly a wrapper
-     * for an object that does. Returns false otherwise. If this implements the interface then return true,
-     * else if this is a wrapper then return the result of recursively calling <code>isWrapperFor</code> on the wrapped
-     * object. If this does not implement the interface and is not a wrapper, return false.
-     * This method should be implemented as a low-cost operation compared to <code>unwrap</code> so that
-     * callers can use this method to avoid expensive <code>unwrap</code> calls that may fail. If this method
-     * returns true then calling <code>unwrap</code> with the same argument should succeed.
+     * If the caller is a wrapper of the class or implements the given
+     * interface, the methods return false and vice versa.
      *
-     * @param iface a Class defining an interface.
-     * @return true if this implements the interface or directly or indirectly wraps an object that does.
-     * @throws java.sql.SQLException  if an error occurs while determining whether this is a wrapper
-     * for an object with the given interface.
-     * @since 1.6
+     * @param iface -
+     *            the class that defines the interface
+     * @return - true if the instance implements the interface
+     * @throws SQLException -
+     *             when an error occurs when judges the object
      */
-    boolean isWrapperFor(java.lang.Class<?> iface) throws java.sql.SQLException;
-
+    boolean isWrapperFor(Class<?> iface) throws SQLException;
 }

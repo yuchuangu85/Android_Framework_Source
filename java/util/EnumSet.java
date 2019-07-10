@@ -1,464 +1,343 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package java.util;
 
+import java.io.Serializable;
+
 /**
- * A specialized {@link Set} implementation for use with enum types.  All of
- * the elements in an enum set must come from a single enum type that is
- * specified, explicitly or implicitly, when the set is created.  Enum sets
- * are represented internally as bit vectors.  This representation is
- * extremely compact and efficient. The space and time performance of this
- * class should be good enough to allow its use as a high-quality, typesafe
- * alternative to traditional <tt>int</tt>-based "bit flags."  Even bulk
- * operations (such as <tt>containsAll</tt> and <tt>retainAll</tt>) should
- * run very quickly if their argument is also an enum set.
- *
- * <p>The iterator returned by the <tt>iterator</tt> method traverses the
- * elements in their <i>natural order</i> (the order in which the enum
- * constants are declared).  The returned iterator is <i>weakly
- * consistent</i>: it will never throw {@link ConcurrentModificationException}
- * and it may or may not show the effects of any modifications to the set that
- * occur while the iteration is in progress.
- *
- * <p>Null elements are not permitted.  Attempts to insert a null element
- * will throw {@link NullPointerException}.  Attempts to test for the
- * presence of a null element or to remove one will, however, function
- * properly.
- *
- * <P>Like most collection implementations, <tt>EnumSet</tt> is not
- * synchronized.  If multiple threads access an enum set concurrently, and at
- * least one of the threads modifies the set, it should be synchronized
- * externally.  This is typically accomplished by synchronizing on some
- * object that naturally encapsulates the enum set.  If no such object exists,
- * the set should be "wrapped" using the {@link Collections#synchronizedSet}
- * method.  This is best done at creation time, to prevent accidental
- * unsynchronized access:
- *
- * <pre>
- * Set&lt;MyEnum&gt; s = Collections.synchronizedSet(EnumSet.noneOf(MyEnum.class));
- * </pre>
- *
- * <p>Implementation note: All basic operations execute in constant time.
- * They are likely (though not guaranteed) to be much faster than their
- * {@link HashSet} counterparts.  Even bulk operations execute in
- * constant time if their argument is also an enum set.
- *
- * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
- * Java Collections Framework</a>.
- *
- * @author Josh Bloch
- * @since 1.5
- * @see EnumMap
- * @serial exclude
+ * An EnumSet is a specialized Set to be used with enums as keys.
  */
 public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
-    implements Cloneable, java.io.Serializable
-{
-    /**
-     * The class of all the elements of this set.
-     */
-    final Class<E> elementType;
+        implements Cloneable, Serializable {
+    private static final long serialVersionUID = 1009687484059888093L;
 
-    /**
-     * All of the values comprising T.  (Cached for performance.)
-     */
-    final Enum<?>[] universe;
+    final Class<E> elementClass;
 
-    private static Enum<?>[] ZERO_LENGTH_ENUM_ARRAY = new Enum<?>[0];
-
-    EnumSet(Class<E>elementType, Enum<?>[] universe) {
-        this.elementType = elementType;
-        this.universe    = universe;
+    EnumSet(Class<E> cls) {
+        elementClass = cls;
     }
 
     /**
-     * Creates an empty enum set with the specified element type.
+     * Creates an empty enum set. The permitted elements are of type
+     * Class&lt;E&gt;.
      *
-     * @param <E> The class of the elements in the set
-     * @param elementType the class object of the element type for this enum
-     *     set
-     * @return An empty enum set of the specified type.
-     * @throws NullPointerException if <tt>elementType</tt> is null
+     * @param elementType
+     *            the class object for the elements contained.
+     * @return an empty enum set, with permitted elements of type {@code
+     *         elementType}.
+     * @throws ClassCastException
+     *             if the specified element type is not and enum type.
      */
     public static <E extends Enum<E>> EnumSet<E> noneOf(Class<E> elementType) {
-        Enum<?>[] universe = getUniverse(elementType);
-        if (universe == null)
-            throw new ClassCastException(elementType + " not an enum");
-
-        if (universe.length <= 64)
-            return new RegularEnumSet<>(elementType, universe);
-        else
-            return new JumboEnumSet<>(elementType, universe);
+        if (!elementType.isEnum()) {
+            throw new ClassCastException(elementType.getClass().getName() + " is not an Enum");
+        }
+        E[] enums = Enum.getSharedConstants(elementType);
+        if (enums.length <= 64) {
+            return new MiniEnumSet<E>(elementType, enums);
+        }
+        return new HugeEnumSet<E>(elementType, enums);
     }
 
     /**
-     * Creates an enum set containing all of the elements in the specified
-     * element type.
+     * Creates an enum set filled with all the enum elements of the specified
+     * {@code elementType}.
      *
-     * @param <E> The class of the elements in the set
-     * @param elementType the class object of the element type for this enum
-     *     set
-     * @return An enum set containing all the elements in the specified type.
-     * @throws NullPointerException if <tt>elementType</tt> is null
+     * @param elementType
+     *            the class object for the elements contained.
+     * @return an enum set with elements solely from the specified element type.
+     * @throws ClassCastException
+     *             if the specified element type is not and enum type.
      */
     public static <E extends Enum<E>> EnumSet<E> allOf(Class<E> elementType) {
-        EnumSet<E> result = noneOf(elementType);
-        result.addAll();
-        return result;
+        EnumSet<E> set = noneOf(elementType);
+        set.complement();
+        return set;
     }
 
     /**
-     * Adds all of the elements from the appropriate enum type to this enum
-     * set, which is empty prior to the call.
-     */
-    abstract void addAll();
-
-    /**
-     * Creates an enum set with the same element type as the specified enum
-     * set, initially containing the same elements (if any).
+     * Creates an enum set. All the contained elements are of type
+     * Class&lt;E&gt;, and the contained elements are the same as those
+     * contained in {@code s}.
      *
-     * @param <E> The class of the elements in the set
-     * @param s the enum set from which to initialize this enum set
-     * @return A copy of the specified enum set.
-     * @throws NullPointerException if <tt>s</tt> is null
+     * @param s
+     *            the enum set from which to copy.
+     * @return an enum set with all the elements from the specified enum set.
+     * @throws ClassCastException
+     *             if the specified element type is not and enum type.
      */
     public static <E extends Enum<E>> EnumSet<E> copyOf(EnumSet<E> s) {
-        return s.clone();
+        EnumSet<E> set = EnumSet.noneOf(s.elementClass);
+        set.addAll(s);
+        return set;
     }
 
     /**
-     * Creates an enum set initialized from the specified collection.  If
-     * the specified collection is an <tt>EnumSet</tt> instance, this static
-     * factory method behaves identically to {@link #copyOf(EnumSet)}.
-     * Otherwise, the specified collection must contain at least one element
-     * (in order to determine the new enum set's element type).
+     * Creates an enum set. The contained elements are the same as those
+     * contained in collection {@code c}. If c is an enum set, invoking this
+     * method is the same as invoking {@link #copyOf(EnumSet)}.
      *
-     * @param <E> The class of the elements in the collection
-     * @param c the collection from which to initialize this enum set
-     * @return An enum set initialized from the given collection.
-     * @throws IllegalArgumentException if <tt>c</tt> is not an
-     *     <tt>EnumSet</tt> instance and contains no elements
-     * @throws NullPointerException if <tt>c</tt> is null
+     * @param c
+     *            the collection from which to copy. if it is not an enum set,
+     *            it must not be empty.
+     * @return an enum set with all the elements from the specified collection.
+     * @throws IllegalArgumentException
+     *             if c is not an enum set and contains no elements at all.
+     * @throws NullPointerException
+     *             if {@code c} is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> copyOf(Collection<E> c) {
         if (c instanceof EnumSet) {
-            return ((EnumSet<E>)c).clone();
-        } else {
-            if (c.isEmpty())
-                throw new IllegalArgumentException("Collection is empty");
-            Iterator<E> i = c.iterator();
-            E first = i.next();
-            EnumSet<E> result = EnumSet.of(first);
-            while (i.hasNext())
-                result.add(i.next());
-            return result;
+            return copyOf((EnumSet<E>) c);
         }
+        if (c.isEmpty()) {
+            throw new IllegalArgumentException("empty collection");
+        }
+        Iterator<E> iterator = c.iterator();
+        E element = iterator.next();
+        EnumSet<E> set = EnumSet.noneOf(element.getDeclaringClass());
+        set.add(element);
+        while (iterator.hasNext()) {
+            set.add(iterator.next());
+        }
+        return set;
     }
 
     /**
-     * Creates an enum set with the same element type as the specified enum
-     * set, initially containing all the elements of this type that are
-     * <i>not</i> contained in the specified set.
+     * Creates an enum set. All the contained elements complement those from the
+     * specified enum set.
      *
-     * @param <E> The class of the elements in the enum set
-     * @param s the enum set from whose complement to initialize this enum set
-     * @return The complement of the specified set in this set
-     * @throws NullPointerException if <tt>s</tt> is null
+     * @param s
+     *            the specified enum set.
+     * @return an enum set with all the elements complementary to those from the
+     *         specified enum set.
+     * @throws NullPointerException
+     *             if {@code s} is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> complementOf(EnumSet<E> s) {
-        EnumSet<E> result = copyOf(s);
-        result.complement();
-        return result;
+        EnumSet<E> set = EnumSet.noneOf(s.elementClass);
+        set.addAll(s);
+        set.complement();
+        return set;
     }
 
+    abstract void complement();
+
     /**
-     * Creates an enum set initially containing the specified element.
+     * Creates a new enum set, containing only the specified element. There are
+     * six overloadings of the method. They accept from one to five elements
+     * respectively. The sixth one receives an arbitrary number of elements, and
+     * runs slower than those that only receive a fixed number of elements.
      *
-     * Overloadings of this method exist to initialize an enum set with
-     * one through five elements.  A sixth overloading is provided that
-     * uses the varargs feature.  This overloading may be used to create
-     * an enum set initially containing an arbitrary number of elements, but
-     * is likely to run slower than the overloadings that do not use varargs.
-     *
-     * @param <E> The class of the specified element and of the set
-     * @param e the element that this set is to contain initially
-     * @throws NullPointerException if <tt>e</tt> is null
-     * @return an enum set initially containing the specified element
+     * @param e
+     *            the element to be initially contained.
+     * @return an enum set containing the specified element.
+     * @throws NullPointerException
+     *             if {@code e} is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> of(E e) {
-        EnumSet<E> result = noneOf(e.getDeclaringClass());
-        result.add(e);
-        return result;
+        EnumSet<E> set = EnumSet.noneOf(e.getDeclaringClass());
+        set.add(e);
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing the specified elements.
+     * Creates a new enum set, containing only the specified elements. There are
+     * six overloadings of the method. They accept from one to five elements
+     * respectively. The sixth one receives an arbitrary number of elements, and
+     * runs slower than those that only receive a fixed number of elements.
      *
-     * Overloadings of this method exist to initialize an enum set with
-     * one through five elements.  A sixth overloading is provided that
-     * uses the varargs feature.  This overloading may be used to create
-     * an enum set initially containing an arbitrary number of elements, but
-     * is likely to run slower than the overloadings that do not use varargs.
-     *
-     * @param <E> The class of the parameter elements and of the set
-     * @param e1 an element that this set is to contain initially
-     * @param e2 another element that this set is to contain initially
-     * @throws NullPointerException if any parameters are null
-     * @return an enum set initially containing the specified elements
+     * @param e1
+     *            the initially contained element.
+     * @param e2
+     *            another initially contained element.
+     * @return an enum set containing the specified elements.
+     * @throws NullPointerException
+     *             if any of the specified elements is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> of(E e1, E e2) {
-        EnumSet<E> result = noneOf(e1.getDeclaringClass());
-        result.add(e1);
-        result.add(e2);
-        return result;
+        EnumSet<E> set = of(e1);
+        set.add(e2);
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing the specified elements.
+     * Creates a new enum set, containing only the specified elements. There are
+     * six overloadings of the method. They accept from one to five elements
+     * respectively. The sixth one receives an arbitrary number of elements, and
+     * runs slower than those that only receive a fixed number of elements.
      *
-     * Overloadings of this method exist to initialize an enum set with
-     * one through five elements.  A sixth overloading is provided that
-     * uses the varargs feature.  This overloading may be used to create
-     * an enum set initially containing an arbitrary number of elements, but
-     * is likely to run slower than the overloadings that do not use varargs.
-     *
-     * @param <E> The class of the parameter elements and of the set
-     * @param e1 an element that this set is to contain initially
-     * @param e2 another element that this set is to contain initially
-     * @param e3 another element that this set is to contain initially
-     * @throws NullPointerException if any parameters are null
-     * @return an enum set initially containing the specified elements
+     * @param e1
+     *            the initially contained element.
+     * @param e2
+     *            another initially contained element.
+     * @param e3
+     *            another initially contained element.
+     * @return an enum set containing the specified elements.
+     * @throws NullPointerException
+     *             if any of the specified elements is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> of(E e1, E e2, E e3) {
-        EnumSet<E> result = noneOf(e1.getDeclaringClass());
-        result.add(e1);
-        result.add(e2);
-        result.add(e3);
-        return result;
+        EnumSet<E> set = of(e1, e2);
+        set.add(e3);
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing the specified elements.
+     * Creates a new enum set, containing only the specified elements. There are
+     * six overloadings of the method. They accept from one to five elements
+     * respectively. The sixth one receives an arbitrary number of elements, and
+     * runs slower than those that only receive a fixed number of elements.
      *
-     * Overloadings of this method exist to initialize an enum set with
-     * one through five elements.  A sixth overloading is provided that
-     * uses the varargs feature.  This overloading may be used to create
-     * an enum set initially containing an arbitrary number of elements, but
-     * is likely to run slower than the overloadings that do not use varargs.
-     *
-     * @param <E> The class of the parameter elements and of the set
-     * @param e1 an element that this set is to contain initially
-     * @param e2 another element that this set is to contain initially
-     * @param e3 another element that this set is to contain initially
-     * @param e4 another element that this set is to contain initially
-     * @throws NullPointerException if any parameters are null
-     * @return an enum set initially containing the specified elements
+     * @param e1
+     *            the initially contained element.
+     * @param e2
+     *            another initially contained element.
+     * @param e3
+     *            another initially contained element.
+     * @param e4
+     *            another initially contained element.
+     * @return an enum set containing the specified elements.
+     * @throws NullPointerException
+     *             if any of the specified elements is {@code null}.
      */
     public static <E extends Enum<E>> EnumSet<E> of(E e1, E e2, E e3, E e4) {
-        EnumSet<E> result = noneOf(e1.getDeclaringClass());
-        result.add(e1);
-        result.add(e2);
-        result.add(e3);
-        result.add(e4);
-        return result;
+        EnumSet<E> set = of(e1, e2, e3);
+        set.add(e4);
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing the specified elements.
+     * Creates a new enum set, containing only the specified elements. There are
+     * six overloadings of the method. They accept from one to five elements
+     * respectively. The sixth one receives an arbitrary number of elements, and
+     * runs slower than those that only receive a fixed number of elements.
      *
-     * Overloadings of this method exist to initialize an enum set with
-     * one through five elements.  A sixth overloading is provided that
-     * uses the varargs feature.  This overloading may be used to create
-     * an enum set initially containing an arbitrary number of elements, but
-     * is likely to run slower than the overloadings that do not use varargs.
-     *
-     * @param <E> The class of the parameter elements and of the set
-     * @param e1 an element that this set is to contain initially
-     * @param e2 another element that this set is to contain initially
-     * @param e3 another element that this set is to contain initially
-     * @param e4 another element that this set is to contain initially
-     * @param e5 another element that this set is to contain initially
-     * @throws NullPointerException if any parameters are null
-     * @return an enum set initially containing the specified elements
+     * @param e1
+     *            the initially contained element.
+     * @param e2
+     *            another initially contained element.
+     * @param e3
+     *            another initially contained element.
+     * @param e4
+     *            another initially contained element.
+     * @param e5
+     *            another initially contained element.
+     * @return an enum set containing the specified elements.
+     * @throws NullPointerException
+     *             if any of the specified elements is {@code null}.
      */
-    public static <E extends Enum<E>> EnumSet<E> of(E e1, E e2, E e3, E e4,
-                                                    E e5)
-    {
-        EnumSet<E> result = noneOf(e1.getDeclaringClass());
-        result.add(e1);
-        result.add(e2);
-        result.add(e3);
-        result.add(e4);
-        result.add(e5);
-        return result;
+    public static <E extends Enum<E>> EnumSet<E> of(E e1, E e2, E e3, E e4, E e5) {
+        EnumSet<E> set = of(e1, e2, e3, e4);
+        set.add(e5);
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing the specified elements.
-     * This factory, whose parameter list uses the varargs feature, may
-     * be used to create an enum set initially containing an arbitrary
-     * number of elements, but it is likely to run slower than the overloadings
-     * that do not use varargs.
+     * Creates a new enum set, containing only the specified elements. It can
+     * receive an arbitrary number of elements, and runs slower than those only
+     * receiving a fixed number of elements.
      *
-     * @param <E> The class of the parameter elements and of the set
-     * @param first an element that the set is to contain initially
-     * @param rest the remaining elements the set is to contain initially
-     * @throws NullPointerException if any of the specified elements are null,
-     *     or if <tt>rest</tt> is null
-     * @return an enum set initially containing the specified elements
+     * @param start
+     *            the first initially contained element.
+     * @param others
+     *            the other initially contained elements.
+     * @return an enum set containing the specified elements.
+     * @throws NullPointerException
+     *             if any of the specified elements is {@code null}.
      */
     @SafeVarargs
-    public static <E extends Enum<E>> EnumSet<E> of(E first, E... rest) {
-        EnumSet<E> result = noneOf(first.getDeclaringClass());
-        result.add(first);
-        for (E e : rest)
-            result.add(e);
-        return result;
+    public static <E extends Enum<E>> EnumSet<E> of(E start, E... others) {
+        EnumSet<E> set = of(start);
+        for (E e : others) {
+            set.add(e);
+        }
+        return set;
     }
 
     /**
-     * Creates an enum set initially containing all of the elements in the
-     * range defined by the two specified endpoints.  The returned set will
-     * contain the endpoints themselves, which may be identical but must not
-     * be out of order.
+     * Creates an enum set containing all the elements within the range defined
+     * by {@code start} and {@code end} (inclusive). All the elements must be in
+     * order.
      *
-     * @param <E> The class of the parameter elements and of the set
-     * @param from the first element in the range
-     * @param to the last element in the range
-     * @throws NullPointerException if {@code from} or {@code to} are null
-     * @throws IllegalArgumentException if {@code from.compareTo(to) > 0}
-     * @return an enum set initially containing all of the elements in the
-     *         range defined by the two specified endpoints
+     * @param start
+     *            the element used to define the beginning of the range.
+     * @param end
+     *            the element used to define the end of the range.
+     * @return an enum set with elements in the range from start to end.
+     * @throws NullPointerException
+     *             if any one of {@code start} or {@code end} is {@code null}.
+     * @throws IllegalArgumentException
+     *             if {@code start} is behind {@code end}.
      */
-    public static <E extends Enum<E>> EnumSet<E> range(E from, E to) {
-        if (from.compareTo(to) > 0)
-            throw new IllegalArgumentException(from + " > " + to);
-        EnumSet<E> result = noneOf(from.getDeclaringClass());
-        result.addRange(from, to);
-        return result;
+    public static <E extends Enum<E>> EnumSet<E> range(E start, E end) {
+        if (start.compareTo(end) > 0) {
+            throw new IllegalArgumentException("start is behind end");
+        }
+        EnumSet<E> set = EnumSet.noneOf(start.getDeclaringClass());
+        set.setRange(start, end);
+        return set;
     }
 
-    /**
-     * Adds the specified range to this enum set, which is empty prior
-     * to the call.
-     */
-    abstract void addRange(E from, E to);
+    abstract void setRange(E start, E end);
 
     /**
-     * Returns a copy of this set.
+     * Creates a new enum set with the same elements as those contained in this
+     * enum set.
      *
-     * @return a copy of this set
+     * @return a new enum set with the same elements as those contained in this
+     *         enum set.
      */
     @SuppressWarnings("unchecked")
+    @Override
     public EnumSet<E> clone() {
         try {
             return (EnumSet<E>) super.clone();
-        } catch(CloneNotSupportedException e) {
+        } catch (CloneNotSupportedException e) {
             throw new AssertionError(e);
         }
     }
 
-    /**
-     * Complements the contents of this enum set.
-     */
-    abstract void complement();
-
-    /**
-     * Throws an exception if e is not of the correct type for this enum set.
-     */
-    final void typeCheck(E e) {
-        Class<?> eClass = e.getClass();
-        if (eClass != elementType && eClass.getSuperclass() != elementType)
-            throw new ClassCastException(eClass + " != " + elementType);
+    boolean isValidType(Class<?> cls) {
+        return cls == elementClass || cls.getSuperclass() == elementClass;
     }
 
-    /**
-     * Returns all of the values comprising E.
-     * The result is uncloned, cached, and shared by all callers.
-     */
-    private static <E extends Enum<E>> E[] getUniverse(Class<E> elementType) {
-        // Android-changed: Use getEnumConstantsShared directly instead of going
-        // through SharedSecrets.
-        return elementType.getEnumConstantsShared();
-    }
-
-    /**
-     * This class is used to serialize all EnumSet instances, regardless of
-     * implementation type.  It captures their "logical contents" and they
-     * are reconstructed using public static factories.  This is necessary
-     * to ensure that the existence of a particular implementation type is
-     * an implementation detail.
-     *
-     * @serial include
-     */
-    private static class SerializationProxy <E extends Enum<E>>
-        implements java.io.Serializable
-    {
-        /**
-         * The element type of this enum set.
-         *
-         * @serial
-         */
-        private final Class<E> elementType;
-
-        /**
-         * The elements contained in this enum set.
-         *
-         * @serial
-         */
-        private final Enum<?>[] elements;
-
-        SerializationProxy(EnumSet<E> set) {
-            elementType = set.elementType;
-            elements = set.toArray(ZERO_LENGTH_ENUM_ARRAY);
-        }
-
-        // instead of cast to E, we should perhaps use elementType.cast()
-        // to avoid injection of forged stream, but it will slow the implementation
-        @SuppressWarnings("unchecked")
-        private Object readResolve() {
-            EnumSet<E> result = EnumSet.noneOf(elementType);
-            for (Enum<?> e : elements)
-                result.add((E)e);
-            return result;
-        }
+    private static class SerializationProxy<E extends Enum<E>> implements
+            Serializable {
 
         private static final long serialVersionUID = 362491234563181265L;
+
+        private Class<E> elementType;
+
+        private E[] elements;
+
+        private Object readResolve() {
+            EnumSet<E> set = EnumSet.noneOf(elementType);
+            for (E e : elements) {
+                set.add(e);
+            }
+            return set;
+        }
     }
 
+    @SuppressWarnings("unchecked")
     Object writeReplace() {
-        return new SerializationProxy<>(this);
-    }
-
-    // readObject method for the serialization proxy pattern
-    // See Effective Java, Second Ed., Item 78.
-    private void readObject(java.io.ObjectInputStream stream)
-        throws java.io.InvalidObjectException {
-        throw new java.io.InvalidObjectException("Proxy required");
+        SerializationProxy proxy = new SerializationProxy();
+        proxy.elements = toArray(new Enum[0]);
+        proxy.elementType = elementClass;
+        return proxy;
     }
 }

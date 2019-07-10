@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2017 The Android Open Source Project
+/*
+ * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,249 +16,136 @@
 
 package android.app;
 
-import android.annotation.NonNull;
-import android.app.ActivityManager.StackInfo;
+import static android.app.ActivityManager.START_CANCELED;
+
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.IIntentSender;
 import android.content.Intent;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.hardware.input.InputManager;
+import android.content.IntentSender;
+import android.graphics.SurfaceTexture;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.IBinder;
+import android.os.Message;
+import android.os.OperationCanceledException;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.IWindowManager;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
+import android.view.TextureView.SurfaceTextureListener;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.view.WindowManagerGlobal;
-
 import dalvik.system.CloseGuard;
 
-import java.util.List;
+import java.lang.ref.WeakReference;
 
-/**
- * Activity container that allows launching activities into itself and does input forwarding.
- * <p>Creation of this view is only allowed to callers who have
- * {@link android.Manifest.permission#INJECT_EVENTS} permission.
- * <p>Activity launching into this container is restricted by the same rules that apply to launching
- * on VirtualDisplays.
- * @hide
- */
+/** @hide */
 public class ActivityView extends ViewGroup {
-
-    private static final String DISPLAY_NAME = "ActivityViewVirtualDisplay";
     private static final String TAG = "ActivityView";
+    private static final boolean DEBUG = false;
 
-    private VirtualDisplay mVirtualDisplay;
-    private final SurfaceView mSurfaceView;
+    private static final int MSG_SET_SURFACE = 1;
+
+    DisplayMetrics mMetrics = new DisplayMetrics();
+    private final TextureView mTextureView;
+    private ActivityContainerWrapper mActivityContainer;
+    private Activity mActivity;
+    private int mWidth;
+    private int mHeight;
     private Surface mSurface;
+    private int mLastVisibility;
+    private ActivityViewCallback mActivityViewCallback;
 
-    private final SurfaceCallback mSurfaceCallback;
-    private StateCallback mActivityViewCallback;
-
-    private IActivityManager mActivityManager;
-    private IInputForwarder mInputForwarder;
-    // Temp container to store view coordinates on screen.
-    private final int[] mLocationOnScreen = new int[2];
-
-    private TaskStackListener mTaskStackListener;
-
-    private final CloseGuard mGuard = CloseGuard.get();
-    private boolean mOpened; // Protected by mGuard.
+    private HandlerThread mThread = new HandlerThread("ActivityViewThread");
+    private Handler mHandler;
 
     public ActivityView(Context context) {
-        this(context, null /* attrs */);
+        this(context, null);
     }
 
     public ActivityView(Context context, AttributeSet attrs) {
-        this(context, attrs, 0 /* defStyle */);
+        this(context, attrs, 0);
     }
 
     public ActivityView(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
 
-        mActivityManager = ActivityManager.getService();
-        mSurfaceView = new SurfaceView(context);
-        mSurfaceCallback = new SurfaceCallback();
-        mSurfaceView.getHolder().addCallback(mSurfaceCallback);
-        addView(mSurfaceView);
-
-        mOpened = true;
-        mGuard.open("release");
-    }
-
-    /** Callback that notifies when the container is ready or destroyed. */
-    public abstract static class StateCallback {
-        /**
-         * Called when the container is ready for launching activities. Calling
-         * {@link #startActivity(Intent)} prior to this callback will result in an
-         * {@link IllegalStateException}.
-         *
-         * @see #startActivity(Intent)
-         */
-        public abstract void onActivityViewReady(ActivityView view);
-        /**
-         * Called when the container can no longer launch activities. Calling
-         * {@link #startActivity(Intent)} after this callback will result in an
-         * {@link IllegalStateException}.
-         *
-         * @see #startActivity(Intent)
-         */
-        public abstract void onActivityViewDestroyed(ActivityView view);
-        /**
-         * Called when a task is moved to the front of the stack inside the container.
-         * This is a filtered version of {@link TaskStackListener}
-         */
-        public void onTaskMovedToFront(ActivityManager.StackInfo stackInfo) { }
-    }
-
-    /**
-     * Set the callback to be notified about state changes.
-     * <p>This class must finish initializing before {@link #startActivity(Intent)} can be called.
-     * <p>Note: If the instance was ready prior to this call being made, then
-     * {@link StateCallback#onActivityViewReady(ActivityView)} will be called from within
-     * this method call.
-     *
-     * @param callback The callback to report events to.
-     *
-     * @see StateCallback
-     * @see #startActivity(Intent)
-     */
-    public void setCallback(StateCallback callback) {
-        mActivityViewCallback = callback;
-
-        if (mVirtualDisplay != null && mActivityViewCallback != null) {
-            mActivityViewCallback.onActivityViewReady(this);
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                mActivity = (Activity)context;
+                break;
+            }
+            context = ((ContextWrapper)context).getBaseContext();
         }
-    }
+        if (mActivity == null) {
+            throw new IllegalStateException("The ActivityView's Context is not an Activity.");
+        }
 
-    /**
-     * Launch a new activity into this container.
-     * <p>Activity resolved by the provided {@link Intent} must have
-     * {@link android.R.attr#resizeableActivity} attribute set to {@code true} in order to be
-     * launched here. Also, if activity is not owned by the owner of this container, it must allow
-     * embedding and the caller must have permission to embed.
-     * <p>Note: This class must finish initializing and
-     * {@link StateCallback#onActivityViewReady(ActivityView)} callback must be triggered before
-     * this method can be called.
-     *
-     * @param intent Intent used to launch an activity.
-     *
-     * @see StateCallback
-     * @see #startActivity(PendingIntent)
-     */
-    public void startActivity(@NonNull Intent intent) {
-        final ActivityOptions options = prepareActivityOptions();
-        getContext().startActivity(intent, options.toBundle());
-    }
-
-    /**
-     * Launch a new activity into this container.
-     * <p>Activity resolved by the provided {@link Intent} must have
-     * {@link android.R.attr#resizeableActivity} attribute set to {@code true} in order to be
-     * launched here. Also, if activity is not owned by the owner of this container, it must allow
-     * embedding and the caller must have permission to embed.
-     * <p>Note: This class must finish initializing and
-     * {@link StateCallback#onActivityViewReady(ActivityView)} callback must be triggered before
-     * this method can be called.
-     *
-     * @param intent Intent used to launch an activity.
-     * @param user The UserHandle of the user to start this activity for.
-     *
-     *
-     * @see StateCallback
-     * @see #startActivity(PendingIntent)
-     */
-    public void startActivity(@NonNull Intent intent, UserHandle user) {
-        final ActivityOptions options = prepareActivityOptions();
-        getContext().startActivityAsUser(intent, options.toBundle(), user);
-    }
-
-    /**
-     * Launch a new activity into this container.
-     * <p>Activity resolved by the provided {@link PendingIntent} must have
-     * {@link android.R.attr#resizeableActivity} attribute set to {@code true} in order to be
-     * launched here. Also, if activity is not owned by the owner of this container, it must allow
-     * embedding and the caller must have permission to embed.
-     * <p>Note: This class must finish initializing and
-     * {@link StateCallback#onActivityViewReady(ActivityView)} callback must be triggered before
-     * this method can be called.
-     *
-     * @param pendingIntent Intent used to launch an activity.
-     *
-     * @see StateCallback
-     * @see #startActivity(Intent)
-     */
-    public void startActivity(@NonNull PendingIntent pendingIntent) {
-        final ActivityOptions options = prepareActivityOptions();
         try {
-            pendingIntent.send(null /* context */, 0 /* code */, null /* intent */,
-                    null /* onFinished */, null /* handler */, null /* requiredPermission */,
-                    options.toBundle());
-        } catch (PendingIntent.CanceledException e) {
-            throw new RuntimeException(e);
+            mActivityContainer = new ActivityContainerWrapper(
+                    ActivityManagerNative.getDefault().createVirtualActivityContainer(
+                            mActivity.getActivityToken(), new ActivityContainerCallback(this)));
+        } catch (RemoteException e) {
+            throw new RuntimeException("ActivityView: Unable to create ActivityContainer. "
+                    + e);
         }
-    }
 
-    /**
-     * Check if container is ready to launch and create {@link ActivityOptions} to target the
-     * virtual display.
-     */
-    private ActivityOptions prepareActivityOptions() {
-        if (mVirtualDisplay == null) {
-            throw new IllegalStateException(
-                    "Trying to start activity before ActivityView is ready.");
-        }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(mVirtualDisplay.getDisplay().getDisplayId());
-        return options;
-    }
+        mThread.start();
+        mHandler = new Handler(mThread.getLooper()) {
+            @Override
+            public void handleMessage(Message msg) {
+                super.handleMessage(msg);
+                if (msg.what == MSG_SET_SURFACE) {
+                    try {
+                        mActivityContainer.setSurface((Surface) msg.obj, msg.arg1, msg.arg2,
+                                mMetrics.densityDpi);
+                    } catch (RemoteException e) {
+                        throw new RuntimeException(
+                                "ActivityView: Unable to set surface of ActivityContainer. " + e);
+                    }
+                }
+            }
+        };
+        mTextureView = new TextureView(context);
+        mTextureView.setSurfaceTextureListener(new ActivityViewSurfaceTextureListener());
+        addView(mTextureView);
 
-    /**
-     * Release this container. Activity launching will no longer be permitted.
-     * <p>Note: Calling this method is allowed after
-     * {@link StateCallback#onActivityViewReady(ActivityView)} callback was triggered and before
-     * {@link StateCallback#onActivityViewDestroyed(ActivityView)}.
-     *
-     * @see StateCallback
-     */
-    public void release() {
-        if (mVirtualDisplay == null) {
-            throw new IllegalStateException(
-                    "Trying to release container that is not initialized.");
-        }
-        performRelease();
-    }
+        WindowManager wm = (WindowManager)mActivity.getSystemService(Context.WINDOW_SERVICE);
+        wm.getDefaultDisplay().getMetrics(mMetrics);
 
-    /**
-     * Triggers an update of {@link ActivityView}'s location on screen to properly set touch exclude
-     * regions and avoid focus switches by touches on this view.
-     */
-    public void onLocationChanged() {
-        updateLocation();
+        mLastVisibility = getVisibility();
+
+        if (DEBUG) Log.v(TAG, "ctor()");
     }
 
     @Override
-    public void onLayout(boolean changed, int l, int t, int r, int b) {
-        mSurfaceView.layout(0 /* left */, 0 /* top */, r - l /* right */, b - t /* bottom */);
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        mTextureView.layout(0, 0, r - l, b - t);
     }
 
-    /** Send current location and size to the WM to set tap exclude region for this view. */
-    private void updateLocation() {
-        try {
-            getLocationOnScreen(mLocationOnScreen);
-            WindowManagerGlobal.getWindowSession().updateTapExcludeRegion(getWindow(), hashCode(),
-                    mLocationOnScreen[0], mLocationOnScreen[1], getWidth(), getHeight());
-        } catch (RemoteException e) {
-            e.rethrowAsRuntimeException();
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+
+        if (mSurface != null && (visibility == View.GONE || mLastVisibility == View.GONE)) {
+            Message msg = Message.obtain(mHandler, MSG_SET_SURFACE);
+            msg.obj = (visibility == View.GONE) ? null : mSurface;
+            msg.arg1 = mWidth;
+            msg.arg2 = mHeight;
+            mHandler.sendMessage(msg);
         }
+        mLastVisibility = visibility;
+    }
+
+    private boolean injectInputEvent(InputEvent event) {
+        return mActivityContainer != null && mActivityContainer.injectEvent(event);
     }
 
     @Override
@@ -276,218 +163,308 @@ public class ActivityView extends ViewGroup {
         return super.onGenericMotionEvent(event);
     }
 
-    private boolean injectInputEvent(InputEvent event) {
-        if (mInputForwarder != null) {
-            try {
-                return mInputForwarder.forwardEvent(event);
-            } catch (RemoteException e) {
-                e.rethrowAsRuntimeException();
-            }
-        }
-        return false;
+    @Override
+    public void onAttachedToWindow() {
+        if (DEBUG) Log.v(TAG, "onAttachedToWindow(): mActivityContainer=" + mActivityContainer +
+                " mSurface=" + mSurface);
     }
 
-    private class SurfaceCallback implements SurfaceHolder.Callback {
-        @Override
-        public void surfaceCreated(SurfaceHolder surfaceHolder) {
-            mSurface = mSurfaceView.getHolder().getSurface();
-            if (mVirtualDisplay == null) {
-                initVirtualDisplay();
-                if (mVirtualDisplay != null && mActivityViewCallback != null) {
-                    mActivityViewCallback.onActivityViewReady(ActivityView.this);
-                }
-            } else {
-                mVirtualDisplay.setSurface(surfaceHolder.getSurface());
-            }
-            updateLocation();
-        }
+    @Override
+    public void onDetachedFromWindow() {
+        if (DEBUG) Log.v(TAG, "onDetachedFromWindow(): mActivityContainer=" + mActivityContainer +
+                " mSurface=" + mSurface);
+    }
 
-        @Override
-        public void surfaceChanged(SurfaceHolder surfaceHolder, int format, int width, int height) {
-            if (mVirtualDisplay != null) {
-                mVirtualDisplay.resize(width, height, getBaseDisplayDensity());
-            }
-            updateLocation();
-        }
+    public boolean isAttachedToDisplay() {
+        return mSurface != null;
+    }
 
-        @Override
-        public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
-            mSurface.release();
-            mSurface = null;
-            if (mVirtualDisplay != null) {
-                mVirtualDisplay.setSurface(null);
-            }
-            cleanTapExcludeRegion();
+    public void startActivity(Intent intent) {
+        if (mActivityContainer == null) {
+            throw new IllegalStateException("Attempt to call startActivity after release");
+        }
+        if (mSurface == null) {
+            throw new IllegalStateException("Surface not yet created.");
+        }
+        if (DEBUG) Log.v(TAG, "startActivity(): intent=" + intent + " " +
+                (isAttachedToDisplay() ? "" : "not") + " attached");
+        if (mActivityContainer.startActivity(intent) == START_CANCELED) {
+            throw new OperationCanceledException();
         }
     }
 
-    private void initVirtualDisplay() {
-        if (mVirtualDisplay != null) {
-            throw new IllegalStateException("Trying to initialize for the second time.");
+    public void startActivity(IntentSender intentSender) {
+        if (mActivityContainer == null) {
+            throw new IllegalStateException("Attempt to call startActivity after release");
         }
+        if (mSurface == null) {
+            throw new IllegalStateException("Surface not yet created.");
+        }
+        if (DEBUG) Log.v(TAG, "startActivityIntentSender(): intentSender=" + intentSender + " " +
+                (isAttachedToDisplay() ? "" : "not") + " attached");
+        final IIntentSender iIntentSender = intentSender.getTarget();
+        if (mActivityContainer.startActivityIntentSender(iIntentSender) == START_CANCELED) {
+            throw new OperationCanceledException();
+        }
+    }
 
-        final int width = mSurfaceView.getWidth();
-        final int height = mSurfaceView.getHeight();
-        final DisplayManager displayManager = mContext.getSystemService(DisplayManager.class);
-        mVirtualDisplay = displayManager.createVirtualDisplay(
-                DISPLAY_NAME + "@" + System.identityHashCode(this),
-                width, height, getBaseDisplayDensity(), mSurface,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC
-                        | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
-        if (mVirtualDisplay == null) {
-            Log.e(TAG, "Failed to initialize ActivityView");
+    public void startActivity(PendingIntent pendingIntent) {
+        if (mActivityContainer == null) {
+            throw new IllegalStateException("Attempt to call startActivity after release");
+        }
+        if (mSurface == null) {
+            throw new IllegalStateException("Surface not yet created.");
+        }
+        if (DEBUG) Log.v(TAG, "startActivityPendingIntent(): PendingIntent=" + pendingIntent + " "
+                + (isAttachedToDisplay() ? "" : "not") + " attached");
+        final IIntentSender iIntentSender = pendingIntent.getTarget();
+        if (mActivityContainer.startActivityIntentSender(iIntentSender) == START_CANCELED) {
+            throw new OperationCanceledException();
+        }
+    }
+
+    public void release() {
+        if (DEBUG) Log.v(TAG, "release() mActivityContainer=" + mActivityContainer +
+                " mSurface=" + mSurface);
+        if (mActivityContainer == null) {
+            Log.e(TAG, "Duplicate call to release");
             return;
         }
-
-        final int displayId = mVirtualDisplay.getDisplay().getDisplayId();
-        final IWindowManager wm = WindowManagerGlobal.getWindowManagerService();
-        try {
-            wm.dontOverrideDisplayInfo(displayId);
-        } catch (RemoteException e) {
-            e.rethrowAsRuntimeException();
-        }
-        mInputForwarder = InputManager.getInstance().createInputForwarder(displayId);
-        mTaskStackListener = new TaskStackListenerImpl();
-        try {
-            mActivityManager.registerTaskStackListener(mTaskStackListener);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed to register task stack listener", e);
-        }
-    }
-
-    private void performRelease() {
-        if (!mOpened) {
-            return;
-        }
-
-        mSurfaceView.getHolder().removeCallback(mSurfaceCallback);
-
-        if (mInputForwarder != null) {
-            mInputForwarder = null;
-        }
-        cleanTapExcludeRegion();
-
-        if (mTaskStackListener != null) {
-            try {
-                mActivityManager.unregisterTaskStackListener(mTaskStackListener);
-            } catch (RemoteException e) {
-                Log.e(TAG, "Failed to unregister task stack listener", e);
-            }
-            mTaskStackListener = null;
-        }
-
-        final boolean displayReleased;
-        if (mVirtualDisplay != null) {
-            mVirtualDisplay.release();
-            mVirtualDisplay = null;
-            displayReleased = true;
-        } else {
-            displayReleased = false;
-        }
+        mActivityContainer.release();
+        mActivityContainer = null;
 
         if (mSurface != null) {
             mSurface.release();
             mSurface = null;
         }
 
-        if (displayReleased && mActivityViewCallback != null) {
-            mActivityViewCallback.onActivityViewDestroyed(this);
-        }
-
-        mGuard.close();
-        mOpened = false;
+        mTextureView.setSurfaceTextureListener(null);
     }
 
-    /** Report to server that tap exclude region on hosting display should be cleared. */
-    private void cleanTapExcludeRegion() {
-        // Update tap exclude region with an empty rect to clean the state on server.
+    private void attachToSurfaceWhenReady() {
+        final SurfaceTexture surfaceTexture = mTextureView.getSurfaceTexture();
+        if (surfaceTexture == null || mSurface != null) {
+            // Either not ready to attach, or already attached.
+            return;
+        }
+
+        mSurface = new Surface(surfaceTexture);
         try {
-            WindowManagerGlobal.getWindowSession().updateTapExcludeRegion(getWindow(), hashCode(),
-                    0 /* left */, 0 /* top */, 0 /* width */, 0 /* height */);
+            mActivityContainer.setSurface(mSurface, mWidth, mHeight, mMetrics.densityDpi);
         } catch (RemoteException e) {
-            e.rethrowAsRuntimeException();
-        }
-    }
-
-    /** Get density of the hosting display. */
-    private int getBaseDisplayDensity() {
-        final WindowManager wm = mContext.getSystemService(WindowManager.class);
-        final DisplayMetrics metrics = new DisplayMetrics();
-        wm.getDefaultDisplay().getMetrics(metrics);
-        return metrics.densityDpi;
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        try {
-            if (mGuard != null) {
-                mGuard.warnIfOpen();
-                performRelease();
-            }
-        } finally {
-            super.finalize();
+            mSurface.release();
+            mSurface = null;
+            throw new RuntimeException("ActivityView: Unable to create ActivityContainer. " + e);
         }
     }
 
     /**
-     * A task change listener that detects background color change of the topmost stack on our
-     * virtual display and updates the background of the surface view. This background will be shown
-     * when surface view is resized, but the app hasn't drawn its content in new size yet.
-     * It also calls StateCallback.onTaskMovedToFront to notify interested parties that the stack
-     * associated with the {@link ActivityView} has had a Task moved to the front. This is useful
-     * when needing to also bring the host Activity to the foreground at the same time.
+     * Set the callback to use to report certain state changes.
+     *
+     * Note: If the surface has been created prior to this call being made, then
+     * ActivityViewCallback.onSurfaceAvailable will be called from within setCallback.
+     *
+     *  @param callback The callback to report events to.
+     *
+     * @see ActivityViewCallback
      */
-    private class TaskStackListenerImpl extends TaskStackListener {
+    public void setCallback(ActivityViewCallback callback) {
+        mActivityViewCallback = callback;
+
+        if (mSurface != null) {
+            mActivityViewCallback.onSurfaceAvailable(this);
+        }
+    }
+
+    public static abstract class ActivityViewCallback {
+        /**
+         * Called when all activities in the ActivityView have completed and been removed. Register
+         * using {@link ActivityView#setCallback(ActivityViewCallback)}. Each ActivityView may
+         * have at most one callback registered.
+         */
+        public abstract void onAllActivitiesComplete(ActivityView view);
+        /**
+         * Called when the surface is ready to be drawn to. Calling startActivity prior to this
+         * callback will result in an IllegalStateException.
+         */
+        public abstract void onSurfaceAvailable(ActivityView view);
+        /**
+         * Called when the surface has been removed. Calling startActivity after this callback
+         * will result in an IllegalStateException.
+         */
+        public abstract void onSurfaceDestroyed(ActivityView view);
+    }
+
+    private class ActivityViewSurfaceTextureListener implements SurfaceTextureListener {
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width,
+                int height) {
+            if (mActivityContainer == null) {
+                return;
+            }
+            if (DEBUG) Log.d(TAG, "onSurfaceTextureAvailable: width=" + width + " height="
+                    + height);
+            mWidth = width;
+            mHeight = height;
+            attachToSurfaceWhenReady();
+            if (mActivityViewCallback != null) {
+                mActivityViewCallback.onSurfaceAvailable(ActivityView.this);
+            }
+        }
 
         @Override
-        public void onTaskDescriptionChanged(int taskId, ActivityManager.TaskDescription td)
+        public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int width,
+                int height) {
+            if (mActivityContainer == null) {
+                return;
+            }
+            if (DEBUG) Log.d(TAG, "onSurfaceTextureSizeChanged: w=" + width + " h=" + height);
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
+            if (mActivityContainer == null) {
+                return true;
+            }
+            if (DEBUG) Log.d(TAG, "onSurfaceTextureDestroyed");
+            mSurface.release();
+            mSurface = null;
+            try {
+                mActivityContainer.setSurface(null, mWidth, mHeight, mMetrics.densityDpi);
+            } catch (RemoteException e) {
+                throw new RuntimeException(
+                        "ActivityView: Unable to set surface of ActivityContainer. " + e);
+            }
+            if (mActivityViewCallback != null) {
+                mActivityViewCallback.onSurfaceDestroyed(ActivityView.this);
+            }
+            return true;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {
+//            Log.d(TAG, "onSurfaceTextureUpdated");
+        }
+
+    }
+
+    private static class ActivityContainerCallback extends IActivityContainerCallback.Stub {
+        private final WeakReference<ActivityView> mActivityViewWeakReference;
+
+        ActivityContainerCallback(ActivityView activityView) {
+            mActivityViewWeakReference = new WeakReference<>(activityView);
+        }
+
+        @Override
+        public void setVisible(IBinder container, boolean visible) {
+            if (DEBUG) Log.v(TAG, "setVisible(): container=" + container + " visible=" + visible +
+                    " ActivityView=" + mActivityViewWeakReference.get());
+        }
+
+        @Override
+        public void onAllActivitiesComplete(IBinder container) {
+            final ActivityView activityView = mActivityViewWeakReference.get();
+            if (activityView != null) {
+                final ActivityViewCallback callback = activityView.mActivityViewCallback;
+                if (callback != null) {
+                    final WeakReference<ActivityViewCallback> callbackRef =
+                            new WeakReference<>(callback);
+                    activityView.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            ActivityViewCallback callback = callbackRef.get();
+                            if (callback != null) {
+                                callback.onAllActivitiesComplete(activityView);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    private static class ActivityContainerWrapper {
+        private final IActivityContainer mIActivityContainer;
+        private final CloseGuard mGuard = CloseGuard.get();
+        boolean mOpened; // Protected by mGuard.
+
+        ActivityContainerWrapper(IActivityContainer container) {
+            mIActivityContainer = container;
+            mOpened = true;
+            mGuard.open("release");
+        }
+
+        void attachToDisplay(int displayId) {
+            try {
+                mIActivityContainer.attachToDisplay(displayId);
+            } catch (RemoteException e) {
+            }
+        }
+
+        void setSurface(Surface surface, int width, int height, int density)
                 throws RemoteException {
-            if (mVirtualDisplay == null) {
-                return;
-            }
+            mIActivityContainer.setSurface(surface, width, height, density);
+        }
 
-            StackInfo stackInfo = getTopMostStackInfo();
-            if (stackInfo == null) {
-                return;
+        int startActivity(Intent intent) {
+            try {
+                return mIActivityContainer.startActivity(intent);
+            } catch (RemoteException e) {
+                throw new RuntimeException("ActivityView: Unable to startActivity. " + e);
             }
-            // Found the topmost stack on target display. Now check if the topmost task's
-            // description changed.
-            if (taskId == stackInfo.taskIds[stackInfo.taskIds.length - 1]) {
-                mSurfaceView.setResizeBackgroundColor(td.getBackgroundColor());
+        }
+
+        int startActivityIntentSender(IIntentSender intentSender) {
+            try {
+                return mIActivityContainer.startActivityIntentSender(intentSender);
+            } catch (RemoteException e) {
+                throw new RuntimeException(
+                        "ActivityView: Unable to startActivity from IntentSender. " + e);
+            }
+        }
+
+        int getDisplayId() {
+            try {
+                return mIActivityContainer.getDisplayId();
+            } catch (RemoteException e) {
+                return -1;
+            }
+        }
+
+        boolean injectEvent(InputEvent event) {
+            try {
+                return mIActivityContainer.injectEvent(event);
+            } catch (RemoteException e) {
+                return false;
+            }
+        }
+
+        void release() {
+            synchronized (mGuard) {
+                if (mOpened) {
+                    if (DEBUG) Log.v(TAG, "ActivityContainerWrapper: release called");
+                    try {
+                        mIActivityContainer.release();
+                        mGuard.close();
+                    } catch (RemoteException e) {
+                    }
+                    mOpened = false;
+                }
             }
         }
 
         @Override
-        public void onTaskMovedToFront(int taskId) throws RemoteException {
-            if (mActivityViewCallback  != null) {
-                StackInfo stackInfo = getTopMostStackInfo();
-                // if StackInfo was null or unrelated to the "move to front" then there's no use
-                // notifying the callback
-                if (stackInfo != null
-                        && taskId == stackInfo.taskIds[stackInfo.taskIds.length - 1]) {
-                    mActivityViewCallback.onTaskMovedToFront(stackInfo);
+        protected void finalize() throws Throwable {
+            if (DEBUG) Log.v(TAG, "ActivityContainerWrapper: finalize called");
+            try {
+                if (mGuard != null) {
+                    mGuard.warnIfOpen();
+                    release();
                 }
+            } finally {
+                super.finalize();
             }
         }
 
-        private StackInfo getTopMostStackInfo() throws RemoteException {
-            // Find the topmost task on our virtual display - it will define the background
-            // color of the surface view during resizing.
-            final int displayId = mVirtualDisplay.getDisplay().getDisplayId();
-            final List<StackInfo> stackInfoList = mActivityManager.getAllStackInfos();
-
-            // Iterate through stacks from top to bottom.
-            final int stackCount = stackInfoList.size();
-            for (int i = 0; i < stackCount; i++) {
-                final StackInfo stackInfo = stackInfoList.get(i);
-                // Only look for stacks on our virtual display.
-                if (stackInfo.displayId != displayId) {
-                    continue;
-                }
-                // Found the topmost stack on target display.
-                return stackInfo;
-            }
-            return null;
-        }
     }
 }

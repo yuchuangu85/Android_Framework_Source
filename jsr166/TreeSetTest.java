@@ -29,7 +29,7 @@ public class TreeSetTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(TreeSetTest.class);
+    //     return new TestSuite(...);
     // }
 
     static class MyReverseComparator implements Comparator {
@@ -50,7 +50,7 @@ public class TreeSetTest extends JSR166TestCase {
     private TreeSet<Integer> populatedSet(int n) {
         TreeSet<Integer> q = new TreeSet<Integer>();
         assertTrue(q.isEmpty());
-        for (int i = n - 1; i >= 0; i -= 2)
+        for (int i = n-1; i >= 0; i -= 2)
             assertTrue(q.add(new Integer(i)));
         for (int i = (n & 1); i < n; i += 2)
             assertTrue(q.add(new Integer(i)));
@@ -96,7 +96,8 @@ public class TreeSetTest extends JSR166TestCase {
      */
     public void testConstructor4() {
         try {
-            new TreeSet(Arrays.asList(new Integer[SIZE]));
+            Integer[] ints = new Integer[SIZE];
+            new TreeSet(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
     }
@@ -105,10 +106,10 @@ public class TreeSetTest extends JSR166TestCase {
      * Initializing from Collection with some null elements throws NPE
      */
     public void testConstructor5() {
-        Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
         try {
+            Integer[] ints = new Integer[SIZE];
+            for (int i = 0; i < SIZE-1; ++i)
+                ints[i] = new Integer(i);
             new TreeSet(Arrays.asList(ints));
             shouldThrow();
         } catch (NullPointerException success) {}
@@ -137,7 +138,7 @@ public class TreeSetTest extends JSR166TestCase {
         for (int i = 0; i < SIZE; ++i)
             ints[i] = new Integer(i);
         q.addAll(Arrays.asList(ints));
-        for (int i = SIZE - 1; i >= 0; --i)
+        for (int i = SIZE-1; i >= 0; --i)
             assertEquals(ints[i], q.pollFirst());
     }
 
@@ -161,7 +162,7 @@ public class TreeSetTest extends JSR166TestCase {
     public void testSize() {
         TreeSet q = populatedSet(SIZE);
         for (int i = 0; i < SIZE; ++i) {
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             q.pollFirst();
         }
         for (int i = 0; i < SIZE; ++i) {
@@ -241,7 +242,7 @@ public class TreeSetTest extends JSR166TestCase {
     public void testAddAll3() {
         TreeSet q = new TreeSet();
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         try {
             q.addAll(Arrays.asList(ints));
@@ -256,7 +257,7 @@ public class TreeSetTest extends JSR166TestCase {
         Integer[] empty = new Integer[0];
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE; ++i)
-            ints[i] = new Integer(SIZE - 1 - i);
+            ints[i] = new Integer(SIZE-1-i);
         TreeSet q = new TreeSet();
         assertFalse(q.addAll(Arrays.asList(empty)));
         assertTrue(q.addAll(Arrays.asList(ints)));
@@ -280,7 +281,7 @@ public class TreeSetTest extends JSR166TestCase {
      */
     public void testPollLast() {
         TreeSet q = populatedSet(SIZE);
-        for (int i = SIZE - 1; i >= 0; --i) {
+        for (int i = SIZE-1; i >= 0; --i) {
             assertEquals(i, q.pollLast());
         }
         assertNull(q.pollFirst());
@@ -295,14 +296,14 @@ public class TreeSetTest extends JSR166TestCase {
             assertTrue(q.contains(i));
             assertTrue(q.remove(i));
             assertFalse(q.contains(i));
-            assertTrue(q.contains(i - 1));
+            assertTrue(q.contains(i-1));
         }
         for (int i = 0; i < SIZE; i += 2) {
             assertTrue(q.contains(i));
             assertTrue(q.remove(i));
             assertFalse(q.contains(i));
-            assertFalse(q.remove(i + 1));
-            assertFalse(q.contains(i + 1));
+            assertFalse(q.remove(i+1));
+            assertFalse(q.contains(i+1));
         }
         assertTrue(q.isEmpty());
     }
@@ -361,7 +362,7 @@ public class TreeSetTest extends JSR166TestCase {
                 assertTrue(changed);
 
             assertTrue(q.containsAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             p.pollFirst();
         }
     }
@@ -374,7 +375,7 @@ public class TreeSetTest extends JSR166TestCase {
             TreeSet q = populatedSet(SIZE);
             TreeSet p = populatedSet(i);
             assertTrue(q.removeAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             for (int j = 0; j < i; ++j) {
                 Integer x = (Integer)(p.pollFirst());
                 assertFalse(q.contains(x));
@@ -908,18 +909,18 @@ public class TreeSetTest extends JSR166TestCase {
                 else if (element > max)
                     return -1;
                 int result = bs.nextSetBit(element);
-                return (result > max) ? -1 : result;
+                return result > max ? -1 : result;
             }
             int higherAscending(int element) {
                 return ceilingAscending(element + 1);
             }
             private int firstAscending() {
                 int result = ceilingAscending(min);
-                return (result > max) ? -1 : result;
+                return result > max ? -1 : result;
             }
             private int lastAscending() {
                 int result = floorAscending(max);
-                return (result < min) ? -1 : result;
+                return result < min ? -1 : result;
             }
         }
         ReferenceSet rs = new ReferenceSet();
@@ -980,7 +981,7 @@ public class TreeSetTest extends JSR166TestCase {
     }
 
     static boolean eq(Integer i, int j) {
-        return (i == null) ? j == -1 : i == j;
+        return i == null ? j == -1 : i == j;
     }
 
 }

@@ -1,513 +1,316 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.security.auth.x500;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.security.Principal;
-import java.util.Collections;
 import java.util.Map;
-import sun.security.x509.X500Name;
-import sun.security.util.*;
+import org.apache.harmony.security.x501.Name;
 
 /**
- * <p> This class represents an X.500 {@code Principal}.
- * {@code X500Principal}s are represented by distinguished names such as
- * "CN=Duke, OU=JavaSoft, O=Sun Microsystems, C=US".
- *
- * <p> This class can be instantiated by using a string representation
- * of the distinguished name, or by using the ASN.1 DER encoded byte
- * representation of the distinguished name.  The current specification
- * for the string representation of a distinguished name is defined in
- * <a href="http://www.ietf.org/rfc/rfc2253.txt">RFC 2253: Lightweight
- * Directory Access Protocol (v3): UTF-8 String Representation of
- * Distinguished Names</a>. This class, however, accepts string formats from
- * both RFC 2253 and <a href="http://www.ietf.org/rfc/rfc1779.txt">RFC 1779:
- * A String Representation of Distinguished Names</a>, and also recognizes
- * attribute type keywords whose OIDs (Object Identifiers) are defined in
- * <a href="http://www.ietf.org/rfc/rfc3280.txt">RFC 3280: Internet X.509
- * Public Key Infrastructure Certificate and CRL Profile</a>.
- *
- * <p> The string representation for this {@code X500Principal}
- * can be obtained by calling the {@code getName} methods.
- *
- * <p> Note that the {@code getSubjectX500Principal} and
- * {@code getIssuerX500Principal} methods of
- * {@code X509Certificate} return X500Principals representing the
- * issuer and subject fields of the certificate.
- *
- * @see java.security.cert.X509Certificate
- * @since 1.4
+ * Represents an X.500 principal, which holds the distinguished name of some
+ * network entity. An example of a distinguished name is {@code "O=SomeOrg,
+ * OU=SomeOrgUnit, C=US"}. The class can be instantiated from a byte representation
+ * of an object identifier (OID), an ASN.1 DER-encoded version, or a simple
+ * string holding the distinguished name. The representations must follow either
+ * RFC 2253, RFC 1779, or RFC2459.
  */
-public final class X500Principal implements Principal, java.io.Serializable {
+public final class X500Principal implements Serializable, Principal {
 
     private static final long serialVersionUID = -500463348111345721L;
 
     /**
-     * RFC 1779 String format of Distinguished Names.
-     */
-    public static final String RFC1779 = "RFC1779";
-    /**
-     * RFC 2253 String format of Distinguished Names.
-     */
-    public static final String RFC2253 = "RFC2253";
-    /**
-     * Canonical String format of Distinguished Names.
+     * Defines a constant for the canonical string format of distinguished
+     * names.
      */
     public static final String CANONICAL = "CANONICAL";
 
     /**
-     * The X500Name representing this principal.
-     *
-     * NOTE: this field is reflectively accessed from within X500Name.
+     * Defines a constant for the RFC 1779 string format of distinguished
+     * names.
      */
-    private transient X500Name thisX500Name;
+    public static final String RFC1779 = "RFC1779";
 
     /**
-     * Creates an X500Principal by wrapping an X500Name.
-     *
-     * NOTE: The constructor is package private. It is intended to be accessed
-     * using privileged reflection from classes in sun.security.*.
-     * Currently referenced from sun.security.x509.X500Name.asX500Principal().
+     * Defines a constant for the RFC 2253 string format of distinguished
+     * names.
      */
-    X500Principal(X500Name x500Name) {
-        thisX500Name = x500Name;
-    }
+    public static final String RFC2253 = "RFC2253";
+
+    //Distinguished Name
+    private transient Name dn;
 
     /**
-     * Creates an {@code X500Principal} from a string representation of
-     * an X.500 distinguished name (ex:
-     * "CN=Duke, OU=JavaSoft, O=Sun Microsystems, C=US").
-     * The distinguished name must be specified using the grammar defined in
-     * RFC 1779 or RFC 2253 (either format is acceptable).
+     * Creates a new X500Principal from a given ASN.1 DER encoding of a
+     * distinguished name.
      *
-     * <p>This constructor recognizes the attribute type keywords
-     * defined in RFC 1779 and RFC 2253
-     * (and listed in {@link #getName(String format) getName(String format)}),
-     * as well as the T, DNQ or DNQUALIFIER, SURNAME, GIVENNAME, INITIALS,
-     * GENERATION, EMAILADDRESS, and SERIALNUMBER keywords whose Object
-     * Identifiers (OIDs) are defined in RFC 3280 and its successor.
-     * Any other attribute type must be specified as an OID.
+     * @param name
+     *            the ASN.1 DER-encoded distinguished name
      *
-     * <p>This implementation enforces a more restrictive OID syntax than
-     * defined in RFC 1779 and 2253. It uses the more correct syntax defined in
-     * <a href="http://www.ietf.org/rfc/rfc4512.txt">RFC 4512</a>, which
-     * specifies that OIDs contain at least 2 digits:
-     *
-     * <p>{@code numericoid = number 1*( DOT number ) }
-     *
-     * @param name an X.500 distinguished name in RFC 1779 or RFC 2253 format
-     * @exception NullPointerException if the {@code name}
-     *                  is {@code null}
-     * @exception IllegalArgumentException if the {@code name}
-     *                  is improperly specified
-     */
-    public X500Principal(String name) {
-        this(name, Collections.<String, String>emptyMap());
-    }
-
-    /**
-     * Creates an {@code X500Principal} from a string representation of
-     * an X.500 distinguished name (ex:
-     * "CN=Duke, OU=JavaSoft, O=Sun Microsystems, C=US").
-     * The distinguished name must be specified using the grammar defined in
-     * RFC 1779 or RFC 2253 (either format is acceptable).
-     *
-     * <p> This constructor recognizes the attribute type keywords specified
-     * in {@link #X500Principal(String)} and also recognizes additional
-     * keywords that have entries in the {@code keywordMap} parameter.
-     * Keyword entries in the keywordMap take precedence over the default
-     * keywords recognized by {@code X500Principal(String)}. Keywords
-     * MUST be specified in all upper-case, otherwise they will be ignored.
-     * Improperly specified keywords are ignored; however if a keyword in the
-     * name maps to an improperly specified Object Identifier (OID), an
-     * {@code IllegalArgumentException} is thrown. It is permissible to
-     * have 2 different keywords that map to the same OID.
-     *
-     * <p>This implementation enforces a more restrictive OID syntax than
-     * defined in RFC 1779 and 2253. It uses the more correct syntax defined in
-     * <a href="http://www.ietf.org/rfc/rfc4512.txt">RFC 4512</a>, which
-     * specifies that OIDs contain at least 2 digits:
-     *
-     * <p>{@code numericoid = number 1*( DOT number ) }
-     *
-     * @param name an X.500 distinguished name in RFC 1779 or RFC 2253 format
-     * @param keywordMap an attribute type keyword map, where each key is a
-     *   keyword String that maps to a corresponding object identifier in String
-     *   form (a sequence of nonnegative integers separated by periods). The map
-     *   may be empty but never {@code null}.
-     * @exception NullPointerException if {@code name} or
-     *   {@code keywordMap} is {@code null}
-     * @exception IllegalArgumentException if the {@code name} is
-     *   improperly specified or a keyword in the {@code name} maps to an
-     *   OID that is not in the correct form
-     * @since 1.6
-     */
-    public X500Principal(String name, Map<String, String> keywordMap) {
-        if (name == null) {
-            throw new NullPointerException
-                (sun.security.util.ResourcesMgr.getString
-                ("provided.null.name"));
-        }
-        if (keywordMap == null) {
-            throw new NullPointerException
-                (sun.security.util.ResourcesMgr.getString
-                ("provided.null.keyword.map"));
-        }
-
-        try {
-            thisX500Name = new X500Name(name, keywordMap);
-        } catch (Exception e) {
-            IllegalArgumentException iae = new IllegalArgumentException
-                        ("improperly specified input name: " + name);
-            iae.initCause(e);
-            throw iae;
-        }
-    }
-
-    /**
-     * Creates an {@code X500Principal} from a distinguished name in
-     * ASN.1 DER encoded form. The ASN.1 notation for this structure is as
-     * follows.
-     * <pre>{@code
-     * Name ::= CHOICE {
-     *   RDNSequence }
-     *
-     * RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
-     *
-     * RelativeDistinguishedName ::=
-     *   SET SIZE (1 .. MAX) OF AttributeTypeAndValue
-     *
-     * AttributeTypeAndValue ::= SEQUENCE {
-     *   type     AttributeType,
-     *   value    AttributeValue }
-     *
-     * AttributeType ::= OBJECT IDENTIFIER
-     *
-     * AttributeValue ::= ANY DEFINED BY AttributeType
-     * ....
-     * DirectoryString ::= CHOICE {
-     *       teletexString           TeletexString (SIZE (1..MAX)),
-     *       printableString         PrintableString (SIZE (1..MAX)),
-     *       universalString         UniversalString (SIZE (1..MAX)),
-     *       utf8String              UTF8String (SIZE (1.. MAX)),
-     *       bmpString               BMPString (SIZE (1..MAX)) }
-     * }</pre>
-     *
-     * @param name a byte array containing the distinguished name in ASN.1
-     * DER encoded form
-     * @throws IllegalArgumentException if an encoding error occurs
-     *          (incorrect form for DN)
+     * @throws IllegalArgumentException
+     *             if the ASN.1 DER-encoded distinguished name is incorrect
      */
     public X500Principal(byte[] name) {
+        if (name == null) {
+            throw new IllegalArgumentException("Name cannot be null");
+        }
         try {
-            thisX500Name = new X500Name(name);
-        } catch (Exception e) {
-            IllegalArgumentException iae = new IllegalArgumentException
-                        ("improperly specified input name");
-            iae.initCause(e);
-            throw iae;
-        }
-    }
-
-    /**
-     * Creates an {@code X500Principal} from an {@code InputStream}
-     * containing the distinguished name in ASN.1 DER encoded form.
-     * The ASN.1 notation for this structure is supplied in the
-     * documentation for
-     * {@link #X500Principal(byte[] name) X500Principal(byte[] name)}.
-     *
-     * <p> The read position of the input stream is positioned
-     * to the next available byte after the encoded distinguished name.
-     *
-     * @param is an {@code InputStream} containing the distinguished
-     *          name in ASN.1 DER encoded form
-     *
-     * @exception NullPointerException if the {@code InputStream}
-     *          is {@code null}
-     * @exception IllegalArgumentException if an encoding error occurs
-     *          (incorrect form for DN)
-     */
-    public X500Principal(InputStream is) {
-        if (is == null) {
-            throw new NullPointerException("provided null input stream");
-        }
-
-        try {
-            if (is.markSupported())
-                is.mark(is.available() + 1);
-            DerValue der = new DerValue(is);
-            thisX500Name = new X500Name(der.data);
-        } catch (Exception e) {
-            if (is.markSupported()) {
-                try {
-                    is.reset();
-                } catch (IOException ioe) {
-                    IllegalArgumentException iae = new IllegalArgumentException
-                        ("improperly specified input stream " +
-                        ("and unable to reset input stream"));
-                    iae.initCause(e);
-                    throw iae;
-                }
-            }
-            IllegalArgumentException iae = new IllegalArgumentException
-                        ("improperly specified input stream");
-            iae.initCause(e);
-            throw iae;
-        }
-    }
-
-    /**
-     * Returns a string representation of the X.500 distinguished name using
-     * the format defined in RFC 2253.
-     *
-     * <p>This method is equivalent to calling
-     * {@code getName(X500Principal.RFC2253)}.
-     *
-     * @return the distinguished name of this {@code X500Principal}
-     */
-    public String getName() {
-        return getName(X500Principal.RFC2253);
-    }
-
-    /**
-     * Returns a string representation of the X.500 distinguished name
-     * using the specified format. Valid values for the format are
-     * "RFC1779", "RFC2253", and "CANONICAL" (case insensitive).
-     *
-     * <p> If "RFC1779" is specified as the format,
-     * this method emits the attribute type keywords defined in
-     * RFC 1779 (CN, L, ST, O, OU, C, STREET).
-     * Any other attribute type is emitted as an OID.
-     *
-     * <p> If "RFC2253" is specified as the format,
-     * this method emits the attribute type keywords defined in
-     * RFC 2253 (CN, L, ST, O, OU, C, STREET, DC, UID).
-     * Any other attribute type is emitted as an OID.
-     * Under a strict reading, RFC 2253 only specifies a UTF-8 string
-     * representation. The String returned by this method is the
-     * Unicode string achieved by decoding this UTF-8 representation.
-     *
-     * <p> If "CANONICAL" is specified as the format,
-     * this method returns an RFC 2253 conformant string representation
-     * with the following additional canonicalizations:
-     *
-     * <ol>
-     * <li> Leading zeros are removed from attribute types
-     *          that are encoded as dotted decimal OIDs
-     * <li> DirectoryString attribute values of type
-     *          PrintableString and UTF8String are not
-     *          output in hexadecimal format
-     * <li> DirectoryString attribute values of types
-     *          other than PrintableString and UTF8String
-     *          are output in hexadecimal format
-     * <li> Leading and trailing white space characters
-     *          are removed from non-hexadecimal attribute values
-     *          (unless the value consists entirely of white space characters)
-     * <li> Internal substrings of one or more white space characters are
-     *          converted to a single space in non-hexadecimal
-     *          attribute values
-     * <li> Relative Distinguished Names containing more than one
-     *          Attribute Value Assertion (AVA) are output in the
-     *          following order: an alphabetical ordering of AVAs
-     *          containing standard keywords, followed by a numeric
-     *          ordering of AVAs containing OID keywords.
-     * <li> The only characters in attribute values that are escaped are
-     *          those which section 2.4 of RFC 2253 states must be escaped
-     *          (they are escaped using a preceding backslash character)
-     * <li> The entire name is converted to upper case
-     *          using {@code String.toUpperCase(Locale.US)}
-     * <li> The entire name is converted to lower case
-     *          using {@code String.toLowerCase(Locale.US)}
-     * <li> The name is finally normalized using normalization form KD,
-     *          as described in the Unicode Standard and UAX #15
-     * </ol>
-     *
-     * <p> Additional standard formats may be introduced in the future.
-     *
-     * @param format the format to use
-     *
-     * @return a string representation of this {@code X500Principal}
-     *          using the specified format
-     * @throws IllegalArgumentException if the specified format is invalid
-     *          or null
-     */
-    public String getName(String format) {
-        if (format != null) {
-            if (format.equalsIgnoreCase(RFC1779)) {
-                return thisX500Name.getRFC1779Name();
-            } else if (format.equalsIgnoreCase(RFC2253)) {
-                return thisX500Name.getRFC2253Name();
-            } else if (format.equalsIgnoreCase(CANONICAL)) {
-                return thisX500Name.getRFC2253CanonicalName();
-            }
-        }
-        throw new IllegalArgumentException("invalid format specified");
-    }
-
-    /**
-     * Returns a string representation of the X.500 distinguished name
-     * using the specified format. Valid values for the format are
-     * "RFC1779" and "RFC2253" (case insensitive). "CANONICAL" is not
-     * permitted and an {@code IllegalArgumentException} will be thrown.
-     *
-     * <p>This method returns Strings in the format as specified in
-     * {@link #getName(String)} and also emits additional attribute type
-     * keywords for OIDs that have entries in the {@code oidMap}
-     * parameter. OID entries in the oidMap take precedence over the default
-     * OIDs recognized by {@code getName(String)}.
-     * Improperly specified OIDs are ignored; however if an OID
-     * in the name maps to an improperly specified keyword, an
-     * {@code IllegalArgumentException} is thrown.
-     *
-     * <p> Additional standard formats may be introduced in the future.
-     *
-     * <p> Warning: additional attribute type keywords may not be recognized
-     * by other implementations; therefore do not use this method if
-     * you are unsure if these keywords will be recognized by other
-     * implementations.
-     *
-     * @param format the format to use
-     * @param oidMap an OID map, where each key is an object identifier in
-     *  String form (a sequence of nonnegative integers separated by periods)
-     *  that maps to a corresponding attribute type keyword String.
-     *  The map may be empty but never {@code null}.
-     * @return a string representation of this {@code X500Principal}
-     *          using the specified format
-     * @throws IllegalArgumentException if the specified format is invalid,
-     *  null, or an OID in the name maps to an improperly specified keyword
-     * @throws NullPointerException if {@code oidMap} is {@code null}
-     * @since 1.6
-     */
-    public String getName(String format, Map<String, String> oidMap) {
-        if (oidMap == null) {
-            throw new NullPointerException
-                (sun.security.util.ResourcesMgr.getString
-                ("provided.null.OID.map"));
-        }
-        if (format != null) {
-            if (format.equalsIgnoreCase(RFC1779)) {
-                return thisX500Name.getRFC1779Name(oidMap);
-            } else if (format.equalsIgnoreCase(RFC2253)) {
-                return thisX500Name.getRFC2253Name(oidMap);
-            }
-        }
-        throw new IllegalArgumentException("invalid format specified");
-    }
-
-    /**
-     * Returns the distinguished name in ASN.1 DER encoded form. The ASN.1
-     * notation for this structure is supplied in the documentation for
-     * {@link #X500Principal(byte[] name) X500Principal(byte[] name)}.
-     *
-     * <p>Note that the byte array returned is cloned to protect against
-     * subsequent modifications.
-     *
-     * @return a byte array containing the distinguished name in ASN.1 DER
-     * encoded form
-     */
-    public byte[] getEncoded() {
-        try {
-            return thisX500Name.getEncoded();
+            // FIXME dn = new Name(name);
+            dn = (Name) Name.ASN1.decode(name);
         } catch (IOException e) {
-            throw new RuntimeException("unable to get encoding", e);
+            throw incorrectInputEncoding(e);
         }
     }
 
     /**
-     * Return a user-friendly string representation of this
-     * {@code X500Principal}.
+     * Creates a new X500Principal from a given ASN.1 DER encoding of a
+     * distinguished name.
      *
-     * @return a string representation of this {@code X500Principal}
+     * @param in
+     *            an {@code InputStream} holding the ASN.1 DER-encoded
+     *            distinguished name
+     *
+     * @throws IllegalArgumentException
+     *             if the ASN.1 DER-encoded distinguished name is incorrect
      */
-    public String toString() {
-        return thisX500Name.toString();
+    public X500Principal(InputStream in) {
+        if (in == null) {
+            throw new NullPointerException("in == null");
+        }
+        try {
+            // FIXME dn = new Name(is);
+            dn = (Name) Name.ASN1.decode(in);
+        } catch (IOException e) {
+            throw incorrectInputEncoding(e);
+        }
+    }
+
+    private IllegalArgumentException incorrectInputEncoding(IOException e) {
+        IllegalArgumentException iae = new IllegalArgumentException("Incorrect input encoding");
+        iae.initCause(e);
+        throw iae;
     }
 
     /**
-     * Compares the specified {@code Object} with this
-     * {@code X500Principal} for equality.
+     * Creates a new X500Principal from a string representation of a
+     * distinguished name.
      *
-     * <p> Specifically, this method returns {@code true} if
-     * the {@code Object} <i>o</i> is an {@code X500Principal}
-     * and if the respective canonical string representations
-     * (obtained via the {@code getName(X500Principal.CANONICAL)} method)
-     * of this object and <i>o</i> are equal.
+     * @param name
+     *            the string representation of the distinguished name
      *
-     * <p> This implementation is compliant with the requirements of RFC 3280.
-     *
-     * @param o Object to be compared for equality with this
-     *          {@code X500Principal}
-     *
-     * @return {@code true} if the specified {@code Object} is equal
-     *          to this {@code X500Principal}, {@code false} otherwise
+     * @throws IllegalArgumentException
+     *             if the string representation of the distinguished name is
+     *             incorrect
      */
+    public X500Principal(String name) {
+        if (name == null) {
+            throw new NullPointerException("name == null");
+        }
+        try {
+            dn = new Name(name);
+        } catch (IOException e) {
+            throw incorrectInputName(e, name);
+        }
+    }
+
+    public X500Principal(String name, Map<String,String> keywordMap){
+        if (name == null) {
+            throw new NullPointerException("name == null");
+        }
+        try {
+            dn = new Name(substituteNameFromMap(name, keywordMap));
+        } catch (IOException e) {
+            throw incorrectInputName(e, name);
+        }
+    }
+
+    private IllegalArgumentException incorrectInputName(IOException e, String name) {
+        IllegalArgumentException iae = new IllegalArgumentException("Incorrect input name:" + name);
+        iae.initCause(e);
+        throw iae;
+    }
+
+    private transient String canonicalName;
+    private synchronized String getCanonicalName() {
+        if (canonicalName == null) {
+            canonicalName = dn.getName(CANONICAL);
+        }
+        return canonicalName;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
-        if (o instanceof X500Principal == false) {
+        if (o == null || this.getClass() != o.getClass()) {
             return false;
         }
-        X500Principal other = (X500Principal)o;
-        return this.thisX500Name.equals(other.thisX500Name);
+        X500Principal principal = (X500Principal) o;
+        return getCanonicalName().equals(principal.getCanonicalName());
     }
 
     /**
-     * Return a hash code for this {@code X500Principal}.
+     * Returns an ASN.1 DER-encoded representation of the distinguished name
+     * contained in this X.500 principal.
      *
-     * <p> The hash code is calculated via:
-     * {@code getName(X500Principal.CANONICAL).hashCode()}
-     *
-     * @return a hash code for this {@code X500Principal}
+     * @return the ASN.1 DER-encoded representation
      */
+    public byte[] getEncoded() {
+        byte[] src = dn.getEncoded();
+        byte[] dst = new byte[src.length];
+        System.arraycopy(src, 0, dst, 0, dst.length);
+        return dst;
+    }
+
+    /**
+     * Returns a human-readable string representation of the distinguished name
+     * contained in this X.500 principal.
+     *
+     * @return the string representation
+     */
+    public String getName() {
+        return dn.getName(RFC2253);
+    }
+
+    /**
+     * Returns a string representation of the distinguished name contained in
+     * this X.500 principal. The format of the representation can be chosen.
+     * Valid arguments are {@link #RFC1779}, {@link #RFC2253}, and
+     * {@link #CANONICAL}. The representations are specified in RFC 1779 and RFC
+     * 2253, respectively. The canonical form is based on RFC 2253, but adds
+     * some canonicalizing operations like removing leading and trailing
+     * whitespace, lower-casing the whole name, and bringing it into a
+     * normalized Unicode representation.
+     *
+     * @param format
+     *            the name of the format to use for the representation
+     *
+     * @return the string representation
+     *
+     * @throws IllegalArgumentException
+     *             if the {@code format} argument is not one of the three
+     *             mentioned above
+     */
+    public String getName(String format) {
+        if (CANONICAL.equals(format)) {
+            return getCanonicalName();
+        }
+
+        return dn.getName(format);
+    }
+
+    public String getName(String format, Map<String, String> oidMap) {
+        String rfc1779Name = dn.getName(RFC1779);
+        String rfc2253Name = dn.getName(RFC2253);
+
+        if (format.equalsIgnoreCase("RFC1779")) {
+            StringBuilder resultName = new StringBuilder(rfc1779Name);
+            int fromIndex = resultName.length();
+            int equalIndex = -1;
+            while (-1 != (equalIndex = resultName.lastIndexOf("=", fromIndex))) {
+                int commaIndex = resultName.lastIndexOf(",", equalIndex);
+                String subName = resultName.substring(commaIndex + 1,
+                        equalIndex).trim();
+                if (subName.length() > 4
+                        && subName.substring(0, 4).equals("OID.")) {
+                    String subSubName = subName.substring(4);
+                    if (oidMap.containsKey(subSubName)) {
+                        String replaceName = oidMap.get(subSubName);
+                        if(commaIndex > 0) replaceName = " " + replaceName;
+                        resultName.replace(commaIndex + 1, equalIndex, replaceName);
+                    }
+                }
+                fromIndex = commaIndex;
+            }
+            return resultName.toString();
+        } else if (format.equalsIgnoreCase("RFC2253")) {
+            StringBuilder resultName = new StringBuilder(rfc2253Name);
+            StringBuilder subsidyName = new StringBuilder(rfc1779Name);
+
+            int fromIndex = resultName.length();
+            int subsidyFromIndex = subsidyName.length();
+            int equalIndex = -1;
+            int subsidyEqualIndex = -1;
+            while (-1 != (equalIndex = resultName.lastIndexOf("=", fromIndex))) {
+                subsidyEqualIndex = subsidyName.lastIndexOf("=",
+                        subsidyFromIndex);
+                int commaIndex = resultName.lastIndexOf(",", equalIndex);
+                String subName = resultName.substring(commaIndex + 1,
+                        equalIndex).trim();
+                if (oidMap.containsKey(subName)) {
+                    int subOrignalEndIndex = resultName
+                            .indexOf(",", equalIndex);
+                    if (subOrignalEndIndex == -1)
+                        subOrignalEndIndex = resultName.length();
+                    int subGoalEndIndex = subsidyName.indexOf(",",
+                            subsidyEqualIndex);
+                    if (subGoalEndIndex == -1)
+                        subGoalEndIndex = subsidyName.length();
+                    resultName.replace(equalIndex + 1, subOrignalEndIndex,
+                            subsidyName.substring(subsidyEqualIndex + 1,
+                                    subGoalEndIndex));
+                    resultName.replace(commaIndex + 1, equalIndex, oidMap
+                            .get(subName));
+                }
+                fromIndex = commaIndex;
+                subsidyFromIndex = subsidyEqualIndex - 1;
+            }
+            return resultName.toString();
+        } else {
+            throw new IllegalArgumentException("invalid format specified: " + format);
+        }
+    }
+
+    @Override
     public int hashCode() {
-        return thisX500Name.hashCode();
+        return getCanonicalName().hashCode();
     }
 
-    /**
-     * Save the X500Principal object to a stream.
-     *
-     * @serialData this {@code X500Principal} is serialized
-     *          by writing out its DER-encoded form
-     *          (the value of {@code getEncoded} is serialized).
-     */
-    private void writeObject(java.io.ObjectOutputStream s)
-        throws IOException {
-        s.writeObject(thisX500Name.getEncodedInternal());
+    @Override
+    public String toString() {
+        return dn.getName(RFC1779);
     }
 
-    /**
-     * Reads this object from a stream (i.e., deserializes it).
-     */
-    private void readObject(java.io.ObjectInputStream s)
-        throws java.io.IOException,
-               java.io.NotActiveException,
-               ClassNotFoundException {
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        out.writeObject(dn.getEncoded());
+    }
 
-        // re-create thisX500Name
-        thisX500Name = new X500Name((byte[])s.readObject());
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+        dn = (Name) Name.ASN1.decode((byte[]) in.readObject());
+    }
+
+    private String substituteNameFromMap(String name, Map<String, String> keywordMap) {
+        StringBuilder sbName = new StringBuilder(name);
+        int fromIndex = sbName.length();
+        int equalIndex;
+        while (-1 != (equalIndex = sbName.lastIndexOf("=", fromIndex))) {
+            int commaIndex = sbName.lastIndexOf(",", equalIndex);
+            String subName = sbName.substring(commaIndex + 1, equalIndex).trim();
+            if (keywordMap.containsKey(subName)) {
+                sbName.replace(commaIndex + 1, equalIndex, keywordMap.get(subName));
+            }
+            fromIndex = commaIndex;
+        }
+        return sbName.toString();
     }
 }

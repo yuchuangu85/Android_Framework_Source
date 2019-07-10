@@ -28,7 +28,7 @@ import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.ims.ImsCall;
 import com.android.ims.ImsException;
-import android.telephony.ims.ImsStreamMediaProfile;
+import com.android.ims.ImsStreamMediaProfile;
 
 import java.util.List;
 
@@ -66,7 +66,8 @@ public class ImsPhoneCall extends Call {
         mCallContext = CONTEXT_UNKNOWN;
     }
 
-    public ImsPhoneCall(ImsPhoneCallTracker owner, String context) {
+    /*package*/
+    ImsPhoneCall(ImsPhoneCallTracker owner, String context) {
         mOwner = owner;
         mCallContext = context;
     }
@@ -150,7 +151,8 @@ public class ImsPhoneCall extends Call {
 
     //***** Called from ImsPhoneConnection
 
-    public void attach(Connection conn) {
+    /*package*/ void
+    attach(Connection conn) {
         if (VDBG) {
             Rlog.v(LOG_TAG, "attach : " + mCallContext + " conn = " + conn);
         }
@@ -160,7 +162,8 @@ public class ImsPhoneCall extends Call {
         mOwner.logState();
     }
 
-    public void attach(Connection conn, State state) {
+    /*package*/ void
+    attach(Connection conn, State state) {
         if (VDBG) {
             Rlog.v(LOG_TAG, "attach : " + mCallContext + " state = " +
                     state.toString());
@@ -169,14 +172,16 @@ public class ImsPhoneCall extends Call {
         mState = state;
     }
 
-    public void attachFake(Connection conn, State state) {
+    /*package*/ void
+    attachFake(Connection conn, State state) {
         attach(conn, state);
     }
 
     /**
      * Called by ImsPhoneConnection when it has disconnected
      */
-    public boolean connectionDisconnected(ImsPhoneConnection conn) {
+    boolean
+    connectionDisconnected(ImsPhoneConnection conn) {
         if (mState != State.DISCONNECTED) {
             /* If only disconnected connections remain, we are disconnected*/
 
@@ -191,10 +196,6 @@ public class ImsPhoneCall extends Call {
 
             if (hasOnlyDisconnectedConnections) {
                 mState = State.DISCONNECTED;
-                if (VDBG) {
-                    Rlog.v(LOG_TAG, "connectionDisconnected : " + mCallContext + " state = " +
-                            mState);
-                }
                 return true;
             }
         }
@@ -202,7 +203,8 @@ public class ImsPhoneCall extends Call {
         return false;
     }
 
-    public void detach(ImsPhoneConnection conn) {
+    /*package*/ void
+    detach(ImsPhoneConnection conn) {
         if (VDBG) {
             Rlog.v(LOG_TAG, "detach : " + mCallContext + " conn = " + conn);
         }
@@ -232,13 +234,28 @@ public class ImsPhoneCall extends Call {
             cn.onHangupLocal();
         }
         mState = State.DISCONNECTING;
-        if (VDBG) {
-            Rlog.v(LOG_TAG, "onHangupLocal : " + mCallContext + " state = " + mState);
+    }
+
+    /**
+     * Called when it's time to clean up disconnected Connection objects
+     */
+    void
+    clearDisconnected() {
+        for (int i = mConnections.size() - 1 ; i >= 0 ; i--) {
+            ImsPhoneConnection cn = (ImsPhoneConnection)mConnections.get(i);
+
+            if (cn.getState() == State.DISCONNECTED) {
+                mConnections.remove(i);
+            }
+        }
+
+        if (mConnections.size() == 0) {
+            mState = State.IDLE;
         }
     }
 
-    @VisibleForTesting
-    public ImsPhoneConnection getFirstConnection() {
+    /*package*/ ImsPhoneConnection
+    getFirstConnection() {
         if (mConnections.size() == 0) return null;
 
         return (ImsPhoneConnection) mConnections.get(0);
@@ -267,7 +284,6 @@ public class ImsPhoneCall extends Call {
             long conferenceConnectTime = imsPhoneConnection.getConferenceConnectTime();
             if (conferenceConnectTime > 0) {
                 imsPhoneConnection.setConnectTime(conferenceConnectTime);
-                imsPhoneConnection.setConnectTimeReal(imsPhoneConnection.getConnectTimeReal());
             } else {
                 if (DBG) {
                     Rlog.d(LOG_TAG, "merge: conference connect time is 0");
@@ -307,9 +323,10 @@ public class ImsPhoneCall extends Call {
                 ? true : false;
     }
 
-    public boolean update (ImsPhoneConnection conn, ImsCall imsCall, State state) {
+    /*package*/ boolean
+    update (ImsPhoneConnection conn, ImsCall imsCall, State state) {
+        State newState = state;
         boolean changed = false;
-        State oldState = mState;
 
         //ImsCall.Listener.onCallProgressing can be invoked several times
         //and ringback tone mode can be changed during the call setup procedure
@@ -328,15 +345,11 @@ public class ImsPhoneCall extends Call {
             }
         }
 
-        if ((state != mState) && (state != State.DISCONNECTED)) {
-            mState = state;
+        if ((newState != mState) && (state != State.DISCONNECTED)) {
+            mState = newState;
             changed = true;
         } else if (state == State.DISCONNECTED) {
             changed = true;
-        }
-
-        if (VDBG) {
-            Rlog.v(LOG_TAG, "update : " + mCallContext + " state: " + oldState + " --> " + mState);
         }
 
         return changed;
@@ -347,7 +360,7 @@ public class ImsPhoneCall extends Call {
         return (ImsPhoneConnection) getEarliestConnection();
     }
 
-    public void switchWith(ImsPhoneCall that) {
+    void switchWith(ImsPhoneCall that) {
         if (VDBG) {
             Rlog.v(LOG_TAG, "switchWith : switchCall = " + this + " withCall = " + that);
         }

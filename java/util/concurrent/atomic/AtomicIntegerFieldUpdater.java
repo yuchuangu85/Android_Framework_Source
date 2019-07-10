@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -35,16 +6,13 @@
 
 package java.util.concurrent.atomic;
 
-import dalvik.system.VMStack; // Android-added
+import dalvik.system.VMStack; // android-added
+import sun.misc.Unsafe;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
-import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
-import java.util.function.IntBinaryOperator;
-import java.util.function.IntUnaryOperator;
-import sun.reflect.CallerSensitive;
-import sun.reflect.Reflection;
+import java.security.PrivilegedActionException;
 
 /**
  * A reflection-based utility that enables atomic updates to
@@ -72,7 +40,6 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      *
      * @param tclass the class of the objects holding the field
      * @param fieldName the name of the field to be updated
-     * @param <U> the type of instances of tclass
      * @return the updater
      * @throws IllegalArgumentException if the field is not a
      * volatile integer type
@@ -81,11 +48,8 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * or the field is inaccessible to the caller according to Java language
      * access control
      */
-    @CallerSensitive
-    public static <U> AtomicIntegerFieldUpdater<U> newUpdater(Class<U> tclass,
-                                                              String fieldName) {
-        return new AtomicIntegerFieldUpdaterImpl<U>
-            (tclass, fieldName, VMStack.getStackClass1()); // Android-changed
+    public static <U> AtomicIntegerFieldUpdater<U> newUpdater(Class<U> tclass, String fieldName) {
+        return new AtomicIntegerFieldUpdaterImpl<U>(tclass, fieldName);
     }
 
     /**
@@ -104,7 +68,7 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @param obj An object whose field to conditionally set
      * @param expect the expected value
      * @param update the new value
-     * @return {@code true} if successful
+     * @return true if successful
      * @throws ClassCastException if {@code obj} is not an instance
      * of the class possessing the field established in the constructor
      */
@@ -124,7 +88,7 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @param obj An object whose field to conditionally set
      * @param expect the expected value
      * @param update the new value
-     * @return {@code true} if successful
+     * @return true if successful
      * @throws ClassCastException if {@code obj} is not an instance
      * of the class possessing the field established in the constructor
      */
@@ -168,11 +132,11 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the previous value
      */
     public int getAndSet(T obj, int newValue) {
-        int prev;
-        do {
-            prev = get(obj);
-        } while (!compareAndSet(obj, prev, newValue));
-        return prev;
+        for (;;) {
+            int current = get(obj);
+            if (compareAndSet(obj, current, newValue))
+                return current;
+        }
     }
 
     /**
@@ -183,12 +147,12 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the previous value
      */
     public int getAndIncrement(T obj) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev + 1;
-        } while (!compareAndSet(obj, prev, next));
-        return prev;
+        for (;;) {
+            int current = get(obj);
+            int next = current + 1;
+            if (compareAndSet(obj, current, next))
+                return current;
+        }
     }
 
     /**
@@ -199,12 +163,12 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the previous value
      */
     public int getAndDecrement(T obj) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev - 1;
-        } while (!compareAndSet(obj, prev, next));
-        return prev;
+        for (;;) {
+            int current = get(obj);
+            int next = current - 1;
+            if (compareAndSet(obj, current, next))
+                return current;
+        }
     }
 
     /**
@@ -216,12 +180,12 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the previous value
      */
     public int getAndAdd(T obj, int delta) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev + delta;
-        } while (!compareAndSet(obj, prev, next));
-        return prev;
+        for (;;) {
+            int current = get(obj);
+            int next = current + delta;
+            if (compareAndSet(obj, current, next))
+                return current;
+        }
     }
 
     /**
@@ -232,12 +196,12 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the updated value
      */
     public int incrementAndGet(T obj) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev + 1;
-        } while (!compareAndSet(obj, prev, next));
-        return next;
+        for (;;) {
+            int current = get(obj);
+            int next = current + 1;
+            if (compareAndSet(obj, current, next))
+                return next;
+        }
     }
 
     /**
@@ -248,12 +212,12 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the updated value
      */
     public int decrementAndGet(T obj) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev - 1;
-        } while (!compareAndSet(obj, prev, next));
-        return next;
+        for (;;) {
+            int current = get(obj);
+            int next = current - 1;
+            if (compareAndSet(obj, current, next))
+                return next;
+        }
     }
 
     /**
@@ -265,168 +229,70 @@ public abstract class AtomicIntegerFieldUpdater<T> {
      * @return the updated value
      */
     public int addAndGet(T obj, int delta) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = prev + delta;
-        } while (!compareAndSet(obj, prev, next));
-        return next;
+        for (;;) {
+            int current = get(obj);
+            int next = current + delta;
+            if (compareAndSet(obj, current, next))
+                return next;
+        }
     }
 
     /**
-     * Atomically updates the field of the given object managed by this updater
-     * with the results of applying the given function, returning the previous
-     * value. The function should be side-effect-free, since it may be
-     * re-applied when attempted updates fail due to contention among threads.
-     *
-     * @param obj An object whose field to get and set
-     * @param updateFunction a side-effect-free function
-     * @return the previous value
-     * @since 1.8
+     * Standard hotspot implementation using intrinsics
      */
-    public final int getAndUpdate(T obj, IntUnaryOperator updateFunction) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = updateFunction.applyAsInt(prev);
-        } while (!compareAndSet(obj, prev, next));
-        return prev;
-    }
-
-    /**
-     * Atomically updates the field of the given object managed by this updater
-     * with the results of applying the given function, returning the updated
-     * value. The function should be side-effect-free, since it may be
-     * re-applied when attempted updates fail due to contention among threads.
-     *
-     * @param obj An object whose field to get and set
-     * @param updateFunction a side-effect-free function
-     * @return the updated value
-     * @since 1.8
-     */
-    public final int updateAndGet(T obj, IntUnaryOperator updateFunction) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = updateFunction.applyAsInt(prev);
-        } while (!compareAndSet(obj, prev, next));
-        return next;
-    }
-
-    /**
-     * Atomically updates the field of the given object managed by this
-     * updater with the results of applying the given function to the
-     * current and given values, returning the previous value. The
-     * function should be side-effect-free, since it may be re-applied
-     * when attempted updates fail due to contention among threads.  The
-     * function is applied with the current value as its first argument,
-     * and the given update as the second argument.
-     *
-     * @param obj An object whose field to get and set
-     * @param x the update value
-     * @param accumulatorFunction a side-effect-free function of two arguments
-     * @return the previous value
-     * @since 1.8
-     */
-    public final int getAndAccumulate(T obj, int x,
-                                      IntBinaryOperator accumulatorFunction) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = accumulatorFunction.applyAsInt(prev, x);
-        } while (!compareAndSet(obj, prev, next));
-        return prev;
-    }
-
-    /**
-     * Atomically updates the field of the given object managed by this
-     * updater with the results of applying the given function to the
-     * current and given values, returning the updated value. The
-     * function should be side-effect-free, since it may be re-applied
-     * when attempted updates fail due to contention among threads.  The
-     * function is applied with the current value as its first argument,
-     * and the given update as the second argument.
-     *
-     * @param obj An object whose field to get and set
-     * @param x the update value
-     * @param accumulatorFunction a side-effect-free function of two arguments
-     * @return the updated value
-     * @since 1.8
-     */
-    public final int accumulateAndGet(T obj, int x,
-                                      IntBinaryOperator accumulatorFunction) {
-        int prev, next;
-        do {
-            prev = get(obj);
-            next = accumulatorFunction.applyAsInt(prev, x);
-        } while (!compareAndSet(obj, prev, next));
-        return next;
-    }
-
-    /**
-     * Standard hotspot implementation using intrinsics.
-     */
-    private static final class AtomicIntegerFieldUpdaterImpl<T>
-        extends AtomicIntegerFieldUpdater<T> {
-        private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
+    private static class AtomicIntegerFieldUpdaterImpl<T> extends AtomicIntegerFieldUpdater<T> {
+        private static final Unsafe unsafe = Unsafe.getUnsafe();
         private final long offset;
-        /**
-         * if field is protected, the subclass constructing updater, else
-         * the same as tclass
-         */
-        private final Class<?> cclass;
-        /** class holding the field */
         private final Class<T> tclass;
+        private final Class<?> cclass;
 
-        AtomicIntegerFieldUpdaterImpl(final Class<T> tclass,
-                                      final String fieldName,
-                                      final Class<?> caller) {
+        AtomicIntegerFieldUpdaterImpl(final Class<T> tclass, final String fieldName) {
             final Field field;
+            final Class<?> caller;
             final int modifiers;
             try {
-                field = AccessController.doPrivileged(
-                    new PrivilegedExceptionAction<Field>() {
-                        public Field run() throws NoSuchFieldException {
-                            return tclass.getDeclaredField(fieldName);
-                        }
-                    });
+                field = tclass.getDeclaredField(fieldName); // android-changed
+                caller = VMStack.getStackClass2(); // android-changed
+
                 modifiers = field.getModifiers();
-                // BEGIN Android-removed
+                // BEGIN android-removed
                 // sun.reflect.misc.ReflectUtil.ensureMemberAccess(
                 //     caller, tclass, null, modifiers);
                 // ClassLoader cl = tclass.getClassLoader();
                 // ClassLoader ccl = caller.getClassLoader();
                 // if ((ccl != null) && (ccl != cl) &&
                 //     ((cl == null) || !isAncestor(cl, ccl))) {
-                //     sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
+                //   sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
                 // }
-                // END Android-removed
-            // BEGIN Android-removed
+                // END android-removed
+            // BEGIN android-removed
             // } catch (PrivilegedActionException pae) {
             //     throw new RuntimeException(pae.getException());
-            // END Android-removed
+            // END android-removed
             } catch (Exception ex) {
                 throw new RuntimeException(ex);
             }
 
-            if (field.getType() != int.class)
+            Class<?> fieldt = field.getType();
+            if (fieldt != int.class)
                 throw new IllegalArgumentException("Must be integer type");
 
             if (!Modifier.isVolatile(modifiers))
                 throw new IllegalArgumentException("Must be volatile type");
 
-            this.cclass = (Modifier.isProtected(modifiers)) ? caller : tclass;
+            this.cclass = (Modifier.isProtected(modifiers) &&
+                           caller != tclass) ? caller : null;
             this.tclass = tclass;
-            this.offset = U.objectFieldOffset(field);
+            offset = unsafe.objectFieldOffset(field);
         }
 
-        // BEGIN Android-removed
+        // BEGIN android-removed
         // /**
         //  * Returns true if the second classloader can be found in the first
         //  * classloader's delegation chain.
         //  * Equivalent to the inaccessible: first.isAncestor(second).
         //  */
-        // private static boolean isAncestor(ClassLoader first, ClassLoader second) {
+        //  private static boolean isAncestor(ClassLoader first, ClassLoader second) {
         //     ClassLoader acl = first;
         //     do {
         //         acl = acl.getParent();
@@ -436,89 +302,52 @@ public abstract class AtomicIntegerFieldUpdater<T> {
         //     } while (acl != null);
         //     return false;
         // }
-        // END Android-removed
-
-        /**
-         * Checks that target argument is instance of cclass.  On
-         * failure, throws cause.
-         */
-        private final void accessCheck(T obj) {
-            if (!cclass.isInstance(obj))
-                throwAccessCheckException(obj);
-        }
-
-        /**
-         * Throws access exception if accessCheck failed due to
-         * protected access, else ClassCastException.
-         */
-        private final void throwAccessCheckException(T obj) {
-            if (cclass == tclass)
+        // END android-removed
+        private void fullCheck(T obj) {
+            if (!tclass.isInstance(obj))
                 throw new ClassCastException();
-            else
-                throw new RuntimeException(
-                    new IllegalAccessException(
-                        "Class " +
-                        cclass.getName() +
-                        " can not access a protected member of class " +
-                        tclass.getName() +
-                        " using an instance of " +
-                        obj.getClass().getName()));
+            if (cclass != null)
+                ensureProtectedAccess(obj);
         }
 
-        public final boolean compareAndSet(T obj, int expect, int update) {
-            accessCheck(obj);
-            return U.compareAndSwapInt(obj, offset, expect, update);
+        public boolean compareAndSet(T obj, int expect, int update) {
+            if (obj == null || obj.getClass() != tclass || cclass != null) fullCheck(obj);
+            return unsafe.compareAndSwapInt(obj, offset, expect, update);
         }
 
-        public final boolean weakCompareAndSet(T obj, int expect, int update) {
-            accessCheck(obj);
-            return U.compareAndSwapInt(obj, offset, expect, update);
+        public boolean weakCompareAndSet(T obj, int expect, int update) {
+            if (obj == null || obj.getClass() != tclass || cclass != null) fullCheck(obj);
+            return unsafe.compareAndSwapInt(obj, offset, expect, update);
         }
 
-        public final void set(T obj, int newValue) {
-            accessCheck(obj);
-            U.putIntVolatile(obj, offset, newValue);
+        public void set(T obj, int newValue) {
+            if (obj == null || obj.getClass() != tclass || cclass != null) fullCheck(obj);
+            unsafe.putIntVolatile(obj, offset, newValue);
         }
 
-        public final void lazySet(T obj, int newValue) {
-            accessCheck(obj);
-            U.putOrderedInt(obj, offset, newValue);
+        public void lazySet(T obj, int newValue) {
+            if (obj == null || obj.getClass() != tclass || cclass != null) fullCheck(obj);
+            unsafe.putOrderedInt(obj, offset, newValue);
         }
 
         public final int get(T obj) {
-            accessCheck(obj);
-            return U.getIntVolatile(obj, offset);
+            if (obj == null || obj.getClass() != tclass || cclass != null) fullCheck(obj);
+            return unsafe.getIntVolatile(obj, offset);
         }
 
-        public final int getAndSet(T obj, int newValue) {
-            accessCheck(obj);
-            return U.getAndSetInt(obj, offset, newValue);
+        private void ensureProtectedAccess(T obj) {
+            if (cclass.isInstance(obj)) {
+                return;
+            }
+            throw new RuntimeException(
+                new IllegalAccessException("Class " +
+                    cclass.getName() +
+                    " can not access a protected member of class " +
+                    tclass.getName() +
+                    " using an instance of " +
+                    obj.getClass().getName()
+                )
+            );
         }
-
-        public final int getAndAdd(T obj, int delta) {
-            accessCheck(obj);
-            return U.getAndAddInt(obj, offset, delta);
-        }
-
-        public final int getAndIncrement(T obj) {
-            return getAndAdd(obj, 1);
-        }
-
-        public final int getAndDecrement(T obj) {
-            return getAndAdd(obj, -1);
-        }
-
-        public final int incrementAndGet(T obj) {
-            return getAndAdd(obj, 1) + 1;
-        }
-
-        public final int decrementAndGet(T obj) {
-            return getAndAdd(obj, -1) - 1;
-        }
-
-        public final int addAndGet(T obj, int delta) {
-            return getAndAdd(obj, delta) + delta;
-        }
-
     }
 }

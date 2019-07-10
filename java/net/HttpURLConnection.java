@@ -1,41 +1,32 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.net;
 
-import java.io.InputStream;
 import java.io.IOException;
-import java.security.Permission;
-import java.util.Date;
+import java.io.InputStream;
+import java.util.Arrays;
 
-// Android-changed: top-level documentation substantially changed/rewritten.
 /**
- * A URLConnection with support for HTTP-specific features. See
- * <A HREF="http://www.w3.org/pub/WWW/Protocols/"> the spec </A> for
- * details.
- * <p>
+ * An {@link URLConnection} for HTTP (<a
+ * href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>) used to send and
+ * receive data over the web. Data may be of any type and length. This class may
+ * be used to send and receive streaming data whose length is not known in
+ * advance.
  *
  * <p>Uses of this class follow a pattern:
  * <ol>
@@ -137,7 +128,10 @@ import java.util.Date;
  * <p>To reduce latency, this class may reuse the same underlying {@code Socket}
  * for multiple request/response pairs. As a result, HTTP connections may be
  * held open longer than necessary. Calls to {@link #disconnect()} may return
- * the socket to a pool of connected sockets.
+ * the socket to a pool of connected sockets. This behavior can be disabled by
+ * setting the {@code http.keepAlive} system property to {@code false} before
+ * issuing any HTTP requests. The {@code http.maxConnections} property may be
+ * used to control how many idle connections to each server will be held.
  *
  * <p>By default, this implementation of {@code HttpURLConnection} requests that
  * servers use gzip compression and it automatically decompresses the data for
@@ -268,756 +262,563 @@ import java.util.Date;
  *
  * <p>Each instance of {@code HttpURLConnection} may be used for one
  * request/response pair. Instances of this class are not thread safe.
- *
- * @see     java.net.HttpURLConnection#disconnect()
- * @since JDK1.1
  */
-abstract public class HttpURLConnection extends URLConnection {
-    /* instance variables */
+public abstract class HttpURLConnection extends URLConnection {
+    private static final int DEFAULT_CHUNK_LENGTH = 1024;
 
     /**
-     * The HTTP method (GET,POST,PUT,etc.).
+     * The subset of HTTP methods that the user may select via {@link
+     * #setRequestMethod(String)}.
+     */
+    private static final String[] PERMITTED_USER_METHODS = {
+            "OPTIONS",
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "DELETE",
+            "TRACE"
+            // Note: we don't allow users to specify "CONNECT"
+    };
+
+    /**
+     * The HTTP request method of this {@code HttpURLConnection}. The default
+     * value is {@code "GET"}.
      */
     protected String method = "GET";
 
     /**
-     * The chunk-length when using chunked encoding streaming mode for output.
-     * A value of {@code -1} means chunked encoding is disabled for output.
-     * @since 1.5
-     */
-    protected int chunkLength = -1;
-
-    /**
-     * The fixed content-length when using fixed-length streaming mode.
-     * A value of {@code -1} means fixed-length streaming mode is disabled
-     * for output.
-     *
-     * <P> <B>NOTE:</B> {@link #fixedContentLengthLong} is recommended instead
-     * of this field, as it allows larger content lengths to be set.
-     *
-     * @since 1.5
-     */
-    protected int fixedContentLength = -1;
-
-    /**
-     * The fixed content-length when using fixed-length streaming mode.
-     * A value of {@code -1} means fixed-length streaming mode is disabled
-     * for output.
-     *
-     * @since 1.7
-     */
-    protected long fixedContentLengthLong = -1;
-
-    /**
-     * Returns the key for the {@code n}<sup>th</sup> header field.
-     * Some implementations may treat the {@code 0}<sup>th</sup>
-     * header field as special, i.e. as the status line returned by the HTTP
-     * server. In this case, {@link #getHeaderField(int) getHeaderField(0)} returns the status
-     * line, but {@code getHeaderFieldKey(0)} returns null.
-     *
-     * @param   n   an index, where {@code n >=0}.
-     * @return  the key for the {@code n}<sup>th</sup> header field,
-     *          or {@code null} if the key does not exist.
-     */
-    public String getHeaderFieldKey (int n) {
-        return null;
-    }
-
-    /**
-     * This method is used to enable streaming of a HTTP request body
-     * without internal buffering, when the content length is known in
-     * advance.
+     * The status code of the response obtained from the HTTP request. The
+     * default value is {@code -1}.
      * <p>
-     * An exception will be thrown if the application
-     * attempts to write more data than the indicated
-     * content-length, or if the application closes the OutputStream
-     * before writing the indicated amount.
-     * <p>
-     * When output streaming is enabled, authentication
-     * and redirection cannot be handled automatically.
-     * A HttpRetryException will be thrown when reading
-     * the response if authentication or redirection are required.
-     * This exception can be queried for the details of the error.
-     * <p>
-     * This method must be called before the URLConnection is connected.
-     * <p>
-     * <B>NOTE:</B> {@link #setFixedLengthStreamingMode(long)} is recommended
-     * instead of this method as it allows larger content lengths to be set.
-     *
-     * @param   contentLength The number of bytes which will be written
-     *          to the OutputStream.
-     *
-     * @throws  IllegalStateException if URLConnection is already connected
-     *          or if a different streaming mode is already enabled.
-     *
-     * @throws  IllegalArgumentException if a content length less than
-     *          zero is specified.
-     *
-     * @see     #setChunkedStreamingMode(int)
-     * @since 1.5
-     */
-    public void setFixedLengthStreamingMode (int contentLength) {
-        if (connected) {
-            throw new IllegalStateException ("Already connected");
-        }
-        if (chunkLength != -1) {
-            throw new IllegalStateException ("Chunked encoding streaming mode set");
-        }
-        if (contentLength < 0) {
-            throw new IllegalArgumentException ("invalid content length");
-        }
-        fixedContentLength = contentLength;
-    }
-
-    /**
-     * This method is used to enable streaming of a HTTP request body
-     * without internal buffering, when the content length is known in
-     * advance.
-     *
-     * <P> An exception will be thrown if the application attempts to write
-     * more data than the indicated content-length, or if the application
-     * closes the OutputStream before writing the indicated amount.
-     *
-     * <P> When output streaming is enabled, authentication and redirection
-     * cannot be handled automatically. A {@linkplain HttpRetryException} will
-     * be thrown when reading the response if authentication or redirection
-     * are required. This exception can be queried for the details of the
-     * error.
-     *
-     * <P> This method must be called before the URLConnection is connected.
-     *
-     * <P> The content length set by invoking this method takes precedence
-     * over any value set by {@link #setFixedLengthStreamingMode(int)}.
-     *
-     * @param  contentLength
-     *         The number of bytes which will be written to the OutputStream.
-     *
-     * @throws  IllegalStateException
-     *          if URLConnection is already connected or if a different
-     *          streaming mode is already enabled.
-     *
-     * @throws  IllegalArgumentException
-     *          if a content length less than zero is specified.
-     *
-     * @since 1.7
-     */
-    public void setFixedLengthStreamingMode(long contentLength) {
-        if (connected) {
-            throw new IllegalStateException("Already connected");
-        }
-        if (chunkLength != -1) {
-            throw new IllegalStateException(
-                "Chunked encoding streaming mode set");
-        }
-        if (contentLength < 0) {
-            throw new IllegalArgumentException("invalid content length");
-        }
-        fixedContentLengthLong = contentLength;
-    }
-
-    /* Default chunk size (including chunk header) if not specified;
-     * we want to keep this in sync with the one defined in
-     * sun.net.www.http.ChunkedOutputStream
-     */
-    private static final int DEFAULT_CHUNK_SIZE = 4096;
-
-    /**
-     * This method is used to enable streaming of a HTTP request body
-     * without internal buffering, when the content length is <b>not</b>
-     * known in advance. In this mode, chunked transfer encoding
-     * is used to send the request body. Note, not all HTTP servers
-     * support this mode.
-     * <p>
-     * When output streaming is enabled, authentication
-     * and redirection cannot be handled automatically.
-     * A HttpRetryException will be thrown when reading
-     * the response if authentication or redirection are required.
-     * This exception can be queried for the details of the error.
-     * <p>
-     * This method must be called before the URLConnection is connected.
-     *
-     * @param   chunklen The number of bytes to write in each chunk.
-     *          If chunklen is less than or equal to zero, a default
-     *          value will be used.
-     *
-     * @throws  IllegalStateException if URLConnection is already connected
-     *          or if a different streaming mode is already enabled.
-     *
-     * @see     #setFixedLengthStreamingMode(int)
-     * @since 1.5
-     */
-    public void setChunkedStreamingMode (int chunklen) {
-        if (connected) {
-            throw new IllegalStateException ("Can't set streaming mode: already connected");
-        }
-        if (fixedContentLength != -1 || fixedContentLengthLong != -1) {
-            throw new IllegalStateException ("Fixed length streaming mode set");
-        }
-        chunkLength = chunklen <=0? DEFAULT_CHUNK_SIZE : chunklen;
-    }
-
-    /**
-     * Returns the value for the {@code n}<sup>th</sup> header field.
-     * Some implementations may treat the {@code 0}<sup>th</sup>
-     * header field as special, i.e. as the status line returned by the HTTP
-     * server.
-     * <p>
-     * This method can be used in conjunction with the
-     * {@link #getHeaderFieldKey getHeaderFieldKey} method to iterate through all
-     * the headers in the message.
-     *
-     * @param   n   an index, where {@code n>=0}.
-     * @return  the value of the {@code n}<sup>th</sup> header field,
-     *          or {@code null} if the value does not exist.
-     * @see     java.net.HttpURLConnection#getHeaderFieldKey(int)
-     */
-    public String getHeaderField(int n) {
-        return null;
-    }
-
-    /**
-     * An {@code int} representing the three digit HTTP Status-Code.
-     * <ul>
-     * <li> 1xx: Informational
-     * <li> 2xx: Success
-     * <li> 3xx: Redirection
-     * <li> 4xx: Client Error
-     * <li> 5xx: Server Error
-     * </ul>
+     * <li>1xx: Informational</li>
+     * <li>2xx: Success</li>
+     * <li>3xx: Relocation/Redirection</li>
+     * <li>4xx: Client Error</li>
+     * <li>5xx: Server Error</li>
      */
     protected int responseCode = -1;
 
     /**
-     * The HTTP response message.
+     * The HTTP response message which corresponds to the response code.
      */
-    protected String responseMessage = null;
-
-    /* static variables */
-
-    /* do we automatically follow redirects? The default is true. */
-    private static boolean followRedirects = true;
+    protected String responseMessage;
 
     /**
-     * If {@code true}, the protocol will automatically follow redirects.
-     * If {@code false}, the protocol will not automatically follow
-     * redirects.
-     * <p>
-     * This field is set by the {@code setInstanceFollowRedirects}
-     * method. Its value is returned by the {@code getInstanceFollowRedirects}
-     * method.
-     * <p>
-     * Its default value is based on the value of the static followRedirects
-     * at HttpURLConnection construction time.
-     *
-     * @see     java.net.HttpURLConnection#setInstanceFollowRedirects(boolean)
-     * @see     java.net.HttpURLConnection#getInstanceFollowRedirects()
-     * @see     java.net.HttpURLConnection#setFollowRedirects(boolean)
+     * Flag to define whether the protocol will automatically follow redirects
+     * or not. The default value is {@code true}.
      */
     protected boolean instanceFollowRedirects = followRedirects;
 
-    /* valid HTTP methods */
-    private static final String[] methods = {
-        "GET", "POST", "HEAD", "OPTIONS", "PUT", "DELETE", "TRACE"
-    };
+    private static boolean followRedirects = true;
 
     /**
-     * Constructor for the HttpURLConnection.
-     * @param u the URL
+     * If the HTTP chunked encoding is enabled this parameter defines the
+     * chunk-length. Default value is {@code -1} that means the chunked encoding
+     * mode is disabled.
      */
-    protected HttpURLConnection (URL u) {
-        super(u);
+    protected int chunkLength = -1;
+
+    /**
+     * The byte count in the request body if it is both known and streamed; and
+     * -1 otherwise. If the byte count exceeds {@link Integer#MAX_VALUE} (2 GiB)
+     * then the value of this field will be {@link Integer#MAX_VALUE}. In that
+     * case use {@link #fixedContentLengthLong} to access the exact byte count.
+     */
+    protected int fixedContentLength = -1;
+
+    /**
+     * The byte count in the request body if it is both known and streamed; and
+     * -1 otherwise. Prefer this field over the {@code int}-valued {@code
+     * fixedContentLength} on platforms that support both.
+     */
+    protected long fixedContentLengthLong = -1;
+
+    // 2XX: generally "OK"
+    // 3XX: relocation/redirect
+    // 4XX: client error
+    // 5XX: server error
+    /**
+     * Numeric status code, 202: Accepted
+     */
+    public static final int HTTP_ACCEPTED = 202;
+
+    /**
+     * Numeric status code, 502: Bad Gateway
+     */
+    public static final int HTTP_BAD_GATEWAY = 502;
+
+    /**
+     * Numeric status code, 405: Bad Method
+     */
+    public static final int HTTP_BAD_METHOD = 405;
+
+    /**
+     * Numeric status code, 400: Bad Request
+     */
+    public static final int HTTP_BAD_REQUEST = 400;
+
+    /**
+     * Numeric status code, 408: Client Timeout
+     */
+    public static final int HTTP_CLIENT_TIMEOUT = 408;
+
+    /**
+     * Numeric status code, 409: Conflict
+     */
+    public static final int HTTP_CONFLICT = 409;
+
+    /**
+     * Numeric status code, 201: Created
+     */
+    public static final int HTTP_CREATED = 201;
+
+    /**
+     * Numeric status code, 413: Entity too large
+     */
+    public static final int HTTP_ENTITY_TOO_LARGE = 413;
+
+    /**
+     * Numeric status code, 403: Forbidden
+     */
+    public static final int HTTP_FORBIDDEN = 403;
+
+    /**
+     * Numeric status code, 504: Gateway timeout
+     */
+    public static final int HTTP_GATEWAY_TIMEOUT = 504;
+
+    /**
+     * Numeric status code, 410: Gone
+     */
+    public static final int HTTP_GONE = 410;
+
+    /**
+     * Numeric status code, 500: Internal error
+     */
+    public static final int HTTP_INTERNAL_ERROR = 500;
+
+    /**
+     * Numeric status code, 411: Length required
+     */
+    public static final int HTTP_LENGTH_REQUIRED = 411;
+
+    /**
+     * Numeric status code, 301 Moved permanently
+     */
+    public static final int HTTP_MOVED_PERM = 301;
+
+    /**
+     * Numeric status code, 302: Moved temporarily
+     */
+    public static final int HTTP_MOVED_TEMP = 302;
+
+    /**
+     * Numeric status code, 300: Multiple choices
+     */
+    public static final int HTTP_MULT_CHOICE = 300;
+
+    /**
+     * Numeric status code, 204: No content
+     */
+    public static final int HTTP_NO_CONTENT = 204;
+
+    /**
+     * Numeric status code, 406: Not acceptable
+     */
+    public static final int HTTP_NOT_ACCEPTABLE = 406;
+
+    /**
+     * Numeric status code, 203: Not authoritative
+     */
+    public static final int HTTP_NOT_AUTHORITATIVE = 203;
+
+    /**
+     * Numeric status code, 404: Not found
+     */
+    public static final int HTTP_NOT_FOUND = 404;
+
+    /**
+     * Numeric status code, 501: Not implemented
+     */
+    public static final int HTTP_NOT_IMPLEMENTED = 501;
+
+    /**
+     * Numeric status code, 304: Not modified
+     */
+    public static final int HTTP_NOT_MODIFIED = 304;
+
+    /**
+     * Numeric status code, 200: OK
+     */
+    public static final int HTTP_OK = 200;
+
+    /**
+     * Numeric status code, 206: Partial
+     */
+    public static final int HTTP_PARTIAL = 206;
+
+    /**
+     * Numeric status code, 402: Payment required
+     */
+    public static final int HTTP_PAYMENT_REQUIRED = 402;
+
+    /**
+     * Numeric status code, 412: Precondition failed
+     */
+    public static final int HTTP_PRECON_FAILED = 412;
+
+    /**
+     * Numeric status code, 407: Proxy authentication required
+     */
+    public static final int HTTP_PROXY_AUTH = 407;
+
+    /**
+     * Numeric status code, 414: Request too long
+     */
+    public static final int HTTP_REQ_TOO_LONG = 414;
+
+    /**
+     * Numeric status code, 205: Reset
+     */
+    public static final int HTTP_RESET = 205;
+
+    /**
+     * Numeric status code, 303: See other
+     */
+    public static final int HTTP_SEE_OTHER = 303;
+
+    /**
+     * Numeric status code, 500: Internal error
+     *
+     * @deprecated Use {@link #HTTP_INTERNAL_ERROR} instead.
+     */
+    @Deprecated
+    public static final int HTTP_SERVER_ERROR = 500;
+
+    /**
+     * Numeric status code, 305: Use proxy.
+     *
+     * <p>Like Firefox and Chrome, this class doesn't honor this response code.
+     * Other implementations respond to this status code by retrying the request
+     * using the HTTP proxy named by the response's Location header field.
+     */
+    public static final int HTTP_USE_PROXY = 305;
+
+    /**
+     * Numeric status code, 401: Unauthorized
+     */
+    public static final int HTTP_UNAUTHORIZED = 401;
+
+    /**
+     * Numeric status code, 415: Unsupported type
+     */
+    public static final int HTTP_UNSUPPORTED_TYPE = 415;
+
+    /**
+     * Numeric status code, 503: Unavailable
+     */
+    public static final int HTTP_UNAVAILABLE = 503;
+
+    /**
+     * Numeric status code, 505: Version not supported
+     */
+    public static final int HTTP_VERSION = 505;
+
+    /**
+     * Constructs a new {@code HttpURLConnection} instance pointing to the
+     * resource specified by the {@code url}.
+     *
+     * @param url
+     *            the URL of this connection.
+     * @see URL
+     * @see URLConnection
+     */
+    protected HttpURLConnection(URL url) {
+        super(url);
     }
 
     /**
-     * Sets whether HTTP redirects  (requests with response code 3xx) should
-     * be automatically followed by this class.  True by default.  Applets
-     * cannot change this variable.
-     * <p>
-     * If there is a security manager, this method first calls
-     * the security manager's {@code checkSetFactory} method
-     * to ensure the operation is allowed.
-     * This could result in a SecurityException.
+     * Releases this connection so that its resources may be either reused or
+     * closed.
      *
-     * @param set a {@code boolean} indicating whether or not
-     * to follow HTTP redirects.
-     * @exception  SecurityException  if a security manager exists and its
-     *             {@code checkSetFactory} method doesn't
-     *             allow the operation.
-     * @see        SecurityManager#checkSetFactory
-     * @see #getFollowRedirects()
+     * <p>Unlike other Java implementations, this will not necessarily close
+     * socket connections that can be reused. You can disable all connection
+     * reuse by setting the {@code http.keepAlive} system property to {@code
+     * false} before issuing any HTTP requests.
      */
-    public static void setFollowRedirects(boolean set) {
-        SecurityManager sec = System.getSecurityManager();
-        if (sec != null) {
-            // seems to be the best check here...
-            sec.checkSetFactory();
-        }
-        followRedirects = set;
+    public abstract void disconnect();
+
+    /**
+     * Returns an input stream from the server in the case of an error such as
+     * the requested file has not been found on the remote server. This stream
+     * can be used to read the data the server will send back.
+     *
+     * @return the error input stream returned by the server.
+     */
+    public InputStream getErrorStream() {
+        return null;
     }
 
     /**
-     * Returns a {@code boolean} indicating
-     * whether or not HTTP redirects (3xx) should
-     * be automatically followed.
+     * Returns the value of {@code followRedirects} which indicates if this
+     * connection follows a different URL redirected by the server. It is
+     * enabled by default.
      *
-     * @return {@code true} if HTTP redirects should
-     * be automatically followed, {@code false} if not.
-     * @see #setFollowRedirects(boolean)
+     * @return the value of the flag.
+     * @see #setFollowRedirects
      */
     public static boolean getFollowRedirects() {
         return followRedirects;
     }
 
     /**
-     * Sets whether HTTP redirects (requests with response code 3xx) should
-     * be automatically followed by this {@code HttpURLConnection}
-     * instance.
-     * <p>
-     * The default value comes from followRedirects, which defaults to
-     * true.
+     * Returns the permission object (in this case {@code SocketPermission})
+     * with the host and the port number as the target name and {@code
+     * "resolve, connect"} as the action list. If the port number of this URL
+     * instance is lower than {@code 0} the port will be set to {@code 80}.
      *
-     * @param followRedirects a {@code boolean} indicating
-     * whether or not to follow HTTP redirects.
-     *
-     * @see    java.net.HttpURLConnection#instanceFollowRedirects
-     * @see #getInstanceFollowRedirects
-     * @since 1.3
+     * @return the permission object required for this connection.
+     * @throws IOException
+     *             if an IO exception occurs during the creation of the
+     *             permission object.
      */
-     public void setInstanceFollowRedirects(boolean followRedirects) {
-        instanceFollowRedirects = followRedirects;
-     }
-
-     /**
-     * Returns the value of this {@code HttpURLConnection}'s
-     * {@code instanceFollowRedirects} field.
-     *
-     * @return  the value of this {@code HttpURLConnection}'s
-     *          {@code instanceFollowRedirects} field.
-     * @see     java.net.HttpURLConnection#instanceFollowRedirects
-     * @see #setInstanceFollowRedirects(boolean)
-     * @since 1.3
-     */
-     public boolean getInstanceFollowRedirects() {
-         return instanceFollowRedirects;
-     }
-
-    /**
-     * Set the method for the URL request, one of:
-     * <UL>
-     *  <LI>GET
-     *  <LI>POST
-     *  <LI>HEAD
-     *  <LI>OPTIONS
-     *  <LI>PUT
-     *  <LI>DELETE
-     *  <LI>TRACE
-     * </UL> are legal, subject to protocol restrictions.  The default
-     * method is GET.
-     *
-     * @param method the HTTP method
-     * @exception ProtocolException if the method cannot be reset or if
-     *              the requested method isn't valid for HTTP.
-     * @exception SecurityException if a security manager is set and the
-     *              method is "TRACE", but the "allowHttpTrace"
-     *              NetPermission is not granted.
-     * @see #getRequestMethod()
-     */
-    public void setRequestMethod(String method) throws ProtocolException {
-        if (connected) {
-            throw new ProtocolException("Can't reset method: already connected");
+    @Override
+    public java.security.Permission getPermission() throws IOException {
+        int port = url.getPort();
+        if (port < 0) {
+            port = 80;
         }
-        // This restriction will prevent people from using this class to
-        // experiment w/ new HTTP methods using java.  But it should
-        // be placed for security - the request String could be
-        // arbitrarily long.
-
-        for (int i = 0; i < methods.length; i++) {
-            if (methods[i].equals(method)) {
-                if (method.equals("TRACE")) {
-                    SecurityManager s = System.getSecurityManager();
-                    if (s != null) {
-                        s.checkPermission(new NetPermission("allowHttpTrace"));
-                    }
-                }
-                this.method = method;
-                return;
-            }
-        }
-        throw new ProtocolException("Invalid HTTP method: " + method);
+        return new SocketPermission(url.getHost() + ":" + port,
+                "connect, resolve");
     }
 
     /**
-     * Get the request method.
-     * @return the HTTP request method
-     * @see #setRequestMethod(java.lang.String)
+     * Returns the request method which will be used to make the request to the
+     * remote HTTP server. All possible methods of this HTTP implementation is
+     * listed in the class definition.
+     *
+     * @return the request method string.
+     * @see #method
+     * @see #setRequestMethod
      */
     public String getRequestMethod() {
         return method;
     }
 
     /**
-     * Gets the status code from an HTTP response message.
-     * For example, in the case of the following status lines:
-     * <PRE>
-     * HTTP/1.0 200 OK
-     * HTTP/1.0 401 Unauthorized
-     * </PRE>
-     * It will return 200 and 401 respectively.
-     * Returns -1 if no code can be discerned
-     * from the response (i.e., the response is not valid HTTP).
-     * @throws IOException if an error occurred connecting to the server.
-     * @return the HTTP Status-Code, or -1
+     * Returns the response code returned by the remote HTTP server.
+     *
+     * @return the response code, -1 if no valid response code.
+     * @throws IOException
+     *             if there is an IO error during the retrieval.
+     * @see #getResponseMessage
      */
     public int getResponseCode() throws IOException {
-        /*
-         * We're got the response code already
-         */
-        if (responseCode != -1) {
-            return responseCode;
-        }
-
-        /*
-         * Ensure that we have connected to the server. Record
-         * exception as we need to re-throw it if there isn't
-         * a status line.
-         */
-        Exception exc = null;
-        try {
-            getInputStream();
-        } catch (Exception e) {
-            exc = e;
-        }
-
-        /*
-         * If we can't a status-line then re-throw any exception
-         * that getInputStream threw.
-         */
-        String statusLine = getHeaderField(0);
-        if (statusLine == null) {
-            if (exc != null) {
-                if (exc instanceof RuntimeException)
-                    throw (RuntimeException)exc;
-                else
-                    throw (IOException)exc;
-            }
+        // Call getInputStream() first since getHeaderField() doesn't return
+        // exceptions
+        getInputStream();
+        String response = getHeaderField(0);
+        if (response == null) {
             return -1;
         }
-
-        /*
-         * Examine the status-line - should be formatted as per
-         * section 6.1 of RFC 2616 :-
-         *
-         * Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase
-         *
-         * If status line can't be parsed return -1.
-         */
-        if (statusLine.startsWith("HTTP/1.")) {
-            int codePos = statusLine.indexOf(' ');
-            if (codePos > 0) {
-
-                int phrasePos = statusLine.indexOf(' ', codePos+1);
-                if (phrasePos > 0 && phrasePos < statusLine.length()) {
-                    responseMessage = statusLine.substring(phrasePos+1);
-                }
-
-                // deviation from RFC 2616 - don't reject status line
-                // if SP Reason-Phrase is not included.
-                if (phrasePos < 0)
-                    phrasePos = statusLine.length();
-
-                try {
-                    responseCode = Integer.parseInt
-                            (statusLine.substring(codePos+1, phrasePos));
-                    return responseCode;
-                } catch (NumberFormatException e) { }
-            }
+        response = response.trim();
+        int mark = response.indexOf(" ") + 1;
+        if (mark == 0) {
+            return -1;
         }
-        return -1;
+        int last = mark + 3;
+        if (last > response.length()) {
+            last = response.length();
+        }
+        responseCode = Integer.parseInt(response.substring(mark, last));
+        if (last + 1 <= response.length()) {
+            responseMessage = response.substring(last + 1);
+        }
+        return responseCode;
     }
 
     /**
-     * Gets the HTTP response message, if any, returned along with the
-     * response code from a server.  From responses like:
-     * <PRE>
-     * HTTP/1.0 200 OK
-     * HTTP/1.0 404 Not Found
-     * </PRE>
-     * Extracts the Strings "OK" and "Not Found" respectively.
-     * Returns null if none could be discerned from the responses
-     * (the result was not valid HTTP).
-     * @throws IOException if an error occurred connecting to the server.
-     * @return the HTTP response message, or {@code null}
+     * Returns the response message returned by the remote HTTP server.
+     *
+     * @return the response message. {@code null} if no such response exists.
+     * @throws IOException
+     *             if there is an error during the retrieval.
+     * @see #getResponseCode()
      */
     public String getResponseMessage() throws IOException {
+        if (responseMessage != null) {
+            return responseMessage;
+        }
         getResponseCode();
         return responseMessage;
     }
 
-    @SuppressWarnings("deprecation")
-    public long getHeaderFieldDate(String name, long Default) {
-        String dateString = getHeaderField(name);
-        try {
-            if (dateString.indexOf("GMT") == -1) {
-                dateString = dateString+" GMT";
-            }
-            return Date.parse(dateString);
-        } catch (Exception e) {
-        }
-        return Default;
+    /**
+     * Sets the flag of whether this connection will follow redirects returned
+     * by the remote server.
+     *
+     * @param auto
+     *            the value to enable or disable this option.
+     */
+    public static void setFollowRedirects(boolean auto) {
+        followRedirects = auto;
     }
 
-
     /**
-     * Indicates that other requests to the server
-     * are unlikely in the near future. Calling disconnect()
-     * should not imply that this HttpURLConnection
-     * instance can be reused for other requests.
+     * Sets the request command which will be sent to the remote HTTP server.
+     * This method can only be called before the connection is made.
+     *
+     * @param method
+     *            the string representing the method to be used.
+     * @throws ProtocolException
+     *             if this is called after connected, or the method is not
+     *             supported by this HTTP implementation.
+     * @see #getRequestMethod()
+     * @see #method
      */
-    public abstract void disconnect();
+    public void setRequestMethod(String method) throws ProtocolException {
+        if (connected) {
+            throw new ProtocolException("Connection already established");
+        }
+        for (String permittedUserMethod : PERMITTED_USER_METHODS) {
+            if (permittedUserMethod.equals(method)) {
+                // if there is a supported method that matches the desired
+                // method, then set the current method and return
+                this.method = permittedUserMethod;
+                return;
+            }
+        }
+        // if none matches, then throw ProtocolException
+        throw new ProtocolException("Unknown method '" + method + "'; must be one of " +
+                Arrays.toString(PERMITTED_USER_METHODS));
+    }
 
     /**
-     * Indicates if the connection is going through a proxy.
-     * @return a boolean indicating if the connection is
-     * using a proxy.
+     * Returns whether this connection uses a proxy server or not.
+     *
+     * @return {@code true} if this connection passes a proxy server, false
+     *         otherwise.
      */
     public abstract boolean usingProxy();
 
     /**
-     * Returns a {@link SocketPermission} object representing the
-     * permission necessary to connect to the destination host and port.
-     *
-     * @exception IOException if an error occurs while computing
-     *            the permission.
-     *
-     * @return a {@code SocketPermission} object representing the
-     *         permission necessary to connect to the destination
-     *         host and port.
+     * Returns the encoding used to transmit the response body over the network.
+     * This is null or "identity" if the content was not encoded, or "gzip" if
+     * the body was gzip compressed. Most callers will be more interested in the
+     * {@link #getContentType() content type}, which may also include the
+     * content's character encoding.
      */
-    public Permission getPermission() throws IOException {
-        int port = url.getPort();
-        port = port < 0 ? 80 : port;
-        String host = url.getHost() + ":" + port;
-        Permission permission = new SocketPermission(host, "connect");
-        return permission;
-    }
-
-   /**
-    * Returns the error stream if the connection failed
-    * but the server sent useful data nonetheless. The
-    * typical example is when an HTTP server responds
-    * with a 404, which will cause a FileNotFoundException
-    * to be thrown in connect, but the server sent an HTML
-    * help page with suggestions as to what to do.
-    *
-    * <p>This method will not cause a connection to be initiated.  If
-    * the connection was not connected, or if the server did not have
-    * an error while connecting or if the server had an error but
-    * no error data was sent, this method will return null. This is
-    * the default.
-    *
-    * @return an error stream if any, null if there have been no
-    * errors, the connection is not connected or the server sent no
-    * useful data.
-    */
-    public InputStream getErrorStream() {
-        return null;
+    @Override public String getContentEncoding() {
+        return super.getContentEncoding(); // overridden for Javadoc only
     }
 
     /**
-     * The response codes for HTTP, as of version 1.1.
+     * Returns whether this connection follows redirects.
+     *
+     * @return {@code true} if this connection follows redirects, false
+     *         otherwise.
      */
-
-    // REMIND: do we want all these??
-    // Others not here that we do want??
-
-    /* 2XX: generally "OK" */
+    public boolean getInstanceFollowRedirects() {
+        return instanceFollowRedirects;
+    }
 
     /**
-     * HTTP Status-Code 200: OK.
+     * Sets whether this connection follows redirects.
+     *
+     * @param followRedirects
+     *            {@code true} if this connection will follows redirects, false
+     *            otherwise.
      */
-    public static final int HTTP_OK = 200;
+    public void setInstanceFollowRedirects(boolean followRedirects) {
+        instanceFollowRedirects = followRedirects;
+    }
 
     /**
-     * HTTP Status-Code 201: Created.
+     * Returns the date value in milliseconds since {@code 01.01.1970, 00:00h}
+     * corresponding to the header field {@code field}. The {@code defaultValue}
+     * will be returned if no such field can be found in the response header.
+     *
+     * @param field
+     *            the header field name.
+     * @param defaultValue
+     *            the default value to use if the specified header field wont be
+     *            found.
+     * @return the header field represented in milliseconds since January 1,
+     *         1970 GMT.
      */
-    public static final int HTTP_CREATED = 201;
+    @Override
+    public long getHeaderFieldDate(String field, long defaultValue) {
+        return super.getHeaderFieldDate(field, defaultValue);
+    }
 
     /**
-     * HTTP Status-Code 202: Accepted.
+     * Configures this connection to stream the request body with the known
+     * fixed byte count of {@code contentLength}.
+     *
+     * @see #setChunkedStreamingMode
+     * @param contentLength
+     *            the fixed length of the HTTP request body.
+     * @throws IllegalStateException
+     *             if already connected or another mode already set.
+     * @throws IllegalArgumentException
+     *             if {@code contentLength} is less than zero.
+     * @since 1.7
      */
-    public static final int HTTP_ACCEPTED = 202;
+    public void setFixedLengthStreamingMode(long contentLength) {
+        if (super.connected) {
+            throw new IllegalStateException("Already connected");
+        }
+        if (chunkLength > 0) {
+            throw new IllegalStateException("Already in chunked mode");
+        }
+        if (contentLength < 0) {
+            throw new IllegalArgumentException("contentLength < 0");
+        }
+        this.fixedContentLength = (int) Math.min(contentLength, Integer.MAX_VALUE);
+        this.fixedContentLengthLong = contentLength;
+    }
 
     /**
-     * HTTP Status-Code 203: Non-Authoritative Information.
+     * Equivalent to {@code setFixedLengthStreamingMode((long) contentLength)},
+     * but available on earlier versions of Android and limited to 2 GiB.
      */
-    public static final int HTTP_NOT_AUTHORITATIVE = 203;
+    public void setFixedLengthStreamingMode(int contentLength) {
+      setFixedLengthStreamingMode((long) contentLength);
+    }
 
     /**
-     * HTTP Status-Code 204: No Content.
+     * Stream a request body whose length is not known in advance. Old HTTP/1.0
+     * only servers may not support this mode.
+     *
+     * <p>When HTTP chunked encoding is used, the stream is divided into
+     * chunks, each prefixed with a header containing the chunk's size.
+     * A large chunk length requires a large internal buffer, potentially
+     * wasting memory. A small chunk length increases the number of
+     * bytes that must be transmitted because of the header on every chunk.
+     *
+     * <p>Implementation details: In some releases the {@code chunkLength} is
+     * treated as a hint: chunks sent to the server may actually be larger or
+     * smaller. To force a chunk to be sent to the server call
+     * {@link java.io.OutputStream#flush()}.
+     *
+     * @see #setFixedLengthStreamingMode
+     * @param chunkLength the length to use, or {@code 0} for the default chunk
+     *     length.
+     * @throws IllegalStateException if already connected or another mode
+     *     already set.
      */
-    public static final int HTTP_NO_CONTENT = 204;
-
-    /**
-     * HTTP Status-Code 205: Reset Content.
-     */
-    public static final int HTTP_RESET = 205;
-
-    /**
-     * HTTP Status-Code 206: Partial Content.
-     */
-    public static final int HTTP_PARTIAL = 206;
-
-    /* 3XX: relocation/redirect */
-
-    /**
-     * HTTP Status-Code 300: Multiple Choices.
-     */
-    public static final int HTTP_MULT_CHOICE = 300;
-
-    /**
-     * HTTP Status-Code 301: Moved Permanently.
-     */
-    public static final int HTTP_MOVED_PERM = 301;
-
-    /**
-     * HTTP Status-Code 302: Temporary Redirect.
-     */
-    public static final int HTTP_MOVED_TEMP = 302;
-
-    /**
-     * HTTP Status-Code 303: See Other.
-     */
-    public static final int HTTP_SEE_OTHER = 303;
-
-    /**
-     * HTTP Status-Code 304: Not Modified.
-     */
-    public static final int HTTP_NOT_MODIFIED = 304;
-
-    /**
-     * HTTP Status-Code 305: Use Proxy.
-     */
-    public static final int HTTP_USE_PROXY = 305;
-
-    /* 4XX: client error */
-
-    /**
-     * HTTP Status-Code 400: Bad Request.
-     */
-    public static final int HTTP_BAD_REQUEST = 400;
-
-    /**
-     * HTTP Status-Code 401: Unauthorized.
-     */
-    public static final int HTTP_UNAUTHORIZED = 401;
-
-    /**
-     * HTTP Status-Code 402: Payment Required.
-     */
-    public static final int HTTP_PAYMENT_REQUIRED = 402;
-
-    /**
-     * HTTP Status-Code 403: Forbidden.
-     */
-    public static final int HTTP_FORBIDDEN = 403;
-
-    /**
-     * HTTP Status-Code 404: Not Found.
-     */
-    public static final int HTTP_NOT_FOUND = 404;
-
-    /**
-     * HTTP Status-Code 405: Method Not Allowed.
-     */
-    public static final int HTTP_BAD_METHOD = 405;
-
-    /**
-     * HTTP Status-Code 406: Not Acceptable.
-     */
-    public static final int HTTP_NOT_ACCEPTABLE = 406;
-
-    /**
-     * HTTP Status-Code 407: Proxy Authentication Required.
-     */
-    public static final int HTTP_PROXY_AUTH = 407;
-
-    /**
-     * HTTP Status-Code 408: Request Time-Out.
-     */
-    public static final int HTTP_CLIENT_TIMEOUT = 408;
-
-    /**
-     * HTTP Status-Code 409: Conflict.
-     */
-    public static final int HTTP_CONFLICT = 409;
-
-    /**
-     * HTTP Status-Code 410: Gone.
-     */
-    public static final int HTTP_GONE = 410;
-
-    /**
-     * HTTP Status-Code 411: Length Required.
-     */
-    public static final int HTTP_LENGTH_REQUIRED = 411;
-
-    /**
-     * HTTP Status-Code 412: Precondition Failed.
-     */
-    public static final int HTTP_PRECON_FAILED = 412;
-
-    /**
-     * HTTP Status-Code 413: Request Entity Too Large.
-     */
-    public static final int HTTP_ENTITY_TOO_LARGE = 413;
-
-    /**
-     * HTTP Status-Code 414: Request-URI Too Large.
-     */
-    public static final int HTTP_REQ_TOO_LONG = 414;
-
-    /**
-     * HTTP Status-Code 415: Unsupported Media Type.
-     */
-    public static final int HTTP_UNSUPPORTED_TYPE = 415;
-
-    /* 5XX: server error */
-
-    /**
-     * HTTP Status-Code 500: Internal Server Error.
-     * @deprecated   it is misplaced and shouldn't have existed.
-     */
-    @Deprecated
-    public static final int HTTP_SERVER_ERROR = 500;
-
-    /**
-     * HTTP Status-Code 500: Internal Server Error.
-     */
-    public static final int HTTP_INTERNAL_ERROR = 500;
-
-    /**
-     * HTTP Status-Code 501: Not Implemented.
-     */
-    public static final int HTTP_NOT_IMPLEMENTED = 501;
-
-    /**
-     * HTTP Status-Code 502: Bad Gateway.
-     */
-    public static final int HTTP_BAD_GATEWAY = 502;
-
-    /**
-     * HTTP Status-Code 503: Service Unavailable.
-     */
-    public static final int HTTP_UNAVAILABLE = 503;
-
-    /**
-     * HTTP Status-Code 504: Gateway Timeout.
-     */
-    public static final int HTTP_GATEWAY_TIMEOUT = 504;
-
-    /**
-     * HTTP Status-Code 505: HTTP Version Not Supported.
-     */
-    public static final int HTTP_VERSION = 505;
-
+    public void setChunkedStreamingMode(int chunkLength) {
+        if (super.connected) {
+            throw new IllegalStateException("Already connected");
+        }
+        if (fixedContentLength >= 0) {
+            throw new IllegalStateException("Already in fixed-length mode");
+        }
+        if (chunkLength <= 0) {
+            this.chunkLength = DEFAULT_CHUNK_LENGTH;
+        } else {
+            this.chunkLength = chunkLength;
+        }
+    }
 }

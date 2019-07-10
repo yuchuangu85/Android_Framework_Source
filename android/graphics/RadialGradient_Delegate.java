@@ -24,9 +24,6 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import android.graphics.Shader.TileMode;
 
 import java.awt.image.ColorModel;
-import java.awt.image.DataBufferInt;
-import java.awt.image.Raster;
-import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.RadialGradient
@@ -59,18 +56,18 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(long matrix, float x, float y, float radius,
+    /*package*/ static long nativeCreate1(float x, float y, float radius,
             int colors[], float positions[], int tileMode) {
-        RadialGradient_Delegate newDelegate = new RadialGradient_Delegate(matrix, x, y, radius,
+        RadialGradient_Delegate newDelegate = new RadialGradient_Delegate(x, y, radius,
                 colors, positions, Shader_Delegate.getTileMode(tileMode));
         return sManager.addNewDelegate(newDelegate);
     }
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(long matrix, float x, float y, float radius,
+    /*package*/ static long nativeCreate2(float x, float y, float radius,
             int color0, int color1, int tileMode) {
-        return nativeCreate1(matrix, x, y, radius, new int[] { color0, color1 },
-                null /*positions*/, tileMode);
+        return nativeCreate1(x, y, radius, new int[] { color0, color1 }, null /*positions*/,
+                tileMode);
     }
 
     // ---- Private delegate/helper methods ----
@@ -78,7 +75,6 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
     /**
      * Create a shader that draws a radial gradient given the center and radius.
      *
-     * @param nativeMatrix reference to the shader's native transformation matrix
      * @param x The x-coordinate of the center of the radius
      * @param y The y-coordinate of the center of the radius
      * @param radius Must be positive. The radius of the circle for this
@@ -90,9 +86,9 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
      *            distributed evenly between the center and edge of the circle.
      * @param tile The Shader tiling mode
      */
-    private RadialGradient_Delegate(long nativeMatrix, float x, float y, float radius,
-            int colors[], float positions[], TileMode tile) {
-        super(nativeMatrix, colors, positions);
+    private RadialGradient_Delegate(float x, float y, float radius, int colors[], float positions[],
+            TileMode tile) {
+        super(colors, positions);
         mJavaPaint = new RadialGradientPaint(x, y, radius, mColors, mPositions, tile);
     }
 
@@ -166,6 +162,10 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
 
             @Override
             public java.awt.image.Raster getRaster(int x, int y, int w, int h) {
+                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    mColorModel, mColorModel.createCompatibleWritableRaster(w, h),
+                    mColorModel.isAlphaPremultiplied(), null);
+
                 int[] data = new int[w*h];
 
                 // compute distance from each point to the center, and figure out the distance from
@@ -173,7 +173,6 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
                 int index = 0;
                 float[] pt1 = new float[2];
                 float[] pt2 = new float[2];
-
                 for (int iy = 0 ; iy < h ; iy++) {
                     for (int ix = 0 ; ix < w ; ix++) {
                         // handle the canvas transform
@@ -182,21 +181,21 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
                         mCanvasMatrix.transform(pt1, 0, pt2, 0, 1);
 
                         // handle the local matrix
-                        pt1[0] = pt2[0];
-                        pt1[1] = pt2[1];
+                        pt1[0] = pt2[0] - mX;
+                        pt1[1] = pt2[1] - mY;
                         mLocalMatrix.transform(pt1, 0, pt2, 0, 1);
 
-                        float _x = pt2[0] - mX;
-                        float _y = pt2[1] - mY;
+                        float _x = pt2[0];
+                        float _y = pt2[1];
                         float distance = (float) Math.hypot(_x, _y);
 
                         data[index++] = getGradientColor(distance / mRadius);
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
 
         }

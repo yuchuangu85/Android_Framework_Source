@@ -19,12 +19,10 @@ package com.android.settingslib.bluetooth;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
-import android.bluetooth.le.BluetoothLeScanner;
 import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
 
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -36,7 +34,7 @@ import java.util.Set;
  * are handled by {@link CachedBluetoothDeviceManager},
  * {@link BluetoothEventManager}, and {@link LocalBluetoothProfileManager}.
  */
-public class LocalBluetoothAdapter {
+public final class LocalBluetoothAdapter {
     private static final String TAG = "LocalBluetoothAdapter";
 
     /** This class does not allow direct access to the BluetoothAdapter. */
@@ -91,10 +89,6 @@ public class LocalBluetoothAdapter {
         return mAdapter.disable();
     }
 
-    public String getAddress() {
-        return mAdapter.getAddress();
-    }
-
     void getProfileProxy(Context context,
             BluetoothProfile.ServiceListener listener, int profile) {
         mAdapter.getProfileProxy(context, listener, profile);
@@ -110,10 +104,6 @@ public class LocalBluetoothAdapter {
 
     public int getScanMode() {
         return mAdapter.getScanMode();
-    }
-
-    public BluetoothLeScanner getBluetoothLeScanner() {
-        return mAdapter.getBluetoothLeScanner();
     }
 
     public int getState() {
@@ -138,10 +128,6 @@ public class LocalBluetoothAdapter {
 
     public void setDiscoverableTimeout(int timeout) {
         mAdapter.setDiscoverableTimeout(timeout);
-    }
-
-    public long getDiscoveryEndMillis() {
-        return mAdapter.getDiscoveryEndMillis();
     }
 
     public void setName(String name) {
@@ -171,10 +157,6 @@ public class LocalBluetoothAdapter {
                 if (a2dp != null && a2dp.isA2dpPlaying()) {
                     return;
                 }
-                A2dpSinkProfile a2dpSink = mProfileManager.getA2dpSinkProfile();
-                if ((a2dpSink != null) && (a2dpSink.isA2dpPlaying())){
-                    return;
-                }
             }
 
             if (mAdapter.startDiscovery()) {
@@ -195,13 +177,8 @@ public class LocalBluetoothAdapter {
         return mState;
     }
 
-    void setBluetoothStateInt(int state) {
-        synchronized(this) {
-            if (mState == state) {
-                return;
-            }
-            mState = state;
-        }
+    synchronized void setBluetoothStateInt(int state) {
+        mState = state;
 
         if (state == BluetoothAdapter.STATE_ON) {
             // if mProfileManager hasn't been constructed yet, it will
@@ -222,7 +199,7 @@ public class LocalBluetoothAdapter {
         return false;
     }
 
-    public boolean setBluetoothEnabled(boolean enabled) {
+    public void setBluetoothEnabled(boolean enabled) {
         boolean success = enabled
                 ? mAdapter.enable()
                 : mAdapter.disable();
@@ -239,18 +216,9 @@ public class LocalBluetoothAdapter {
 
             syncBluetoothState();
         }
-        return success;
     }
 
     public BluetoothDevice getRemoteDevice(String address) {
         return mAdapter.getRemoteDevice(address);
-    }
-
-    public int getMaxConnectedAudioDevices() {
-        return mAdapter.getMaxConnectedAudioDevices();
-    }
-
-    public List<Integer> getSupportedProfiles() {
-        return mAdapter.getSupportedProfiles();
     }
 }

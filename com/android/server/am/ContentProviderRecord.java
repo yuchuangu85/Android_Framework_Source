@@ -16,7 +16,7 @@
 
 package com.android.server.am;
 
-import android.app.ContentProviderHolder;
+import android.app.IActivityManager.ContentProviderHolder;
 import android.content.ComponentName;
 import android.content.IContentProvider;
 import android.content.pm.ApplicationInfo;
@@ -32,7 +32,7 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-final class ContentProviderRecord implements ComponentName.WithComponentName {
+final class ContentProviderRecord {
     final ActivityManagerService service;
     public final ProviderInfo info;
     final int uid;
@@ -259,9 +259,5 @@ final class ContentProviderRecord implements ComponentName.WithComponentName {
                 }                        
             }
         }
-    }
-
-    public ComponentName getComponentName() {
-        return name;
     }
 }

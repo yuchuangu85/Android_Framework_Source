@@ -22,16 +22,15 @@ import android.database.ContentObserver;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.preference.Preference;
+import android.preference.Preference.OnPreferenceChangeListener;
+import android.preference.PreferenceFragment;
+import android.preference.PreferenceScreen;
+import android.preference.SwitchPreference;
 import android.provider.Settings;
-import android.support.v14.preference.PreferenceFragment;
-import android.support.v14.preference.SwitchPreference;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.Preference.OnPreferenceChangeListener;
-import android.support.v7.preference.PreferenceScreen;
 import android.view.MenuItem;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.systemui.DemoMode;
 import com.android.systemui.R;
 
@@ -57,7 +56,9 @@ public class DemoModeFragment extends PreferenceFragment implements OnPreference
     private SwitchPreference mOnSwitch;
 
     @Override
-    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
         Context context = getContext();
         mEnabledSwitch = new SwitchPreference(context);
         mEnabledSwitch.setTitle(R.string.enable_demo_mode);
@@ -95,13 +96,13 @@ public class DemoModeFragment extends PreferenceFragment implements OnPreference
     @Override
     public void onResume() {
         super.onResume();
-        MetricsLogger.visibility(getContext(), MetricsEvent.TUNER_DEMO_MODE, true);
+        MetricsLogger.visibility(getContext(), MetricsLogger.TUNER_DEMO_MODE, true);
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        MetricsLogger.visibility(getContext(), MetricsEvent.TUNER_DEMO_MODE, false);
+        MetricsLogger.visibility(getContext(), MetricsLogger.TUNER_DEMO_MODE, false);
     }
 
     @Override
@@ -132,10 +133,10 @@ public class DemoModeFragment extends PreferenceFragment implements OnPreference
                 mOnSwitch.setChecked(false);
                 stopDemoMode();
             }
-            MetricsLogger.action(getContext(), MetricsEvent.TUNER_DEMO_MODE_ENABLED, enabled);
+            MetricsLogger.action(getContext(), MetricsLogger.TUNER_DEMO_MODE_ENABLED, enabled);
             setGlobal(DemoMode.DEMO_MODE_ALLOWED, enabled ? 1 : 0);
         } else if (preference == mOnSwitch) {
-            MetricsLogger.action(getContext(), MetricsEvent.TUNER_DEMO_MODE_ON, enabled);
+            MetricsLogger.action(getContext(), MetricsLogger.TUNER_DEMO_MODE_ON, enabled);
             if (enabled) {
                 startDemoMode();
             } else {
@@ -154,15 +155,7 @@ public class DemoModeFragment extends PreferenceFragment implements OnPreference
         getContext().sendBroadcast(intent);
 
         intent.putExtra(DemoMode.EXTRA_COMMAND, DemoMode.COMMAND_CLOCK);
-
-        String demoTime = "1010"; // 10:10, a classic choice of horologists
-        try {
-            String[] versionParts = android.os.Build.VERSION.RELEASE.split("\\.");
-            int majorVersion = Integer.valueOf(versionParts[0]);
-            demoTime = String.format("%02d00", majorVersion % 24);
-        } catch (IllegalArgumentException ex) {
-        }
-        intent.putExtra("hhmm", demoTime);
+        intent.putExtra("hhmm", "0600");
         getContext().sendBroadcast(intent);
 
         intent.putExtra(DemoMode.EXTRA_COMMAND, DemoMode.COMMAND_NETWORK);
@@ -171,7 +164,7 @@ public class DemoModeFragment extends PreferenceFragment implements OnPreference
         intent.putExtra("sims", "1");
         intent.putExtra("nosim", "false");
         intent.putExtra("level", "4");
-        intent.putExtra("datatype", "lte");
+        intent.putExtra("datatypel", "");
         getContext().sendBroadcast(intent);
 
         // Need to send this after so that the sim controller already exists.

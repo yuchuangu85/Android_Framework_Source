@@ -22,7 +22,7 @@ public class ErrorMessages {
     public static final String UNDEFINED_VARIABLE =
             "Identifiers must have user defined types from the XML file. %s is missing it";
     public static final String CANNOT_FIND_SETTER_CALL =
-            "Cannot find the setter for attribute '%s' with parameter type %s on %s.";
+            "Cannot find the setter for attribute '%s' with parameter type %s.";
     public static final String CANNOT_RESOLVE_TYPE =
             "Cannot resolve type for %s";
     public static final String MULTI_CONFIG_LAYOUT_CLASS_NAME_MISMATCH =
@@ -36,28 +36,4 @@ public class ErrorMessages {
                     + " configurations";
     public static final String MULTI_CONFIG_ID_USED_AS_IMPORT =
             "Cannot use the same id (%s) for a View and an include tag.";
-    public static final String ROOT_TAG_NOT_SUPPORTED = "android:tag is not supported on root " +
-            "elements of data bound layouts unless targeting API version 14 or greater. Value " +
-            "is '%s'";
-    public static final String SYNTAX_ERROR = "Syntax error: %s";
-    public static final String CANNOT_FIND_GETTER_CALL =
-            "Cannot find the getter for attribute '%s' with value type %s on %s.";
-    public static final String EXPRESSION_NOT_INVERTIBLE =
-            "The expression %s cannot cannot be inverted: %s";
-    public static final String TWO_WAY_EVENT_ATTRIBUTE =
-            "The attribute %s is a two-way binding event attribute and cannot be assigned.";
-    public static final String CANNOT_FIND_ABSTRACT_METHOD =
-            "Cannot find the proper callback class for %s. Tried %s but it has %d abstract methods,"
-                    + " should have %d abstract methods.";
-    public static final String CALLBACK_ARGUMENT_COUNT_MISMATCH = "The callback %s#%s has %s"
-            + " methods but the lambda defined has %d. It should have either 0 or equal number of"
-            + " parameters.";
-    public static final String UNDEFINED_CALLBACK_ARGUMENT =
-            "%s is not defined. It should either be a variable defined in the layout file or a"
-                    + " parameter of the Callback.";
-    public static final String DUPLICATE_CALLBACK_ARGUMENT =
-            "Callback arguments must have unique names. %s is used twice or more.";
-    public static final String CALLBACK_VARIABLE_NAME_CLASH =
-            "%s in the callback definition will override the variable %s (%s) in the callback"
-                    + " scope.";
 }

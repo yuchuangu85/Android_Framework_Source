@@ -1,248 +1,247 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2004, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
+import java.util.Date;
+
 /**
- * <P>A thin wrapper around the <code>java.util.Date</code> class that allows the JDBC
- * API to identify this as an SQL <code>TIME</code> value. The <code>Time</code>
- * class adds formatting and
- * parsing operations to support the JDBC escape syntax for time
- * values.
- * <p>The date components should be set to the "zero epoch"
- * value of January 1, 1970 and should not be accessed.
+ * Java representation of an SQL {@code TIME} value. Provides utilities to
+ * format and parse the time's representation as a String in JDBC escape format.
  */
-public class Time extends java.util.Date {
+public class Time extends Date {
+
+    private static final long serialVersionUID = 8397324403548013681L;
 
     /**
-     * Constructs a <code>Time</code> object initialized with the
-     * given values for the hour, minute, and second.
-     * The driver sets the date components to January 1, 1970.
-     * Any method that attempts to access the date components of a
-     * <code>Time</code> object will throw a
-     * <code>java.lang.IllegalArgumentException</code>.
-     * <P>
-     * The result is undefined if a given argument is out of bounds.
+     * Constructs a {@code Time} object using the supplied values for <i>Hour</i>,
+     * <i>Minute</i> and <i>Second</i>. The <i>Year</i>, <i>Month</i> and
+     * <i>Day</i> elements of the {@code Time} object are set to the date
+     * of the Epoch (January 1, 1970).
+     * <p>
+     * Any attempt to access the <i>Year</i>, <i>Month</i> or <i>Day</i>
+     * elements of a {@code Time} object will result in an {@code
+     * IllegalArgumentException}.
+     * <p>
+     * The result is undefined if any argument is out of bounds.
      *
-     * @param hour 0 to 23
-     * @param minute 0 to 59
-     * @param second 0 to 59
-     *
-     * @deprecated Use the constructor that takes a milliseconds value
-     *             in place of this constructor
+     * @deprecated Use the constructor {@link #Time(long)} instead.
+     * @param theHour
+     *            a value in the range {@code [0,23]}.
+     * @param theMinute
+     *            a value in the range {@code [0,59]}.
+     * @param theSecond
+     *            a value in the range {@code [0,59]}.
      */
+    @SuppressWarnings("deprecation")
     @Deprecated
-    public Time(int hour, int minute, int second) {
-        super(70, 0, 1, hour, minute, second);
+    public Time(int theHour, int theMinute, int theSecond) {
+        super(70, 0, 1, theHour, theMinute, theSecond);
     }
 
     /**
-     * Constructs a <code>Time</code> object using a milliseconds time value.
+     * Constructs a {@code Time} object using a supplied time specified in
+     * milliseconds.
      *
-     * @param time milliseconds since January 1, 1970, 00:00:00 GMT;
-     *             a negative number is milliseconds before
-     *               January 1, 1970, 00:00:00 GMT
+     * @param theTime
+     *            a {@code Time} specified in milliseconds since the
+     *            <i>Epoch</i> (January 1st 1970, 00:00:00.000).
      */
-    public Time(long time) {
-        super(time);
+    public Time(long theTime) {
+        super(theTime);
     }
 
     /**
-     * Sets a <code>Time</code> object using a milliseconds time value.
-     *
-     * @param time milliseconds since January 1, 1970, 00:00:00 GMT;
-     *             a negative number is milliseconds before
-     *               January 1, 1970, 00:00:00 GMT
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a date component.
+     * @return does not return anything.
+     * @throws IllegalArgumentException
+     *             if this method is called.
      */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public int getDate() {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a day component.
+     * @return does not return anything.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public int getDay() {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a month component.
+     * @return does not return anything.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public int getMonth() {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a year component.
+     * @return does not return anything.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public int getYear() {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a date component.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public void setDate(int i) {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a month component.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public void setMonth(int i) {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * @deprecated This method is deprecated and must not be used. An SQL
+     *             {@code Time} object does not have a year component.
+     * @throws IllegalArgumentException
+     *             if this method is called.
+     */
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    @Override
+    public void setYear(int i) {
+        throw new IllegalArgumentException("unimplemented");
+    }
+
+    /**
+     * Sets the time for this {@code Time} object to the supplied milliseconds
+     * value.
+     *
+     * @param time
+     *            A time value expressed as milliseconds since the <i>Epoch</i>.
+     *            Negative values are milliseconds before the Epoch. The Epoch
+     *            is January 1 1970, 00:00:00.000.
+     */
+    @Override
     public void setTime(long time) {
         super.setTime(time);
     }
 
     /**
-     * Converts a string in JDBC time escape format to a <code>Time</code> value.
+     * Formats the {@code Time} as a String in JDBC escape format: {@code
+     * hh:mm:ss}.
      *
-     * @param s time in format "hh:mm:ss"
-     * @return a corresponding <code>Time</code> object
+     * @return A String representing the {@code Time} value in JDBC escape
+     *         format: {@code HH:mm:ss}
      */
-    public static Time valueOf(String s) {
-        int hour;
-        int minute;
-        int second;
-        int firstColon;
-        int secondColon;
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(8);
 
-        if (s == null) throw new java.lang.IllegalArgumentException();
+        format(getHours(), 2, sb);
+        sb.append(':');
+        format(getMinutes(), 2, sb);
+        sb.append(':');
+        format(getSeconds(), 2, sb);
 
-        firstColon = s.indexOf(':');
-        secondColon = s.indexOf(':', firstColon+1);
-        if ((firstColon > 0) & (secondColon > 0) &
-            (secondColon < s.length()-1)) {
-            hour = Integer.parseInt(s.substring(0, firstColon));
-            minute =
-                Integer.parseInt(s.substring(firstColon+1, secondColon));
-            second = Integer.parseInt(s.substring(secondColon+1));
-        } else {
-            throw new java.lang.IllegalArgumentException();
+        return sb.toString();
+    }
+
+    private static final String PADDING = "00";
+
+    /*
+    * Private method to format the time
+    */
+    private void format(int date, int digits, StringBuilder sb) {
+        String str = String.valueOf(date);
+        if (digits - str.length() > 0) {
+            sb.append(PADDING.substring(0, digits - str.length()));
         }
-
-        return new Time(hour, minute, second);
+        sb.append(str);
     }
 
     /**
-     * Formats a time in JDBC time escape format.
+     * Creates a {@code Time} object from a string holding a time represented in
+     * JDBC escape format: {@code hh:mm:ss}.
+     * <p>
+     * An exception occurs if the input string does not comply with this format.
      *
-     * @return a <code>String</code> in hh:mm:ss format
+     * @param timeString
+     *            A String representing the time value in JDBC escape format:
+     *            {@code hh:mm:ss}.
+     * @return The {@code Time} object set to a time corresponding to the given
+     *         time.
+     * @throws IllegalArgumentException
+     *             if the supplied time string is not in JDBC escape format.
      */
-    public String toString () {
-        int hour = super.getHours();
-        int minute = super.getMinutes();
-        int second = super.getSeconds();
-        String hourString;
-        String minuteString;
-        String secondString;
-
-        if (hour < 10) {
-            hourString = "0" + hour;
-        } else {
-            hourString = Integer.toString(hour);
+    public static Time valueOf(String timeString) {
+        if (timeString == null) {
+            throw new IllegalArgumentException("timeString == null");
         }
-        if (minute < 10) {
-            minuteString = "0" + minute;
-        } else {
-            minuteString = Integer.toString(minute);
+        int firstIndex = timeString.indexOf(':');
+        int secondIndex = timeString.indexOf(':', firstIndex + 1);
+        // secondIndex == -1 means none or only one separator '-' has been
+        // found.
+        // The string is separated into three parts by two separator characters,
+        // if the first or the third part is null string, we should throw
+        // IllegalArgumentException to follow RI
+        if (secondIndex == -1 || firstIndex == 0
+                || secondIndex + 1 == timeString.length()) {
+            throw new IllegalArgumentException();
         }
-        if (second < 10) {
-            secondString = "0" + second;
-        } else {
-            secondString = Integer.toString(second);
-        }
-        return (hourString + ":" + minuteString + ":" + secondString);
+        // parse each part of the string
+        int hour = Integer.parseInt(timeString.substring(0, firstIndex));
+        int minute = Integer.parseInt(timeString.substring(firstIndex + 1,
+                secondIndex));
+        int second = Integer.parseInt(timeString.substring(secondIndex + 1,
+                timeString.length()));
+        return new Time(hour, minute, second);
     }
-
-    // Override all the date operations inherited from java.util.Date;
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a year component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #setYear
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public int getYear() {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a month component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #setMonth
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public int getMonth() {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a day component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public int getDay() {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a date component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #setDate
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public int getDate() {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a year component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #getYear
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public void setYear(int i) {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a month component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #getMonth
-    */
-    // Android-changed javadoc, @deprecated tag now has a reason.
-    @Deprecated
-    public void setMonth(int i) {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * @deprecated This method is deprecated and should not be used because SQL <code>TIME</code>
-    * values do not have a date component.
-    *
-    * @exception java.lang.IllegalArgumentException if this
-    *           method is invoked
-    * @see #getDate
-    */
-    @Deprecated
-    public void setDate(int i) {
-        throw new java.lang.IllegalArgumentException();
-    }
-
-   /**
-    * Private serial version unique ID to ensure serialization
-    * compatibility.
-    */
-    static final long serialVersionUID = 8397324403548013681L;
 }

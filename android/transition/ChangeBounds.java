@@ -16,18 +16,19 @@
 
 package android.transition;
 
+import android.animation.AnimatorSet;
+import android.content.Context;
+import android.content.res.TypedArray;
+import android.graphics.PointF;
+
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.animation.RectEvaluator;
-import android.content.Context;
-import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Path;
-import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -224,7 +225,6 @@ public class ChangeBounds extends Transition {
      * @deprecated Use {@link android.transition.ChangeTransform} to handle
      * transitions between different parents.
      */
-    @Deprecated
     public void setReparent(boolean reparent) {
         mReparent = reparent;
     }
@@ -311,38 +311,6 @@ public class ChangeBounds extends Transition {
                 ++numChanges;
             }
             if (numChanges > 0) {
-                if (view.getParent() instanceof ViewGroup) {
-                    final ViewGroup parent = (ViewGroup) view.getParent();
-                    parent.suppressLayout(true);
-                    TransitionListener transitionListener = new TransitionListenerAdapter() {
-                        boolean mCanceled = false;
-
-                        @Override
-                        public void onTransitionCancel(Transition transition) {
-                            parent.suppressLayout(false);
-                            mCanceled = true;
-                        }
-
-                        @Override
-                        public void onTransitionEnd(Transition transition) {
-                            if (!mCanceled) {
-                                parent.suppressLayout(false);
-                            }
-                            transition.removeListener(this);
-                        }
-
-                        @Override
-                        public void onTransitionPause(Transition transition) {
-                            parent.suppressLayout(false);
-                        }
-
-                        @Override
-                        public void onTransitionResume(Transition transition) {
-                            parent.suppressLayout(true);
-                        }
-                    };
-                    addListener(transitionListener);
-                }
                 Animator anim;
                 if (!mResizeClip) {
                     view.setLeftTopRightBottom(startLeft, startTop, startRight, startBottom);
@@ -430,27 +398,57 @@ public class ChangeBounds extends Transition {
                     anim = TransitionUtils.mergeAnimators(positionAnimator,
                             clipAnimator);
                 }
+                if (view.getParent() instanceof ViewGroup) {
+                    final ViewGroup parent = (ViewGroup) view.getParent();
+                    parent.suppressLayout(true);
+                    TransitionListener transitionListener = new TransitionListenerAdapter() {
+                        boolean mCanceled = false;
+
+                        @Override
+                        public void onTransitionCancel(Transition transition) {
+                            parent.suppressLayout(false);
+                            mCanceled = true;
+                        }
+
+                        @Override
+                        public void onTransitionEnd(Transition transition) {
+                            if (!mCanceled) {
+                                parent.suppressLayout(false);
+                            }
+                        }
+
+                        @Override
+                        public void onTransitionPause(Transition transition) {
+                            parent.suppressLayout(false);
+                        }
+
+                        @Override
+                        public void onTransitionResume(Transition transition) {
+                            parent.suppressLayout(true);
+                        }
+                    };
+                    addListener(transitionListener);
+                }
                 return anim;
             }
         } else {
-            sceneRoot.getLocationInWindow(tempLocation);
-            int startX = (Integer) startValues.values.get(PROPNAME_WINDOW_X) - tempLocation[0];
-            int startY = (Integer) startValues.values.get(PROPNAME_WINDOW_Y) - tempLocation[1];
-            int endX = (Integer) endValues.values.get(PROPNAME_WINDOW_X) - tempLocation[0];
-            int endY = (Integer) endValues.values.get(PROPNAME_WINDOW_Y) - tempLocation[1];
+            int startX = (Integer) startValues.values.get(PROPNAME_WINDOW_X);
+            int startY = (Integer) startValues.values.get(PROPNAME_WINDOW_Y);
+            int endX = (Integer) endValues.values.get(PROPNAME_WINDOW_X);
+            int endY = (Integer) endValues.values.get(PROPNAME_WINDOW_Y);
             // TODO: also handle size changes: check bounds and animate size changes
             if (startX != endX || startY != endY) {
-                final int width = view.getWidth();
-                final int height = view.getHeight();
-                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                sceneRoot.getLocationInWindow(tempLocation);
+                Bitmap bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(),
+                        Bitmap.Config.ARGB_8888);
                 Canvas canvas = new Canvas(bitmap);
                 view.draw(canvas);
                 final BitmapDrawable drawable = new BitmapDrawable(bitmap);
-                drawable.setBounds(startX, startY, startX + width, startY + height);
                 final float transitionAlpha = view.getTransitionAlpha();
                 view.setTransitionAlpha(0);
                 sceneRoot.getOverlay().add(drawable);
-                Path topLeftPath = getPathMotion().getPath(startX, startY, endX, endY);
+                Path topLeftPath = getPathMotion().getPath(startX - tempLocation[0],
+                        startY - tempLocation[1], endX - tempLocation[0], endY - tempLocation[1]);
                 PropertyValuesHolder origin = PropertyValuesHolder.ofObject(
                         DRAWABLE_ORIGIN_PROPERTY, null, topLeftPath);
                 ObjectAnimator anim = ObjectAnimator.ofPropertyValuesHolder(drawable, origin);
@@ -472,9 +470,9 @@ public class ChangeBounds extends Transition {
         private int mTop;
         private int mRight;
         private int mBottom;
+        private boolean mIsTopLeftSet;
+        private boolean mIsBottomRightSet;
         private View mView;
-        private int mTopLeftCalls;
-        private int mBottomRightCalls;
 
         public ViewBounds(View view) {
             mView = view;
@@ -483,8 +481,8 @@ public class ChangeBounds extends Transition {
         public void setTopLeft(PointF topLeft) {
             mLeft = Math.round(topLeft.x);
             mTop = Math.round(topLeft.y);
-            mTopLeftCalls++;
-            if (mTopLeftCalls == mBottomRightCalls) {
+            mIsTopLeftSet = true;
+            if (mIsBottomRightSet) {
                 setLeftTopRightBottom();
             }
         }
@@ -492,16 +490,16 @@ public class ChangeBounds extends Transition {
         public void setBottomRight(PointF bottomRight) {
             mRight = Math.round(bottomRight.x);
             mBottom = Math.round(bottomRight.y);
-            mBottomRightCalls++;
-            if (mTopLeftCalls == mBottomRightCalls) {
+            mIsBottomRightSet = true;
+            if (mIsTopLeftSet) {
                 setLeftTopRightBottom();
             }
         }
 
         private void setLeftTopRightBottom() {
             mView.setLeftTopRightBottom(mLeft, mTop, mRight, mBottom);
-            mTopLeftCalls = 0;
-            mBottomRightCalls = 0;
+            mIsTopLeftSet = false;
+            mIsBottomRightSet = false;
         }
     }
 }

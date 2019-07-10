@@ -18,9 +18,7 @@ package android.media;
 
 import android.Manifest;
 import android.annotation.DrawableRes;
-import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.SystemService;
 import android.app.ActivityThread;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -43,8 +41,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -62,13 +58,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>The media router API is not thread-safe; all interactions with it must be
  * done from the main thread of the process.</p>
  */
-@SystemService(Context.MEDIA_ROUTER_SERVICE)
 public class MediaRouter {
     private static final String TAG = "MediaRouter";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     static class Static implements DisplayManager.DisplayListener {
-        final String mPackageName;
+        final Context mAppContext;
         final Resources mResources;
         final IAudioService mAudioService;
         final DisplayManager mDisplayService;
@@ -112,8 +107,8 @@ public class MediaRouter {
         };
 
         Static(Context appContext) {
-            mPackageName = appContext.getPackageName();
-            mResources = appContext.getResources();
+            mAppContext = appContext;
+            mResources = Resources.getSystem();
             mHandler = new Handler(appContext.getMainLooper());
 
             IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
@@ -143,11 +138,6 @@ public class MediaRouter {
             mDefaultAudioVideo.mNameResId = com.android.internal.R.string.default_audio_route_name;
             mDefaultAudioVideo.mSupportedTypes = ROUTE_TYPE_LIVE_AUDIO | ROUTE_TYPE_LIVE_VIDEO;
             mDefaultAudioVideo.updatePresentationDisplay();
-            if (((AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE))
-                    .isVolumeFixed()) {
-                mDefaultAudioVideo.mVolumeHandling = RouteInfo.PLAYBACK_VOLUME_FIXED;
-            }
-
             addRouteStatic(mDefaultAudioVideo);
 
             // This will select the active wifi display route if there is one.
@@ -183,76 +173,61 @@ public class MediaRouter {
         }
 
         void updateAudioRoutes(AudioRoutesInfo newRoutes) {
-            boolean audioRoutesChanged = false;
-            boolean forceUseDefaultRoute = false;
-
             if (newRoutes.mainType != mCurAudioRoutesInfo.mainType) {
                 mCurAudioRoutesInfo.mainType = newRoutes.mainType;
                 int name;
-                if ((newRoutes.mainType & AudioRoutesInfo.MAIN_HEADPHONES) != 0
-                        || (newRoutes.mainType & AudioRoutesInfo.MAIN_HEADSET) != 0) {
+                if ((newRoutes.mainType&AudioRoutesInfo.MAIN_HEADPHONES) != 0
+                        || (newRoutes.mainType&AudioRoutesInfo.MAIN_HEADSET) != 0) {
                     name = com.android.internal.R.string.default_audio_route_name_headphones;
-                } else if ((newRoutes.mainType & AudioRoutesInfo.MAIN_DOCK_SPEAKERS) != 0) {
+                } else if ((newRoutes.mainType&AudioRoutesInfo.MAIN_DOCK_SPEAKERS) != 0) {
                     name = com.android.internal.R.string.default_audio_route_name_dock_speakers;
                 } else if ((newRoutes.mainType&AudioRoutesInfo.MAIN_HDMI) != 0) {
-                    name = com.android.internal.R.string.default_audio_route_name_hdmi;
-                } else if ((newRoutes.mainType&AudioRoutesInfo.MAIN_USB) != 0) {
-                    name = com.android.internal.R.string.default_audio_route_name_usb;
+                    name = com.android.internal.R.string.default_media_route_name_hdmi;
                 } else {
                     name = com.android.internal.R.string.default_audio_route_name;
                 }
-                mDefaultAudioVideo.mNameResId = name;
-                dispatchRouteChanged(mDefaultAudioVideo);
-
-                if ((newRoutes.mainType & (AudioRoutesInfo.MAIN_HEADSET
-                        | AudioRoutesInfo.MAIN_HEADPHONES | AudioRoutesInfo.MAIN_USB)) != 0) {
-                    forceUseDefaultRoute = true;
-                }
-                audioRoutesChanged = true;
+                sStatic.mDefaultAudioVideo.mNameResId = name;
+                dispatchRouteChanged(sStatic.mDefaultAudioVideo);
             }
+
+            final int mainType = mCurAudioRoutesInfo.mainType;
 
             if (!TextUtils.equals(newRoutes.bluetoothName, mCurAudioRoutesInfo.bluetoothName)) {
-                forceUseDefaultRoute = false;
                 mCurAudioRoutesInfo.bluetoothName = newRoutes.bluetoothName;
                 if (mCurAudioRoutesInfo.bluetoothName != null) {
-                    if (mBluetoothA2dpRoute == null) {
-                        // BT connected
-                        final RouteInfo info = new RouteInfo(mSystemCategory);
+                    if (sStatic.mBluetoothA2dpRoute == null) {
+                        final RouteInfo info = new RouteInfo(sStatic.mSystemCategory);
                         info.mName = mCurAudioRoutesInfo.bluetoothName;
-                        info.mDescription = mResources.getText(
+                        info.mDescription = sStatic.mResources.getText(
                                 com.android.internal.R.string.bluetooth_a2dp_audio_route_name);
                         info.mSupportedTypes = ROUTE_TYPE_LIVE_AUDIO;
-                        info.mDeviceType = RouteInfo.DEVICE_TYPE_BLUETOOTH;
-                        mBluetoothA2dpRoute = info;
-                        addRouteStatic(mBluetoothA2dpRoute);
+                        sStatic.mBluetoothA2dpRoute = info;
+                        addRouteStatic(sStatic.mBluetoothA2dpRoute);
                     } else {
-                        mBluetoothA2dpRoute.mName = mCurAudioRoutesInfo.bluetoothName;
-                        dispatchRouteChanged(mBluetoothA2dpRoute);
+                        sStatic.mBluetoothA2dpRoute.mName = mCurAudioRoutesInfo.bluetoothName;
+                        dispatchRouteChanged(sStatic.mBluetoothA2dpRoute);
                     }
-                } else if (mBluetoothA2dpRoute != null) {
-                    // BT disconnected
-                    removeRouteStatic(mBluetoothA2dpRoute);
-                    mBluetoothA2dpRoute = null;
+                } else if (sStatic.mBluetoothA2dpRoute != null) {
+                    removeRouteStatic(sStatic.mBluetoothA2dpRoute);
+                    sStatic.mBluetoothA2dpRoute = null;
                 }
-                audioRoutesChanged = true;
             }
 
-            if (audioRoutesChanged) {
-                Log.v(TAG, "Audio routes updated: " + newRoutes + ", a2dp=" + isBluetoothA2dpOn());
-                if (mSelectedRoute == null || mSelectedRoute == mDefaultAudioVideo
-                        || mSelectedRoute == mBluetoothA2dpRoute) {
-                    if (forceUseDefaultRoute || mBluetoothA2dpRoute == null) {
-                        selectRouteStatic(ROUTE_TYPE_LIVE_AUDIO, mDefaultAudioVideo, false);
-                    } else {
-                        selectRouteStatic(ROUTE_TYPE_LIVE_AUDIO, mBluetoothA2dpRoute, false);
-                    }
+            if (mBluetoothA2dpRoute != null) {
+                final boolean a2dpEnabled = isBluetoothA2dpOn();
+                if (mainType != AudioRoutesInfo.MAIN_SPEAKER &&
+                        mSelectedRoute == mBluetoothA2dpRoute && !a2dpEnabled) {
+                    selectRouteStatic(ROUTE_TYPE_LIVE_AUDIO, mDefaultAudioVideo, false);
+                } else if ((mSelectedRoute == mDefaultAudioVideo || mSelectedRoute == null) &&
+                        a2dpEnabled) {
+                    selectRouteStatic(ROUTE_TYPE_LIVE_AUDIO, mBluetoothA2dpRoute, false);
                 }
             }
         }
 
         boolean isBluetoothA2dpOn() {
             try {
-                return mBluetoothA2dpRoute != null && mAudioService.isBluetoothA2dpOn();
+                return mAudioService.isBluetoothA2dpOn();
             } catch (RemoteException e) {
                 Log.e(TAG, "Error querying Bluetooth A2DP state", e);
                 return false;
@@ -377,7 +352,8 @@ public class MediaRouter {
 
                 try {
                     Client client = new Client();
-                    mMediaRouterService.registerClientAsUser(client, mPackageName, userId);
+                    mMediaRouterService.registerClientAsUser(client,
+                            mAppContext.getPackageName(), userId);
                     mClient = client;
                 } catch (RemoteException ex) {
                     Log.e(TAG, "Unable to register media router client.", ex);
@@ -424,6 +400,8 @@ public class MediaRouter {
             }
             final ArrayList<MediaRouterClientState.RouteInfo> globalRoutes =
                     mClientState != null ? mClientState.routes : null;
+            final String globallySelectedRouteId = mClientState != null ?
+                    mClientState.globallySelectedRouteId : null;
 
             // Add or update routes.
             final int globalRouteCount = globalRoutes != null ? globalRoutes.size() : 0;
@@ -436,6 +414,25 @@ public class MediaRouter {
                 } else {
                     updateGlobalRoute(route, globalRoute);
                 }
+            }
+
+            // Synchronize state with the globally selected route.
+            if (globallySelectedRouteId != null) {
+                final RouteInfo route = findGlobalRoute(globallySelectedRouteId);
+                if (route == null) {
+                    Log.w(TAG, "Could not find new globally selected route: "
+                            + globallySelectedRouteId);
+                } else if (route != mSelectedRoute) {
+                    if (DEBUG) {
+                        Log.d(TAG, "Selecting new globally selected route: " + route);
+                    }
+                    selectRouteStatic(route.mSupportedTypes, route, false);
+                }
+            } else if (mSelectedRoute != null && mSelectedRoute.mGlobalRouteId != null) {
+                if (DEBUG) {
+                    Log.d(TAG, "Unselecting previous globally selected route: " + mSelectedRoute);
+                }
+                selectDefaultRouteStatic();
             }
 
             // Remove defunct routes.
@@ -478,12 +475,11 @@ public class MediaRouter {
         }
 
         RouteInfo makeGlobalRoute(MediaRouterClientState.RouteInfo globalRoute) {
-            RouteInfo route = new RouteInfo(mSystemCategory);
+            RouteInfo route = new RouteInfo(sStatic.mSystemCategory);
             route.mGlobalRouteId = globalRoute.id;
             route.mName = globalRoute.name;
             route.mDescription = globalRoute.description;
             route.mSupportedTypes = globalRoute.supportedTypes;
-            route.mDeviceType = globalRoute.deviceType;
             route.mEnabled = globalRoute.enabled;
             route.setRealStatusCode(globalRoute.statusCode);
             route.mPlaybackType = globalRoute.playbackType;
@@ -574,17 +570,6 @@ public class MediaRouter {
             return null;
         }
 
-        boolean isPlaybackActive() {
-            if (mClient != null) {
-                try {
-                    return mMediaRouterService.isPlaybackActive(mClient);
-                } catch (RemoteException ex) {
-                    Log.e(TAG, "Unable to retrieve playback active state.", ex);
-                }
-            }
-            return false;
-        }
-
         final class Client extends IMediaRouterClient.Stub {
             @Override
             public void onStateChanged() {
@@ -594,24 +579,6 @@ public class MediaRouter {
                         if (Client.this == mClient) {
                             updateClientState();
                         }
-                    }
-                });
-            }
-
-            @Override
-            public void onRestoreRoute() {
-                mHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        // Skip restoring route if the selected route is not a system audio route,
-                        // MediaRouter is initializing, or mClient was changed.
-                        if (Client.this != mClient || mSelectedRoute == null
-                                || (mSelectedRoute != mDefaultAudioVideo
-                                        && mSelectedRoute != mBluetoothA2dpRoute)) {
-                            return;
-                        }
-                        Log.v(TAG, "onRestoreRoute() : route=" + mSelectedRoute);
-                        mSelectedRoute.select();
                     }
                 });
             }
@@ -765,15 +732,6 @@ public class MediaRouter {
      */
     public RouteInfo getDefaultRoute() {
         return sStatic.mDefaultAudioVideo;
-    }
-
-    /**
-     * Returns a Bluetooth route if available, otherwise the default route.
-     * @hide
-     */
-    public RouteInfo getFallbackRoute() {
-        return (sStatic.mBluetoothA2dpRoute != null)
-                ? sStatic.mBluetoothA2dpRoute : sStatic.mDefaultAudioVideo;
     }
 
     /**
@@ -942,17 +900,9 @@ public class MediaRouter {
     }
 
     static void selectRouteStatic(int types, @NonNull RouteInfo route, boolean explicit) {
-        Log.v(TAG, "Selecting route: " + route);
         assert(route != null);
         final RouteInfo oldRoute = sStatic.mSelectedRoute;
-        final RouteInfo currentSystemRoute = sStatic.isBluetoothA2dpOn()
-                ? sStatic.mBluetoothA2dpRoute : sStatic.mDefaultAudioVideo;
-        boolean wasDefaultOrBluetoothRoute = (oldRoute == sStatic.mDefaultAudioVideo
-                || oldRoute == sStatic.mBluetoothA2dpRoute);
-        if (oldRoute == route
-                && (!wasDefaultOrBluetoothRoute || route == currentSystemRoute)) {
-            return;
-        }
+        if (oldRoute == route) return;
         if (!route.matchesTypes(types)) {
             Log.w(TAG, "selectRoute ignored; cannot select route with supported types " +
                     typesToString(route.getSupportedTypes()) + " into route types " +
@@ -961,23 +911,10 @@ public class MediaRouter {
         }
 
         final RouteInfo btRoute = sStatic.mBluetoothA2dpRoute;
-        if (sStatic.isPlaybackActive() && btRoute != null && (types & ROUTE_TYPE_LIVE_AUDIO) != 0
-                && (route == btRoute || route == sStatic.mDefaultAudioVideo)) {
+        if (btRoute != null && (types & ROUTE_TYPE_LIVE_AUDIO) != 0 &&
+                (route == btRoute || route == sStatic.mDefaultAudioVideo)) {
             try {
                 sStatic.mAudioService.setBluetoothA2dpOn(route == btRoute);
-                // TODO: Remove the following logging when no longer needed.
-                if (route != btRoute) {
-                    StackTraceElement[] callStack = Thread.currentThread().getStackTrace();
-                    StringBuffer sb = new StringBuffer();
-                    // callStack[3] is the caller of this method.
-                    for (int i = 3; i < callStack.length; i++) {
-                        StackTraceElement caller = callStack[i];
-                        sb.append(caller.getClassName() + "." + caller.getMethodName()
-                                + ":" + caller.getLineNumber()).append("  ");
-                    }
-                    Log.w(TAG, "Default route is selected while a BT route is available: pkgName="
-                            + sStatic.mPackageName + ", callers=" + sb.toString());
-                }
             } catch (RemoteException e) {
                 Log.e(TAG, "Error changing Bluetooth A2DP state", e);
             }
@@ -1021,7 +958,8 @@ public class MediaRouter {
 
     static void selectDefaultRouteStatic() {
         // TODO: Be smarter about the route types here; this selects for all valid.
-        if (sStatic.mSelectedRoute != sStatic.mBluetoothA2dpRoute && sStatic.isBluetoothA2dpOn()) {
+        if (sStatic.mSelectedRoute != sStatic.mBluetoothA2dpRoute
+                && sStatic.mBluetoothA2dpRoute != null && sStatic.isBluetoothA2dpOn()) {
             selectRouteStatic(ROUTE_TYPE_ANY, sStatic.mBluetoothA2dpRoute, false);
         } else {
             selectRouteStatic(ROUTE_TYPE_ANY, sStatic.mDefaultAudioVideo, false);
@@ -1064,7 +1002,6 @@ public class MediaRouter {
     }
 
     static void addRouteStatic(RouteInfo info) {
-        Log.v(TAG, "Adding route: " + info);
         final RouteCategory cat = info.getCategory();
         if (!sStatic.mCategories.contains(cat)) {
             sStatic.mCategories.add(cat);
@@ -1119,7 +1056,6 @@ public class MediaRouter {
     }
 
     static void removeRouteStatic(RouteInfo info) {
-        Log.v(TAG, "Removing route: " + info);
         if (sStatic.mRoutes.remove(info)) {
             final RouteCategory removingCat = info.getCategory();
             final int count = sStatic.mRoutes.size();
@@ -1269,9 +1205,6 @@ public class MediaRouter {
     }
 
     static void dispatchRouteChanged(RouteInfo info, int oldSupportedTypes) {
-        if (DEBUG) {
-            Log.d(TAG, "Dispatching route change: " + info);
-        }
         final int newSupportedTypes = info.mSupportedTypes;
         for (CallbackInfo cbi : sStatic.mCallbacks) {
             // Reconstruct some of the history for callbacks that may not have observed
@@ -1478,7 +1411,6 @@ public class MediaRouter {
         newRoute.mDescription = sStatic.mResources.getText(
                 com.android.internal.R.string.wireless_display_route_description);
         newRoute.updatePresentationDisplay();
-        newRoute.mDeviceType = RouteInfo.DEVICE_TYPE_TV;
         return newRoute;
     }
 
@@ -1538,7 +1470,6 @@ public class MediaRouter {
         CharSequence mDescription;
         private CharSequence mStatus;
         int mSupportedTypes;
-        int mDeviceType;
         RouteGroup mGroup;
         final RouteCategory mCategory;
         Drawable mIcon;
@@ -1571,48 +1502,7 @@ public class MediaRouter {
         /** @hide */ public static final int STATUS_IN_USE = 5;
         /** @hide */ public static final int STATUS_CONNECTED = 6;
 
-        /** @hide */
-        @IntDef({DEVICE_TYPE_UNKNOWN, DEVICE_TYPE_TV, DEVICE_TYPE_SPEAKER, DEVICE_TYPE_BLUETOOTH})
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface DeviceType {}
-
-        /**
-         * The default receiver device type of the route indicating the type is unknown.
-         *
-         * @see #getDeviceType
-         */
-        public static final int DEVICE_TYPE_UNKNOWN = 0;
-
-        /**
-         * A receiver device type of the route indicating the presentation of the media is happening
-         * on a TV.
-         *
-         * @see #getDeviceType
-         */
-        public static final int DEVICE_TYPE_TV = 1;
-
-        /**
-         * A receiver device type of the route indicating the presentation of the media is happening
-         * on a speaker.
-         *
-         * @see #getDeviceType
-         */
-        public static final int DEVICE_TYPE_SPEAKER = 2;
-
-        /**
-         * A receiver device type of the route indicating the presentation of the media is happening
-         * on a bluetooth device such as a bluetooth speaker.
-         *
-         * @see #getDeviceType
-         */
-        public static final int DEVICE_TYPE_BLUETOOTH = 3;
-
         private Object mTag;
-
-        /** @hide */
-        @IntDef({PLAYBACK_TYPE_LOCAL, PLAYBACK_TYPE_REMOTE})
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface PlaybackType {}
 
         /**
          * The default playback type, "local", indicating the presentation of the media is happening
@@ -1620,19 +1510,12 @@ public class MediaRouter {
          * @see #getPlaybackType()
          */
         public final static int PLAYBACK_TYPE_LOCAL = 0;
-
         /**
          * A playback type indicating the presentation of the media is happening on
          * a different device (i&#46;e&#46; the remote device) than where it is controlled from.
          * @see #getPlaybackType()
          */
         public final static int PLAYBACK_TYPE_REMOTE = 1;
-
-        /** @hide */
-         @IntDef({PLAYBACK_VOLUME_FIXED,PLAYBACK_VOLUME_VARIABLE})
-         @Retention(RetentionPolicy.SOURCE)
-         private @interface PlaybackVolume {}
-
         /**
          * Playback information indicating the playback volume is fixed, i&#46;e&#46; it cannot be
          * controlled from this object. An example of fixed playback volume is a remote player,
@@ -1650,7 +1533,6 @@ public class MediaRouter {
 
         RouteInfo(RouteCategory category) {
             mCategory = category;
-            mDeviceType = DEVICE_TYPE_UNKNOWN;
         }
 
         /**
@@ -1684,7 +1566,7 @@ public class MediaRouter {
 
         CharSequence getName(Resources res) {
             if (mNameResId != 0) {
-                return res.getText(mNameResId);
+                return mName = res.getText(mNameResId);
             }
             return mName;
         }
@@ -1788,18 +1670,6 @@ public class MediaRouter {
             return mSupportedTypes;
         }
 
-        /**
-         * Gets the type of the receiver device associated with this route.
-         *
-         * @return The type of the receiver device associated with this route:
-         * {@link #DEVICE_TYPE_BLUETOOTH}, {@link #DEVICE_TYPE_TV}, {@link #DEVICE_TYPE_SPEAKER},
-         * or {@link #DEVICE_TYPE_UNKNOWN}.
-         */
-        @DeviceType
-        public int getDeviceType() {
-            return mDeviceType;
-        }
-
         /** @hide */
         public boolean matchesTypes(int types) {
             return (mSupportedTypes & types) != 0;
@@ -1857,7 +1727,6 @@ public class MediaRouter {
          * @return the type of playback associated with this route
          * @see UserRouteInfo#setPlaybackType(int)
          */
-        @PlaybackType
         public int getPlaybackType() {
             return mPlaybackType;
         }
@@ -1949,7 +1818,6 @@ public class MediaRouter {
          * @return how volume is handling on the route
          * @see UserRouteInfo#setVolumeHandling(int)
          */
-        @PlaybackVolume
         public int getVolumeHandling() {
             return mVolumeHandling;
         }
@@ -2065,11 +1933,6 @@ public class MediaRouter {
         }
 
         /** @hide */
-        public boolean isBluetooth() {
-            return this == sStatic.mBluetoothA2dpRoute;
-        }
-
-        /** @hide */
         public void select() {
             selectRouteStatic(mSupportedTypes, this, true);
         }
@@ -2141,7 +2004,6 @@ public class MediaRouter {
          * @param name Name to display to the user to describe this route
          */
         public void setName(CharSequence name) {
-            mNameResId = 0;
             mName = name;
             routeUpdated();
         }
@@ -2246,7 +2108,7 @@ public class MediaRouter {
          *    ({@link RouteInfo#PLAYBACK_TYPE_REMOTE}).
          * @param type
          */
-        public void setPlaybackType(@RouteInfo.PlaybackType int type) {
+        public void setPlaybackType(int type) {
             if (mPlaybackType != type) {
                 mPlaybackType = type;
                 configureSessionVolume();
@@ -2259,7 +2121,7 @@ public class MediaRouter {
          * ({@link RouteInfo#PLAYBACK_VOLUME_VARIABLE}).
          * @param volumeHandling
          */
-        public void setVolumeHandling(@RouteInfo.PlaybackVolume int volumeHandling) {
+        public void setVolumeHandling(int volumeHandling) {
             if (mVolumeHandling != volumeHandling) {
                 mVolumeHandling = volumeHandling;
                 configureSessionVolume();
@@ -2338,7 +2200,7 @@ public class MediaRouter {
         private void configureSessionVolume() {
             if (mRcc == null) {
                 if (DEBUG) {
-                    Log.d(TAG, "No Rcc to configure volume for route " + getName());
+                    Log.d(TAG, "No Rcc to configure volume for route " + mName);
                 }
                 return;
             }
@@ -2350,8 +2212,7 @@ public class MediaRouter {
                 return;
             }
             if (mPlaybackType == RemoteControlClient.PLAYBACK_TYPE_REMOTE) {
-                @VolumeProvider.ControlType int volumeControl =
-                        VolumeProvider.VOLUME_CONTROL_FIXED;
+                int volumeControl = VolumeProvider.VOLUME_CONTROL_FIXED;
                 switch (mVolumeHandling) {
                     case RemoteControlClient.PLAYBACK_VOLUME_VARIABLE:
                         volumeControl = VolumeProvider.VOLUME_CONTROL_ABSOLUTE;
@@ -2377,8 +2238,7 @@ public class MediaRouter {
 
         class SessionVolumeProvider extends VolumeProvider {
 
-            public SessionVolumeProvider(@VolumeProvider.ControlType int volumeControl,
-                    int maxVolume, int currentVolume) {
+            public SessionVolumeProvider(int volumeControl, int maxVolume, int currentVolume) {
                 super(volumeControl, maxVolume, currentVolume);
             }
 
@@ -2653,10 +2513,8 @@ public class MediaRouter {
             for (int i = 0; i < count; i++) {
                 final RouteInfo info = mRoutes.get(i);
                 // TODO: There's probably a much more correct way to localize this.
-                if (i > 0) {
-                    sb.append(", ");
-                }
-                sb.append(info.getName());
+                if (i > 0) sb.append(", ");
+                sb.append(info.mName);
             }
             mName = sb.toString();
             mUpdateName = false;
@@ -2781,7 +2639,7 @@ public class MediaRouter {
 
         @Override
         public String toString() {
-            return "RouteCategory{ name=" + getName() + " types=" + typesToString(mTypes) +
+            return "RouteCategory{ name=" + mName + " types=" + typesToString(mTypes) +
                     " groupable=" + mGroupable + " }";
         }
     }

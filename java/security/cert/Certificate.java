@@ -1,258 +1,232 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
 
-import java.util.Arrays;
-
-import java.security.Provider;
-import java.security.PublicKey;
+import java.io.ByteArrayInputStream;
+import java.io.NotSerializableException;
+import java.io.ObjectStreamException;
+import java.io.ObjectStreamField;
+import java.io.Serializable;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
-import java.security.InvalidKeyException;
+import java.security.PublicKey;
 import java.security.SignatureException;
-
-import sun.security.x509.X509CertImpl;
+import java.util.Arrays;
 
 /**
- * <p>Abstract class for managing a variety of identity certificates.
- * An identity certificate is a binding of a principal to a public key which
- * is vouched for by another principal.  (A principal represents
- * an entity such as an individual user, a group, or a corporation.)
- *<p>
- * This class is an abstraction for certificates that have different
- * formats but important common uses.  For example, different types of
- * certificates, such as X.509 and PGP, share general certificate
- * functionality (like encoding and verifying) and
- * some types of information (like a public key).
- * <p>
- * X.509, PGP, and SDSI certificates can all be implemented by
- * subclassing the Certificate class, even though they contain different
- * sets of information, and they store and retrieve the information in
- * different ways.
- *
- * @see X509Certificate
- * @see CertificateFactory
- *
- * @author Hemma Prafullchandra
+ * Abstract class to represent identity certificates. It represents a way to
+ * verify the binding of a Principal and its public key. Examples are X.509,
+ * PGP, and SDSI.
  */
-
-public abstract class Certificate implements java.io.Serializable {
+public abstract class Certificate implements Serializable {
 
     private static final long serialVersionUID = -3585440601605666277L;
 
-    // the certificate type
+    // The standard name of the certificate type
     private final String type;
 
-    /** Cache the hash code for the certiticate */
-    private int hash = -1; // Default to -1
-
     /**
-     * Creates a certificate of the specified type.
+     * Creates a new {@code Certificate} with the specified type.
      *
-     * @param type the standard name of the certificate type.
-     * See the CertificateFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#CertificateFactory">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard certificate types.
+     * @param type
+     *        the certificate type.
      */
     protected Certificate(String type) {
         this.type = type;
     }
 
     /**
-     * Returns the type of this certificate.
+     * Returns the certificate type.
      *
-     * @return the type of this certificate.
+     * @return the certificate type.
      */
     public final String getType() {
-        return this.type;
+        return type;
     }
 
     /**
-     * Compares this certificate for equality with the specified
-     * object. If the {@code other} object is an
-     * {@code instanceof} {@code Certificate}, then
-     * its encoded form is retrieved and compared with the
-     * encoded form of this certificate.
+     * Compares the argument to the certificate, and returns {@code true} if they
+     * represent the <em>same</em> object using a class specific comparison. The
+     * implementation in Object returns {@code true} only if the argument is the
+     * exact same object as the callee (==).
      *
-     * @param other the object to test for equality with this certificate.
-     * @return true iff the encoded forms of the two certificates
-     * match, false otherwise.
+     * @param other
+     *            the object to compare with this object.
+     * @return {@code true} if the object is the same as this object, {@code
+     *         false} if it is different from this object.
+     * @see #hashCode
      */
     public boolean equals(Object other) {
+        // obj equal to itself
         if (this == other) {
             return true;
         }
-        if (!(other instanceof Certificate)) {
-            return false;
+        if (other instanceof Certificate) {
+            try {
+                // check that encoded forms match
+                return Arrays.equals(this.getEncoded(),
+                        ((Certificate)other).getEncoded());
+            } catch (CertificateEncodingException e) {
+                throw new RuntimeException(e);
+            }
         }
-        try {
-            byte[] thisCert = X509CertImpl.getEncodedInternal(this);
-            byte[] otherCert = X509CertImpl.getEncodedInternal((Certificate)other);
-
-            return Arrays.equals(thisCert, otherCert);
-        } catch (CertificateException e) {
-            return false;
-        }
+        return false;
     }
 
     /**
-     * Returns a hashcode value for this certificate from its
-     * encoded form.
+     * Returns an integer hash code for the certificate. Any two objects which
+     * return {@code true} when passed to {@code equals} must return the same
+     * value for this method.
      *
-     * @return the hashcode value.
+     * @return the certificate's hash
+     * @see #equals
      */
     public int hashCode() {
-        int h = hash;
-        if (h == -1) {
-            try {
-                h = Arrays.hashCode(X509CertImpl.getEncodedInternal(this));
-            } catch (CertificateException e) {
-                h = 0;
+        try {
+            byte[] encoded = getEncoded();
+            int hash = 0;
+            for (int i=0; i<encoded.length; i++) {
+                hash += i*encoded[i];
             }
-            hash = h;
+            return hash;
+        } catch (CertificateEncodingException e) {
+            throw new RuntimeException(e);
         }
-        return h;
     }
 
     /**
-     * Returns the encoded form of this certificate. It is
-     * assumed that each certificate type would have only a single
-     * form of encoding; for example, X.509 certificates would
-     * be encoded as ASN.1 DER.
+     * Returns the encoded representation for this certificate.
      *
-     * @return the encoded form of this certificate
-     *
-     * @exception CertificateEncodingException if an encoding error occurs.
+     * @return the encoded representation for this certificate.
+     * @throws CertificateEncodingException
+     *             if the encoding fails.
      */
-    public abstract byte[] getEncoded()
-        throws CertificateEncodingException;
+    public abstract byte[] getEncoded() throws CertificateEncodingException;
 
     /**
-     * Verifies that this certificate was signed using the
-     * private key that corresponds to the specified public key.
+     * Verifies that this certificate was signed with the given public key.
      *
-     * @param key the PublicKey used to carry out the verification.
-     *
-     * @exception NoSuchAlgorithmException on unsupported signature
-     * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception NoSuchProviderException if there's no default provider.
-     * @exception SignatureException on signature errors.
-     * @exception CertificateException on encoding errors.
+     * @param key
+     *            PublicKey public key for which verification should be
+     *            performed.
+     * @throws CertificateException
+     *             if encoding errors are detected.
+     * @throws NoSuchAlgorithmException
+     *             if an unsupported algorithm is detected.
+     * @throws InvalidKeyException
+     *             if an invalid key is detected.
+     * @throws NoSuchProviderException
+     *             if there is no default provider.
+     * @throws SignatureException
+     *             if signature errors are detected.
      */
     public abstract void verify(PublicKey key)
-        throws CertificateException, NoSuchAlgorithmException,
-        InvalidKeyException, NoSuchProviderException,
-        SignatureException;
+        throws CertificateException,
+               NoSuchAlgorithmException,
+               InvalidKeyException,
+               NoSuchProviderException,
+               SignatureException;
 
     /**
-     * Verifies that this certificate was signed using the
-     * private key that corresponds to the specified public key.
-     * This method uses the signature verification engine
-     * supplied by the specified provider.
+     * Verifies that this certificate was signed with the given public key. It
+     * Uses the signature algorithm given by the provider.
      *
-     * @param key the PublicKey used to carry out the verification.
-     * @param sigProvider the name of the signature provider.
-     *
-     * @exception NoSuchAlgorithmException on unsupported signature
-     * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception NoSuchProviderException on incorrect provider.
-     * @exception SignatureException on signature errors.
-     * @exception CertificateException on encoding errors.
+     * @param key
+     *            PublicKey public key for which verification should be
+     *            performed.
+     * @param sigProvider
+     *            String the name of the signature provider.
+     * @throws CertificateException
+     *                if encoding errors are detected.
+     * @throws NoSuchAlgorithmException
+     *                if an unsupported algorithm is detected.
+     * @throws InvalidKeyException
+     *                if an invalid key is detected.
+     * @throws NoSuchProviderException
+     *                if the specified provider does not exists.
+     * @throws SignatureException
+     *                if signature errors are detected.
      */
     public abstract void verify(PublicKey key, String sigProvider)
-        throws CertificateException, NoSuchAlgorithmException,
-        InvalidKeyException, NoSuchProviderException,
-        SignatureException;
+        throws CertificateException,
+               NoSuchAlgorithmException,
+               InvalidKeyException,
+               NoSuchProviderException,
+               SignatureException;
 
     /**
-     * Verifies that this certificate was signed using the
-     * private key that corresponds to the specified public key.
-     * This method uses the signature verification engine
-     * supplied by the specified provider. Note that the specified
-     * Provider object does not have to be registered in the provider list.
+     * Returns a string containing a concise, human-readable description of the
+     * certificate.
      *
-     * <p> This method was added to version 1.8 of the Java Platform
-     * Standard Edition. In order to maintain backwards compatibility with
-     * existing service providers, this method cannot be {@code abstract}
-     * and by default throws an {@code UnsupportedOperationException}.
-     *
-     * @param key the PublicKey used to carry out the verification.
-     * @param sigProvider the signature provider.
-     *
-     * @exception NoSuchAlgorithmException on unsupported signature
-     * algorithms.
-     * @exception InvalidKeyException on incorrect key.
-     * @exception SignatureException on signature errors.
-     * @exception CertificateException on encoding errors.
-     * @exception UnsupportedOperationException if the method is not supported
-     * @since 1.8
-     */
-    public void verify(PublicKey key, Provider sigProvider)
-        throws CertificateException, NoSuchAlgorithmException,
-        InvalidKeyException, SignatureException {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Returns a string representation of this certificate.
-     *
-     * @return a string representation of this certificate.
+     * @return a printable representation for the certificate.
      */
     public abstract String toString();
 
     /**
-     * Gets the public key from this certificate.
+     * Returns the public key corresponding to this certificate.
      *
-     * @return the public key.
+     * @return the public key corresponding to this certificate.
      */
     public abstract PublicKey getPublicKey();
 
     /**
-     * Alternate Certificate class for serialization.
-     * @since 1.3
+     * Returns an alternate object to be serialized.
+     *
+     * @return the object to serialize.
+     * @throws ObjectStreamException
+     *             if the creation of the alternate object fails.
      */
-    protected static class CertificateRep implements java.io.Serializable {
+    protected Object writeReplace() throws ObjectStreamException {
+        try {
+            return new CertificateRep(getType(), getEncoded());
+        } catch (CertificateEncodingException e) {
+            throw new NotSerializableException("Could not create serialization object: " + e);
+        }
+    }
+
+    /**
+     * The alternate {@code Serializable} class to be used for serialization and
+     * deserialization of {@code Certificate} objects.
+     */
+    protected static class CertificateRep implements Serializable {
 
         private static final long serialVersionUID = -8563758940495660020L;
+        // The standard name of the certificate type
+        private final String type;
+        // The certificate data
+        private final byte[] data;
 
-        private String type;
-        private byte[] data;
+        // Force default serialization to use writeUnshared/readUnshared
+        // for the certificate data
+        private static final ObjectStreamField[] serialPersistentFields = {
+             new ObjectStreamField("type", String.class),
+             new ObjectStreamField("data", byte[].class, true)
+        };
 
         /**
-         * Construct the alternate Certificate class with the Certificate
-         * type and Certificate encoding bytes.
+         * Creates a new {@code CertificateRep} instance with the specified
+         * certificate type and encoded data.
          *
-         * <p>
-         *
-         * @param type the standard name of the Certificate type. <p>
-         *
-         * @param data the Certificate data.
+         * @param type
+         *            the certificate type.
+         * @param data
+         *            the encoded data.
          */
         protected CertificateRep(String type, byte[] data) {
             this.type = type;
@@ -260,48 +234,20 @@ public abstract class Certificate implements java.io.Serializable {
         }
 
         /**
-         * Resolve the Certificate Object.
+         * Deserializes a {@code Certificate} from a serialized {@code
+         * CertificateRep} object.
          *
-         * <p>
-         *
-         * @return the resolved Certificate Object
-         *
-         * @throws java.io.ObjectStreamException if the Certificate
-         *      could not be resolved
+         * @return the deserialized {@code Certificate}.
+         * @throws ObjectStreamException
+         *             if deserialization fails.
          */
-        protected Object readResolve() throws java.io.ObjectStreamException {
+        protected Object readResolve() throws ObjectStreamException {
             try {
                 CertificateFactory cf = CertificateFactory.getInstance(type);
-                return cf.generateCertificate
-                        (new java.io.ByteArrayInputStream(data));
-            } catch (CertificateException e) {
-                throw new java.io.NotSerializableException
-                                ("java.security.cert.Certificate: " +
-                                type +
-                                ": " +
-                                e.getMessage());
+                return cf.generateCertificate(new ByteArrayInputStream(data));
+            } catch (Throwable t) {
+                throw new NotSerializableException("Could not resolve certificate: " + t);
             }
-        }
-    }
-
-    /**
-     * Replace the Certificate to be serialized.
-     *
-     * @return the alternate Certificate object to be serialized
-     *
-     * @throws java.io.ObjectStreamException if a new object representing
-     * this Certificate could not be created
-     * @since 1.3
-     */
-    protected Object writeReplace() throws java.io.ObjectStreamException {
-        try {
-            return new CertificateRep(type, getEncoded());
-        } catch (CertificateException e) {
-            throw new java.io.NotSerializableException
-                                ("java.security.cert.Certificate: " +
-                                type +
-                                ": " +
-                                e.getMessage());
         }
     }
 }

@@ -50,13 +50,17 @@ public class ZenModeConditions implements ConditionProviders.Callback {
             mConditionProviders.addSystemProvider(new ScheduleConditionProvider());
         }
         if (mConditionProviders.isSystemProviderEnabled(ZenModeConfig.EVENT_PATH)) {
-            mConditionProviders.addSystemProvider(new EventConditionProvider());
+            mConditionProviders.addSystemProvider(new EventConditionProvider(helper.getLooper()));
         }
         mConditionProviders.setCallback(this);
     }
 
     public void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("mSubscriptions="); pw.println(mSubscriptions);
+    }
+
+    public void requestConditions(IConditionListener callback, int relevance) {
+        mConditionProviders.requestConditions(callback, relevance);
     }
 
     public void evaluateConfig(ZenModeConfig config, boolean processSubscriptions) {
@@ -72,17 +76,14 @@ public class ZenModeConditions implements ConditionProviders.Callback {
             evaluateRule(automaticRule, current, processSubscriptions);
             updateSnoozing(automaticRule);
         }
-
-        synchronized (mSubscriptions) {
-            final int N = mSubscriptions.size();
-            for (int i = N - 1; i >= 0; i--) {
-                final Uri id = mSubscriptions.keyAt(i);
-                final ComponentName component = mSubscriptions.valueAt(i);
-                if (processSubscriptions) {
-                    if (!current.contains(id)) {
-                        mConditionProviders.unsubscribeIfNecessary(component, id);
-                        mSubscriptions.removeAt(i);
-                    }
+        final int N = mSubscriptions.size();
+        for (int i = N - 1; i >= 0; i--) {
+            final Uri id = mSubscriptions.keyAt(i);
+            final ComponentName component = mSubscriptions.valueAt(i);
+            if (processSubscriptions) {
+                if (!current.contains(id)) {
+                    mConditionProviders.unsubscribeIfNecessary(component, id);
+                    mSubscriptions.removeAt(i);
                 }
             }
         }
@@ -102,7 +103,9 @@ public class ZenModeConditions implements ConditionProviders.Callback {
     @Override
     public void onServiceAdded(ComponentName component) {
         if (DEBUG) Log.d(TAG, "onServiceAdded " + component);
-        mHelper.setConfig(mHelper.getConfig(), "zmc.onServiceAdded");
+        if (isAutomaticActive(component)) {
+            mHelper.setConfig(mHelper.getConfig(), "zmc.onServiceAdded");
+        }
     }
 
     @Override
@@ -110,6 +113,7 @@ public class ZenModeConditions implements ConditionProviders.Callback {
         if (DEBUG) Log.d(TAG, "onConditionChanged " + id + " " + condition);
         ZenModeConfig config = mHelper.getConfig();
         if (config == null) return;
+        config = config.copy();
         boolean updated = updateCondition(id, condition, config.manualRule);
         for (ZenRule automaticRule : config.automaticRules.values()) {
             updated |= updateCondition(id, condition, automaticRule);
@@ -148,11 +152,8 @@ public class ZenModeConditions implements ConditionProviders.Callback {
         }
         if (processSubscriptions) {
             if (mConditionProviders.subscribeIfNecessary(rule.component, rule.conditionId)) {
-                synchronized (mSubscriptions) {
-                    mSubscriptions.put(rule.conditionId, rule.component);
-                }
+                mSubscriptions.put(rule.conditionId, rule.component);
             } else {
-                rule.condition = null;
                 if (DEBUG) Log.d(TAG, "zmc failed to subscribe");
             }
         }

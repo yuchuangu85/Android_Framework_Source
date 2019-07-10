@@ -1,2637 +1,2115 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package java.util;
 
-import java.nio.file.Path;
-import java.nio.file.Files;
-import java.util.regex.*;
-import java.io.*;
-import java.math.*;
-import java.nio.*;
-import java.nio.channels.*;
-import java.nio.charset.*;
-import java.text.*;
-import java.util.Locale;
-
-import sun.misc.LRUCache;
+import java.io.Closeable;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.StringReader;
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.CharBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.charset.Charset;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
+import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import libcore.io.IoUtils;
 
 /**
- * A simple text scanner which can parse primitive types and strings using
- * regular expressions.
+ * A parser that parses a text string of primitive types and strings with the
+ * help of regular expressions. This class is not as useful as it might seem.
+ * It's very inefficient for communicating between machines; you should use JSON,
+ * protobufs, or even XML for that. Very simple uses might get away with {@link String#split}.
+ * For input from humans, the use of locale-specific regular expressions make it not only
+ * expensive but also somewhat unpredictable.
  *
- * <p>A <code>Scanner</code> breaks its input into tokens using a
- * delimiter pattern, which by default matches whitespace. The resulting
- * tokens may then be converted into values of different types using the
- * various <tt>next</tt> methods.
+ * <p>This class supports localized numbers and various
+ * radixes. The input is broken into tokens by the delimiter pattern, which is
+ * {@code \\p{javaWhitespace}} by default.
  *
- * <p>For example, this code allows a user to read a number from
- * <tt>System.in</tt>:
- * <blockquote><pre>{@code
- *     Scanner sc = new Scanner(System.in);
- *     int i = sc.nextInt();
- * }</pre></blockquote>
+ * <p>Example:
+ * <pre>
+ * Scanner s = new Scanner("1A true");
+ * assertEquals(26, s.nextInt(16));
+ * assertEquals(true, s.nextBoolean());
+ * </pre>
  *
- * <p>As another example, this code allows <code>long</code> types to be
- * assigned from entries in a file <code>myNumbers</code>:
- * <blockquote><pre>{@code
- *      Scanner sc = new Scanner(new File("myNumbers"));
- *      while (sc.hasNextLong()) {
- *          long aLong = sc.nextLong();
- *      }
- * }</pre></blockquote>
- *
- * <p>The scanner can also use delimiters other than whitespace. This
- * example reads several items in from a string:
- * <blockquote><pre>{@code
- *     String input = "1 fish 2 fish red fish blue fish";
- *     Scanner s = new Scanner(input).useDelimiter("\\s*fish\\s*");
- *     System.out.println(s.nextInt());
- *     System.out.println(s.nextInt());
- *     System.out.println(s.next());
- *     System.out.println(s.next());
- *     s.close();
- * }</pre></blockquote>
- * <p>
- * prints the following output:
- * <blockquote><pre>{@code
- *     1
- *     2
- *     red
- *     blue
- * }</pre></blockquote>
- *
- * <p>The same output can be generated with this code, which uses a regular
- * expression to parse all four tokens at once:
- * <blockquote><pre>{@code
- *     String input = "1 fish 2 fish red fish blue fish";
- *     Scanner s = new Scanner(input);
- *     s.findInLine("(\\d+) fish (\\d+) fish (\\w+) fish (\\w+)");
- *     MatchResult result = s.match();
- *     for (int i=1; i<=result.groupCount(); i++)
- *         System.out.println(result.group(i));
- *     s.close();
- * }</pre></blockquote>
- *
- * <p>The <a name="default-delimiter">default whitespace delimiter</a> used
- * by a scanner is as recognized by {@link java.lang.Character}.{@link
- * java.lang.Character#isWhitespace(char) isWhitespace}. The {@link #reset}
- * method will reset the value of the scanner's delimiter to the default
- * whitespace delimiter regardless of whether it was previously changed.
- *
- * <p>A scanning operation may block waiting for input.
- *
- * <p>The {@link #next} and {@link #hasNext} methods and their
- * primitive-type companion methods (such as {@link #nextInt} and
- * {@link #hasNextInt}) first skip any input that matches the delimiter
- * pattern, and then attempt to return the next token. Both <tt>hasNext</tt>
- * and <tt>next</tt> methods may block waiting for further input.  Whether a
- * <tt>hasNext</tt> method blocks has no connection to whether or not its
- * associated <tt>next</tt> method will block.
- *
- * <p> The {@link #findInLine}, {@link #findWithinHorizon}, and {@link #skip}
- * methods operate independently of the delimiter pattern. These methods will
- * attempt to match the specified pattern with no regard to delimiters in the
- * input and thus can be used in special circumstances where delimiters are
- * not relevant. These methods may block waiting for more input.
- *
- * <p>When a scanner throws an {@link InputMismatchException}, the scanner
- * will not pass the token that caused the exception, so that it may be
- * retrieved or skipped via some other method.
- *
- * <p>Depending upon the type of delimiting pattern, empty tokens may be
- * returned. For example, the pattern <tt>"\\s+"</tt> will return no empty
- * tokens since it matches multiple instances of the delimiter. The delimiting
- * pattern <tt>"\\s"</tt> could return empty tokens since it only passes one
- * space at a time.
- *
- * <p> A scanner can read text from any object which implements the {@link
- * java.lang.Readable} interface.  If an invocation of the underlying
- * readable's {@link java.lang.Readable#read} method throws an {@link
- * java.io.IOException} then the scanner assumes that the end of the input
- * has been reached.  The most recent <tt>IOException</tt> thrown by the
- * underlying readable can be retrieved via the {@link #ioException} method.
- *
- * <p>When a <code>Scanner</code> is closed, it will close its input source
- * if the source implements the {@link java.io.Closeable} interface.
- *
- * <p>A <code>Scanner</code> is not safe for multithreaded use without
- * external synchronization.
- *
- * <p>Unless otherwise mentioned, passing a <code>null</code> parameter into
- * any method of a <code>Scanner</code> will cause a
- * <code>NullPointerException</code> to be thrown.
- *
- * <p>A scanner will default to interpreting numbers as decimal unless a
- * different radix has been set by using the {@link #useRadix} method. The
- * {@link #reset} method will reset the value of the scanner's radix to
- * <code>10</code> regardless of whether it was previously changed.
- *
- * <h3> <a name="localized-numbers">Localized numbers</a> </h3>
- *
- * <p> An instance of this class is capable of scanning numbers in the standard
- * formats as well as in the formats of the scanner's locale. A scanner's
- * <a name="initial-locale">initial locale </a>is the value returned by the {@link
- * java.util.Locale#getDefault(Locale.Category)
- * Locale.getDefault(Locale.Category.FORMAT)} method; it may be changed via the {@link
- * #useLocale} method. The {@link #reset} method will reset the value of the
- * scanner's locale to the initial locale regardless of whether it was
- * previously changed.
- *
- * <p>The localized formats are defined in terms of the following parameters,
- * which for a particular locale are taken from that locale's {@link
- * java.text.DecimalFormat DecimalFormat} object, <tt>df</tt>, and its and
- * {@link java.text.DecimalFormatSymbols DecimalFormatSymbols} object,
- * <tt>dfs</tt>.
- *
- * <blockquote><dl>
- *     <dt><i>LocalGroupSeparator&nbsp;&nbsp;</i>
- *         <dd>The character used to separate thousands groups,
- *         <i>i.e.,</i>&nbsp;<tt>dfs.</tt>{@link
- *         java.text.DecimalFormatSymbols#getGroupingSeparator
- *         getGroupingSeparator()}
- *     <dt><i>LocalDecimalSeparator&nbsp;&nbsp;</i>
- *         <dd>The character used for the decimal point,
- *     <i>i.e.,</i>&nbsp;<tt>dfs.</tt>{@link
- *     java.text.DecimalFormatSymbols#getDecimalSeparator
- *     getDecimalSeparator()}
- *     <dt><i>LocalPositivePrefix&nbsp;&nbsp;</i>
- *         <dd>The string that appears before a positive number (may
- *         be empty), <i>i.e.,</i>&nbsp;<tt>df.</tt>{@link
- *         java.text.DecimalFormat#getPositivePrefix
- *         getPositivePrefix()}
- *     <dt><i>LocalPositiveSuffix&nbsp;&nbsp;</i>
- *         <dd>The string that appears after a positive number (may be
- *         empty), <i>i.e.,</i>&nbsp;<tt>df.</tt>{@link
- *         java.text.DecimalFormat#getPositiveSuffix
- *         getPositiveSuffix()}
- *     <dt><i>LocalNegativePrefix&nbsp;&nbsp;</i>
- *         <dd>The string that appears before a negative number (may
- *         be empty), <i>i.e.,</i>&nbsp;<tt>df.</tt>{@link
- *         java.text.DecimalFormat#getNegativePrefix
- *         getNegativePrefix()}
- *     <dt><i>LocalNegativeSuffix&nbsp;&nbsp;</i>
- *         <dd>The string that appears after a negative number (may be
- *         empty), <i>i.e.,</i>&nbsp;<tt>df.</tt>{@link
- *     java.text.DecimalFormat#getNegativeSuffix
- *     getNegativeSuffix()}
- *     <dt><i>LocalNaN&nbsp;&nbsp;</i>
- *         <dd>The string that represents not-a-number for
- *         floating-point values,
- *         <i>i.e.,</i>&nbsp;<tt>dfs.</tt>{@link
- *         java.text.DecimalFormatSymbols#getNaN
- *         getNaN()}
- *     <dt><i>LocalInfinity&nbsp;&nbsp;</i>
- *         <dd>The string that represents infinity for floating-point
- *         values, <i>i.e.,</i>&nbsp;<tt>dfs.</tt>{@link
- *         java.text.DecimalFormatSymbols#getInfinity
- *         getInfinity()}
- * </dl></blockquote>
- *
- * <h4> <a name="number-syntax">Number syntax</a> </h4>
- *
- * <p> The strings that can be parsed as numbers by an instance of this class
- * are specified in terms of the following regular-expression grammar, where
- * Rmax is the highest digit in the radix being used (for example, Rmax is 9 in base 10).
- *
- * <dl>
- *   <dt><i>NonAsciiDigit</i>:
- *       <dd>A non-ASCII character c for which
- *            {@link java.lang.Character#isDigit Character.isDigit}<tt>(c)</tt>
- *                        returns&nbsp;true
- *
- *   <dt><i>Non0Digit</i>:
- *       <dd><tt>[1-</tt><i>Rmax</i><tt>] | </tt><i>NonASCIIDigit</i>
- *
- *   <dt><i>Digit</i>:
- *       <dd><tt>[0-</tt><i>Rmax</i><tt>] | </tt><i>NonASCIIDigit</i>
- *
- *   <dt><i>GroupedNumeral</i>:
- *       <dd><tt>(&nbsp;</tt><i>Non0Digit</i>
- *                   <i>Digit</i><tt>?
- *                   </tt><i>Digit</i><tt>?</tt>
- *       <dd>&nbsp;&nbsp;&nbsp;&nbsp;<tt>(&nbsp;</tt><i>LocalGroupSeparator</i>
- *                         <i>Digit</i>
- *                         <i>Digit</i>
- *                         <i>Digit</i><tt> )+ )</tt>
- *
- *   <dt><i>Numeral</i>:
- *       <dd><tt>( ( </tt><i>Digit</i><tt>+ )
- *               | </tt><i>GroupedNumeral</i><tt> )</tt>
- *
- *   <dt><a name="Integer-regex"><i>Integer</i>:</a>
- *       <dd><tt>( [-+]? ( </tt><i>Numeral</i><tt>
- *                               ) )</tt>
- *       <dd><tt>| </tt><i>LocalPositivePrefix</i> <i>Numeral</i>
- *                      <i>LocalPositiveSuffix</i>
- *       <dd><tt>| </tt><i>LocalNegativePrefix</i> <i>Numeral</i>
- *                 <i>LocalNegativeSuffix</i>
- *
- *   <dt><i>DecimalNumeral</i>:
- *       <dd><i>Numeral</i>
- *       <dd><tt>| </tt><i>Numeral</i>
- *                 <i>LocalDecimalSeparator</i>
- *                 <i>Digit</i><tt>*</tt>
- *       <dd><tt>| </tt><i>LocalDecimalSeparator</i>
- *                 <i>Digit</i><tt>+</tt>
- *
- *   <dt><i>Exponent</i>:
- *       <dd><tt>( [eE] [+-]? </tt><i>Digit</i><tt>+ )</tt>
- *
- *   <dt><a name="Decimal-regex"><i>Decimal</i>:</a>
- *       <dd><tt>( [-+]? </tt><i>DecimalNumeral</i>
- *                         <i>Exponent</i><tt>? )</tt>
- *       <dd><tt>| </tt><i>LocalPositivePrefix</i>
- *                 <i>DecimalNumeral</i>
- *                 <i>LocalPositiveSuffix</i>
- *                 <i>Exponent</i><tt>?</tt>
- *       <dd><tt>| </tt><i>LocalNegativePrefix</i>
- *                 <i>DecimalNumeral</i>
- *                 <i>LocalNegativeSuffix</i>
- *                 <i>Exponent</i><tt>?</tt>
- *
- *   <dt><i>HexFloat</i>:
- *       <dd><tt>[-+]? 0[xX][0-9a-fA-F]*\.[0-9a-fA-F]+
- *                 ([pP][-+]?[0-9]+)?</tt>
- *
- *   <dt><i>NonNumber</i>:
- *       <dd><tt>NaN
- *                          | </tt><i>LocalNan</i><tt>
- *                          | Infinity
- *                          | </tt><i>LocalInfinity</i>
- *
- *   <dt><i>SignedNonNumber</i>:
- *       <dd><tt>( [-+]? </tt><i>NonNumber</i><tt> )</tt>
- *       <dd><tt>| </tt><i>LocalPositivePrefix</i>
- *                 <i>NonNumber</i>
- *                 <i>LocalPositiveSuffix</i>
- *       <dd><tt>| </tt><i>LocalNegativePrefix</i>
- *                 <i>NonNumber</i>
- *                 <i>LocalNegativeSuffix</i>
- *
- *   <dt><a name="Float-regex"><i>Float</i></a>:
- *       <dd><i>Decimal</i>
- *           <tt>| </tt><i>HexFloat</i>
- *           <tt>| </tt><i>SignedNonNumber</i>
- *
- * </dl>
- * <p>Whitespace is not significant in the above regular expressions.
- *
- * @since   1.5
+ * <p>The {@code Scanner} class is not thread-safe.
  */
-public final class Scanner implements Iterator<String>, Closeable {
+public final class Scanner implements Closeable, Iterator<String> {
 
-    // Internal buffer used to hold input
-    private CharBuffer buf;
+    private static final String NL = "\n|\r\n|\r|\u0085|\u2028|\u2029";
 
-    // Size of internal character buffer
-    private static final int BUFFER_SIZE = 1024; // change to 1024;
+    // Default delimiting pattern.
+    private static final Pattern DEFAULT_DELIMITER = Pattern.compile("\\p{javaWhitespace}+");
 
-    // The index into the buffer currently held by the Scanner
-    private int position;
+    // The boolean's pattern.
+    private static final Pattern BOOLEAN_PATTERN = Pattern.compile("true|false", Pattern.CASE_INSENSITIVE);
 
-    // Internal matcher used for finding delimiters
+    // Pattern used to recognize line terminator.
+    private static final Pattern LINE_TERMINATOR = Pattern.compile(NL);
+
+    // Pattern used to recognize multiple line terminators.
+    private static final Pattern MULTI_LINE_TERMINATOR = Pattern.compile("(" + NL + ")+");
+
+    // Pattern used to recognize a line with a line terminator.
+    private static final Pattern LINE_PATTERN = Pattern.compile(".*(" + NL + ")|.+$");
+
+    // The pattern matches anything.
+    private static final Pattern ANY_PATTERN = Pattern.compile("(?s).*");
+
+    private static final int DEFAULT_RADIX = 10;
+
+    // The input source of scanner.
+    private Readable input;
+
+    private CharBuffer buffer = CharBuffer.allocate(1024);
+
+    private Pattern delimiter = DEFAULT_DELIMITER;
+
     private Matcher matcher;
 
-    // Pattern used to delimit tokens
-    private Pattern delimPattern;
+    private int currentRadix = DEFAULT_RADIX;
 
-    // Pattern found in last hasNext operation
-    private Pattern hasNextPattern;
+    private Locale locale = Locale.getDefault();
 
-    // Position after last hasNext operation
-    private int hasNextPosition;
+    // The position where find begins.
+    private int findStartIndex = 0;
 
-    // Result after last hasNext operation
-    private String hasNextResult;
+    // The last find start position.
+    private int preStartIndex = findStartIndex;
 
-    // The input source
-    private Readable source;
+    // The length of the buffer.
+    private int bufferLength = 0;
 
-    // Boolean is true if source is done
-    private boolean sourceClosed = false;
-
-    // Boolean indicating more input is required
-    private boolean needInput = false;
-
-    // Boolean indicating if a delim has been skipped this operation
-    private boolean skipped = false;
-
-    // A store of a position that the scanner may fall back to
-    private int savedScannerPosition = -1;
-
-    // A cache of the last primitive type scanned
-    private Object typeCache = null;
-
-    // Boolean indicating if a match result is available
-    private boolean matchValid = false;
-
-    // Boolean indicating if this scanner has been closed
+    // Record the status of this scanner. True if the scanner is closed.
     private boolean closed = false;
 
-    // The current radix used by this scanner
-    private int radix = 10;
+    private IOException lastIOException;
 
-    // The default radix for this scanner
-    private int defaultRadix = 10;
+    private boolean matchSuccessful = false;
 
-    // The locale used by this scanner
-    private Locale locale = null;
+    private DecimalFormat decimalFormat;
 
-    // A cache of the last few recently used Patterns
-    private LRUCache<String,Pattern> patternCache =
-    new LRUCache<String,Pattern>(7) {
-        protected Pattern create(String s) {
-            return Pattern.compile(s);
-        }
-        protected boolean hasName(Pattern p, String s) {
-            return p.pattern().equals(s);
-        }
-    };
+    // Records whether the underlying readable has more input.
+    private boolean inputExhausted = false;
 
-    // A holder of the last IOException encountered
-    private IOException lastException;
+    private Object cachedNextValue = null;
+    private int cachedNextIndex = -1;
 
-    // A pattern for java whitespace
-    private static Pattern WHITESPACE_PATTERN = Pattern.compile(
-                                                "\\p{javaWhitespace}+");
+    private Pattern cachedFloatPattern = null;
 
-    // A pattern for any token
-    private static Pattern FIND_ANY_PATTERN = Pattern.compile("(?s).*");
-
-    // A pattern for non-ASCII digits
-    private static Pattern NON_ASCII_DIGIT = Pattern.compile(
-        "[\\p{javaDigit}&&[^0-9]]");
-
-    // Fields and methods to support scanning primitive types
+    private int cachedIntegerPatternRadix = -1;
+    private Pattern cachedIntegerPattern = null;
 
     /**
-     * Locale dependent values used to scan numbers
-     */
-    private String groupSeparator = "\\,";
-    private String decimalSeparator = "\\.";
-    private String nanString = "NaN";
-    private String infinityString = "Infinity";
-    private String positivePrefix = "";
-    private String negativePrefix = "\\-";
-    private String positiveSuffix = "";
-    private String negativeSuffix = "";
-
-    /**
-     * Fields and an accessor method to match booleans
-     */
-    private static volatile Pattern boolPattern;
-    private static final String BOOLEAN_PATTERN = "true|false";
-    private static Pattern boolPattern() {
-        Pattern bp = boolPattern;
-        if (bp == null)
-            boolPattern = bp = Pattern.compile(BOOLEAN_PATTERN,
-                                          Pattern.CASE_INSENSITIVE);
-        return bp;
-    }
-
-    /**
-     * Fields and methods to match bytes, shorts, ints, and longs
-     */
-    private Pattern integerPattern;
-    private String digits = "0123456789abcdefghijklmnopqrstuvwxyz";
-    private String non0Digit = "[\\p{javaDigit}&&[^0]]";
-    private int SIMPLE_GROUP_INDEX = 5;
-    private String buildIntegerPatternString() {
-        String radixDigits = digits.substring(0, radix);
-        // Android-changed: Support non-decimal starting digits. (i.e, a-z are valid radix digits).
-        String nonZeroRadixDigits = "((?i)[" + digits.substring(1, radix) + "]|(" + non0Digit + "))";
-
-        // \\p{javaDigit} is not guaranteed to be appropriate
-        // here but what can we do? The final authority will be
-        // whatever parse method is invoked, so ultimately the
-        // Scanner will do the right thing
-        String digit = "((?i)["+radixDigits+"]|\\p{javaDigit})";
-        // Android-changed: Support non-decimal starting digits.
-        String groupedNumeral = "("+nonZeroRadixDigits+digit+"?"+digit+"?("+
-                                groupSeparator+digit+digit+digit+")+)";
-        // digit++ is the possessive form which is necessary for reducing
-        // backtracking that would otherwise cause unacceptable performance
-        String numeral = "(("+ digit+"++)|"+groupedNumeral+")";
-        String javaStyleInteger = "([-+]?(" + numeral + "))";
-        String negativeInteger = negativePrefix + numeral + negativeSuffix;
-        String positiveInteger = positivePrefix + numeral + positiveSuffix;
-        return "("+ javaStyleInteger + ")|(" +
-            positiveInteger + ")|(" +
-            negativeInteger + ")";
-    }
-    private Pattern integerPattern() {
-        if (integerPattern == null) {
-            integerPattern = patternCache.forName(buildIntegerPatternString());
-        }
-        return integerPattern;
-    }
-
-    /**
-     * Fields and an accessor method to match line separators
-     */
-    private static volatile Pattern separatorPattern;
-    private static volatile Pattern linePattern;
-    private static final String LINE_SEPARATOR_PATTERN =
-                                           "\r\n|[\n\r\u2028\u2029\u0085]";
-    private static final String LINE_PATTERN = ".*("+LINE_SEPARATOR_PATTERN+")|.+$";
-
-    private static Pattern separatorPattern() {
-        Pattern sp = separatorPattern;
-        if (sp == null)
-            separatorPattern = sp = Pattern.compile(LINE_SEPARATOR_PATTERN);
-        return sp;
-    }
-
-    private static Pattern linePattern() {
-        Pattern lp = linePattern;
-        if (lp == null)
-            linePattern = lp = Pattern.compile(LINE_PATTERN);
-        return lp;
-    }
-
-    /**
-     * Fields and methods to match floats and doubles
-     */
-    private Pattern floatPattern;
-    private Pattern decimalPattern;
-    private void buildFloatAndDecimalPattern() {
-        // \\p{javaDigit} may not be perfect, see above
-        String digit = "([0-9]|(\\p{javaDigit}))";
-        String exponent = "([eE][+-]?"+digit+"+)?";
-        String groupedNumeral = "("+non0Digit+digit+"?"+digit+"?("+
-                                groupSeparator+digit+digit+digit+")+)";
-        // Once again digit++ is used for performance, as above
-        String numeral = "(("+digit+"++)|"+groupedNumeral+")";
-        String decimalNumeral = "("+numeral+"|"+numeral +
-            decimalSeparator + digit + "*+|"+ decimalSeparator +
-            digit + "++)";
-        String nonNumber = "(NaN|"+nanString+"|Infinity|"+
-                               infinityString+")";
-        String positiveFloat = "(" + positivePrefix + decimalNumeral +
-                            positiveSuffix + exponent + ")";
-        String negativeFloat = "(" + negativePrefix + decimalNumeral +
-                            negativeSuffix + exponent + ")";
-        String decimal = "(([-+]?" + decimalNumeral + exponent + ")|"+
-            positiveFloat + "|" + negativeFloat + ")";
-        String hexFloat =
-            "[-+]?0[xX][0-9a-fA-F]*\\.[0-9a-fA-F]+([pP][-+]?[0-9]+)?";
-        String positiveNonNumber = "(" + positivePrefix + nonNumber +
-                            positiveSuffix + ")";
-        String negativeNonNumber = "(" + negativePrefix + nonNumber +
-                            negativeSuffix + ")";
-        String signedNonNumber = "(([-+]?"+nonNumber+")|" +
-                                 positiveNonNumber + "|" +
-                                 negativeNonNumber + ")";
-        floatPattern = Pattern.compile(decimal + "|" + hexFloat + "|" +
-                                       signedNonNumber);
-        decimalPattern = Pattern.compile(decimal);
-    }
-    private Pattern floatPattern() {
-        if (floatPattern == null) {
-            buildFloatAndDecimalPattern();
-        }
-        return floatPattern;
-    }
-    private Pattern decimalPattern() {
-        if (decimalPattern == null) {
-            buildFloatAndDecimalPattern();
-        }
-        return decimalPattern;
-    }
-
-    // Constructors
-
-    /**
-     * Constructs a <code>Scanner</code> that returns values scanned
-     * from the specified source delimited by the specified pattern.
+     * Creates a {@code Scanner} with the specified {@code File} as input. The default charset
+     * is applied when reading the file.
      *
-     * @param source A character source implementing the Readable interface
-     * @param pattern A delimiting pattern
+     * @param src
+     *            the file to be scanned.
+     * @throws FileNotFoundException
+     *             if the specified file does not exist.
      */
-    private Scanner(Readable source, Pattern pattern) {
-        assert source != null : "source should not be null";
-        assert pattern != null : "pattern should not be null";
-        this.source = source;
-        delimPattern = pattern;
-        buf = CharBuffer.allocate(BUFFER_SIZE);
-        buf.limit(0);
-        matcher = delimPattern.matcher(buf);
-        matcher.useTransparentBounds(true);
-        matcher.useAnchoringBounds(false);
-        useLocale(Locale.getDefault(Locale.Category.FORMAT));
+    public Scanner(File src) throws FileNotFoundException {
+        this(src, Charset.defaultCharset().name());
     }
 
     /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified source.
+     * Creates a {@code Scanner} with the specified {@code File} as input. The specified charset
+     * is applied when reading the file.
      *
-     * @param  source A character source implementing the {@link Readable}
-     *         interface
+     * @param src
+     *            the file to be scanned.
+     * @param charsetName
+     *            the name of the encoding type of the file.
+     * @throws FileNotFoundException
+     *             if the specified file does not exist.
+     * @throws IllegalArgumentException
+     *             if the specified coding does not exist.
      */
-    public Scanner(Readable source) {
-        this(Objects.requireNonNull(source, "source"), WHITESPACE_PATTERN);
-    }
-
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified input stream. Bytes from the stream are converted
-     * into characters using the underlying platform's
-     * {@linkplain java.nio.charset.Charset#defaultCharset() default charset}.
-     *
-     * @param  source An input stream to be scanned
-     */
-    public Scanner(InputStream source) {
-        this(new InputStreamReader(source), WHITESPACE_PATTERN);
-    }
-
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified input stream. Bytes from the stream are converted
-     * into characters using the specified charset.
-     *
-     * @param  source An input stream to be scanned
-     * @param charsetName The encoding type used to convert bytes from the
-     *        stream into characters to be scanned
-     * @throws IllegalArgumentException if the specified character set
-     *         does not exist
-     */
-    public Scanner(InputStream source, String charsetName) {
-        this(makeReadable(Objects.requireNonNull(source, "source"), toCharset(charsetName)),
-             WHITESPACE_PATTERN);
-    }
-
-    /**
-     * Returns a charset object for the given charset name.
-     * @throws NullPointerException          is csn is null
-     * @throws IllegalArgumentException      if the charset is not supported
-     */
-    private static Charset toCharset(String csn) {
-        Objects.requireNonNull(csn, "charsetName");
-        try {
-            return Charset.forName(csn);
-        } catch (IllegalCharsetNameException|UnsupportedCharsetException e) {
-            // IllegalArgumentException should be thrown
-            throw new IllegalArgumentException(e);
+    public Scanner(File src, String charsetName) throws FileNotFoundException {
+        if (src == null) {
+            throw new NullPointerException("src == null");
         }
-    }
-
-    private static Readable makeReadable(InputStream source, Charset charset) {
-        return new InputStreamReader(source, charset);
-    }
-
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified file. Bytes from the file are converted into
-     * characters using the underlying platform's
-     * {@linkplain java.nio.charset.Charset#defaultCharset() default charset}.
-     *
-     * @param  source A file to be scanned
-     * @throws FileNotFoundException if source is not found
-     */
-    public Scanner(File source) throws FileNotFoundException {
-        this((ReadableByteChannel)(new FileInputStream(source).getChannel()));
-    }
-
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified file. Bytes from the file are converted into
-     * characters using the specified charset.
-     *
-     * @param  source A file to be scanned
-     * @param charsetName The encoding type used to convert bytes from the file
-     *        into characters to be scanned
-     * @throws FileNotFoundException if source is not found
-     * @throws IllegalArgumentException if the specified encoding is
-     *         not found
-     */
-    public Scanner(File source, String charsetName)
-        throws FileNotFoundException
-    {
-        this(Objects.requireNonNull(source), toDecoder(charsetName));
-    }
-
-    private Scanner(File source, CharsetDecoder dec)
-        throws FileNotFoundException
-    {
-        this(makeReadable((ReadableByteChannel)(new FileInputStream(source).getChannel()), dec));
-    }
-
-    private static CharsetDecoder toDecoder(String charsetName) {
-        // Android-changed: Throw an IAE instead of an NPE.
-        // Objects.requireNonNull(charsetName, "charsetName");
+        FileInputStream fis = new FileInputStream(src);
         if (charsetName == null) {
             throw new IllegalArgumentException("charsetName == null");
         }
+
+        InputStreamReader streamReader;
         try {
-            return Charset.forName(charsetName).newDecoder();
-        } catch (IllegalCharsetNameException|UnsupportedCharsetException unused) {
-            throw new IllegalArgumentException(charsetName);
+            streamReader = new InputStreamReader(fis, charsetName);
+        } catch (UnsupportedEncodingException e) {
+            IoUtils.closeQuietly(fis);
+            throw new IllegalArgumentException(e.getMessage());
         }
-    }
-
-    private static Readable makeReadable(ReadableByteChannel source,
-                                         CharsetDecoder dec) {
-        return Channels.newReader(source, dec, -1);
+        initialize(streamReader);
     }
 
     /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified file. Bytes from the file are converted into
-     * characters using the underlying platform's
-     * {@linkplain java.nio.charset.Charset#defaultCharset() default charset}.
+     * Creates a {@code Scanner} on the specified string.
      *
-     * @param   source
-     *          the path to the file to be scanned
-     * @throws  IOException
-     *          if an I/O error occurs opening source
-     *
-     * @since   1.7
+     * @param src
+     *            the string to be scanned.
      */
-    public Scanner(Path source)
-        throws IOException
-    {
-        this(Files.newInputStream(source));
+    public Scanner(String src) {
+        initialize(new StringReader(src));
     }
 
     /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified file. Bytes from the file are converted into
-     * characters using the specified charset.
+     * Creates a {@code Scanner} on the specified {@code InputStream}. The default charset is
+     * applied when decoding the input.
      *
-     * @param   source
-     *          the path to the file to be scanned
-     * @param   charsetName
-     *          The encoding type used to convert bytes from the file
-     *          into characters to be scanned
-     * @throws  IOException
-     *          if an I/O error occurs opening source
-     * @throws  IllegalArgumentException
-     *          if the specified encoding is not found
-     * @since   1.7
+     * @param src
+     *            the {@code InputStream} to be scanned.
      */
-    public Scanner(Path source, String charsetName) throws IOException {
-        this(Objects.requireNonNull(source), toCharset(charsetName));
-    }
-
-    private Scanner(Path source, Charset charset)  throws IOException {
-        this(makeReadable(Files.newInputStream(source), charset));
+    public Scanner(InputStream src) {
+        this(src, Charset.defaultCharset().name());
     }
 
     /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified string.
+     * Creates a {@code Scanner} on the specified {@code InputStream}. The specified charset is
+     * applied when decoding the input.
      *
-     * @param  source A string to scan
+     * @param src
+     *            the {@code InputStream} to be scanned.
+     * @param charsetName
+     *            the encoding type of the {@code InputStream}.
+     * @throws IllegalArgumentException
+     *             if the specified character set is not found.
      */
-    public Scanner(String source) {
-        this(new StringReader(source), WHITESPACE_PATTERN);
-    }
+    public Scanner(InputStream src, String charsetName) {
+        if (src == null) {
+            throw new NullPointerException("src == null");
+        }
 
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified channel. Bytes from the source are converted into
-     * characters using the underlying platform's
-     * {@linkplain java.nio.charset.Charset#defaultCharset() default charset}.
-     *
-     * @param  source A channel to scan
-     */
-    public Scanner(ReadableByteChannel source) {
-        this(makeReadable(Objects.requireNonNull(source, "source")),
-             WHITESPACE_PATTERN);
-    }
-
-    private static Readable makeReadable(ReadableByteChannel source) {
-        return makeReadable(source, Charset.defaultCharset().newDecoder());
-    }
-
-    /**
-     * Constructs a new <code>Scanner</code> that produces values scanned
-     * from the specified channel. Bytes from the source are converted into
-     * characters using the specified charset.
-     *
-     * @param  source A channel to scan
-     * @param charsetName The encoding type used to convert bytes from the
-     *        channel into characters to be scanned
-     * @throws IllegalArgumentException if the specified character set
-     *         does not exist
-     */
-    public Scanner(ReadableByteChannel source, String charsetName) {
-        this(makeReadable(Objects.requireNonNull(source, "source"), toDecoder(charsetName)),
-             WHITESPACE_PATTERN);
-    }
-
-    // Private primitives used to support scanning
-
-    private void saveState() {
-        savedScannerPosition = position;
-    }
-
-    private void revertState() {
-        this.position = savedScannerPosition;
-        savedScannerPosition = -1;
-        skipped = false;
-    }
-
-    private boolean revertState(boolean b) {
-        this.position = savedScannerPosition;
-        savedScannerPosition = -1;
-        skipped = false;
-        return b;
-    }
-
-    private void cacheResult() {
-        hasNextResult = matcher.group();
-        hasNextPosition = matcher.end();
-        hasNextPattern = matcher.pattern();
-    }
-
-    private void cacheResult(String result) {
-        hasNextResult = result;
-        hasNextPosition = matcher.end();
-        hasNextPattern = matcher.pattern();
-    }
-
-    // Clears both regular cache and type cache
-    private void clearCaches() {
-        hasNextPattern = null;
-        typeCache = null;
-    }
-
-    // Also clears both the regular cache and the type cache
-    private String getCachedResult() {
-        position = hasNextPosition;
-        hasNextPattern = null;
-        typeCache = null;
-        return hasNextResult;
-    }
-
-    // Also clears both the regular cache and the type cache
-    private void useTypeCache() {
-        if (closed)
-            throw new IllegalStateException("Scanner closed");
-        position = hasNextPosition;
-        hasNextPattern = null;
-        typeCache = null;
-    }
-
-    // Tries to read more input. May block.
-    private void readInput() {
-        if (buf.limit() == buf.capacity())
-            makeSpace();
-
-        // Prepare to receive data
-        int p = buf.position();
-        buf.position(buf.limit());
-        buf.limit(buf.capacity());
-
-        int n = 0;
+        InputStreamReader streamReader;
         try {
-            n = source.read(buf);
-        } catch (IOException ioe) {
-            lastException = ioe;
-            n = -1;
+            streamReader = new InputStreamReader(src, charsetName);
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalArgumentException(e.getMessage());
         }
-
-        if (n == -1) {
-            sourceClosed = true;
-            needInput = false;
-        }
-
-        if (n > 0)
-            needInput = false;
-
-        // Restore current position and limit for reading
-        buf.limit(buf.position());
-        buf.position(p);
-        // Android-changed: The matcher implementation eagerly calls toString() so we'll have
-        // to update its input whenever the buffer limit, position etc. changes.
-        matcher.reset(buf);
+        initialize(streamReader);
     }
-
-    // After this method is called there will either be an exception
-    // or else there will be space in the buffer
-    private boolean makeSpace() {
-        clearCaches();
-        int offset = savedScannerPosition == -1 ?
-            position : savedScannerPosition;
-        buf.position(offset);
-        // Gain space by compacting buffer
-        if (offset > 0) {
-            buf.compact();
-            translateSavedIndexes(offset);
-            position -= offset;
-            buf.flip();
-            return true;
-        }
-        // Gain space by growing buffer
-        int newSize = buf.capacity() * 2;
-        CharBuffer newBuf = CharBuffer.allocate(newSize);
-        newBuf.put(buf);
-        newBuf.flip();
-        translateSavedIndexes(offset);
-        position -= offset;
-        buf = newBuf;
-        matcher.reset(buf);
-        return true;
-    }
-
-    // When a buffer compaction/reallocation occurs the saved indexes must
-    // be modified appropriately
-    private void translateSavedIndexes(int offset) {
-        if (savedScannerPosition != -1)
-            savedScannerPosition -= offset;
-    }
-
-    // If we are at the end of input then NoSuchElement;
-    // If there is still input left then InputMismatch
-    private void throwFor() {
-        skipped = false;
-        if ((sourceClosed) && (position == buf.limit()))
-            throw new NoSuchElementException();
-        else
-            throw new InputMismatchException();
-    }
-
-    // Returns true if a complete token or partial token is in the buffer.
-    // It is not necessary to find a complete token since a partial token
-    // means that there will be another token with or without more input.
-    private boolean hasTokenInBuffer() {
-        matchValid = false;
-        matcher.usePattern(delimPattern);
-        matcher.region(position, buf.limit());
-
-        // Skip delims first
-        if (matcher.lookingAt())
-            position = matcher.end();
-
-        // If we are sitting at the end, no more tokens in buffer
-        if (position == buf.limit())
-            return false;
-
-        return true;
-    }
-
-    /*
-     * Returns a "complete token" that matches the specified pattern
-     *
-     * A token is complete if surrounded by delims; a partial token
-     * is prefixed by delims but not postfixed by them
-     *
-     * The position is advanced to the end of that complete token
-     *
-     * Pattern == null means accept any token at all
-     *
-     * Triple return:
-     * 1. valid string means it was found
-     * 2. null with needInput=false means we won't ever find it
-     * 3. null with needInput=true means try again after readInput
-     */
-    private String getCompleteTokenInBuffer(Pattern pattern) {
-        matchValid = false;
-
-        // Skip delims first
-        matcher.usePattern(delimPattern);
-        if (!skipped) { // Enforcing only one skip of leading delims
-            matcher.region(position, buf.limit());
-            if (matcher.lookingAt()) {
-                // If more input could extend the delimiters then we must wait
-                // for more input
-                if (matcher.hitEnd() && !sourceClosed) {
-                    needInput = true;
-                    return null;
-                }
-                // The delims were whole and the matcher should skip them
-                skipped = true;
-                position = matcher.end();
-            }
-        }
-
-        // If we are sitting at the end, no more tokens in buffer
-        if (position == buf.limit()) {
-            if (sourceClosed)
-                return null;
-            needInput = true;
-            return null;
-        }
-
-        // Must look for next delims. Simply attempting to match the
-        // pattern at this point may find a match but it might not be
-        // the first longest match because of missing input, or it might
-        // match a partial token instead of the whole thing.
-
-        // Then look for next delims
-        matcher.region(position, buf.limit());
-        boolean foundNextDelim = matcher.find();
-        if (foundNextDelim && (matcher.end() == position)) {
-            // Zero length delimiter match; we should find the next one
-            // using the automatic advance past a zero length match;
-            // Otherwise we have just found the same one we just skipped
-            foundNextDelim = matcher.find();
-        }
-        if (foundNextDelim) {
-            // In the rare case that more input could cause the match
-            // to be lost and there is more input coming we must wait
-            // for more input. Note that hitting the end is okay as long
-            // as the match cannot go away. It is the beginning of the
-            // next delims we want to be sure about, we don't care if
-            // they potentially extend further.
-            if (matcher.requireEnd() && !sourceClosed) {
-                needInput = true;
-                return null;
-            }
-            int tokenEnd = matcher.start();
-            // There is a complete token.
-            if (pattern == null) {
-                // Must continue with match to provide valid MatchResult
-                pattern = FIND_ANY_PATTERN;
-            }
-            //  Attempt to match against the desired pattern
-            matcher.usePattern(pattern);
-            matcher.region(position, tokenEnd);
-            if (matcher.matches()) {
-                String s = matcher.group();
-                position = matcher.end();
-                return s;
-            } else { // Complete token but it does not match
-                return null;
-            }
-        }
-
-        // If we can't find the next delims but no more input is coming,
-        // then we can treat the remainder as a whole token
-        if (sourceClosed) {
-            if (pattern == null) {
-                // Must continue with match to provide valid MatchResult
-                pattern = FIND_ANY_PATTERN;
-            }
-            // Last token; Match the pattern here or throw
-            matcher.usePattern(pattern);
-            matcher.region(position, buf.limit());
-            if (matcher.matches()) {
-                String s = matcher.group();
-                position = matcher.end();
-                return s;
-            }
-            // Last piece does not match
-            return null;
-        }
-
-        // There is a partial token in the buffer; must read more
-        // to complete it
-        needInput = true;
-        return null;
-    }
-
-    // Finds the specified pattern in the buffer up to horizon.
-    // Returns a match for the specified input pattern.
-    private String findPatternInBuffer(Pattern pattern, int horizon) {
-        matchValid = false;
-        matcher.usePattern(pattern);
-        int bufferLimit = buf.limit();
-        int horizonLimit = -1;
-        int searchLimit = bufferLimit;
-        if (horizon > 0) {
-            horizonLimit = position + horizon;
-            if (horizonLimit < bufferLimit)
-                searchLimit = horizonLimit;
-        }
-        matcher.region(position, searchLimit);
-        if (matcher.find()) {
-            if (matcher.hitEnd() && (!sourceClosed)) {
-                // The match may be longer if didn't hit horizon or real end
-                if (searchLimit != horizonLimit) {
-                     // Hit an artificial end; try to extend the match
-                    needInput = true;
-                    return null;
-                }
-                // The match could go away depending on what is next
-                if ((searchLimit == horizonLimit) && matcher.requireEnd()) {
-                    // Rare case: we hit the end of input and it happens
-                    // that it is at the horizon and the end of input is
-                    // required for the match.
-                    needInput = true;
-                    return null;
-                }
-            }
-            // Did not hit end, or hit real end, or hit horizon
-            position = matcher.end();
-            return matcher.group();
-        }
-
-        if (sourceClosed)
-            return null;
-
-        // If there is no specified horizon, or if we have not searched
-        // to the specified horizon yet, get more input
-        if ((horizon == 0) || (searchLimit != horizonLimit))
-            needInput = true;
-        return null;
-    }
-
-    // Returns a match for the specified input pattern anchored at
-    // the current position
-    private String matchPatternInBuffer(Pattern pattern) {
-        matchValid = false;
-        matcher.usePattern(pattern);
-        matcher.region(position, buf.limit());
-        if (matcher.lookingAt()) {
-            if (matcher.hitEnd() && (!sourceClosed)) {
-                // Get more input and try again
-                needInput = true;
-                return null;
-            }
-            position = matcher.end();
-            return matcher.group();
-        }
-
-        if (sourceClosed)
-            return null;
-
-        // Read more to find pattern
-        needInput = true;
-        return null;
-    }
-
-    // Throws if the scanner is closed
-    private void ensureOpen() {
-        if (closed)
-            throw new IllegalStateException("Scanner closed");
-    }
-
-    // Public methods
 
     /**
-     * Closes this scanner.
+     * Creates a {@code Scanner} with the specified {@code Readable} as input.
      *
-     * <p> If this scanner has not yet been closed then if its underlying
-     * {@linkplain java.lang.Readable readable} also implements the {@link
-     * java.io.Closeable} interface then the readable's <tt>close</tt> method
-     * will be invoked.  If this scanner is already closed then invoking this
-     * method will have no effect.
+     * @param src
+     *            the {@code Readable} to be scanned.
+     */
+    public Scanner(Readable src) {
+        if (src == null) {
+            throw new NullPointerException("src == null");
+        }
+        initialize(src);
+    }
+
+    /**
+     * Creates a {@code Scanner} with the specified {@code ReadableByteChannel} as
+     * input. The default charset is applied when decoding the input.
      *
-     * <p>Attempting to perform search operations after a scanner has
-     * been closed will result in an {@link IllegalStateException}.
+     * @param src
+     *            the {@code ReadableByteChannel} to be scanned.
+     */
+    public Scanner(ReadableByteChannel src) {
+        this(src, Charset.defaultCharset().name());
+    }
+
+    /**
+     * Creates a {@code Scanner} with the specified {@code ReadableByteChannel} as
+     * input. The specified charset is applied when decoding the input.
      *
+     * @param src
+     *            the {@code ReadableByteChannel} to be scanned.
+     * @param charsetName
+     *            the encoding type of the content.
+     * @throws IllegalArgumentException
+     *             if the specified character set is not found.
+     */
+    public Scanner(ReadableByteChannel src, String charsetName) {
+        if (src == null) {
+            throw new NullPointerException("src == null");
+        }
+        if (charsetName == null) {
+            throw new IllegalArgumentException("charsetName == null");
+        }
+        initialize(Channels.newReader(src, charsetName));
+    }
+
+    private void initialize(Readable input) {
+        this.input = input;
+        matcher = delimiter.matcher("");
+        matcher.useTransparentBounds(true);
+        matcher.useAnchoringBounds(false);
+    }
+
+    /**
+     * Closes this {@code Scanner} and the underlying input if the input implements
+     * {@code Closeable}. If the {@code Scanner} has been closed, this method will have
+     * no effect. Any scanning operation called after calling this method will throw
+     * an {@code IllegalStateException}.
+     *
+     * @see Closeable
      */
     public void close() {
-        if (closed)
+        if (closed) {
             return;
-        if (source instanceof Closeable) {
+        }
+        if (input instanceof Closeable) {
             try {
-                ((Closeable)source).close();
-            } catch (IOException ioe) {
-                lastException = ioe;
+                ((Closeable) input).close();
+            } catch (IOException e) {
+                lastIOException = e;
             }
         }
-        sourceClosed = true;
-        source = null;
         closed = true;
     }
 
     /**
-     * Returns the <code>IOException</code> last thrown by this
-     * <code>Scanner</code>'s underlying <code>Readable</code>. This method
-     * returns <code>null</code> if no such exception exists.
+     * Returns the delimiter {@code Pattern} in use by this {@code Scanner}.
      *
-     * @return the last exception thrown by this scanner's readable
-     */
-    public IOException ioException() {
-        return lastException;
-    }
-
-    /**
-     * Returns the <code>Pattern</code> this <code>Scanner</code> is currently
-     * using to match delimiters.
-     *
-     * @return this scanner's delimiting pattern.
+     * @return the delimiter {@code Pattern} in use by this {@code Scanner}.
      */
     public Pattern delimiter() {
-        return delimPattern;
+        return delimiter;
     }
 
     /**
-     * Sets this scanner's delimiting pattern to the specified pattern.
+     * Tries to find the pattern in the input. Delimiters are ignored. If the
+     * pattern is found before line terminator, the matched string will be
+     * returned, and the {@code Scanner} will advance to the end of the matched string.
+     * Otherwise, {@code null} will be returned and the {@code Scanner} will not advance.
+     * When waiting for input, the {@code Scanner} may be blocked. All the
+     * input may be cached if no line terminator exists in the buffer.
      *
-     * @param pattern A delimiting pattern
-     * @return this scanner
+     * @param pattern
+     *            the pattern to find in the input.
+     * @return the matched string or {@code null} if the pattern is not found
+     *         before the next line terminator.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
      */
-    public Scanner useDelimiter(Pattern pattern) {
-        delimPattern = pattern;
-        return this;
+    public String findInLine(Pattern pattern) {
+        checkOpen();
+        checkNotNull(pattern);
+        int horizonLineSeparator = 0;
+
+        matcher.usePattern(MULTI_LINE_TERMINATOR);
+        matcher.region(findStartIndex, bufferLength);
+
+        boolean findComplete = false;
+        int terminatorLength = 0;
+        while (!findComplete) {
+            if (matcher.find()) {
+                horizonLineSeparator = matcher.start();
+                terminatorLength = matcher.end() - matcher.start();
+                findComplete = true;
+            } else {
+                if (!inputExhausted) {
+                    readMore();
+                    resetMatcher();
+                } else {
+                    horizonLineSeparator = bufferLength;
+                    findComplete = true;
+                }
+            }
+        }
+
+        matcher.usePattern(pattern);
+
+        /*
+         * TODO The following 2 statements are used to deal with regex's bug.
+         * java.util.regex.Matcher.region(int start, int end) implementation
+         * does not have any effects when called. They will be removed once the
+         * bug is fixed.
+         */
+        int oldLimit = buffer.limit();
+        // Considering the look ahead feature, the line terminator should be involved as RI
+        buffer.limit(horizonLineSeparator + terminatorLength);
+        // ========== To deal with regex bug ====================
+
+        // Considering the look ahead feature, the line terminator should be involved as RI
+        matcher.region(findStartIndex, horizonLineSeparator + terminatorLength);
+        if (matcher.find()) {
+            // The scanner advances past the input that matched
+            findStartIndex = matcher.end();
+            // If the matched pattern is immediately followed by line
+            // terminator.
+            if (horizonLineSeparator == matcher.end()) {
+                findStartIndex += terminatorLength;
+            }
+            // the line terminator itself should not be a part of
+            // the match result according to the Spec
+            if (horizonLineSeparator != bufferLength
+                    && (horizonLineSeparator + terminatorLength == matcher
+                            .end())) {
+                // ========== To deal with regex bug ====================
+                buffer.limit(oldLimit);
+                // ========== To deal with regex bug ====================
+
+                matchSuccessful = false;
+                return null;
+            }
+            matchSuccessful = true;
+
+            // ========== To deal with regex bug ====================
+            buffer.limit(oldLimit);
+            // ========== To deal with regex bug ====================
+
+            return matcher.group();
+        }
+
+        // ========== To deal with regex bug ====================
+        buffer.limit(oldLimit);
+        // ========== To deal with regex bug ====================
+
+        matchSuccessful = false;
+        return null;
     }
 
     /**
-     * Sets this scanner's delimiting pattern to a pattern constructed from
-     * the specified <code>String</code>.
+     * Compiles the pattern string and tries to find a substring matching it in the input data. The
+     * delimiter will be ignored. This is the same as invoking
+     * {@code findInLine(Pattern.compile(pattern))}.
      *
-     * <p> An invocation of this method of the form
-     * <tt>useDelimiter(pattern)</tt> behaves in exactly the same way as the
-     * invocation <tt>useDelimiter(Pattern.compile(pattern))</tt>.
-     *
-     * <p> Invoking the {@link #reset} method will set the scanner's delimiter
-     * to the <a href= "#default-delimiter">default</a>.
-     *
-     * @param pattern A string specifying a delimiting pattern
-     * @return this scanner
+     * @param pattern
+     *            a string used to construct a pattern which is in turn used to
+     *            match a substring of the input data.
+     * @return the matched string or {@code null} if the pattern is not found
+     *         before the next line terminator.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     * @see #findInLine(Pattern)
      */
-    public Scanner useDelimiter(String pattern) {
-        delimPattern = patternCache.forName(pattern);
-        return this;
+    public String findInLine(String pattern) {
+        return findInLine(Pattern.compile(pattern));
     }
 
     /**
-     * Returns this scanner's locale.
+     * Tries to find the pattern in the input between the current position and the specified
+     * horizon. Delimiters are ignored. If the pattern is found, the matched
+     * string will be returned, and the {@code Scanner} will advance to the end of the
+     * matched string. Otherwise, null will be returned and {@code Scanner} will not
+     * advance. When waiting for input, the {@code Scanner} may be blocked.
+     * <p>
+     * The {@code Scanner}'s search will never go more than {@code horizon} code points from current
+     * position. The position of {@code horizon} does have an effect on the result of the
+     * match. For example, when the input is "123" and current position is at zero,
+     * <code>findWithinHorizon(Pattern.compile("\\p{Digit}{3}"), 2)</code>
+     * will return {@code null}, while
+     * <code>findWithinHorizon(Pattern.compile("\\p{Digit}{3}"), 3)</code>
+     * will return {@code "123"}. {@code horizon} is treated as a transparent,
+     * non-anchoring bound. (refer to
+     * {@link Matcher#useTransparentBounds(boolean)} and
+     * {@link Matcher#useAnchoringBounds(boolean)})
+     * <p>
+     * A {@code horizon} whose value is zero will be ignored and the whole input will be
+     * used for search. In this situation, all the input may be cached.
      *
-     * <p>A scanner's locale affects many elements of its default
-     * primitive matching regular expressions; see
-     * <a href= "#localized-numbers">localized numbers</a> above.
+     * @param pattern
+     *            the pattern used to scan.
+     * @param horizon
+     *            the search limit.
+     * @return the matched string or {@code null} if the pattern is not found
+     *         within the specified {@code horizon}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     * @throws IllegalArgumentException
+     *             if {@code horizon} is less than zero.
+     */
+    public String findWithinHorizon(Pattern pattern, int horizon) {
+        checkOpen();
+        checkNotNull(pattern);
+        if (horizon < 0) {
+            throw new IllegalArgumentException("horizon < 0");
+        }
+        matcher.usePattern(pattern);
+
+        String result = null;
+        int horizonEndIndex = (horizon == 0) ? Integer.MAX_VALUE : findStartIndex + horizon;
+        while (true) {
+            // If horizon > 0, then search up to
+            // min( bufferLength, findStartIndex + horizon).
+            // Otherwise search until readable is exhausted.
+            int findEndIndex = Math.min(horizonEndIndex, bufferLength);
+            // If horizon == 0, consider horizon as always outside buffer.
+            boolean isHorizonInBuffer = (horizonEndIndex <= bufferLength);
+            // First, try to find pattern within buffer. If pattern can not be
+            // found in buffer, then expand the buffer and try again,
+            // util horizonEndIndex is exceeded or no more input left.
+            matcher.region(findStartIndex, findEndIndex);
+            if (matcher.find()) {
+                if ((horizon == 0 && !matcher.hitEnd()) || isHorizonInBuffer || inputExhausted) {
+                    result = matcher.group();
+                    break;
+                }
+            } else {
+                // Pattern is not found in buffer while horizonEndIndex is
+                // within buffer, or input is exhausted. Under this situation,
+                // it can be judged that find fails.
+                if (isHorizonInBuffer || inputExhausted) {
+                    break;
+                }
+            }
+
+            // Expand buffer and reset matcher if needed.
+            if (!inputExhausted) {
+                readMore();
+                resetMatcher();
+            }
+        }
+        if (result != null) {
+            findStartIndex = matcher.end();
+            matchSuccessful = true;
+        } else {
+            matchSuccessful = false;
+        }
+        return result;
+    }
+
+    /**
+     * Tries to find the pattern in the input between the current position and the specified
+     * {@code horizon}. Delimiters are ignored. This call is the same as invoking
+     * {@code findWithinHorizon(Pattern.compile(pattern))}.
      *
-     * @return this scanner's locale
+     * @param pattern
+     *            the pattern used to scan.
+     * @param horizon
+     *            the search limit.
+     * @return the matched string, or {@code null} if the pattern is not found
+     *         within the specified horizon.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     * @throws IllegalArgumentException
+     *             if {@code horizon} is less than zero.
+     * @see #findWithinHorizon(Pattern, int)
+     */
+    public String findWithinHorizon(String pattern, int horizon) {
+        return findWithinHorizon(Pattern.compile(pattern), horizon);
+    }
+
+    /**
+     * Returns whether this {@code Scanner} has one or more tokens remaining to parse.
+     * This method will block if the data is still being read.
+     *
+     * @return {@code true} if this {@code Scanner} has one or more tokens remaining,
+     *         otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNext() {
+        return hasNext(ANY_PATTERN);
+    }
+
+    /**
+     * Returns whether this {@code Scanner} has one or more tokens remaining to parse
+     * and the next token matches the given pattern. This method will block if the data is
+     * still being read.
+     *
+     * @param pattern
+     *            the pattern to check for.
+     * @return {@code true} if this {@code Scanner} has more tokens and the next token
+     *         matches the pattern, {@code false} otherwise.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNext(Pattern pattern) {
+        checkOpen();
+        checkNotNull(pattern);
+        matchSuccessful = false;
+        prepareForScan();
+        // if the next token exists, set the match region, otherwise return
+        // false
+        if (!setTokenRegion()) {
+            recoverPreviousStatus();
+            return false;
+        }
+        matcher.usePattern(pattern);
+        boolean hasNext = false;
+        // check whether next token matches the specified pattern
+        if (matcher.matches()) {
+            cachedNextIndex = findStartIndex;
+            matchSuccessful = true;
+            hasNext = true;
+        }
+        recoverPreviousStatus();
+        return hasNext;
+    }
+
+    /**
+     * Returns {@code true} if this {@code Scanner} has one or more tokens remaining to parse
+     * and the next token matches a pattern compiled from the given string. This method will
+     * block if the data is still being read. This call is equivalent to
+     * {@code hasNext(Pattern.compile(pattern))}.
+     *
+     * @param pattern
+     *            the string specifying the pattern to scan for
+     * @return {@code true} if the specified pattern matches this {@code Scanner}'s
+     *         next token, {@code false} otherwise.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNext(String pattern) {
+        return hasNext(Pattern.compile(pattern));
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code BigDecimal}.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code BigDecimal}, otherwise {@code false.}
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextBigDecimal() {
+        Pattern floatPattern = getFloatPattern();
+        boolean isBigDecimalValue = false;
+        if (hasNext(floatPattern)) {
+            String floatString = matcher.group();
+            floatString = removeLocaleInfoFromFloat(floatString);
+            try {
+                cachedNextValue = new BigDecimal(floatString);
+                isBigDecimalValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isBigDecimalValue;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code BigInteger} in the default radix.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code BigInteger}, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextBigInteger() {
+        return hasNextBigInteger(currentRadix);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code BigInteger} in the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a
+     *            {@code BigInteger}.
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code BigInteger}, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextBigInteger(int radix) {
+        Pattern integerPattern = getIntegerPattern(radix);
+        boolean isBigIntegerValue = false;
+        if (hasNext(integerPattern)) {
+            String intString = matcher.group();
+            intString = removeLocaleInfo(intString, int.class);
+            try {
+                cachedNextValue = new BigInteger(intString, radix);
+                isBigIntegerValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isBigIntegerValue;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code boolean} value.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code boolean} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextBoolean() {
+        return hasNext(BOOLEAN_PATTERN);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code byte} value in the default radix.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code byte} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextByte() {
+        return hasNextByte(currentRadix);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code byte} value in the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a {@code byte}
+     *            value
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code byte} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextByte(int radix) {
+        Pattern integerPattern = getIntegerPattern(radix);
+        boolean isByteValue = false;
+        if (hasNext(integerPattern)) {
+            String intString = matcher.group();
+            intString = removeLocaleInfo(intString, int.class);
+            try {
+                cachedNextValue = Byte.valueOf(intString, radix);
+                isByteValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isByteValue;
+    }
+
+    /**
+     * Returns whether the next token translated into a valid {@code double}
+     * value.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code double} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextDouble() {
+        Pattern floatPattern = getFloatPattern();
+        boolean isDoubleValue = false;
+        if (hasNext(floatPattern)) {
+            String floatString = matcher.group();
+            floatString = removeLocaleInfoFromFloat(floatString);
+            try {
+                cachedNextValue = Double.valueOf(floatString);
+                isDoubleValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isDoubleValue;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code float} value.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code float} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextFloat() {
+        Pattern floatPattern = getFloatPattern();
+        boolean isFloatValue = false;
+        if (hasNext(floatPattern)) {
+            String floatString = matcher.group();
+            floatString = removeLocaleInfoFromFloat(floatString);
+            try {
+                cachedNextValue = Float.valueOf(floatString);
+                isFloatValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isFloatValue;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid {@code int}
+     * value in the default radix.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code int} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed,
+     */
+    public boolean hasNextInt() {
+        return hasNextInt(currentRadix);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid {@code int}
+     * value in the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into an {@code int}
+     *            value.
+     * @return {@code true} if the next token in this {@code Scanner}'s input can be
+     *         translated into a valid {@code int} value, otherwise
+     *         {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextInt(int radix) {
+        Pattern integerPattern = getIntegerPattern(radix);
+        boolean isIntValue = false;
+        if (hasNext(integerPattern)) {
+            String intString = matcher.group();
+            intString = removeLocaleInfo(intString, int.class);
+            try {
+                cachedNextValue = Integer.valueOf(intString, radix);
+                isIntValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isIntValue;
+    }
+
+    /**
+     * Returns true if there is a line terminator in the input.
+     * This method may block.
+     *
+     * @throws IllegalStateException if this {@code Scanner} is closed.
+     */
+    public boolean hasNextLine() {
+        prepareForScan();
+        String result = findWithinHorizon(LINE_PATTERN, 0);
+        recoverPreviousStatus();
+        return result != null;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code long} value in the default radix.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code long} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextLong() {
+        return hasNextLong(currentRadix);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code long} value in the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a {@code long}
+     *            value.
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code long} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextLong(int radix) {
+        Pattern integerPattern = getIntegerPattern(radix);
+        boolean isLongValue = false;
+        if (hasNext(integerPattern)) {
+            String intString = matcher.group();
+            intString = removeLocaleInfo(intString, int.class);
+            try {
+                cachedNextValue = Long.valueOf(intString, radix);
+                isLongValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isLongValue;
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code short} value in the default radix.
+     *
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code short} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextShort() {
+        return hasNextShort(currentRadix);
+    }
+
+    /**
+     * Returns whether the next token can be translated into a valid
+     * {@code short} value in the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a {@code short}
+     *            value.
+     * @return {@code true} if the next token can be translated into a valid
+     *         {@code short} value, otherwise {@code false}.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} has been closed.
+     */
+    public boolean hasNextShort(int radix) {
+        Pattern integerPattern = getIntegerPattern(radix);
+        boolean isShortValue = false;
+        if (hasNext(integerPattern)) {
+            String intString = matcher.group();
+            intString = removeLocaleInfo(intString, int.class);
+            try {
+                cachedNextValue = Short.valueOf(intString, radix);
+                isShortValue = true;
+            } catch (NumberFormatException e) {
+                matchSuccessful = false;
+            }
+        }
+        return isShortValue;
+    }
+
+    /**
+     * Returns the last {@code IOException} that was raised while reading from the underlying
+     * input, or {@code null} if none was thrown.
+     */
+    public IOException ioException() {
+        return lastIOException;
+    }
+
+    /**
+     * Returns the {@code Locale} of this {@code Scanner}.
      */
     public Locale locale() {
-        return this.locale;
+        return locale;
     }
 
-    /**
-     * Sets this scanner's locale to the specified locale.
-     *
-     * <p>A scanner's locale affects many elements of its default
-     * primitive matching regular expressions; see
-     * <a href= "#localized-numbers">localized numbers</a> above.
-     *
-     * <p>Invoking the {@link #reset} method will set the scanner's locale to
-     * the <a href= "#initial-locale">initial locale</a>.
-     *
-     * @param locale A string specifying the locale to use
-     * @return this scanner
-     */
-    public Scanner useLocale(Locale locale) {
-        if (locale.equals(this.locale))
-            return this;
-
+    private void setLocale(Locale locale) {
         this.locale = locale;
-        DecimalFormat df =
-            (DecimalFormat)NumberFormat.getNumberInstance(locale);
-        DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(locale);
-
-        // These must be literalized to avoid collision with regex
-        // metacharacters such as dot or parenthesis
-        groupSeparator =   "\\" + dfs.getGroupingSeparator();
-        decimalSeparator = "\\" + dfs.getDecimalSeparator();
-
-        // Quoting the nonzero length locale-specific things
-        // to avoid potential conflict with metacharacters
-        nanString = "\\Q" + dfs.getNaN() + "\\E";
-        infinityString = "\\Q" + dfs.getInfinity() + "\\E";
-        positivePrefix = df.getPositivePrefix();
-        if (positivePrefix.length() > 0)
-            positivePrefix = "\\Q" + positivePrefix + "\\E";
-        negativePrefix = df.getNegativePrefix();
-        if (negativePrefix.length() > 0)
-            negativePrefix = "\\Q" + negativePrefix + "\\E";
-        positiveSuffix = df.getPositiveSuffix();
-        if (positiveSuffix.length() > 0)
-            positiveSuffix = "\\Q" + positiveSuffix + "\\E";
-        negativeSuffix = df.getNegativeSuffix();
-        if (negativeSuffix.length() > 0)
-            negativeSuffix = "\\Q" + negativeSuffix + "\\E";
-
-        // Force rebuilding and recompilation of locale dependent
-        // primitive patterns
-        integerPattern = null;
-        floatPattern = null;
-
-        return this;
+        this.decimalFormat = null;
+        this.cachedFloatPattern = null;
+        this.cachedIntegerPatternRadix = -1;
+        this.cachedIntegerPattern = null;
     }
 
     /**
-     * Returns this scanner's default radix.
+     * Returns the result of the last matching operation.
+     * <p>
+     * The next* and find* methods return the match result in the case of a
+     * successful match.
      *
-     * <p>A scanner's radix affects elements of its default
-     * number matching regular expressions; see
-     * <a href= "#localized-numbers">localized numbers</a> above.
-     *
-     * @return the default radix of this scanner
-     */
-    public int radix() {
-        return this.defaultRadix;
-    }
-
-    /**
-     * Sets this scanner's default radix to the specified radix.
-     *
-     * <p>A scanner's radix affects elements of its default
-     * number matching regular expressions; see
-     * <a href= "#localized-numbers">localized numbers</a> above.
-     *
-     * <p>If the radix is less than <code>Character.MIN_RADIX</code>
-     * or greater than <code>Character.MAX_RADIX</code>, then an
-     * <code>IllegalArgumentException</code> is thrown.
-     *
-     * <p>Invoking the {@link #reset} method will set the scanner's radix to
-     * <code>10</code>.
-     *
-     * @param radix The radix to use when scanning numbers
-     * @return this scanner
-     * @throws IllegalArgumentException if radix is out of range
-     */
-    public Scanner useRadix(int radix) {
-        if ((radix < Character.MIN_RADIX) || (radix > Character.MAX_RADIX))
-            throw new IllegalArgumentException("radix:"+radix);
-
-        if (this.defaultRadix == radix)
-            return this;
-        this.defaultRadix = radix;
-        // Force rebuilding and recompilation of radix dependent patterns
-        integerPattern = null;
-        return this;
-    }
-
-    // The next operation should occur in the specified radix but
-    // the default is left untouched.
-    private void setRadix(int radix) {
-        // Android-changed: Complain loudly if a bogus radix is being set.
-        if (radix > Character.MAX_RADIX) {
-            throw new IllegalArgumentException("radix == " + radix);
-        }
-
-        if (this.radix != radix) {
-            // Force rebuilding and recompilation of radix dependent patterns
-            integerPattern = null;
-            this.radix = radix;
-        }
-    }
-
-    /**
-     * Returns the match result of the last scanning operation performed
-     * by this scanner. This method throws <code>IllegalStateException</code>
-     * if no match has been performed, or if the last match was
-     * not successful.
-     *
-     * <p>The various <code>next</code>methods of <code>Scanner</code>
-     * make a match result available if they complete without throwing an
-     * exception. For instance, after an invocation of the {@link #nextInt}
-     * method that returned an int, this method returns a
-     * <code>MatchResult</code> for the search of the
-     * <a href="#Integer-regex"><i>Integer</i></a> regular expression
-     * defined above. Similarly the {@link #findInLine},
-     * {@link #findWithinHorizon}, and {@link #skip} methods will make a
-     * match available if they succeed.
-     *
-     * @return a match result for the last match operation
-     * @throws IllegalStateException  If no match result is available
+     * @return the match result of the last successful match operation
+     * @throws IllegalStateException
+     *             if the match result is not available, of if the last match
+     *             was not successful.
      */
     public MatchResult match() {
-        if (!matchValid)
-            throw new IllegalStateException("No match result available");
+        if (!matchSuccessful) {
+            throw new IllegalStateException();
+        }
         return matcher.toMatchResult();
     }
 
     /**
-     * <p>Returns the string representation of this <code>Scanner</code>. The
-     * string representation of a <code>Scanner</code> contains information
-     * that may be useful for debugging. The exact format is unspecified.
+     * Returns the next token. The token will be both prefixed and suffixed by
+     * the delimiter that is currently being used (or a string that matches the
+     * delimiter pattern). This method will block if input is being read.
      *
-     * @return  The string representation of this scanner
-     */
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("java.util.Scanner");
-        sb.append("[delimiters=" + delimPattern + "]");
-        sb.append("[position=" + position + "]");
-        sb.append("[match valid=" + matchValid + "]");
-        sb.append("[need input=" + needInput + "]");
-        sb.append("[source closed=" + sourceClosed + "]");
-        sb.append("[skipped=" + skipped + "]");
-        sb.append("[group separator=" + groupSeparator + "]");
-        sb.append("[decimal separator=" + decimalSeparator + "]");
-        sb.append("[positive prefix=" + positivePrefix + "]");
-        sb.append("[negative prefix=" + negativePrefix + "]");
-        sb.append("[positive suffix=" + positiveSuffix + "]");
-        sb.append("[negative suffix=" + negativeSuffix + "]");
-        sb.append("[NaN string=" + nanString + "]");
-        sb.append("[infinity string=" + infinityString + "]");
-        return sb.toString();
-    }
-
-    /**
-     * Returns true if this scanner has another token in its input.
-     * This method may block while waiting for input to scan.
-     * The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner has another token
-     * @throws IllegalStateException if this scanner is closed
-     * @see java.util.Iterator
-     */
-    public boolean hasNext() {
-        ensureOpen();
-        saveState();
-        while (!sourceClosed) {
-            if (hasTokenInBuffer())
-                return revertState(true);
-            readInput();
-        }
-        boolean result = hasTokenInBuffer();
-        return revertState(result);
-    }
-
-    /**
-     * Finds and returns the next complete token from this scanner.
-     * A complete token is preceded and followed by input that matches
-     * the delimiter pattern. This method may block while waiting for input
-     * to scan, even if a previous invocation of {@link #hasNext} returned
-     * <code>true</code>.
-     *
-     * @return the next token
-     * @throws NoSuchElementException if no more tokens are available
-     * @throws IllegalStateException if this scanner is closed
-     * @see java.util.Iterator
+     * @return the next complete token.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
      */
     public String next() {
-        ensureOpen();
-        clearCaches();
+        return next(ANY_PATTERN);
+    }
 
+    /**
+     * Returns the next token if it matches the specified pattern. The token
+     * will be both prefixed and suffixed by the delimiter that is currently
+     * being used (or a string that matches the delimiter pattern). This method will block
+     * if input is being read.
+     *
+     * @param pattern
+     *            the specified pattern to scan.
+     * @return the next token.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token does not match the pattern given.
+     */
+    public String next(Pattern pattern) {
+        checkOpen();
+        checkNotNull(pattern);
+        matchSuccessful = false;
+        prepareForScan();
+        if (!setTokenRegion()) {
+            recoverPreviousStatus();
+            // if setting match region fails
+            throw new NoSuchElementException();
+        }
+        matcher.usePattern(pattern);
+        if (!matcher.matches()) {
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+
+        }
+        matchSuccessful = true;
+        return matcher.group();
+    }
+
+    /**
+     * Returns the next token if it matches the specified pattern. The token
+     * will be both prefixed and suffixed by the delimiter that is currently
+     * being used (or a string that matches the delimiter pattern). This method will block
+     * if input is being read. Calling this method is equivalent to
+     * {@code next(Pattern.compile(pattern))}.
+     *
+     * @param pattern
+     *            the string specifying the pattern to scan for.
+     * @return the next token.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token does not match the pattern given.
+     */
+    public String next(String pattern) {
+        return next(Pattern.compile(pattern));
+    }
+
+    /**
+     * Returns the next token as a {@code BigDecimal}. This method will block if input is
+     * being read. If the next token can be translated into a {@code BigDecimal}
+     * the following is done: All {@code Locale}-specific prefixes, group separators,
+     * and {@code Locale}-specific suffixes are removed. Then non-ASCII digits are
+     * mapped into ASCII digits via {@link Character#digit(char, int)}, and a
+     * negative sign (-) is added if the {@code Locale}-specific negative prefix or
+     * suffix was present. Finally the resulting string is passed to
+     * {@code BigDecimal(String) }.
+     *
+     * @return the next token as a {@code BigDecimal}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code BigDecimal}.
+     */
+    public BigDecimal nextBigDecimal() {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof BigDecimal) {
+            findStartIndex = cachedNextIndex;
+            return (BigDecimal) obj;
+        }
+        Pattern floatPattern = getFloatPattern();
+        String floatString = next(floatPattern);
+        floatString = removeLocaleInfoFromFloat(floatString);
+        BigDecimal bigDecimalValue;
+        try {
+            bigDecimalValue = new BigDecimal(floatString);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return bigDecimalValue;
+    }
+
+    /**
+     * Returns the next token as a {@code BigInteger} in the current radix.
+     * This method may block for more input.
+     *
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code BigInteger}.
+     */
+    public BigInteger nextBigInteger() {
+        return nextBigInteger(currentRadix);
+    }
+
+    /**
+     * Returns the next token as a {@code BigInteger} with the specified radix.
+     * This method will block if input is being read. If the next token can be translated
+     * into a {@code BigInteger} the following is done: All {@code Locale}-specific
+     * prefixes, group separators, and {@code Locale}-specific suffixes are removed.
+     * Then non-ASCII digits are mapped into ASCII digits via
+     * {@link Character#digit(char, int)}, and a negative sign (-) is added if the
+     * {@code Locale}-specific negative prefix or suffix was present. Finally the
+     * resulting String is passed to {@link BigInteger#BigInteger(String, int)}}
+     * with the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a
+     *            {@code BigInteger}.
+     * @return the next token as a {@code BigInteger}
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code BigInteger}.
+     */
+    public BigInteger nextBigInteger(int radix) {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof BigInteger) {
+            findStartIndex = cachedNextIndex;
+            return (BigInteger) obj;
+        }
+        Pattern integerPattern = getIntegerPattern(radix);
+        String intString = next(integerPattern);
+        intString = removeLocaleInfo(intString, int.class);
+        BigInteger bigIntegerValue;
+        try {
+            bigIntegerValue = new BigInteger(intString, radix);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return bigIntegerValue;
+    }
+
+    /**
+     * Returns the next token as a {@code boolean}. This method will block if input is
+     * being read.
+     *
+     * @return the next token as a {@code boolean}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code boolean} value.
+     */
+    public boolean nextBoolean() {
+        return Boolean.parseBoolean(next(BOOLEAN_PATTERN));
+    }
+
+    /**
+     * Returns the next token as a {@code byte} in the current radix.
+     * This method may block for more input.
+     *
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code byte} value.
+     */
+    public byte nextByte() {
+        return nextByte(currentRadix);
+    }
+
+    /**
+     * Returns the next token as a {@code byte} with the specified radix. Will
+     * block if input is being read. If the next token can be translated into a
+     * {@code byte} the following is done: All {@code Locale}-specific prefixes, group
+     * separators, and {@code Locale}-specific suffixes are removed. Then non-ASCII
+     * digits are mapped into ASCII digits via
+     * {@link Character#digit(char, int)}, and a negative sign (-) is added if the
+     * {@code Locale}-specific negative prefix or suffix was present. Finally the
+     * resulting String is passed to {@link Byte#parseByte(String, int)}} with
+     * the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into {@code byte} value.
+     * @return the next token as a {@code byte}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code byte} value.
+     */
+    @SuppressWarnings("boxing")
+    public byte nextByte(int radix) {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Byte) {
+            findStartIndex = cachedNextIndex;
+            return (Byte) obj;
+        }
+        Pattern integerPattern = getIntegerPattern(radix);
+        String intString = next(integerPattern);
+        intString = removeLocaleInfo(intString, int.class);
+        byte byteValue = 0;
+        try {
+            byteValue = Byte.parseByte(intString, radix);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return byteValue;
+    }
+
+    /**
+     * Returns the next token as a {@code double}. This method will block if input is being
+     * read. If the next token can be translated into a {@code double} the
+     * following is done: All {@code Locale}-specific prefixes, group separators, and
+     * {@code Locale}-specific suffixes are removed. Then non-ASCII digits are mapped
+     * into ASCII digits via {@link Character#digit(char, int)}, and a negative
+     * sign (-) is added if the {@code Locale}-specific negative prefix or suffix was
+     * present. Finally the resulting String is passed to
+     * {@link Double#parseDouble(String)}}. If the token matches the localized
+     * NaN or infinity strings, it is also passed to
+     * {@link Double#parseDouble(String)}}.
+     *
+     * @return the next token as a {@code double}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code double} value.
+     */
+    @SuppressWarnings("boxing")
+    public double nextDouble() {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Double) {
+            findStartIndex = cachedNextIndex;
+            return (Double) obj;
+        }
+        Pattern floatPattern = getFloatPattern();
+        String floatString = next(floatPattern);
+        floatString = removeLocaleInfoFromFloat(floatString);
+        double doubleValue;
+        try {
+            doubleValue = Double.parseDouble(floatString);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return doubleValue;
+    }
+
+    /**
+     * Returns the next token as a {@code float}. This method will block if input is being
+     * read. If the next token can be translated into a {@code float} the
+     * following is done: All {@code Locale}-specific prefixes, group separators, and
+     * {@code Locale}-specific suffixes are removed. Then non-ASCII digits are mapped
+     * into ASCII digits via {@link Character#digit(char, int)}, and a negative
+     * sign (-) is added if the {@code Locale}-specific negative prefix or suffix was
+     * present. Finally the resulting String is passed to
+     * {@link Float#parseFloat(String)}}.If the token matches the localized NaN
+     * or infinity strings, it is also passed to
+     * {@link Float#parseFloat(String)}}.
+     *
+     * @return the next token as a {@code float}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code float} value.
+     */
+    @SuppressWarnings("boxing")
+    public float nextFloat() {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Float) {
+            findStartIndex = cachedNextIndex;
+            return (Float) obj;
+        }
+        Pattern floatPattern = getFloatPattern();
+        String floatString = next(floatPattern);
+        floatString = removeLocaleInfoFromFloat(floatString);
+        float floatValue;
+        try {
+            floatValue = Float.parseFloat(floatString);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return floatValue;
+    }
+
+    /**
+     * Returns the next token as an {@code int} in the current radix.
+     * This method may block for more input.
+     *
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code int} value.
+     */
+    public int nextInt() {
+        return nextInt(currentRadix);
+    }
+
+    /**
+     * Returns the next token as an {@code int} with the specified radix. This method will
+     * block if input is being read. If the next token can be translated into an
+     * {@code int} the following is done: All {@code Locale}-specific prefixes, group
+     * separators, and {@code Locale}-specific suffixes are removed. Then non-ASCII
+     * digits are mapped into ASCII digits via
+     * {@link Character#digit(char, int)}, and a negative sign (-) is added if the
+     * {@code Locale}-specific negative prefix or suffix was present. Finally the
+     * resulting String is passed to {@link Integer#parseInt(String, int)} with
+     * the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into an {@code int}
+     *            value.
+     * @return the next token as an {@code int}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code int} value.
+     */
+    @SuppressWarnings("boxing")
+    public int nextInt(int radix) {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Integer) {
+            findStartIndex = cachedNextIndex;
+            return (Integer) obj;
+        }
+        Pattern integerPattern = getIntegerPattern(radix);
+        String intString = next(integerPattern);
+        intString = removeLocaleInfo(intString, int.class);
+        int intValue;
+        try {
+            intValue = Integer.parseInt(intString, radix);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return intValue;
+    }
+
+    /**
+     * Returns the skipped input and advances the {@code Scanner} to the beginning of
+     * the next line. The returned result will exclude any line terminator. When
+     * searching, if no line terminator is found, then a large amount of input
+     * will be cached. If no line at all can be found, a {@code NoSuchElementException}
+     * will be thrown.
+     *
+     * @return the skipped line.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     * @throws NoSuchElementException
+     *             if no line can be found, e.g. when input is an empty string.
+     */
+    public String nextLine() {
+        checkOpen();
+
+        matcher.usePattern(LINE_PATTERN);
+        matcher.region(findStartIndex, bufferLength);
+
+        String result;
         while (true) {
-            String token = getCompleteTokenInBuffer(null);
-            if (token != null) {
-                matchValid = true;
-                skipped = false;
-                return token;
+            if (matcher.find()) {
+                if (inputExhausted || matcher.end() != bufferLength
+                        || bufferLength < buffer.capacity()) {
+                    matchSuccessful = true;
+                    findStartIndex = matcher.end();
+                    result = matcher.group();
+                    break;
+                }
+            } else {
+                if (inputExhausted) {
+                    matchSuccessful = false;
+                    throw new NoSuchElementException();
+                }
             }
-            if (needInput)
-                readInput();
-            else
-                throwFor();
+            if (!inputExhausted) {
+                readMore();
+                resetMatcher();
+            }
+        }
+        // Find text without line terminator here.
+        if (result != null) {
+            Matcher terminatorMatcher = LINE_TERMINATOR.matcher(result);
+            if (terminatorMatcher.find()) {
+                result = result.substring(0, terminatorMatcher.start());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the next token as a {@code long} in the current radix.
+     * This method may block for more input.
+     *
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code long} value.
+     */
+    public long nextLong() {
+        return nextLong(currentRadix);
+    }
+
+    /**
+     * Returns the next token as a {@code long} with the specified radix. This method will
+     * block if input is being read. If the next token can be translated into a
+     * {@code long} the following is done: All {@code Locale}-specific prefixes, group
+     * separators, and {@code Locale}-specific suffixes are removed. Then non-ASCII
+     * digits are mapped into ASCII digits via
+     * {@link Character#digit(char, int)}, and a negative sign (-) is added if the
+     * {@code Locale}-specific negative prefix or suffix was present. Finally the
+     * resulting String is passed to {@link Long#parseLong(String, int)}} with
+     * the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into a {@code long}
+     *            value.
+     * @return the next token as a {@code long}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code long} value.
+     */
+    @SuppressWarnings("boxing")
+    public long nextLong(int radix) {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Long) {
+            findStartIndex = cachedNextIndex;
+            return (Long) obj;
+        }
+        Pattern integerPattern = getIntegerPattern(radix);
+        String intString = next(integerPattern);
+        intString = removeLocaleInfo(intString, int.class);
+        long longValue;
+        try {
+            longValue = Long.parseLong(intString, radix);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return longValue;
+    }
+
+    /**
+     * Returns the next token as a {@code short} in the current radix.
+     * This method may block for more input.
+     *
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code short} value.
+     */
+    public short nextShort() {
+        return nextShort(currentRadix);
+    }
+
+    /**
+     * Returns the next token as a {@code short} with the specified radix. This method will
+     * block if input is being read. If the next token can be translated into a
+     * {@code short} the following is done: All {@code Locale}-specific prefixes, group
+     * separators, and {@code Locale}-specific suffixes are removed. Then non-ASCII
+     * digits are mapped into ASCII digits via
+     * {@link Character#digit(char, int)}, and a negative sign (-) is added if the
+     * {@code Locale}-specific negative prefix or suffix was present. Finally the
+     * resulting String is passed to {@link Short#parseShort(String, int)}}
+     * with the specified radix.
+     *
+     * @param radix
+     *            the radix used to translate the token into {@code short}
+     *            value.
+     * @return the next token as a {@code short}.
+     * @throws IllegalStateException
+     *             if this {@code Scanner} has been closed.
+     * @throws NoSuchElementException
+     *             if input has been exhausted.
+     * @throws InputMismatchException
+     *             if the next token can not be translated into a valid
+     *             {@code short} value.
+     */
+    @SuppressWarnings("boxing")
+    public short nextShort(int radix) {
+        checkOpen();
+        Object obj = cachedNextValue;
+        cachedNextValue = null;
+        if (obj instanceof Short) {
+            findStartIndex = cachedNextIndex;
+            return (Short) obj;
+        }
+        Pattern integerPattern = getIntegerPattern(radix);
+        String intString = next(integerPattern);
+        intString = removeLocaleInfo(intString, int.class);
+        short shortValue;
+        try {
+            shortValue = Short.parseShort(intString, radix);
+        } catch (NumberFormatException e) {
+            matchSuccessful = false;
+            recoverPreviousStatus();
+            throw new InputMismatchException();
+        }
+        return shortValue;
+    }
+
+    /**
+     * Return the radix of this {@code Scanner}.
+     *
+     * @return the radix of this {@code Scanner}
+     */
+    public int radix() {
+        return currentRadix;
+    }
+
+    /**
+     * Tries to use specified pattern to match input starting from the current position.
+     * The delimiter will be ignored. If a match is found, the matched input will be
+     * skipped. If an anchored match of the specified pattern succeeds, the corresponding input
+     * will also be skipped. Otherwise, a {@code NoSuchElementException} will be thrown.
+     * Patterns that can match a lot of input may cause the {@code Scanner} to read
+     * in a large amount of input.
+     *
+     * @param pattern
+     *            used to skip over input.
+     * @return the {@code Scanner} itself.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     * @throws NoSuchElementException
+     *             if the specified pattern match fails.
+     */
+    public Scanner skip(Pattern pattern) {
+        checkOpen();
+        checkNotNull(pattern);
+        matcher.usePattern(pattern);
+        matcher.region(findStartIndex, bufferLength);
+        while (true) {
+            if (matcher.lookingAt()) {
+                boolean matchInBuffer = matcher.end() < bufferLength
+                        || (matcher.end() == bufferLength && inputExhausted);
+                if (matchInBuffer) {
+                    matchSuccessful = true;
+                    findStartIndex = matcher.end();
+                    break;
+                }
+            } else {
+                if (inputExhausted) {
+                    matchSuccessful = false;
+                    throw new NoSuchElementException();
+                }
+            }
+            if (!inputExhausted) {
+                readMore();
+                resetMatcher();
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Tries to use the specified string to construct a pattern and then uses
+     * the constructed pattern to match input starting from the current position. The
+     * delimiter will be ignored. This call is the same as invoke
+     * {@code skip(Pattern.compile(pattern))}.
+     *
+     * @param pattern
+     *            the string used to construct a pattern which in turn is used to
+     *            match input.
+     * @return the {@code Scanner} itself.
+     * @throws IllegalStateException
+     *             if the {@code Scanner} is closed.
+     */
+    public Scanner skip(String pattern) {
+        return skip(Pattern.compile(pattern));
+    }
+
+    /**
+     * Returns a string representation of this {@code Scanner}. The information
+     * returned may be helpful for debugging. The format of the string is unspecified.
+     *
+     * @return a string representation of this {@code Scanner}.
+     */
+    @Override
+    public String toString() {
+        return getClass().getName() +
+                "[delimiter=" + delimiter +
+                ",findStartIndex=" + findStartIndex +
+                ",matchSuccessful=" + matchSuccessful +
+                ",closed=" + closed +
+                "]";
+    }
+
+    /**
+     * Sets the delimiting pattern of this {@code Scanner}.
+     *
+     * @param pattern
+     *            the delimiting pattern to use.
+     * @return this {@code Scanner}.
+     */
+    public Scanner useDelimiter(Pattern pattern) {
+        delimiter = pattern;
+        return this;
+    }
+
+    /**
+     * Sets the delimiting pattern of this {@code Scanner} with a pattern compiled from
+     * the supplied string value.
+     *
+     * @param pattern
+     *            a string from which a {@code Pattern} can be compiled.
+     * @return this {@code Scanner}.
+     */
+    public Scanner useDelimiter(String pattern) {
+        return useDelimiter(Pattern.compile(pattern));
+    }
+
+    /**
+     * Sets the {@code Locale} of this {@code Scanner} to a specified {@code Locale}.
+     *
+     * @param l
+     *            the specified {@code Locale} to use.
+     * @return this {@code Scanner}.
+     */
+    public Scanner useLocale(Locale l) {
+        if (l == null) {
+            throw new NullPointerException("l == null");
+        }
+        setLocale(l);
+        return this;
+    }
+
+    /**
+     * Sets the radix of this {@code Scanner} to the specified radix.
+     *
+     * @param radix
+     *            the specified radix to use.
+     * @return this {@code Scanner}.
+     */
+    public Scanner useRadix(int radix) {
+        checkRadix(radix);
+        this.currentRadix = radix;
+        return this;
+    }
+
+    private void checkRadix(int radix) {
+        if (radix < Character.MIN_RADIX || radix > Character.MAX_RADIX) {
+            throw new IllegalArgumentException("Invalid radix: " + radix);
         }
     }
 
     /**
-     * The remove operation is not supported by this implementation of
-     * <code>Iterator</code>.
+     * Remove is not a supported operation on {@code Scanner}.
      *
-     * @throws UnsupportedOperationException if this method is invoked.
-     * @see java.util.Iterator
+     * @throws UnsupportedOperationException
+     *             if this method is invoked.
      */
     public void remove() {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Returns true if the next token matches the pattern constructed from the
-     * specified string. The scanner does not advance past any input.
-     *
-     * <p> An invocation of this method of the form <tt>hasNext(pattern)</tt>
-     * behaves in exactly the same way as the invocation
-     * <tt>hasNext(Pattern.compile(pattern))</tt>.
-     *
-     * @param pattern a string specifying the pattern to scan
-     * @return true if and only if this scanner has another token matching
-     *         the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNext(String pattern)  {
-        return hasNext(patternCache.forName(pattern));
-    }
-
-    /**
-     * Returns the next token if it matches the pattern constructed from the
-     * specified string.  If the match is successful, the scanner advances
-     * past the input that matched the pattern.
-     *
-     * <p> An invocation of this method of the form <tt>next(pattern)</tt>
-     * behaves in exactly the same way as the invocation
-     * <tt>next(Pattern.compile(pattern))</tt>.
-     *
-     * @param pattern a string specifying the pattern to scan
-     * @return the next token
-     * @throws NoSuchElementException if no such tokens are available
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public String next(String pattern)  {
-        return next(patternCache.forName(pattern));
-    }
-
-    /**
-     * Returns true if the next complete token matches the specified pattern.
-     * A complete token is prefixed and postfixed by input that matches
-     * the delimiter pattern. This method may block while waiting for input.
-     * The scanner does not advance past any input.
-     *
-     * @param pattern the pattern to scan for
-     * @return true if and only if this scanner has another token matching
-     *         the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNext(Pattern pattern) {
-        ensureOpen();
-        if (pattern == null)
-            throw new NullPointerException();
-        hasNextPattern = null;
-        saveState();
-
-        while (true) {
-            if (getCompleteTokenInBuffer(pattern) != null) {
-                matchValid = true;
-                cacheResult();
-                return revertState(true);
-            }
-            if (needInput)
-                readInput();
-            else
-                return revertState(false);
+    private void checkOpen() {
+        if (closed) {
+            throw new IllegalStateException();
         }
     }
 
-    /**
-     * Returns the next token if it matches the specified pattern. This
-     * method may block while waiting for input to scan, even if a previous
-     * invocation of {@link #hasNext(Pattern)} returned <code>true</code>.
-     * If the match is successful, the scanner advances past the input that
-     * matched the pattern.
-     *
-     * @param pattern the pattern to scan for
-     * @return the next token
-     * @throws NoSuchElementException if no more tokens are available
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public String next(Pattern pattern) {
-        ensureOpen();
-        if (pattern == null)
-            throw new NullPointerException();
-
-        // Did we already find this pattern?
-        if (hasNextPattern == pattern)
-            return getCachedResult();
-        clearCaches();
-
-        // Search for the pattern
-        while (true) {
-            String token = getCompleteTokenInBuffer(pattern);
-            if (token != null) {
-                matchValid = true;
-                skipped = false;
-                return token;
-            }
-            if (needInput)
-                readInput();
-            else
-                throwFor();
+    private void checkNotNull(Pattern pattern) {
+        if (pattern == null) {
+            throw new NullPointerException("pattern == null");
         }
     }
 
-    /**
-     * Returns true if there is another line in the input of this scanner.
-     * This method may block while waiting for input. The scanner does not
-     * advance past any input.
-     *
-     * @return true if and only if this scanner has another line of input
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Change the matcher's input after modifying the contents of the buffer.
+     * The current implementation of Matcher causes a copy of the buffer to be taken.
      */
-    public boolean hasNextLine() {
-        saveState();
+    private void resetMatcher() {
+        matcher.reset(buffer);
+        matcher.region(findStartIndex, bufferLength);
+    }
 
-        String result = findWithinHorizon(linePattern(), 0);
-        if (result != null) {
-            MatchResult mr = this.match();
-            String lineSep = mr.group(1);
-            if (lineSep != null) {
-                result = result.substring(0, result.length() -
-                                          lineSep.length());
-                cacheResult(result);
+    /*
+     * Recover buffer space for characters that are already processed and save the matcher's state
+     * in case parsing fails. See recoverPrevousState. This method must be called before
+     * any buffer offsets are calculated.
+     */
+    private void prepareForScan() {
+        // Compacting the buffer recovers space taken by already processed characters. This does not
+        // prevent the buffer growing in all situations but keeps the buffer small when delimiters
+        // exist regularly.
+        if (findStartIndex >= buffer.capacity() / 2) {
+            // When over half the buffer is filled with characters no longer being considered by the
+            // scanner we take the cost of compacting the buffer.
 
-            } else {
-                cacheResult();
-            }
+            // Move all characters from [findStartIndex, findStartIndex + remaining()) to
+            // [0, remaining()).
+            int oldPosition = buffer.position();
+            buffer.position(findStartIndex);
+            buffer.compact();
+            buffer.position(oldPosition);
+
+            // Update Scanner state to reflect the new buffer state.
+            bufferLength -= findStartIndex;
+            findStartIndex = 0;
+            preStartIndex = -1;
+
+            // The matcher must also be informed that the buffer has changed because it operates on
+            // a String copy.
+            resetMatcher();
         }
-        revertState();
-        return (result != null);
+
+        // Save the matcher's last find position so it can be returned to if the next token cannot
+        // be parsed.
+        preStartIndex = findStartIndex;
     }
 
-    /**
-     * Advances this scanner past the current line and returns the input
-     * that was skipped.
-     *
-     * This method returns the rest of the current line, excluding any line
-     * separator at the end. The position is set to the beginning of the next
-     * line.
-     *
-     * <p>Since this method continues to search through the input looking
-     * for a line separator, it may buffer all of the input searching for
-     * the line to skip if no line separators are present.
-     *
-     * @return the line that was skipped
-     * @throws NoSuchElementException if no line was found
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Change the matcher's status to last find position
      */
-    public String nextLine() {
-        if (hasNextPattern == linePattern())
-            return getCachedResult();
-        clearCaches();
-
-        String result = findWithinHorizon(linePattern, 0);
-        if (result == null)
-            throw new NoSuchElementException("No line found");
-        MatchResult mr = this.match();
-        String lineSep = mr.group(1);
-        if (lineSep != null)
-            result = result.substring(0, result.length() - lineSep.length());
-        if (result == null)
-            throw new NoSuchElementException();
-        else
-            return result;
+    private void recoverPreviousStatus() {
+        findStartIndex = preStartIndex;
     }
 
-    // Public methods that ignore delimiters
+    private Pattern getIntegerPattern(int radix) {
+        checkRadix(radix);
 
-    /**
-     * Attempts to find the next occurrence of a pattern constructed from the
-     * specified string, ignoring delimiters.
-     *
-     * <p>An invocation of this method of the form <tt>findInLine(pattern)</tt>
-     * behaves in exactly the same way as the invocation
-     * <tt>findInLine(Pattern.compile(pattern))</tt>.
-     *
-     * @param pattern a string specifying the pattern to search for
-     * @return the text that matched the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public String findInLine(String pattern) {
-        return findInLine(patternCache.forName(pattern));
-    }
-
-    /**
-     * Attempts to find the next occurrence of the specified pattern ignoring
-     * delimiters. If the pattern is found before the next line separator, the
-     * scanner advances past the input that matched and returns the string that
-     * matched the pattern.
-     * If no such pattern is detected in the input up to the next line
-     * separator, then <code>null</code> is returned and the scanner's
-     * position is unchanged. This method may block waiting for input that
-     * matches the pattern.
-     *
-     * <p>Since this method continues to search through the input looking
-     * for the specified pattern, it may buffer all of the input searching for
-     * the desired token if no line separators are present.
-     *
-     * @param pattern the pattern to scan for
-     * @return the text that matched the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public String findInLine(Pattern pattern) {
-        ensureOpen();
-        if (pattern == null)
-            throw new NullPointerException();
-        clearCaches();
-        // Expand buffer to include the next newline or end of input
-        int endPosition = 0;
-        saveState();
-        while (true) {
-            String token = findPatternInBuffer(separatorPattern(), 0);
-            if (token != null) {
-                endPosition = matcher.start();
-                break; // up to next newline
-            }
-            if (needInput) {
-                readInput();
-            } else {
-                endPosition = buf.limit();
-                break; // up to end of input
-            }
+        if (decimalFormat == null) {
+            decimalFormat = (DecimalFormat) NumberFormat.getInstance(locale);
         }
-        revertState();
-        int horizonForLine = endPosition - position;
-        // If there is nothing between the current pos and the next
-        // newline simply return null, invoking findWithinHorizon
-        // with "horizon=0" will scan beyond the line bound.
-        if (horizonForLine == 0)
-            return null;
-        // Search for the pattern
-        return findWithinHorizon(pattern, horizonForLine);
-    }
 
-    /**
-     * Attempts to find the next occurrence of a pattern constructed from the
-     * specified string, ignoring delimiters.
-     *
-     * <p>An invocation of this method of the form
-     * <tt>findWithinHorizon(pattern)</tt> behaves in exactly the same way as
-     * the invocation
-     * <tt>findWithinHorizon(Pattern.compile(pattern, horizon))</tt>.
-     *
-     * @param pattern a string specifying the pattern to search for
-     * @param horizon the search horizon
-     * @return the text that matched the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     * @throws IllegalArgumentException if horizon is negative
-     */
-    public String findWithinHorizon(String pattern, int horizon) {
-        return findWithinHorizon(patternCache.forName(pattern), horizon);
-    }
-
-    /**
-     * Attempts to find the next occurrence of the specified pattern.
-     *
-     * <p>This method searches through the input up to the specified
-     * search horizon, ignoring delimiters. If the pattern is found the
-     * scanner advances past the input that matched and returns the string
-     * that matched the pattern. If no such pattern is detected then the
-     * null is returned and the scanner's position remains unchanged. This
-     * method may block waiting for input that matches the pattern.
-     *
-     * <p>A scanner will never search more than <code>horizon</code> code
-     * points beyond its current position. Note that a match may be clipped
-     * by the horizon; that is, an arbitrary match result may have been
-     * different if the horizon had been larger. The scanner treats the
-     * horizon as a transparent, non-anchoring bound (see {@link
-     * Matcher#useTransparentBounds} and {@link Matcher#useAnchoringBounds}).
-     *
-     * <p>If horizon is <code>0</code>, then the horizon is ignored and
-     * this method continues to search through the input looking for the
-     * specified pattern without bound. In this case it may buffer all of
-     * the input searching for the pattern.
-     *
-     * <p>If horizon is negative, then an IllegalArgumentException is
-     * thrown.
-     *
-     * @param pattern the pattern to scan for
-     * @param horizon the search horizon
-     * @return the text that matched the specified pattern
-     * @throws IllegalStateException if this scanner is closed
-     * @throws IllegalArgumentException if horizon is negative
-     */
-    public String findWithinHorizon(Pattern pattern, int horizon) {
-        ensureOpen();
-        if (pattern == null)
-            throw new NullPointerException();
-        if (horizon < 0)
-            throw new IllegalArgumentException("horizon < 0");
-        clearCaches();
-
-        // Search for the pattern
-        while (true) {
-            String token = findPatternInBuffer(pattern, horizon);
-            if (token != null) {
-                matchValid = true;
-                return token;
-            }
-            if (needInput)
-                readInput();
-            else
-                break; // up to end of input
+        if (cachedIntegerPatternRadix == radix) {
+            return cachedIntegerPattern;
         }
-        return null;
+
+        String digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+        String ASCIIDigit = digits.substring(0, radix);
+        String nonZeroASCIIDigit = digits.substring(1, radix);
+
+        String digit = "((?i)[" + ASCIIDigit + "]|\\p{javaDigit})";
+        String nonZeroDigit = "((?i)[" + nonZeroASCIIDigit + "]|([\\p{javaDigit}&&[^0]]))";
+        String numeral = getNumeral(digit, nonZeroDigit);
+
+        String regex = "(([-+]?(" + numeral + ")))|" +
+            "(" + addPositiveSign(numeral) + ")|" +
+            "(" + addNegativeSign(numeral) + ")";
+
+        cachedIntegerPatternRadix = radix;
+        cachedIntegerPattern = Pattern.compile(regex);
+        return cachedIntegerPattern;
     }
 
-    /**
-     * Skips input that matches the specified pattern, ignoring delimiters.
-     * This method will skip input if an anchored match of the specified
-     * pattern succeeds.
-     *
-     * <p>If a match to the specified pattern is not found at the
-     * current position, then no input is skipped and a
-     * <tt>NoSuchElementException</tt> is thrown.
-     *
-     * <p>Since this method seeks to match the specified pattern starting at
-     * the scanner's current position, patterns that can match a lot of
-     * input (".*", for example) may cause the scanner to buffer a large
-     * amount of input.
-     *
-     * <p>Note that it is possible to skip something without risking a
-     * <code>NoSuchElementException</code> by using a pattern that can
-     * match nothing, e.g., <code>sc.skip("[ \t]*")</code>.
-     *
-     * @param pattern a string specifying the pattern to skip over
-     * @return this scanner
-     * @throws NoSuchElementException if the specified pattern is not found
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public Scanner skip(Pattern pattern) {
-        ensureOpen();
-        if (pattern == null)
-            throw new NullPointerException();
-        clearCaches();
-
-        // Search for the pattern
-        while (true) {
-            String token = matchPatternInBuffer(pattern);
-            if (token != null) {
-                matchValid = true;
-                position = matcher.end();
-                return this;
-            }
-            if (needInput)
-                readInput();
-            else
-                throw new NoSuchElementException();
+    private Pattern getFloatPattern() {
+        if (decimalFormat == null) {
+            decimalFormat = (DecimalFormat) NumberFormat.getInstance(locale);
         }
-    }
 
-    /**
-     * Skips input that matches a pattern constructed from the specified
-     * string.
-     *
-     * <p> An invocation of this method of the form <tt>skip(pattern)</tt>
-     * behaves in exactly the same way as the invocation
-     * <tt>skip(Pattern.compile(pattern))</tt>.
-     *
-     * @param pattern a string specifying the pattern to skip over
-     * @return this scanner
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public Scanner skip(String pattern) {
-        return skip(patternCache.forName(pattern));
-    }
-
-    // Convenience methods for scanning primitives
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a boolean value using a case insensitive pattern
-     * created from the string "true|false".  The scanner does not
-     * advance past the input that matched.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         boolean value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextBoolean()  {
-        return hasNext(boolPattern());
-    }
-
-    /**
-     * Scans the next token of the input into a boolean value and returns
-     * that value. This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid boolean value.
-     * If the match is successful, the scanner advances past the input that
-     * matched.
-     *
-     * @return the boolean scanned from the input
-     * @throws InputMismatchException if the next token is not a valid boolean
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean nextBoolean()  {
-        clearCaches();
-        return Boolean.parseBoolean(next(boolPattern()));
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a byte value in the default radix using the
-     * {@link #nextByte} method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         byte value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextByte() {
-        return hasNextByte(defaultRadix);
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a byte value in the specified radix using the
-     * {@link #nextByte} method. The scanner does not advance past any input.
-     *
-     * @param radix the radix used to interpret the token as a byte value
-     * @return true if and only if this scanner's next token is a valid
-     *         byte value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextByte(int radix) {
-        setRadix(radix);
-        boolean result = hasNext(integerPattern());
-        if (result) { // Cache it
-            try {
-                String s = (matcher.group(SIMPLE_GROUP_INDEX) == null) ?
-                    processIntegerToken(hasNextResult) :
-                    hasNextResult;
-                typeCache = Byte.parseByte(s, radix);
-            } catch (NumberFormatException nfe) {
-                result = false;
-            }
+        if (cachedFloatPattern != null) {
+            return cachedFloatPattern;
         }
-        return result;
+
+        DecimalFormatSymbols dfs = decimalFormat.getDecimalFormatSymbols();
+
+        String digit = "([0-9]|(\\p{javaDigit}))";
+        String nonZeroDigit = "[\\p{javaDigit}&&[^0]]";
+        String numeral = getNumeral(digit, nonZeroDigit);
+
+        String decimalSeparator = "\\" + dfs.getDecimalSeparator();
+        String decimalNumeral = "(" + numeral + "|" +
+            numeral + decimalSeparator + digit + "*+|" +
+            decimalSeparator + digit + "++)";
+        String exponent = "([eE][+-]?" + digit + "+)?";
+
+        String decimal = "(([-+]?" + decimalNumeral + "(" + exponent + "?)" + ")|" +
+            "(" + addPositiveSign(decimalNumeral) + "(" + exponent + "?)" + ")|" +
+            "(" + addNegativeSign(decimalNumeral) + "(" + exponent + "?)" + "))";
+
+        String hexFloat = "([-+]?0[xX][0-9a-fA-F]*\\.[0-9a-fA-F]+([pP][-+]?[0-9]+)?)";
+        String localNaN = dfs.getNaN();
+        String localeInfinity = dfs.getInfinity();
+        String nonNumber = "(NaN|\\Q" + localNaN + "\\E|Infinity|\\Q" + localeInfinity + "\\E)";
+        String signedNonNumber = "((([-+]?(" + nonNumber + ")))|" +
+            "(" + addPositiveSign(nonNumber) + ")|" +
+            "(" + addNegativeSign(nonNumber) + "))";
+
+        cachedFloatPattern = Pattern.compile(decimal + "|" + hexFloat + "|" + signedNonNumber);
+        return cachedFloatPattern;
     }
 
-    /**
-     * Scans the next token of the input as a <tt>byte</tt>.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>nextByte()</tt> behaves in exactly the same way as the
-     * invocation <tt>nextByte(radix)</tt>, where <code>radix</code>
-     * is the default radix of this scanner.
-     *
-     * @return the <tt>byte</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public byte nextByte() {
-         return nextByte(defaultRadix);
+    private String getNumeral(String digit, String nonZeroDigit) {
+        String groupSeparator = "\\" + decimalFormat.getDecimalFormatSymbols().getGroupingSeparator();
+        String groupedNumeral = "(" + nonZeroDigit + digit + "?" + digit + "?" +
+            "(" + groupSeparator + digit + digit + digit + ")+)";
+        return "((" + digit + "++)|" + groupedNumeral + ")";
     }
 
-    /**
-     * Scans the next token of the input as a <tt>byte</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid byte value as
-     * described below. If the translation is successful, the scanner advances
-     * past the input that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Integer-regex"><i>Integer</i></a> regular expression defined
-     * above then the token is converted into a <tt>byte</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Byte#parseByte(String, int) Byte.parseByte} with the
-     * specified radix.
-     *
-     * @param radix the radix used to interpret the token as a byte value
-     * @return the <tt>byte</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Add the locale specific positive prefixes and suffixes to the pattern
      */
-    public byte nextByte(int radix) {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Byte)
-            && this.radix == radix) {
-            byte val = ((Byte)typeCache).byteValue();
-            useTypeCache();
-            return val;
+    private String addPositiveSign(String unsignedNumeral) {
+        String positivePrefix = "";
+        String positiveSuffix = "";
+        if (!decimalFormat.getPositivePrefix().isEmpty()) {
+            positivePrefix = "\\Q" + decimalFormat.getPositivePrefix() + "\\E";
         }
-        setRadix(radix);
-        clearCaches();
-        // Search for next byte
-        try {
-            String s = next(integerPattern());
-            if (matcher.group(SIMPLE_GROUP_INDEX) == null)
-                s = processIntegerToken(s);
-            return Byte.parseByte(s, radix);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
+        if (!decimalFormat.getPositiveSuffix().isEmpty()) {
+            positiveSuffix = "\\Q" + decimalFormat.getPositiveSuffix() + "\\E";
         }
+        return positivePrefix + unsignedNumeral + positiveSuffix;
     }
 
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a short value in the default radix using the
-     * {@link #nextShort} method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         short value in the default radix
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Add the locale specific negative prefixes and suffixes to the pattern
      */
-    public boolean hasNextShort() {
-        return hasNextShort(defaultRadix);
+    private String addNegativeSign(String unsignedNumeral) {
+        String negativePrefix = "";
+        String negativeSuffix = "";
+        if (!decimalFormat.getNegativePrefix().isEmpty()) {
+            negativePrefix = "\\Q" + decimalFormat.getNegativePrefix() + "\\E";
+        }
+        if (!decimalFormat.getNegativeSuffix().isEmpty()) {
+            negativeSuffix = "\\Q" + decimalFormat.getNegativeSuffix() + "\\E";
+        }
+        return negativePrefix + unsignedNumeral + negativeSuffix;
     }
 
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a short value in the specified radix using the
-     * {@link #nextShort} method. The scanner does not advance past any input.
-     *
-     * @param radix the radix used to interpret the token as a short value
-     * @return true if and only if this scanner's next token is a valid
-     *         short value in the specified radix
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Remove locale related information from float String
      */
-    public boolean hasNextShort(int radix) {
-        setRadix(radix);
-        boolean result = hasNext(integerPattern());
-        if (result) { // Cache it
-            try {
-                String s = (matcher.group(SIMPLE_GROUP_INDEX) == null) ?
-                    processIntegerToken(hasNextResult) :
-                    hasNextResult;
-                typeCache = Short.parseShort(s, radix);
-            } catch (NumberFormatException nfe) {
-                result = false;
-            }
+    private String removeLocaleInfoFromFloat(String floatString) {
+        // If the token is HexFloat
+        if (floatString.indexOf('x') != -1 || floatString.indexOf('X') != -1) {
+            return floatString;
         }
-        return result;
+
+        // If the token is scientific notation
+        int exponentIndex;
+        if ((exponentIndex = floatString.indexOf('e')) != -1 || (exponentIndex = floatString.indexOf('E')) != -1) {
+            String decimalNumeralString = floatString.substring(0, exponentIndex);
+            String exponentString = floatString.substring(exponentIndex + 1, floatString.length());
+            decimalNumeralString = removeLocaleInfo(decimalNumeralString, float.class);
+            return decimalNumeralString + "e" + exponentString;
+        }
+        return removeLocaleInfo(floatString, float.class);
     }
 
-    /**
-     * Scans the next token of the input as a <tt>short</tt>.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>nextShort()</tt> behaves in exactly the same way as the
-     * invocation <tt>nextShort(radix)</tt>, where <code>radix</code>
-     * is the default radix of this scanner.
-     *
-     * @return the <tt>short</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Remove the locale specific prefixes, group separators, and locale
+     * specific suffixes from input string
      */
-    public short nextShort() {
-        return nextShort(defaultRadix);
-    }
+    private String removeLocaleInfo(String token, Class<?> type) {
+        DecimalFormatSymbols dfs = decimalFormat.getDecimalFormatSymbols();
 
-    /**
-     * Scans the next token of the input as a <tt>short</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid short value as
-     * described below. If the translation is successful, the scanner advances
-     * past the input that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Integer-regex"><i>Integer</i></a> regular expression defined
-     * above then the token is converted into a <tt>short</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Short#parseShort(String, int) Short.parseShort} with the
-     * specified radix.
-     *
-     * @param radix the radix used to interpret the token as a short value
-     * @return the <tt>short</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public short nextShort(int radix) {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Short)
-            && this.radix == radix) {
-            short val = ((Short)typeCache).shortValue();
-            useTypeCache();
-            return val;
+        StringBuilder tokenBuilder = new StringBuilder(token);
+        boolean negative = removeLocaleSign(tokenBuilder);
+        // Remove group separator
+        String groupSeparator = String.valueOf(dfs.getGroupingSeparator());
+        int separatorIndex;
+        while ((separatorIndex = tokenBuilder.indexOf(groupSeparator)) != -1) {
+            tokenBuilder.delete(separatorIndex, separatorIndex + 1);
         }
-        setRadix(radix);
-        clearCaches();
-        // Search for next short
-        try {
-            String s = next(integerPattern());
-            if (matcher.group(SIMPLE_GROUP_INDEX) == null)
-                s = processIntegerToken(s);
-            return Short.parseShort(s, radix);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
-        }
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as an int value in the default radix using the
-     * {@link #nextInt} method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         int value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextInt() {
-        return hasNextInt(defaultRadix);
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as an int value in the specified radix using the
-     * {@link #nextInt} method. The scanner does not advance past any input.
-     *
-     * @param radix the radix used to interpret the token as an int value
-     * @return true if and only if this scanner's next token is a valid
-     *         int value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextInt(int radix) {
-        setRadix(radix);
-        boolean result = hasNext(integerPattern());
-        if (result) { // Cache it
-            try {
-                String s = (matcher.group(SIMPLE_GROUP_INDEX) == null) ?
-                    processIntegerToken(hasNextResult) :
-                    hasNextResult;
-                typeCache = Integer.parseInt(s, radix);
-            } catch (NumberFormatException nfe) {
-                result = false;
-            }
-        }
-        return result;
-    }
-
-    /**
-     * The integer token must be stripped of prefixes, group separators,
-     * and suffixes, non ascii digits must be converted into ascii digits
-     * before parse will accept it.
-     */
-    private String processIntegerToken(String token) {
-        String result = token.replaceAll(""+groupSeparator, "");
-        boolean isNegative = false;
-        int preLen = negativePrefix.length();
-        if ((preLen > 0) && result.startsWith(negativePrefix)) {
-            isNegative = true;
-            result = result.substring(preLen);
-        }
-        int sufLen = negativeSuffix.length();
-        if ((sufLen > 0) && result.endsWith(negativeSuffix)) {
-            isNegative = true;
-            result = result.substring(result.length() - sufLen,
-                                      result.length());
-        }
-        if (isNegative)
-            result = "-" + result;
-        return result;
-    }
-
-    /**
-     * Scans the next token of the input as an <tt>int</tt>.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>nextInt()</tt> behaves in exactly the same way as the
-     * invocation <tt>nextInt(radix)</tt>, where <code>radix</code>
-     * is the default radix of this scanner.
-     *
-     * @return the <tt>int</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public int nextInt() {
-        return nextInt(defaultRadix);
-    }
-
-    /**
-     * Scans the next token of the input as an <tt>int</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid int value as
-     * described below. If the translation is successful, the scanner advances
-     * past the input that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Integer-regex"><i>Integer</i></a> regular expression defined
-     * above then the token is converted into an <tt>int</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Integer#parseInt(String, int) Integer.parseInt} with the
-     * specified radix.
-     *
-     * @param radix the radix used to interpret the token as an int value
-     * @return the <tt>int</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public int nextInt(int radix) {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Integer)
-            && this.radix == radix) {
-            int val = ((Integer)typeCache).intValue();
-            useTypeCache();
-            return val;
-        }
-        setRadix(radix);
-        clearCaches();
-        // Search for next int
-        try {
-            String s = next(integerPattern());
-            if (matcher.group(SIMPLE_GROUP_INDEX) == null)
-                s = processIntegerToken(s);
-            return Integer.parseInt(s, radix);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
-        }
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a long value in the default radix using the
-     * {@link #nextLong} method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         long value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextLong() {
-        return hasNextLong(defaultRadix);
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a long value in the specified radix using the
-     * {@link #nextLong} method. The scanner does not advance past any input.
-     *
-     * @param radix the radix used to interpret the token as a long value
-     * @return true if and only if this scanner's next token is a valid
-     *         long value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextLong(int radix) {
-        setRadix(radix);
-        boolean result = hasNext(integerPattern());
-        if (result) { // Cache it
-            try {
-                String s = (matcher.group(SIMPLE_GROUP_INDEX) == null) ?
-                    processIntegerToken(hasNextResult) :
-                    hasNextResult;
-                typeCache = Long.parseLong(s, radix);
-            } catch (NumberFormatException nfe) {
-                result = false;
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Scans the next token of the input as a <tt>long</tt>.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>nextLong()</tt> behaves in exactly the same way as the
-     * invocation <tt>nextLong(radix)</tt>, where <code>radix</code>
-     * is the default radix of this scanner.
-     *
-     * @return the <tt>long</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public long nextLong() {
-        return nextLong(defaultRadix);
-    }
-
-    /**
-     * Scans the next token of the input as a <tt>long</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid long value as
-     * described below. If the translation is successful, the scanner advances
-     * past the input that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Integer-regex"><i>Integer</i></a> regular expression defined
-     * above then the token is converted into a <tt>long</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Long#parseLong(String, int) Long.parseLong} with the
-     * specified radix.
-     *
-     * @param radix the radix used to interpret the token as an int value
-     * @return the <tt>long</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public long nextLong(int radix) {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Long)
-            && this.radix == radix) {
-            long val = ((Long)typeCache).longValue();
-            useTypeCache();
-            return val;
-        }
-        setRadix(radix);
-        clearCaches();
-        try {
-            String s = next(integerPattern());
-            if (matcher.group(SIMPLE_GROUP_INDEX) == null)
-                s = processIntegerToken(s);
-            return Long.parseLong(s, radix);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
-        }
-    }
-
-    /**
-     * The float token must be stripped of prefixes, group separators,
-     * and suffixes, non ascii digits must be converted into ascii digits
-     * before parseFloat will accept it.
-     *
-     * If there are non-ascii digits in the token these digits must
-     * be processed before the token is passed to parseFloat.
-     */
-    private String processFloatToken(String token) {
-        String result = token.replaceAll(groupSeparator, "");
-        if (!decimalSeparator.equals("\\."))
-            result = result.replaceAll(decimalSeparator, ".");
-        boolean isNegative = false;
-        int preLen = negativePrefix.length();
-        if ((preLen > 0) && result.startsWith(negativePrefix)) {
-            isNegative = true;
-            result = result.substring(preLen);
-        }
-        int sufLen = negativeSuffix.length();
-        if ((sufLen > 0) && result.endsWith(negativeSuffix)) {
-            isNegative = true;
-            result = result.substring(result.length() - sufLen,
-                                      result.length());
-        }
-        if (result.equals(nanString))
-            result = "NaN";
-        if (result.equals(infinityString))
-            result = "Infinity";
-        // Android-changed: Match the infinity symbol.
-        if (result.equals("\u221E"))
-            result = "Infinity";
-        if (isNegative)
-            result = "-" + result;
-
-        // Translate non-ASCII digits
-        Matcher m = NON_ASCII_DIGIT.matcher(result);
-        if (m.find()) {
-            StringBuilder inASCII = new StringBuilder();
-            for (int i=0; i<result.length(); i++) {
-                char nextChar = result.charAt(i);
-                if (Character.isDigit(nextChar)) {
-                    int d = Character.digit(nextChar, 10);
-                    if (d != -1)
-                        inASCII.append(d);
-                    else
-                        inASCII.append(nextChar);
-                } else {
-                    inASCII.append(nextChar);
+        // Remove decimal separator
+        String decimalSeparator = String.valueOf(dfs.getDecimalSeparator());
+        separatorIndex = tokenBuilder.indexOf(decimalSeparator);
+        StringBuilder result = new StringBuilder("");
+        if (type == int.class) {
+            for (int i = 0; i < tokenBuilder.length(); i++) {
+                if (Character.digit(tokenBuilder.charAt(i), Character.MAX_RADIX) != -1) {
+                    result.append(tokenBuilder.charAt(i));
                 }
             }
-            result = inASCII.toString();
+        } else if (type == float.class) {
+            if (tokenBuilder.toString().equals(dfs.getNaN())) {
+                result.append("NaN");
+            } else if (tokenBuilder.toString().equals(dfs.getInfinity())) {
+                result.append("Infinity");
+            } else {
+                for (int i = 0; i < tokenBuilder.length(); i++) {
+                    if (Character.digit(tokenBuilder.charAt(i), 10) != -1) {
+                        result.append(Character.digit(tokenBuilder.charAt(i), 10));
+                    }
+                }
+            }
+        } else {
+            throw new AssertionError("Unsupported type: " + type);
         }
-
-        return result;
+        // Token is NaN or Infinity
+        if (result.length() == 0) {
+            result = tokenBuilder;
+        }
+        if (separatorIndex != -1) {
+            result.insert(separatorIndex, ".");
+        }
+        // If input is negative
+        if (negative) {
+            result.insert(0, '-');
+        }
+        return result.toString();
     }
 
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a float value using the {@link #nextFloat}
-     * method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         float value
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Remove positive and negative sign from the parameter stringBuilder, and
+     * return whether the input string is negative
      */
-    public boolean hasNextFloat() {
-        setRadix(10);
-        boolean result = hasNext(floatPattern());
-        if (result) { // Cache it
-            try {
-                String s = processFloatToken(hasNextResult);
-                typeCache = Float.valueOf(Float.parseFloat(s));
-            } catch (NumberFormatException nfe) {
-                result = false;
+    private boolean removeLocaleSign(StringBuilder tokenBuilder) {
+        String positivePrefix = decimalFormat.getPositivePrefix();
+        String positiveSuffix = decimalFormat.getPositiveSuffix();
+        String negativePrefix = decimalFormat.getNegativePrefix();
+        String negativeSuffix = decimalFormat.getNegativeSuffix();
+
+        if (tokenBuilder.indexOf("+") == 0) {
+            tokenBuilder.delete(0, 1);
+        }
+        if (!positivePrefix.isEmpty() && tokenBuilder.indexOf(positivePrefix) == 0) {
+            tokenBuilder.delete(0, positivePrefix.length());
+        }
+        if (!positiveSuffix.isEmpty() && tokenBuilder.indexOf(positiveSuffix) != -1) {
+            tokenBuilder.delete(tokenBuilder.length() - positiveSuffix.length(),
+                                tokenBuilder.length());
+        }
+        boolean negative = false;
+        if (tokenBuilder.indexOf("-") == 0) {
+            tokenBuilder.delete(0, 1);
+            negative = true;
+        }
+        if (!negativePrefix.isEmpty() && tokenBuilder.indexOf(negativePrefix) == 0) {
+            tokenBuilder.delete(0, negativePrefix.length());
+            negative = true;
+        }
+        if (!negativeSuffix.isEmpty() && tokenBuilder.indexOf(negativeSuffix) != -1) {
+            tokenBuilder.delete(tokenBuilder.length() - negativeSuffix.length(),
+                                tokenBuilder.length());
+            negative = true;
+        }
+        return negative;
+    }
+
+    /*
+     * Find the prefixed delimiter and suffixed delimiter in the input resource
+     * and set the start index and end index of Matcher region. If the suffixed
+     * delimiter does not exist, the end index is set to be end of input.
+     */
+    private boolean setTokenRegion() {
+        // The position where token begins
+        int tokenStartIndex;
+        // The position where token ends
+        int tokenEndIndex;
+        // Use delimiter pattern
+        matcher.usePattern(delimiter);
+        matcher.region(findStartIndex, bufferLength);
+
+        tokenStartIndex = findPreDelimiter();
+        if (setHeadTokenRegion(tokenStartIndex)) {
+            return true;
+        }
+        tokenEndIndex = findDelimiterAfter();
+        // If the second delimiter is not found
+        if (tokenEndIndex == -1) {
+            // Just first Delimiter Exists
+            if (findStartIndex == bufferLength) {
+                return false;
+            }
+            tokenEndIndex = bufferLength;
+            findStartIndex = bufferLength;
+        }
+
+        matcher.region(tokenStartIndex, tokenEndIndex);
+        return true;
+    }
+
+    /*
+     * Find prefix delimiter
+     */
+    private int findPreDelimiter() {
+        int tokenStartIndex;
+        boolean findComplete = false;
+        while (!findComplete) {
+            if (matcher.find()) {
+                findComplete = true;
+                // If just delimiter remains
+                if (matcher.start() == findStartIndex && matcher.end() == bufferLength) {
+                    // If more input resource exists
+                    if (!inputExhausted) {
+                        readMore();
+                        resetMatcher();
+                        findComplete = false;
+                    }
+                }
+            } else {
+                if (!inputExhausted) {
+                    readMore();
+                    resetMatcher();
+                } else {
+                    return -1;
+                }
             }
         }
-        return result;
+        tokenStartIndex = matcher.end();
+        findStartIndex = tokenStartIndex;
+        return tokenStartIndex;
     }
 
-    /**
-     * Scans the next token of the input as a <tt>float</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid float value as
-     * described below. If the translation is successful, the scanner advances
-     * past the input that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Float-regex"><i>Float</i></a> regular expression defined above
-     * then the token is converted into a <tt>float</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Float#parseFloat Float.parseFloat}. If the token matches
-     * the localized NaN or infinity strings, then either "Nan" or "Infinity"
-     * is passed to {@link Float#parseFloat(String) Float.parseFloat} as
-     * appropriate.
-     *
-     * @return the <tt>float</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Float</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if input is exhausted
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Handle some special cases
      */
-    public float nextFloat() {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Float)) {
-            float val = ((Float)typeCache).floatValue();
-            useTypeCache();
-            return val;
+    private boolean setHeadTokenRegion(int findIndex) {
+        int tokenStartIndex;
+        int tokenEndIndex;
+        boolean setSuccess = false;
+        // If no delimiter exists, but something exists in this scanner
+        if (findIndex == -1 && preStartIndex != bufferLength) {
+            tokenStartIndex = preStartIndex;
+            tokenEndIndex = bufferLength;
+            findStartIndex = bufferLength;
+            matcher.region(tokenStartIndex, tokenEndIndex);
+            setSuccess = true;
         }
-        setRadix(10);
-        clearCaches();
-        try {
-            return Float.parseFloat(processFloatToken(next(floatPattern())));
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
+        // If the first delimiter of scanner is not at the find start position
+        if (findIndex != -1 && preStartIndex != matcher.start()) {
+            tokenStartIndex = preStartIndex;
+            tokenEndIndex = matcher.start();
+            findStartIndex = matcher.start();
+            // set match region and return
+            matcher.region(tokenStartIndex, tokenEndIndex);
+            setSuccess = true;
         }
+        return setSuccess;
     }
 
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a double value using the {@link #nextDouble}
-     * method. The scanner does not advance past any input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         double value
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextDouble() {
-        setRadix(10);
-        boolean result = hasNext(floatPattern());
-        if (result) { // Cache it
-            try {
-                String s = processFloatToken(hasNextResult);
-                typeCache = Double.valueOf(Double.parseDouble(s));
-            } catch (NumberFormatException nfe) {
-                result = false;
+    private int findDelimiterAfter() {
+        int tokenEndIndex;
+        boolean findComplete = false;
+        while (!findComplete) {
+            if (matcher.find()) {
+                findComplete = true;
+                if (matcher.start() == findStartIndex && matcher.start() == matcher.end()) {
+                    findComplete = false;
+                }
+            } else {
+                if (!inputExhausted) {
+                    readMore();
+                    resetMatcher();
+                } else {
+                    return -1;
+                }
             }
         }
-        return result;
+        tokenEndIndex = matcher.start();
+        findStartIndex = tokenEndIndex;
+        return tokenEndIndex;
     }
 
-    /**
-     * Scans the next token of the input as a <tt>double</tt>.
-     * This method will throw <code>InputMismatchException</code>
-     * if the next token cannot be translated into a valid double value.
-     * If the translation is successful, the scanner advances past the input
-     * that matched.
-     *
-     * <p> If the next token matches the <a
-     * href="#Float-regex"><i>Float</i></a> regular expression defined above
-     * then the token is converted into a <tt>double</tt> value as if by
-     * removing all locale specific prefixes, group separators, and locale
-     * specific suffixes, then mapping non-ASCII digits into ASCII
-     * digits via {@link Character#digit Character.digit}, prepending a
-     * negative sign (-) if the locale specific negative prefixes and suffixes
-     * were present, and passing the resulting string to
-     * {@link Double#parseDouble Double.parseDouble}. If the token matches
-     * the localized NaN or infinity strings, then either "Nan" or "Infinity"
-     * is passed to {@link Double#parseDouble(String) Double.parseDouble} as
-     * appropriate.
-     *
-     * @return the <tt>double</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Float</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if the input is exhausted
-     * @throws IllegalStateException if this scanner is closed
+    /*
+     * Read more data from underlying Readable. If nothing is available or I/O
+     * operation fails, global boolean variable inputExhausted will be set to
+     * true, otherwise set to false.
      */
-    public double nextDouble() {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof Double)) {
-            double val = ((Double)typeCache).doubleValue();
-            useTypeCache();
-            return val;
+    private void readMore() {
+        int oldPosition = buffer.position();
+        int oldBufferLength = bufferLength;
+        // Increase capacity if empty space is not enough
+        if (bufferLength >= buffer.capacity()) {
+            expandBuffer();
         }
-        setRadix(10);
-        clearCaches();
-        // Search for next float
+
+        // Read input resource
+        int readCount;
         try {
-            return Double.parseDouble(processFloatToken(next(floatPattern())));
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
-        }
-    }
-
-    // Convenience methods for scanning multi precision numbers
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a <code>BigInteger</code> in the default radix using the
-     * {@link #nextBigInteger} method. The scanner does not advance past any
-     * input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         <code>BigInteger</code>
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextBigInteger() {
-        return hasNextBigInteger(defaultRadix);
-    }
-
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a <code>BigInteger</code> in the specified radix using
-     * the {@link #nextBigInteger} method. The scanner does not advance past
-     * any input.
-     *
-     * @param radix the radix used to interpret the token as an integer
-     * @return true if and only if this scanner's next token is a valid
-     *         <code>BigInteger</code>
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextBigInteger(int radix) {
-        setRadix(radix);
-        boolean result = hasNext(integerPattern());
-        if (result) { // Cache it
-            try {
-                String s = (matcher.group(SIMPLE_GROUP_INDEX) == null) ?
-                    processIntegerToken(hasNextResult) :
-                    hasNextResult;
-                typeCache = new BigInteger(s, radix);
-            } catch (NumberFormatException nfe) {
-                result = false;
+            buffer.limit(buffer.capacity());
+            buffer.position(oldBufferLength);
+            while ((readCount = input.read(buffer)) == 0) {
+                // nothing to do here
             }
+        } catch (IOException e) {
+            // Consider the scenario: readable puts 4 chars into
+            // buffer and then an IOException is thrown out. In this case,
+            // buffer is actually grown, but readable.read() will never return.
+            bufferLength = buffer.position();
+            // Use -1 to record IOException occurring, and no more input can be read.
+            readCount = -1;
+            lastIOException = e;
         }
-        return result;
-    }
 
-    /**
-     * Scans the next token of the input as a {@link java.math.BigInteger
-     * BigInteger}.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>nextBigInteger()</tt> behaves in exactly the same way as the
-     * invocation <tt>nextBigInteger(radix)</tt>, where <code>radix</code>
-     * is the default radix of this scanner.
-     *
-     * @return the <tt>BigInteger</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if the input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public BigInteger nextBigInteger() {
-        return nextBigInteger(defaultRadix);
-    }
-
-    /**
-     * Scans the next token of the input as a {@link java.math.BigInteger
-     * BigInteger}.
-     *
-     * <p> If the next token matches the <a
-     * href="#Integer-regex"><i>Integer</i></a> regular expression defined
-     * above then the token is converted into a <tt>BigInteger</tt> value as if
-     * by removing all group separators, mapping non-ASCII digits into ASCII
-     * digits via the {@link Character#digit Character.digit}, and passing the
-     * resulting string to the {@link
-     * java.math.BigInteger#BigInteger(java.lang.String)
-     * BigInteger(String, int)} constructor with the specified radix.
-     *
-     * @param radix the radix used to interpret the token
-     * @return the <tt>BigInteger</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Integer</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if the input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public BigInteger nextBigInteger(int radix) {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof BigInteger)
-            && this.radix == radix) {
-            BigInteger val = (BigInteger)typeCache;
-            useTypeCache();
-            return val;
-        }
-        setRadix(radix);
-        clearCaches();
-        // Search for next int
-        try {
-            String s = next(integerPattern());
-            if (matcher.group(SIMPLE_GROUP_INDEX) == null)
-                s = processIntegerToken(s);
-            return new BigInteger(s, radix);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
+        buffer.flip();
+        buffer.position(oldPosition);
+        if (readCount == -1) {
+            inputExhausted = true;
+        } else {
+            bufferLength = readCount + bufferLength;
         }
     }
 
-    /**
-     * Returns true if the next token in this scanner's input can be
-     * interpreted as a <code>BigDecimal</code> using the
-     * {@link #nextBigDecimal} method. The scanner does not advance past any
-     * input.
-     *
-     * @return true if and only if this scanner's next token is a valid
-     *         <code>BigDecimal</code>
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public boolean hasNextBigDecimal() {
-        setRadix(10);
-        boolean result = hasNext(decimalPattern());
-        if (result) { // Cache it
-            try {
-                String s = processFloatToken(hasNextResult);
-                typeCache = new BigDecimal(s);
-            } catch (NumberFormatException nfe) {
-                result = false;
-            }
-        }
-        return result;
+    // Expand the size of internal buffer.
+    private void expandBuffer() {
+        int oldPosition = buffer.position();
+        int oldCapacity = buffer.capacity();
+        int oldLimit = buffer.limit();
+        int newCapacity = oldCapacity * 2;
+        char[] newBuffer = new char[newCapacity];
+        System.arraycopy(buffer.array(), 0, newBuffer, 0, oldLimit);
+        buffer = CharBuffer.wrap(newBuffer, 0, newCapacity);
+        buffer.position(oldPosition);
+        buffer.limit(oldLimit);
     }
 
     /**
-     * Scans the next token of the input as a {@link java.math.BigDecimal
-     * BigDecimal}.
-     *
-     * <p> If the next token matches the <a
-     * href="#Decimal-regex"><i>Decimal</i></a> regular expression defined
-     * above then the token is converted into a <tt>BigDecimal</tt> value as if
-     * by removing all group separators, mapping non-ASCII digits into ASCII
-     * digits via the {@link Character#digit Character.digit}, and passing the
-     * resulting string to the {@link
-     * java.math.BigDecimal#BigDecimal(java.lang.String) BigDecimal(String)}
-     * constructor.
-     *
-     * @return the <tt>BigDecimal</tt> scanned from the input
-     * @throws InputMismatchException
-     *         if the next token does not match the <i>Decimal</i>
-     *         regular expression, or is out of range
-     * @throws NoSuchElementException if the input is exhausted
-     * @throws IllegalStateException if this scanner is closed
-     */
-    public BigDecimal nextBigDecimal() {
-        // Check cached result
-        if ((typeCache != null) && (typeCache instanceof BigDecimal)) {
-            BigDecimal val = (BigDecimal)typeCache;
-            useTypeCache();
-            return val;
-        }
-        setRadix(10);
-        clearCaches();
-        // Search for next float
-        try {
-            String s = processFloatToken(next(decimalPattern()));
-            return new BigDecimal(s);
-        } catch (NumberFormatException nfe) {
-            position = matcher.start(); // don't skip bad token
-            throw new InputMismatchException(nfe.getMessage());
-        }
-    }
-
-    /**
-     * Resets this scanner.
-     *
-     * <p> Resetting a scanner discards all of its explicit state
-     * information which may have been changed by invocations of {@link
-     * #useDelimiter}, {@link #useLocale}, or {@link #useRadix}.
-     *
-     * <p> An invocation of this method of the form
-     * <tt>scanner.reset()</tt> behaves in exactly the same way as the
-     * invocation
-     *
-     * <blockquote><pre>{@code
-     *   scanner.useDelimiter("\\p{javaWhitespace}+")
-     *          .useLocale(Locale.getDefault(Locale.Category.FORMAT))
-     *          .useRadix(10);
-     * }</pre></blockquote>
+     * Resets this scanner's delimiter, locale, and radix.
      *
      * @return this scanner
-     *
      * @since 1.6
      */
     public Scanner reset() {
-        delimPattern = WHITESPACE_PATTERN;
-        useLocale(Locale.getDefault(Locale.Category.FORMAT));
-        useRadix(10);
-        clearCaches();
+        delimiter = DEFAULT_DELIMITER;
+        setLocale(Locale.getDefault());
+        currentRadix = DEFAULT_RADIX;
         return this;
     }
 }

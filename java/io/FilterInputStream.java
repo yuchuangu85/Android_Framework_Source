@@ -1,245 +1,153 @@
 /*
- * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
 /**
- * A <code>FilterInputStream</code> contains
- * some other input stream, which it uses as
- * its  basic source of data, possibly transforming
- * the data along the way or providing  additional
- * functionality. The class <code>FilterInputStream</code>
- * itself simply overrides all  methods of
- * <code>InputStream</code> with versions that
- * pass all requests to the contained  input
- * stream. Subclasses of <code>FilterInputStream</code>
- * may further override some of  these methods
- * and may also provide additional methods
- * and fields.
+ * Wraps an existing {@link InputStream} and performs some transformation on
+ * the input data while it is being read. Transformations can be anything from a
+ * simple byte-wise filtering input data to an on-the-fly compression or
+ * decompression of the underlying stream. Input streams that wrap another input
+ * stream and provide some additional functionality on top of it usually inherit
+ * from this class.
  *
- * @author  Jonathan Payne
- * @since   JDK1.0
+ * @see FilterOutputStream
  */
-public
-class FilterInputStream extends InputStream {
+public class FilterInputStream extends InputStream {
+
     /**
-     * The input stream to be filtered.
+     * The source input stream that is filtered.
      */
     protected volatile InputStream in;
 
     /**
-     * Creates a <code>FilterInputStream</code>
-     * by assigning the  argument <code>in</code>
-     * to the field <code>this.in</code> so as
-     * to remember it for later use.
+     * Constructs a new {@code FilterInputStream} with the specified input
+     * stream as source.
      *
-     * @param   in   the underlying input stream, or <code>null</code> if
-     *          this instance is to be created without an underlying stream.
+     * <p><strong>Warning:</strong> passing a null source creates an invalid
+     * {@code FilterInputStream}, that fails on every method that is not
+     * overridden. Subclasses should check for null in their constructors.
+     *
+     * @param in the input stream to filter reads on.
      */
     protected FilterInputStream(InputStream in) {
         this.in = in;
     }
 
-    /**
-     * Reads the next byte of data from this input stream. The value
-     * byte is returned as an <code>int</code> in the range
-     * <code>0</code> to <code>255</code>. If no byte is available
-     * because the end of the stream has been reached, the value
-     * <code>-1</code> is returned. This method blocks until input data
-     * is available, the end of the stream is detected, or an exception
-     * is thrown.
-     * <p>
-     * This method
-     * simply performs <code>in.read()</code> and returns the result.
-     *
-     * @return     the next byte of data, or <code>-1</code> if the end of the
-     *             stream is reached.
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterInputStream#in
-     */
-    public int read() throws IOException {
-        return in.read();
-    }
-
-    /**
-     * Reads up to <code>byte.length</code> bytes of data from this
-     * input stream into an array of bytes. This method blocks until some
-     * input is available.
-     * <p>
-     * This method simply performs the call
-     * <code>read(b, 0, b.length)</code> and returns
-     * the  result. It is important that it does
-     * <i>not</i> do <code>in.read(b)</code> instead;
-     * certain subclasses of  <code>FilterInputStream</code>
-     * depend on the implementation strategy actually
-     * used.
-     *
-     * @param      b   the buffer into which the data is read.
-     * @return     the total number of bytes read into the buffer, or
-     *             <code>-1</code> if there is no more data because the end of
-     *             the stream has been reached.
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterInputStream#read(byte[], int, int)
-     */
-    public int read(byte b[]) throws IOException {
-        return read(b, 0, b.length);
-    }
-
-    /**
-     * Reads up to <code>len</code> bytes of data from this input stream
-     * into an array of bytes. If <code>len</code> is not zero, the method
-     * blocks until some input is available; otherwise, no
-     * bytes are read and <code>0</code> is returned.
-     * <p>
-     * This method simply performs <code>in.read(b, off, len)</code>
-     * and returns the result.
-     *
-     * @param      b     the buffer into which the data is read.
-     * @param      off   the start offset in the destination array <code>b</code>
-     * @param      len   the maximum number of bytes read.
-     * @return     the total number of bytes read into the buffer, or
-     *             <code>-1</code> if there is no more data because the end of
-     *             the stream has been reached.
-     * @exception  NullPointerException If <code>b</code> is <code>null</code>.
-     * @exception  IndexOutOfBoundsException If <code>off</code> is negative,
-     * <code>len</code> is negative, or <code>len</code> is greater than
-     * <code>b.length - off</code>
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterInputStream#in
-     */
-    public int read(byte b[], int off, int len) throws IOException {
-        return in.read(b, off, len);
-    }
-
-    /**
-     * Skips over and discards <code>n</code> bytes of data from the
-     * input stream. The <code>skip</code> method may, for a variety of
-     * reasons, end up skipping over some smaller number of bytes,
-     * possibly <code>0</code>. The actual number of bytes skipped is
-     * returned.
-     * <p>
-     * This method simply performs <code>in.skip(n)</code>.
-     *
-     * @param      n   the number of bytes to be skipped.
-     * @return     the actual number of bytes skipped.
-     * @exception  IOException  if the stream does not support seek,
-     *                          or if some other I/O error occurs.
-     */
-    public long skip(long n) throws IOException {
-        return in.skip(n);
-    }
-
-    /**
-     * Returns an estimate of the number of bytes that can be read (or
-     * skipped over) from this input stream without blocking by the next
-     * caller of a method for this input stream. The next caller might be
-     * the same thread or another thread.  A single read or skip of this
-     * many bytes will not block, but may read or skip fewer bytes.
-     * <p>
-     * This method returns the result of {@link #in in}.available().
-     *
-     * @return     an estimate of the number of bytes that can be read (or skipped
-     *             over) from this input stream without blocking.
-     * @exception  IOException  if an I/O error occurs.
-     */
+    @Override
     public int available() throws IOException {
         return in.available();
     }
 
     /**
-     * Closes this input stream and releases any system resources
-     * associated with the stream.
-     * This
-     * method simply performs <code>in.close()</code>.
+     * Closes this stream. This implementation closes the filtered stream.
      *
-     * @exception  IOException  if an I/O error occurs.
-     * @see        java.io.FilterInputStream#in
+     * @throws IOException
+     *             if an error occurs while closing this stream.
      */
+    @Override
     public void close() throws IOException {
         in.close();
     }
 
     /**
-     * Marks the current position in this input stream. A subsequent
-     * call to the <code>reset</code> method repositions this stream at
-     * the last marked position so that subsequent reads re-read the same bytes.
+     * Sets a mark position in this stream. The parameter {@code readlimit}
+     * indicates how many bytes can be read before the mark is invalidated.
+     * Sending {@code reset()} will reposition this stream back to the marked
+     * position, provided that {@code readlimit} has not been surpassed.
      * <p>
-     * The <code>readlimit</code> argument tells this input stream to
-     * allow that many bytes to be read before the mark position gets
-     * invalidated.
-     * <p>
-     * This method simply performs <code>in.mark(readlimit)</code>.
+     * This implementation sets a mark in the filtered stream.
      *
-     * @param   readlimit   the maximum limit of bytes that can be read before
-     *                      the mark position becomes invalid.
-     * @see     java.io.FilterInputStream#in
-     * @see     java.io.FilterInputStream#reset()
+     * @param readlimit
+     *            the number of bytes that can be read from this stream before
+     *            the mark is invalidated.
+     * @see #markSupported()
+     * @see #reset()
      */
+    @Override
     public synchronized void mark(int readlimit) {
         in.mark(readlimit);
     }
 
     /**
-     * Repositions this stream to the position at the time the
-     * <code>mark</code> method was last called on this input stream.
-     * <p>
-     * This method
-     * simply performs <code>in.reset()</code>.
-     * <p>
-     * Stream marks are intended to be used in
-     * situations where you need to read ahead a little to see what's in
-     * the stream. Often this is most easily done by invoking some
-     * general parser. If the stream is of the type handled by the
-     * parse, it just chugs along happily. If the stream is not of
-     * that type, the parser should toss an exception when it fails.
-     * If this happens within readlimit bytes, it allows the outer
-     * code to reset the stream and try another parser.
+     * Indicates whether this stream supports {@code mark()} and {@code reset()}.
+     * This implementation returns whether or not the filtered stream supports
+     * marking.
      *
-     * @exception  IOException  if the stream has not been marked or if the
-     *               mark has been invalidated.
-     * @see        java.io.FilterInputStream#in
-     * @see        java.io.FilterInputStream#mark(int)
+     * @return {@code true} if {@code mark()} and {@code reset()} are supported,
+     *         {@code false} otherwise.
+     * @see #mark(int)
+     * @see #reset()
+     * @see #skip(long)
      */
+    @Override
+    public boolean markSupported() {
+        return in.markSupported();
+    }
+
+    /**
+     * Reads a single byte from the filtered stream and returns it as an integer
+     * in the range from 0 to 255. Returns -1 if the end of this stream has been
+     * reached.
+     *
+     * @return the byte read or -1 if the end of the filtered stream has been
+     *         reached.
+     * @throws IOException
+     *             if the stream is closed or another IOException occurs.
+     */
+    @Override
+    public int read() throws IOException {
+        return in.read();
+    }
+
+    @Override public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        return in.read(buffer, byteOffset, byteCount);
+    }
+
+    /**
+     * Resets this stream to the last marked location. This implementation
+     * resets the target stream.
+     *
+     * @throws IOException
+     *             if this stream is already closed, no mark has been set or the
+     *             mark is no longer valid because more than {@code readlimit}
+     *             bytes have been read since setting the mark.
+     * @see #mark(int)
+     * @see #markSupported()
+     */
+    @Override
     public synchronized void reset() throws IOException {
         in.reset();
     }
 
     /**
-     * Tests if this input stream supports the <code>mark</code>
-     * and <code>reset</code> methods.
-     * This method
-     * simply performs <code>in.markSupported()</code>.
+     * Skips {@code byteCount} bytes in this stream. Subsequent
+     * calls to {@code read} will not return these bytes unless {@code reset} is
+     * used. This implementation skips {@code byteCount} bytes in the
+     * filtered stream.
      *
-     * @return  <code>true</code> if this stream type supports the
-     *          <code>mark</code> and <code>reset</code> method;
-     *          <code>false</code> otherwise.
-     * @see     java.io.FilterInputStream#in
-     * @see     java.io.InputStream#mark(int)
-     * @see     java.io.InputStream#reset()
+     * @return the number of bytes actually skipped.
+     * @throws IOException
+     *             if this stream is closed or another IOException occurs.
+     * @see #mark(int)
+     * @see #reset()
      */
-    public boolean markSupported() {
-        return in.markSupported();
+    @Override
+    public long skip(long byteCount) throws IOException {
+        return in.skip(byteCount);
     }
 }

@@ -23,7 +23,7 @@ public class CountDownLatchTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(CountDownLatchTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**

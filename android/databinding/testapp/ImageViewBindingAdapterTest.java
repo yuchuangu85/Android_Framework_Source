@@ -66,14 +66,4 @@ public class ImageViewBindingAdapterTest
         assertNotNull(mBinder.view2.getDrawable());
         assertNotNull(mBinder.view3.getDrawable());
     }
-
-    @UiThreadTest
-    public void testConditionalSource() throws Throwable {
-        mBinder.setObj(null);
-        mBinder.executePendingBindings();
-        assertNotNull(mBinder.view4.getDrawable());
-        mBinder.setObj(new ImageViewBindingObject());
-        mBinder.executePendingBindings();
-        assertNull(mBinder.view4.getDrawable());
-    }
 }

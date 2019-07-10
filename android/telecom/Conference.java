@@ -16,16 +16,12 @@
 
 package android.telecom;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.telecom.Connection.VideoProvider;
-import android.util.ArraySet;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -55,13 +51,10 @@ public abstract class Conference extends Conferenceable {
         public void onDestroyed(Conference conference) {}
         public void onConnectionCapabilitiesChanged(
                 Conference conference, int connectionCapabilities) {}
-        public void onConnectionPropertiesChanged(
-                Conference conference, int connectionProperties) {}
         public void onVideoStateChanged(Conference c, int videoState) { }
         public void onVideoProviderChanged(Conference c, Connection.VideoProvider videoProvider) {}
         public void onStatusHintsChanged(Conference conference, StatusHints statusHints) {}
-        public void onExtrasChanged(Conference c, Bundle extras) {}
-        public void onExtrasRemoved(Conference c, List<String> keys) {}
+        public void onExtrasChanged(Conference conference, Bundle extras) {}
     }
 
     private final Set<Listener> mListeners = new CopyOnWriteArraySet<>();
@@ -72,20 +65,15 @@ public abstract class Conference extends Conferenceable {
     private final List<Connection> mUnmodifiableConferenceableConnections =
             Collections.unmodifiableList(mConferenceableConnections);
 
-    private String mTelecomCallId;
     private PhoneAccountHandle mPhoneAccount;
     private CallAudioState mCallAudioState;
     private int mState = Connection.STATE_NEW;
     private DisconnectCause mDisconnectCause;
     private int mConnectionCapabilities;
-    private int mConnectionProperties;
     private String mDisconnectMessage;
     private long mConnectTimeMillis = CONNECT_TIME_NOT_SPECIFIED;
-    private long mConnectionStartElapsedRealTime = CONNECT_TIME_NOT_SPECIFIED;
     private StatusHints mStatusHints;
     private Bundle mExtras;
-    private Set<String> mPreviousExtraKeys;
-    private final Object mExtrasLock = new Object();
 
     private final Connection.Listener mConnectionDeathListener = new Connection.Listener() {
         @Override
@@ -103,26 +91,6 @@ public abstract class Conference extends Conferenceable {
      */
     public Conference(PhoneAccountHandle phoneAccount) {
         mPhoneAccount = phoneAccount;
-    }
-
-    /**
-     * Returns the telecom internal call ID associated with this conference.
-     *
-     * @return The telecom call ID.
-     * @hide
-     */
-    public final String getTelecomCallId() {
-        return mTelecomCallId;
-    }
-
-    /**
-     * Sets the telecom internal call ID associated with this conference.
-     *
-     * @param telecomCallId The telecom call ID.
-     * @hide
-     */
-    public final void setTelecomCallId(String telecomCallId) {
-        mTelecomCallId = telecomCallId;
     }
 
     /**
@@ -163,16 +131,6 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Returns the properties of the conference. See {@code PROPERTY_*} constants in class
-     * {@link Connection} for valid values.
-     *
-     * @return A bitmask of the properties of the conference call.
-     */
-    public final int getConnectionProperties() {
-        return mConnectionProperties;
-    }
-
-    /**
      * Whether the given capabilities support the specified capability.
      *
      * @param capabilities A capability bit field.
@@ -202,10 +160,7 @@ public abstract class Conference extends Conferenceable {
      * @hide
      */
     public void removeCapability(int capability) {
-        int newCapabilities = mConnectionCapabilities;
-        newCapabilities &= ~capability;
-
-        setConnectionCapabilities(newCapabilities);
+        mConnectionCapabilities &= ~capability;
     }
 
     /**
@@ -215,10 +170,7 @@ public abstract class Conference extends Conferenceable {
      * @hide
      */
     public void addCapability(int capability) {
-        int newCapabilities = mConnectionCapabilities;
-        newCapabilities |= capability;
-
-        setConnectionCapabilities(newCapabilities);
+        mConnectionCapabilities |= capability;
     }
 
     /**
@@ -258,63 +210,60 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Notifies the {@link Conference} when the Conference and all it's {@link Connection}s should
-     * be disconnected.
+     * Invoked when the Conference and all it's {@link Connection}s should be disconnected.
      */
     public void onDisconnect() {}
 
     /**
-     * Notifies the {@link Conference} when the specified {@link Connection} should be separated
-     * from the conference call.
+     * Invoked when the specified {@link Connection} should be separated from the conference call.
      *
      * @param connection The connection to separate.
      */
     public void onSeparate(Connection connection) {}
 
     /**
-     * Notifies the {@link Conference} when the specified {@link Connection} should merged with the
-     * conference call.
+     * Invoked when the specified {@link Connection} should merged with the conference call.
      *
      * @param connection The {@code Connection} to merge.
      */
     public void onMerge(Connection connection) {}
 
     /**
-     * Notifies the {@link Conference} when it should be put on hold.
+     * Invoked when the conference should be put on hold.
      */
     public void onHold() {}
 
     /**
-     * Notifies the {@link Conference} when it should be moved from a held to active state.
+     * Invoked when the conference should be moved from hold to active.
      */
     public void onUnhold() {}
 
     /**
-     * Notifies the {@link Conference} when the child calls should be merged.  Only invoked if the
-     * conference contains the capability {@link Connection#CAPABILITY_MERGE_CONFERENCE}.
+     * Invoked when the child calls should be merged. Only invoked if the conference contains the
+     * capability {@link Connection#CAPABILITY_MERGE_CONFERENCE}.
      */
     public void onMerge() {}
 
     /**
-     * Notifies the {@link Conference} when the child calls should be swapped. Only invoked if the
-     * conference contains the capability {@link Connection#CAPABILITY_SWAP_CONFERENCE}.
+     * Invoked when the child calls should be swapped. Only invoked if the conference contains the
+     * capability {@link Connection#CAPABILITY_SWAP_CONFERENCE}.
      */
     public void onSwap() {}
 
     /**
-     * Notifies the {@link Conference} of a request to play a DTMF tone.
+     * Notifies this conference of a request to play a DTMF tone.
      *
      * @param c A DTMF character.
      */
     public void onPlayDtmfTone(char c) {}
 
     /**
-     * Notifies the {@link Conference} of a request to stop any currently playing DTMF tones.
+     * Notifies this conference of a request to stop any currently playing DTMF tones.
      */
     public void onStopDtmfTone() {}
 
     /**
-     * Notifies the {@link Conference} that the {@link #getAudioState()} property has a new value.
+     * Notifies this conference that the {@link #getAudioState()} property has a new value.
      *
      * @param state The new call audio state.
      * @deprecated Use {@link #onCallAudioStateChanged(CallAudioState)} instead.
@@ -325,15 +274,14 @@ public abstract class Conference extends Conferenceable {
     public void onAudioStateChanged(AudioState state) {}
 
     /**
-     * Notifies the {@link Conference} that the {@link #getCallAudioState()} property has a new
-     * value.
+     * Notifies this conference that the {@link #getCallAudioState()} property has a new value.
      *
      * @param state The new call audio state.
      */
     public void onCallAudioStateChanged(CallAudioState state) {}
 
     /**
-     * Notifies the {@link Conference} that a {@link Connection} has been added to it.
+     * Notifies this conference that a connection has been added to it.
      *
      * @param connection The newly added connection.
      */
@@ -385,7 +333,7 @@ public abstract class Conference extends Conferenceable {
      * Sets the capabilities of a conference. See {@code CAPABILITY_*} constants of class
      * {@link Connection} for valid values.
      *
-     * @param connectionCapabilities A bitmask of the {@code Capabilities} of the conference call.
+     * @param connectionCapabilities A bitmask of the {@code PhoneCapabilities} of the conference call.
      */
     public final void setConnectionCapabilities(int connectionCapabilities) {
         if (connectionCapabilities != mConnectionCapabilities) {
@@ -393,22 +341,6 @@ public abstract class Conference extends Conferenceable {
 
             for (Listener l : mListeners) {
                 l.onConnectionCapabilitiesChanged(this, mConnectionCapabilities);
-            }
-        }
-    }
-
-    /**
-     * Sets the properties of a conference. See {@code PROPERTY_*} constants of class
-     * {@link Connection} for valid values.
-     *
-     * @param connectionProperties A bitmask of the {@code Properties} of the conference call.
-     */
-    public final void setConnectionProperties(int connectionProperties) {
-        if (connectionProperties != mConnectionProperties) {
-            mConnectionProperties = connectionProperties;
-
-            for (Listener l : mListeners) {
-                l.onConnectionPropertiesChanged(this, mConnectionProperties);
             }
         }
     }
@@ -583,36 +515,12 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Sets the connection start time of the {@code Conference}.  This is used in the call log to
-     * indicate the date and time when the conference took place.
-     * <p>
-     * Should be specified in wall-clock time returned by {@link System#currentTimeMillis()}.
-     * <p>
-     * When setting the connection time, you should always set the connection elapsed time via
-     * {@link #setConnectionStartElapsedRealTime(long)} to ensure the duration is reflected.
+     * Sets the connection start time of the {@code Conference}.
      *
-     * @param connectionTimeMillis The connection time, in milliseconds, as returned by
-     *                             {@link System#currentTimeMillis()}.
+     * @param connectionTimeMillis The connection time, in milliseconds.
      */
     public final void setConnectionTime(long connectionTimeMillis) {
         mConnectTimeMillis = connectionTimeMillis;
-    }
-
-    /**
-     * Sets the start time of the {@link Conference} which is the basis for the determining the
-     * duration of the {@link Conference}.
-     * <p>
-     * You should use a value returned by {@link SystemClock#elapsedRealtime()} to ensure that time
-     * zone changes do not impact the conference duration.
-     * <p>
-     * When setting this, you should also set the connection time via
-     * {@link #setConnectionTime(long)}.
-     *
-     * @param connectionStartElapsedRealTime The connection time, as measured by
-     * {@link SystemClock#elapsedRealtime()}.
-     */
-    public final void setConnectionStartElapsedRealTime(long connectionStartElapsedRealTime) {
-        mConnectionStartElapsedRealTime = connectionStartElapsedRealTime;
     }
 
     /**
@@ -634,21 +542,6 @@ public abstract class Conference extends Conferenceable {
      */
     public final long getConnectionTime() {
         return mConnectTimeMillis;
-    }
-
-    /**
-     * Retrieves the connection start time of the {@link Conference}, if specified.  A value of
-     * {@link #CONNECT_TIME_NOT_SPECIFIED} indicates that Telecom should determine the start time
-     * of the conference.
-     *
-     * This is based on the value of {@link SystemClock#elapsedRealtime()} to ensure that it is not
-     * impacted by wall clock changes (user initiated, network initiated, time zone change, etc).
-     *
-     * @return The elapsed time at which the {@link Conference} was connected.
-     * @hide
-     */
-    public final long getConnectionStartElapsedRealTime() {
-        return mConnectionStartElapsedRealTime;
     }
 
     /**
@@ -720,198 +613,23 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Replaces all the extras associated with this {@code Conference}.
-     * <p>
-     * New or existing keys are replaced in the {@code Conference} extras.  Keys which are no longer
-     * in the new extras, but were present the last time {@code setExtras} was called are removed.
-     * <p>
-     * Alternatively you may use the {@link #putExtras(Bundle)}, and
-     * {@link #removeExtras(String...)} methods to modify the extras.
-     * <p>
-     * No assumptions should be made as to how an In-Call UI or service will handle these extras.
-     * Keys should be fully qualified (e.g., com.example.extras.MY_EXTRA) to avoid conflicts.
-     *
-     * @param extras The extras associated with this {@code Conference}.
-     */
-    public final void setExtras(@Nullable Bundle extras) {
-        // Keeping putExtras and removeExtras in the same lock so that this operation happens as a
-        // block instead of letting other threads put/remove while this method is running.
-        synchronized (mExtrasLock) {
-            // Add/replace any new or changed extras values.
-            putExtras(extras);
-            // If we have used "setExtras" in the past, compare the key set from the last invocation
-            // to the current one and remove any keys that went away.
-            if (mPreviousExtraKeys != null) {
-                List<String> toRemove = new ArrayList<String>();
-                for (String oldKey : mPreviousExtraKeys) {
-                    if (extras == null || !extras.containsKey(oldKey)) {
-                        toRemove.add(oldKey);
-                    }
-                }
-
-                if (!toRemove.isEmpty()) {
-                    removeExtras(toRemove);
-                }
-            }
-
-            // Track the keys the last time set called setExtras.  This way, the next time setExtras
-            // is called we can see if the caller has removed any extras values.
-            if (mPreviousExtraKeys == null) {
-                mPreviousExtraKeys = new ArraySet<String>();
-            }
-            mPreviousExtraKeys.clear();
-            if (extras != null) {
-                mPreviousExtraKeys.addAll(extras.keySet());
-            }
-        }
-    }
-
-    /**
-     * Adds some extras to this {@link Conference}.  Existing keys are replaced and new ones are
-     * added.
-     * <p>
-     * No assumptions should be made as to how an In-Call UI or service will handle these extras.
+     * Set some extras that can be associated with this {@code Conference}. No assumptions should
+     * be made as to how an In-Call UI or service will handle these extras.
      * Keys should be fully qualified (e.g., com.example.MY_EXTRA) to avoid conflicts.
      *
-     * @param extras The extras to add.
+     * @param extras The extras associated with this {@code Connection}.
      */
-    public final void putExtras(@NonNull Bundle extras) {
-        if (extras == null) {
-            return;
-        }
-
-        // Creating a Bundle clone so we don't have to synchronize on mExtrasLock while calling
-        // onExtrasChanged.
-        Bundle listenersBundle;
-        synchronized (mExtrasLock) {
-            if (mExtras == null) {
-                mExtras = new Bundle();
-            }
-            mExtras.putAll(extras);
-            listenersBundle = new Bundle(mExtras);
-        }
-
+    public final void setExtras(@Nullable Bundle extras) {
+        mExtras = extras;
         for (Listener l : mListeners) {
-            l.onExtrasChanged(this, new Bundle(listenersBundle));
+            l.onExtrasChanged(this, extras);
         }
     }
 
     /**
-     * Adds a boolean extra to this {@link Conference}.
-     *
-     * @param key The extra key.
-     * @param value The value.
-     * @hide
-     */
-    public final void putExtra(String key, boolean value) {
-        Bundle newExtras = new Bundle();
-        newExtras.putBoolean(key, value);
-        putExtras(newExtras);
-    }
-
-    /**
-     * Adds an integer extra to this {@link Conference}.
-     *
-     * @param key The extra key.
-     * @param value The value.
-     * @hide
-     */
-    public final void putExtra(String key, int value) {
-        Bundle newExtras = new Bundle();
-        newExtras.putInt(key, value);
-        putExtras(newExtras);
-    }
-
-    /**
-     * Adds a string extra to this {@link Conference}.
-     *
-     * @param key The extra key.
-     * @param value The value.
-     * @hide
-     */
-    public final void putExtra(String key, String value) {
-        Bundle newExtras = new Bundle();
-        newExtras.putString(key, value);
-        putExtras(newExtras);
-    }
-
-    /**
-     * Removes extras from this {@link Conference}.
-     *
-     * @param keys The keys of the extras to remove.
-     */
-    public final void removeExtras(List<String> keys) {
-        if (keys == null || keys.isEmpty()) {
-            return;
-        }
-
-        synchronized (mExtrasLock) {
-            if (mExtras != null) {
-                for (String key : keys) {
-                    mExtras.remove(key);
-                }
-            }
-        }
-
-        List<String> unmodifiableKeys = Collections.unmodifiableList(keys);
-        for (Listener l : mListeners) {
-            l.onExtrasRemoved(this, unmodifiableKeys);
-        }
-    }
-
-    /**
-     * Removes extras from this {@link Conference}.
-     *
-     * @param keys The keys of the extras to remove.
-     */
-    public final void removeExtras(String ... keys) {
-        removeExtras(Arrays.asList(keys));
-    }
-
-    /**
-     * Returns the extras associated with this conference.
-     * <p>
-     * Extras should be updated using {@link #putExtras(Bundle)} and {@link #removeExtras(List)}.
-     * <p>
-     * Telecom or an {@link InCallService} can also update the extras via
-     * {@link android.telecom.Call#putExtras(Bundle)}, and
-     * {@link Call#removeExtras(List)}.
-     * <p>
-     * The conference is notified of changes to the extras made by Telecom or an
-     * {@link InCallService} by {@link #onExtrasChanged(Bundle)}.
-     *
-     * @return The extras associated with this connection.
+     * @return The extras associated with this conference.
      */
     public final Bundle getExtras() {
         return mExtras;
-    }
-
-    /**
-     * Notifies this {@link Conference} of a change to the extras made outside the
-     * {@link ConnectionService}.
-     * <p>
-     * These extras changes can originate from Telecom itself, or from an {@link InCallService} via
-     * {@link android.telecom.Call#putExtras(Bundle)}, and
-     * {@link Call#removeExtras(List)}.
-     *
-     * @param extras The new extras bundle.
-     */
-    public void onExtrasChanged(Bundle extras) {}
-
-    /**
-     * Handles a change to extras received from Telecom.
-     *
-     * @param extras The new extras.
-     * @hide
-     */
-    final void handleExtrasChanged(Bundle extras) {
-        Bundle b = null;
-        synchronized (mExtrasLock) {
-            mExtras = extras;
-            if (mExtras != null) {
-                b = new Bundle(mExtras);
-            }
-        }
-        onExtrasChanged(b);
     }
 }

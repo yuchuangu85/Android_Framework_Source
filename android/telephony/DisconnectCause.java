@@ -187,141 +187,22 @@ public class DisconnectCause {
      */
     public static final int CDMA_ALREADY_ACTIVATED         = 49;
 
-    /**
-     * The call was terminated because it is not possible to place a video call while TTY is
-     * enabled.
-     * {@hide}
-     */
-    public static final int VIDEO_CALL_NOT_ALLOWED_WHILE_TTY_ENABLED = 50;
-
-    /**
-     * The call was terminated because it was pulled to another device.
-     * {@hide}
-     */
-    public static final int CALL_PULLED = 51;
-
-    /**
-     * The call was terminated because it was answered on another device.
-     * {@hide}
-     */
-    public static final int ANSWERED_ELSEWHERE = 52;
-
-    /**
-     * The call was terminated because the maximum allowable number of calls has been reached.
-     * {@hide}
-     */
-    public static final int MAXIMUM_NUMBER_OF_CALLS_REACHED = 53;
-
-    /**
-     * The call was terminated because cellular data has been disabled.
-     * Used when in a video call and the user disables cellular data via the settings.
-     * {@hide}
-     */
-    public static final int DATA_DISABLED = 54;
-
-    /**
-     * The call was terminated because the data policy has disabled cellular data.
-     * Used when in a video call and the user has exceeded the device data limit.
-     * {@hide}
-     */
-    public static final int DATA_LIMIT_REACHED = 55;
-
-    /**
-     * The call being placed was detected as a call forwarding number and was being dialed while
-     * roaming on a carrier that does not allow this.
-     */
-    public static final int DIALED_CALL_FORWARDING_WHILE_ROAMING = 57;
-
-    /**
-     * The network does not accept the emergency call request because IMEI was used as
-     * identification and this cability is not supported by the network.
-     * {@hide}
-     */
-    public static final int IMEI_NOT_ACCEPTED = 58;
-
-    /**
-     * A call over WIFI was disconnected because the WIFI signal was lost or became too degraded to
-     * continue the call.
-     */
-    public static final int WIFI_LOST = 59;
-
-    /**
-     * The call has failed because of access class barring.
-     * {@hide}
-     */
-    public static final int IMS_ACCESS_BLOCKED = 60;
-
-    /**
-     * The call has ended (mid-call) because the device's battery is too low.
-     */
-    public static final int LOW_BATTERY = 61;
-
-    /**
-     * A call was not dialed because the device's battery is too low.
-     */
-    public static final int DIAL_LOW_BATTERY = 62;
-
-    /**
-     * Emergency call failed with a temporary fail cause and can be redialed on this slot.
-     * {@hide}
-     */
-    public static final int EMERGENCY_TEMP_FAILURE = 63;
-
-    /**
-     * Emergency call failed with a permanent fail cause and should not be redialed on this
-     * slot. 
-     * {@hide}
-     */
-    public static final int EMERGENCY_PERM_FAILURE = 64;
-
-    /**
-     * This cause is used to report a normal event only when no other cause in the normal class
-     * applies.
-     * {@hide}
-     */
-    public static final int NORMAL_UNSPECIFIED = 65;
-
-    /**
-     * Stk Call Control modified DIAL request to video DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_MODIFIED_TO_DIAL_VIDEO = 66;
-
-    /**
-     * Stk Call Control modified Video DIAL request to SS request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_SS = 67;
-
-    /**
-     * Stk Call Control modified Video DIAL request to USSD request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_USSD = 68;
-
-    /**
-     * Stk Call Control modified Video DIAL request to DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_DIAL = 69;
-
-    /**
-     * Stk Call Control modified Video DIAL request to Video DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO = 70;
-
-    /**
-     * The network has reported that an alternative emergency number has been dialed, but the user
-     * must exit airplane mode to place the call.
-     */
-    public static final int IMS_SIP_ALTERNATE_EMERGENCY_CALL = 71;
-
     //*********************************************************************************************
     // When adding a disconnect type:
-    // 1) Update toString() with the newly added disconnect type.
-    // 2) Update android.telecom.DisconnectCauseUtil with any mappings to a telecom.DisconnectCause.
+    // 1) Please assign the new type the next id value below.
+    // 2) Increment the next id value below to a new value.
+    // 3) Update MAXIMUM_VALID_VALUE to the new disconnect type.
+    // 4) Update toString() with the newly added disconnect type.
+    // 5) Update android.telecom.DisconnectCauseUtil with any mappings to a telecom.DisconnectCause.
+    //
+    // NextId: 50
     //*********************************************************************************************
+
+    /** Smallest valid value for call disconnect codes. */
+    public static final int MINIMUM_VALID_VALUE = NOT_DISCONNECTED;
+
+    /** Largest valid value for call disconnect codes. */
+    public static final int MAXIMUM_VALID_VALUE = CDMA_ALREADY_ACTIVATED;
 
     /** Private constructor to avoid class instantiation. */
     private DisconnectCause() {
@@ -419,16 +300,6 @@ public class DisconnectCause {
             return "DIAL_MODIFIED_TO_SS";
         case DIAL_MODIFIED_TO_DIAL:
             return "DIAL_MODIFIED_TO_DIAL";
-        case DIAL_MODIFIED_TO_DIAL_VIDEO:
-            return "DIAL_MODIFIED_TO_DIAL_VIDEO";
-        case DIAL_VIDEO_MODIFIED_TO_SS:
-            return "DIAL_VIDEO_MODIFIED_TO_SS";
-        case DIAL_VIDEO_MODIFIED_TO_USSD:
-            return "DIAL_VIDEO_MODIFIED_TO_USSD";
-        case DIAL_VIDEO_MODIFIED_TO_DIAL:
-            return "DIAL_VIDEO_MODIFIED_TO_DIAL";
-        case DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO:
-            return "DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO";
         case ERROR_UNSPECIFIED:
             return "ERROR_UNSPECIFIED";
         case OUTGOING_FAILURE:
@@ -439,38 +310,6 @@ public class DisconnectCause {
             return "IMS_MERGED_SUCCESSFULLY";
         case CDMA_ALREADY_ACTIVATED:
             return "CDMA_ALREADY_ACTIVATED";
-        case VIDEO_CALL_NOT_ALLOWED_WHILE_TTY_ENABLED:
-            return "VIDEO_CALL_NOT_ALLOWED_WHILE_TTY_ENABLED";
-        case CALL_PULLED:
-            return "CALL_PULLED";
-        case ANSWERED_ELSEWHERE:
-            return "ANSWERED_ELSEWHERE";
-        case MAXIMUM_NUMBER_OF_CALLS_REACHED:
-            return "MAXIMUM_NUMER_OF_CALLS_REACHED";
-        case DATA_DISABLED:
-            return "DATA_DISABLED";
-        case DATA_LIMIT_REACHED:
-            return "DATA_LIMIT_REACHED";
-        case DIALED_CALL_FORWARDING_WHILE_ROAMING:
-            return "DIALED_CALL_FORWARDING_WHILE_ROAMING";
-        case IMEI_NOT_ACCEPTED:
-            return "IMEI_NOT_ACCEPTED";
-        case WIFI_LOST:
-            return "WIFI_LOST";
-        case IMS_ACCESS_BLOCKED:
-            return "IMS_ACCESS_BLOCKED";
-        case LOW_BATTERY:
-            return "LOW_BATTERY";
-        case DIAL_LOW_BATTERY:
-            return "DIAL_LOW_BATTERY";
-        case EMERGENCY_TEMP_FAILURE:
-            return "EMERGENCY_TEMP_FAILURE";
-        case EMERGENCY_PERM_FAILURE:
-            return "EMERGENCY_PERM_FAILURE";
-        case NORMAL_UNSPECIFIED:
-            return "NORMAL_UNSPECIFIED";
-        case IMS_SIP_ALTERNATE_EMERGENCY_CALL:
-            return "IMS_SIP_ALTERNATE_EMERGENCY_CALL";
         default:
             return "INVALID: " + cause;
         }

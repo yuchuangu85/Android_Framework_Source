@@ -24,11 +24,8 @@ import android.os.Handler;
 import android.os.Parcelable;
 import android.os.ResultReceiver;
 import android.transition.Transition;
-import android.transition.TransitionListenerAdapter;
 import android.transition.TransitionSet;
-import android.transition.Visibility;
 import android.util.ArrayMap;
-import android.util.ArraySet;
 import android.view.GhostView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,8 +35,6 @@ import android.view.ViewRootImpl;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.widget.ImageView;
-
-import com.android.internal.view.OneShotPreDrawListener;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -210,8 +205,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
     private ArrayList<Matrix> mSharedElementParentMatrices;
     private boolean mSharedElementTransitionComplete;
     private boolean mViewsTransitionComplete;
-    private boolean mBackgroundAnimatorComplete;
-    private ArrayList<View> mStrippedTransitioningViews = new ArrayList<>();
 
     public ActivityTransitionCoordinator(Window window,
             ArrayList<String> allSharedElementNames,
@@ -293,7 +286,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             View view = mTransitioningViews.get(i);
             if (!view.getGlobalVisibleRect(r)) {
                 mTransitioningViews.remove(i);
-                mStrippedTransitioningViews.add(view);
+                showView(view, true);
             }
         }
     }
@@ -366,12 +359,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
                 }
             }
         }
-        if (mStrippedTransitioningViews != null) {
-            for (int i = mStrippedTransitioningViews.size() - 1; i >= 0; i--) {
-                View view = mStrippedTransitioningViews.get(i);
-                set.excludeTarget(view, true);
-            }
-        }
         // By adding the transition after addTarget, we prevent addTarget from
         // affecting transition.
         set.addTransition(transition);
@@ -391,62 +378,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             transition.setEpicenterCallback(mEpicenterCallback);
             transition = setTargets(transition, includeTransitioningViews);
         }
-        noLayoutSuppressionForVisibilityTransitions(transition);
         return transition;
-    }
-
-    /**
-     * Looks through the transition to see which Views have been included and which have been
-     * excluded. {@code views} will be modified to contain only those Views that are included
-     * in the transition. If {@code transition} is a TransitionSet, it will search through all
-     * contained Transitions to find targeted Views.
-     *
-     * @param transition The transition to look through for inclusion of Views
-     * @param views The list of Views that are to be checked for inclusion. Will be modified
-     *              to remove all excluded Views, possibly leaving an empty list.
-     */
-    protected static void removeExcludedViews(Transition transition, ArrayList<View> views) {
-        ArraySet<View> included = new ArraySet<>();
-        findIncludedViews(transition, views, included);
-        views.clear();
-        views.addAll(included);
-    }
-
-    /**
-     * Looks through the transition to see which Views have been included. Only {@code views}
-     * will be examined for inclusion. If {@code transition} is a TransitionSet, it will search
-     * through all contained Transitions to find targeted Views.
-     *
-     * @param transition The transition to look through for inclusion of Views
-     * @param views The list of Views that are to be checked for inclusion.
-     * @param included Modified to contain all Views in views that have at least one Transition
-     *                 that affects it.
-     */
-    private static void findIncludedViews(Transition transition, ArrayList<View> views,
-            ArraySet<View> included) {
-        if (transition instanceof TransitionSet) {
-            TransitionSet set = (TransitionSet) transition;
-            ArrayList<View> includedViews = new ArrayList<>();
-            final int numViews = views.size();
-            for (int i = 0; i < numViews; i++) {
-                final View view = views.get(i);
-                if (transition.isValidTarget(view)) {
-                    includedViews.add(view);
-                }
-            }
-            final int count = set.getTransitionCount();
-            for (int i = 0; i < count; i++) {
-                findIncludedViews(set.getTransitionAt(i), includedViews, included);
-            }
-        } else {
-            final int numViews = views.size();
-            for (int i = 0; i < numViews; i++) {
-                final View view = views.get(i);
-                if (transition.isValidTarget(view)) {
-                    included.add(view);
-                }
-            }
-        }
     }
 
     protected static Transition mergeTransitions(Transition transition1, Transition transition2) {
@@ -570,10 +502,8 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             // Find the location in the view's parent
             ViewGroup parent = (ViewGroup) view.getParent();
             Matrix matrix = new Matrix();
-            if (parent != null) {
-                parent.transformMatrixToLocal(matrix);
-                matrix.postTranslate(parent.getScrollX(), parent.getScrollY());
-            }
+            parent.transformMatrixToLocal(matrix);
+            matrix.postTranslate(parent.getScrollX(), parent.getScrollY());
             mSharedElementParentMatrices.add(matrix);
         }
     }
@@ -631,9 +561,16 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
     protected void scheduleSetSharedElementEnd(final ArrayList<View> snapshots) {
         final View decorView = getDecor();
         if (decorView != null) {
-            OneShotPreDrawListener.add(decorView, () -> {
-                notifySharedElementEnd(snapshots);
-            });
+            decorView.getViewTreeObserver().addOnPreDrawListener(
+                    new ViewTreeObserver.OnPreDrawListener() {
+                        @Override
+                        public boolean onPreDraw() {
+                            decorView.getViewTreeObserver().removeOnPreDrawListener(this);
+                            notifySharedElementEnd(snapshots);
+                            return true;
+                        }
+                    }
+            );
         }
     }
 
@@ -740,7 +677,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
         mWindow = null;
         mSharedElements.clear();
         mTransitioningViews = null;
-        mStrippedTransitioningViews = null;
         mOriginalAlphas.clear();
         mResultReceiver = null;
         mPendingTransition = null;
@@ -863,17 +799,14 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             Matrix tempMatrix = new Matrix();
             for (int i = 0; i < numSharedElements; i++) {
                 View view = mSharedElements.get(i);
-                if (view.isAttachedToWindow()) {
-                    tempMatrix.reset();
-                    mSharedElementParentMatrices.get(i).invert(tempMatrix);
-                    GhostView.addGhost(view, decor, tempMatrix);
-                    ViewGroup parent = (ViewGroup) view.getParent();
-                    if (moveWithParent && !isInTransitionGroup(parent, decor)) {
-                        GhostViewListeners listener = new GhostViewListeners(view, parent, decor);
-                        parent.getViewTreeObserver().addOnPreDrawListener(listener);
-                        parent.addOnAttachStateChangeListener(listener);
-                        mGhostViewListeners.add(listener);
-                    }
+                tempMatrix.reset();
+                mSharedElementParentMatrices.get(i).invert(tempMatrix);
+                GhostView.addGhost(view, decor, tempMatrix);
+                ViewGroup parent = (ViewGroup) view.getParent();
+                if (moveWithParent && !isInTransitionGroup(parent, decor)) {
+                    GhostViewListeners listener = new GhostViewListeners(view, parent, decor);
+                    parent.getViewTreeObserver().addOnPreDrawListener(listener);
+                    mGhostViewListeners.add(listener);
                 }
             }
         }
@@ -899,7 +832,8 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
         int numListeners = mGhostViewListeners.size();
         for (int i = 0; i < numListeners; i++) {
             GhostViewListeners listener = mGhostViewListeners.get(i);
-            listener.removeListener();
+            ViewGroup parent = (ViewGroup) listener.getView().getParent();
+            parent.getViewTreeObserver().removeOnPreDrawListener(listener);
         }
         mGhostViewListeners.clear();
 
@@ -930,9 +864,15 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
     protected void scheduleGhostVisibilityChange(final int visibility) {
         final View decorView = getDecor();
         if (decorView != null) {
-            OneShotPreDrawListener.add(decorView, () -> {
-                setGhostVisibility(visibility);
-            });
+            decorView.getViewTreeObserver()
+                    .addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+                        @Override
+                        public boolean onPreDraw() {
+                            decorView.getViewTreeObserver().removeOnPreDrawListener(this);
+                            setGhostVisibility(visibility);
+                            return true;
+                        }
+                    });
         }
     }
 
@@ -945,10 +885,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
         startInputWhenTransitionsComplete();
     }
 
-    protected void backgroundAnimatorComplete() {
-        mBackgroundAnimatorComplete = true;
-    }
-
     protected void sharedElementTransitionComplete() {
         mSharedElementTransitionComplete = true;
         startInputWhenTransitionsComplete();
@@ -958,9 +894,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             final View decor = getDecor();
             if (decor != null) {
                 final ViewRootImpl viewRoot = decor.getViewRootImpl();
-                if (viewRoot != null) {
-                    viewRoot.setPausedForTransition(false);
-                }
+                viewRoot.setPausedForTransition(false);
             }
             onTransitionsComplete();
         }
@@ -976,7 +910,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
 
     protected void onTransitionsComplete() {}
 
-    protected class ContinueTransitionListener extends TransitionListenerAdapter {
+    protected class ContinueTransitionListener extends Transition.TransitionListenerAdapter {
         @Override
         public void onTransitionStart(Transition transition) {
             mIsStartingTransition = false;
@@ -985,11 +919,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             if (pending != null) {
                 startTransition(pending);
             }
-        }
-
-        @Override
-        public void onTransitionEnd(Transition transition) {
-            transition.removeListener(this);
         }
     }
 
@@ -1000,43 +929,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
             }
         }
         return -1;
-    }
-
-    protected void setTransitioningViewsVisiblity(int visiblity, boolean invalidate) {
-        final int numElements = mTransitioningViews == null ? 0 : mTransitioningViews.size();
-        for (int i = 0; i < numElements; i++) {
-            final View view = mTransitioningViews.get(i);
-            if (invalidate) {
-                // Allow the view to be invalidated by the visibility change
-                view.setVisibility(visiblity);
-            } else {
-                // Don't invalidate the view with the visibility change
-                view.setTransitionVisibility(visiblity);
-            }
-        }
-    }
-
-    /**
-     * Blocks suppressLayout from Visibility transitions. It is ok to suppress the layout,
-     * but we don't want to force the layout when suppressLayout becomes false. This leads
-     * to visual glitches.
-     */
-    private static void noLayoutSuppressionForVisibilityTransitions(Transition transition) {
-        if (transition instanceof Visibility) {
-            final Visibility visibility = (Visibility) transition;
-            visibility.setSuppressLayout(false);
-        } else if (transition instanceof TransitionSet) {
-            final TransitionSet set = (TransitionSet) transition;
-            final int count = set.getTransitionCount();
-            for (int i = 0; i < count; i++) {
-                noLayoutSuppressionForVisibilityTransitions(set.getTransitionAt(i));
-            }
-        }
-    }
-
-    public boolean isTransitionRunning() {
-        return !(mViewsTransitionComplete && mSharedElementTransitionComplete &&
-                mBackgroundAnimatorComplete);
     }
 
     private static class FixedEpicenterCallback extends Transition.EpicenterCallback {
@@ -1050,19 +942,16 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
         }
     }
 
-    private static class GhostViewListeners implements ViewTreeObserver.OnPreDrawListener,
-            View.OnAttachStateChangeListener {
+    private static class GhostViewListeners implements ViewTreeObserver.OnPreDrawListener {
         private View mView;
         private ViewGroup mDecor;
         private View mParent;
         private Matrix mMatrix = new Matrix();
-        private ViewTreeObserver mViewTreeObserver;
 
         public GhostViewListeners(View view, View parent, ViewGroup decor) {
             mView = view;
             mParent = parent;
             mDecor = decor;
-            mViewTreeObserver = parent.getViewTreeObserver();
         }
 
         public View getView() {
@@ -1072,32 +961,13 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
         @Override
         public boolean onPreDraw() {
             GhostView ghostView = GhostView.getGhost(mView);
-            if (ghostView == null || !mView.isAttachedToWindow()) {
-                removeListener();
+            if (ghostView == null) {
+                mParent.getViewTreeObserver().removeOnPreDrawListener(this);
             } else {
                 GhostView.calculateMatrix(mView, mDecor, mMatrix);
                 ghostView.setMatrix(mMatrix);
             }
             return true;
-        }
-
-        public void removeListener() {
-            if (mViewTreeObserver.isAlive()) {
-                mViewTreeObserver.removeOnPreDrawListener(this);
-            } else {
-                mParent.getViewTreeObserver().removeOnPreDrawListener(this);
-            }
-            mParent.removeOnAttachStateChangeListener(this);
-        }
-
-        @Override
-        public void onViewAttachedToWindow(View v) {
-            mViewTreeObserver = v.getViewTreeObserver();
-        }
-
-        @Override
-        public void onViewDetachedFromWindow(View v) {
-            removeListener();
         }
     }
 

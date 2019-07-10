@@ -15,16 +15,14 @@
  */
 package android.app;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.ResultReceiver;
 import android.transition.Transition;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
-
-import com.android.internal.view.OneShotPreDrawListener;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -152,13 +150,7 @@ class ActivityTransitionState {
     }
 
     public void setEnterActivityOptions(Activity activity, ActivityOptions options) {
-        final Window window = activity.getWindow();
-        if (window == null) {
-            return;
-        }
-        // ensure Decor View has been created so that the window features are activated
-        window.getDecorView();
-        if (window.hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)
+        if (activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)
                 && options != null && mEnterActivityOptions == null
                 && mEnterTransitionCoordinator == null
                 && options.getAnimationType() == ActivityOptions.ANIM_SCENE_TRANSITION) {
@@ -168,11 +160,7 @@ class ActivityTransitionState {
                 restoreExitedViews();
                 int result = mEnterActivityOptions.getResultCode();
                 if (result != 0) {
-                    Intent intent = mEnterActivityOptions.getResultData();
-                    if (intent != null) {
-                        intent.setExtrasClassLoader(activity.getClassLoader());
-                    }
-                    activity.onActivityReenter(result, intent);
+                    activity.onActivityReenter(result, mEnterActivityOptions.getResultData());
                 }
             }
         }
@@ -191,12 +179,7 @@ class ActivityTransitionState {
             activity.getWindow().getDecorView().setVisibility(View.VISIBLE);
         }
         mEnterTransitionCoordinator = new EnterTransitionCoordinator(activity,
-                resultReceiver, sharedElementNames, mEnterActivityOptions.isReturning(),
-                mEnterActivityOptions.isCrossTask());
-        if (mEnterActivityOptions.isCrossTask()) {
-            mExitingFrom = new ArrayList<>(mEnterActivityOptions.getSharedElementNames());
-            mExitingTo = new ArrayList<>(mEnterActivityOptions.getSharedElementNames());
-        }
+                resultReceiver, sharedElementNames, mEnterActivityOptions.isReturning());
 
         if (!mIsEnterPostponed) {
             startEnter();
@@ -217,7 +200,7 @@ class ActivityTransitionState {
     }
 
     private void startEnter() {
-        if (mEnterTransitionCoordinator.isReturning()) {
+        if (mEnterActivityOptions.isReturning()) {
             if (mExitingToView != null) {
                 mEnterTransitionCoordinator.viewInstancesReady(mExitingFrom, mExitingTo,
                         mExitingToView);
@@ -247,24 +230,8 @@ class ActivityTransitionState {
         }
     }
 
-    public void onResume(Activity activity, boolean isTopOfTask) {
-        // After orientation change, the onResume can come in before the top Activity has
-        // left, so if the Activity is not top, wait a second for the top Activity to exit.
-        if (isTopOfTask || mEnterTransitionCoordinator == null) {
-            restoreExitedViews();
-            restoreReenteringViews();
-        } else {
-            activity.mHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mEnterTransitionCoordinator == null ||
-                            mEnterTransitionCoordinator.isWaitingForRemoteExit()) {
-                        restoreExitedViews();
-                        restoreReenteringViews();
-                    }
-                }
-            }, 1000);
-        }
+    public void onResume() {
+        restoreExitedViews();
     }
 
     public void clear() {
@@ -285,18 +252,8 @@ class ActivityTransitionState {
         }
     }
 
-    private void restoreReenteringViews() {
-        if (mEnterTransitionCoordinator != null && mEnterTransitionCoordinator.isReturning() &&
-                !mEnterTransitionCoordinator.isCrossTask()) {
-            mEnterTransitionCoordinator.forceViewsToAppear();
-            mExitingFrom = null;
-            mExitingTo = null;
-            mExitingToView = null;
-        }
-    }
-
     public boolean startExitBackTransition(final Activity activity) {
-        if (mEnteringNames == null || mCalledExitCoordinator != null) {
+        if (mEnteringNames == null) {
             return false;
         } else {
             if (!mHasExited) {
@@ -314,20 +271,25 @@ class ActivityTransitionState {
                     }
                 }
 
-                mReturnExitCoordinator = new ExitTransitionCoordinator(activity,
-                        activity.getWindow(), activity.mEnterTransitionListener, mEnteringNames,
-                        null, null, true);
+                mReturnExitCoordinator =
+                        new ExitTransitionCoordinator(activity, mEnteringNames, null, null, true);
                 if (enterViewsTransition != null && decor != null) {
                     enterViewsTransition.resume(decor);
                 }
                 if (delayExitBack && decor != null) {
                     final ViewGroup finalDecor = decor;
-                    OneShotPreDrawListener.add(decor, () -> {
-                        if (mReturnExitCoordinator != null) {
-                            mReturnExitCoordinator.startExit(activity.mResultCode,
-                                    activity.mResultData);
-                        }
-                    });
+                    decor.getViewTreeObserver().addOnPreDrawListener(
+                            new ViewTreeObserver.OnPreDrawListener() {
+                                @Override
+                                public boolean onPreDraw() {
+                                    finalDecor.getViewTreeObserver().removeOnPreDrawListener(this);
+                                    if (mReturnExitCoordinator != null) {
+                                        mReturnExitCoordinator.startExit(activity.mResultCode,
+                                                activity.mResultData);
+                                    }
+                                    return true;
+                                }
+                            });
                 } else {
                     mReturnExitCoordinator.startExit(activity.mResultCode, activity.mResultData);
                 }
@@ -336,33 +298,12 @@ class ActivityTransitionState {
         }
     }
 
-    public boolean isTransitionRunning() {
-        // Note that *only* enter *or* exit will be running at any given time
-        if (mEnterTransitionCoordinator != null) {
-            if (mEnterTransitionCoordinator.isTransitionRunning()) {
-                return true;
-            }
-        }
-        if (mCalledExitCoordinator != null) {
-            if (mCalledExitCoordinator.isTransitionRunning()) {
-                return true;
-            }
-        }
-        if (mReturnExitCoordinator != null) {
-            if (mReturnExitCoordinator.isTransitionRunning()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public void startExitOutTransition(Activity activity, Bundle options) {
-        mEnterTransitionCoordinator = null;
-        if (!activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS) ||
-                mExitTransitionCoordinators == null) {
+        if (!activity.getWindow().hasFeature(Window.FEATURE_ACTIVITY_TRANSITIONS)) {
             return;
         }
         ActivityOptions activityOptions = new ActivityOptions(options);
+        mEnterTransitionCoordinator = null;
         if (activityOptions.getAnimationType() == ActivityOptions.ANIM_SCENE_TRANSITION) {
             int key = activityOptions.getExitCoordinatorKey();
             int index = mExitTransitionCoordinators.indexOfKey(key);

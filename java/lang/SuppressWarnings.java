@@ -1,72 +1,45 @@
-/*
- * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang;
 
-import java.lang.annotation.*;
-import static java.lang.annotation.ElementType.*;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 /**
- * Indicates that the named compiler warnings should be suppressed in the
- * annotated element (and in all program elements contained in the annotated
- * element).  Note that the set of warnings suppressed in a given element is
- * a superset of the warnings suppressed in all containing elements.  For
- * example, if you annotate a class to suppress one warning and annotate a
- * method to suppress another, both warnings will be suppressed in the method.
+ * Annotation type used to indicate that the compiler should not issue the
+ * specified warnings for the marked program element. Warnings are not only
+ * suppressed for the annotated element but also for all program elements
+ * contained in that element.
+ * <p>
+ * It is recommended that programmers always use this annotation on the most
+ * deeply nested element where it is actually needed.
  *
- * <p>As a matter of style, programmers should always use this annotation
- * on the most deeply nested element where it is effective.  If you want to
- * suppress a warning in a particular method, you should annotate that
- * method rather than its class.
- *
- * @author Josh Bloch
  * @since 1.5
- * @jls 4.8 Raw Types
- * @jls 4.12.2 Variables of Reference Type
- * @jls 5.1.9 Unchecked Conversion
- * @jls 5.5.2 Checked Casts and Unchecked Casts
- * @jls 9.6.3.5 @SuppressWarnings
  */
-@Target({TYPE, FIELD, METHOD, PARAMETER, CONSTRUCTOR, LOCAL_VARIABLE})
+@Target( { ElementType.TYPE, ElementType.FIELD, ElementType.METHOD,
+        ElementType.PARAMETER, ElementType.CONSTRUCTOR,
+        ElementType.LOCAL_VARIABLE })
 @Retention(RetentionPolicy.SOURCE)
 public @interface SuppressWarnings {
+
     /**
-     * The set of warnings that are to be suppressed by the compiler in the
-     * annotated element.  Duplicate names are permitted.  The second and
-     * successive occurrences of a name are ignored.  The presence of
-     * unrecognized warning names is <i>not</i> an error: Compilers must
-     * ignore any warning names they do not recognize.  They are, however,
-     * free to emit a warning if an annotation contains an unrecognized
-     * warning name.
-     *
-     * <p> The string {@code "unchecked"} is used to suppress
-     * unchecked warnings. Compiler vendors should document the
-     * additional warning names they support in conjunction with this
-     * annotation type. They are encouraged to cooperate to ensure
-     * that the same names work across multiple compilers.
-     * @return the set of warnings to be suppressed
+     * The list of warnings a compiler should not issue.
      */
-    String[] value();
+    public String[] value();
 }

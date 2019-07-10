@@ -17,28 +17,21 @@
 package com.android.server.am;
 
 import android.content.ComponentName;
-import android.content.ComponentName.WithComponentName;
 import android.os.Binder;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.Slog;
 import android.util.SparseArray;
 import com.android.internal.os.TransferPipe;
-import com.android.internal.util.CollectionUtils;
-import com.android.internal.util.DumpUtils;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * Keeps track of content providers by authority (name) and class. It separates the mapping by
@@ -218,7 +211,7 @@ public final class ProviderMap {
             boolean doit, boolean evenPersistent, int userId,
             ArrayList<ContentProviderRecord> result) {
         boolean didSomething = false;
-        if (userId == UserHandle.USER_ALL || userId == UserHandle.USER_SYSTEM) {
+        if (userId == UserHandle.USER_ALL || userId == UserHandle.USER_OWNER) {
             didSomething = collectPackageProvidersLocked(packageName, filterByClasses,
                     doit, evenPersistent, mSingletonByClass, result);
         }
@@ -329,11 +322,10 @@ public final class ProviderMap {
         return needSep;
     }
 
-    private ArrayList<ContentProviderRecord> getProvidersForName(String name) {
+    protected boolean dumpProvider(FileDescriptor fd, PrintWriter pw, String name, String[] args,
+            int opti, boolean dumpAll) {
         ArrayList<ContentProviderRecord> allProviders = new ArrayList<ContentProviderRecord>();
-        final ArrayList<ContentProviderRecord> ret = new ArrayList<>();
-
-        final Predicate<ContentProviderRecord> filter = DumpUtils.filterRecord(name);
+        ArrayList<ContentProviderRecord> providers = new ArrayList<ContentProviderRecord>();
 
         synchronized (mAm) {
             allProviders.addAll(mSingletonByClass.values());
@@ -341,16 +333,38 @@ public final class ProviderMap {
                 allProviders.addAll(mProvidersByClassPerUser.valueAt(i).values());
             }
 
-            CollectionUtils.addIf(allProviders, ret, filter);
-        }
-        // Sort by component name.
-        ret.sort(Comparator.comparing(WithComponentName::getComponentName));
-        return ret;
-    }
+            if ("all".equals(name)) {
+                providers.addAll(allProviders);
+            } else {
+                ComponentName componentName = name != null
+                        ? ComponentName.unflattenFromString(name) : null;
+                int objectId = 0;
+                if (componentName == null) {
+                    // Not a '/' separated full component name; maybe an object ID?
+                    try {
+                        objectId = Integer.parseInt(name, 16);
+                        name = null;
+                        componentName = null;
+                    } catch (RuntimeException e) {
+                    }
+                }
 
-    protected boolean dumpProvider(FileDescriptor fd, PrintWriter pw, String name, String[] args,
-            int opti, boolean dumpAll) {
-        ArrayList<ContentProviderRecord> providers = getProvidersForName(name);
+                for (int i=0; i<allProviders.size(); i++) {
+                    ContentProviderRecord r1 = allProviders.get(i);
+                    if (componentName != null) {
+                        if (r1.name.equals(componentName)) {
+                            providers.add(r1);
+                        }
+                    } else if (name != null) {
+                        if (r1.name.flattenToString().contains(name)) {
+                            providers.add(r1);
+                        }
+                    } else if (System.identityHashCode(r1) == objectId) {
+                        providers.add(r1);
+                    }
+                }
+            }
+        }
 
         if (providers.size() <= 0) {
             return false;
@@ -368,29 +382,18 @@ public final class ProviderMap {
     }
 
     /**
-     * Before invoking IApplicationThread.dumpProvider(), print meta information to the print
-     * writer and handle passed flags.
+     * Invokes IApplicationThread.dumpProvider() on the thread of the specified provider if
+     * there is a thread associated with the provider.
      */
     private void dumpProvider(String prefix, FileDescriptor fd, PrintWriter pw,
             final ContentProviderRecord r, String[] args, boolean dumpAll) {
-        for (String s: args) {
-            if (!dumpAll && s.contains("--proto")) {
-                if (r.proc != null && r.proc.thread != null) {
-                    dumpToTransferPipe(null , fd, pw, r, args);
-                }
-                return;
-            }
-        }
         String innerPrefix = prefix + "  ";
         synchronized (mAm) {
             pw.print(prefix); pw.print("PROVIDER ");
-            pw.print(r);
-            pw.print(" pid=");
-            if (r.proc != null) {
-                pw.println(r.proc.pid);
-            } else {
-                pw.println("(not running)");
-            }
+                    pw.print(r);
+                    pw.print(" pid=");
+                    if (r.proc != null) pw.println(r.proc.pid);
+                    else pw.println("(not running)");
             if (dumpAll) {
                 r.dump(pw, innerPrefix, true);
             }
@@ -398,59 +401,23 @@ public final class ProviderMap {
         if (r.proc != null && r.proc.thread != null) {
             pw.println("    Client:");
             pw.flush();
-            dumpToTransferPipe("      ", fd, pw, r, args);
-        }
-    }
-
-    /**
-     * Similar to the dumpProvider, but only dumps the first matching provider.
-     * The provider is responsible for dumping as proto.
-     */
-    protected boolean dumpProviderProto(FileDescriptor fd, PrintWriter pw, String name,
-            String[] args) {
-        //add back the --proto arg, which was stripped out by PriorityDump
-        String[] newArgs = Arrays.copyOf(args, args.length + 1);
-        newArgs[args.length] = "--proto";
-
-        ArrayList<ContentProviderRecord> providers = getProvidersForName(name);
-
-        if (providers.size() <= 0) {
-            return false;
-        }
-
-        // Only dump the first provider, since we are dumping in proto format
-        for (int i = 0; i < providers.size(); i++) {
-            final ContentProviderRecord r = providers.get(i);
-            if (r.proc != null && r.proc.thread != null) {
-                dumpToTransferPipe(null, fd, pw, r, newArgs);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Invokes IApplicationThread.dumpProvider() on the thread of the specified provider without
-     * any meta string (e.g., provider info, indentation) written to the file descriptor.
-     */
-    private void dumpToTransferPipe(String prefix, FileDescriptor fd, PrintWriter pw,
-            final ContentProviderRecord r, String[] args) {
-        try {
-            TransferPipe tp = new TransferPipe();
             try {
-                r.proc.thread.dumpProvider(
-                    tp.getWriteFd(), r.provider.asBinder(), args);
-                tp.setBufferPrefix(prefix);
-                // Short timeout, since blocking here can
-                // deadlock with the application.
-                tp.go(fd, 2000);
-            } finally {
-                tp.kill();
+                TransferPipe tp = new TransferPipe();
+                try {
+                    r.proc.thread.dumpProvider(
+                            tp.getWriteFd().getFileDescriptor(), r.provider.asBinder(), args);
+                    tp.setBufferPrefix("      ");
+                    // Short timeout, since blocking here can
+                    // deadlock with the application.
+                    tp.go(fd, 2000);
+                } finally {
+                    tp.kill();
+                }
+            } catch (IOException ex) {
+                pw.println("      Failure while dumping the provider: " + ex);
+            } catch (RemoteException ex) {
+                pw.println("      Got a RemoteException while dumping the service");
             }
-        } catch (IOException ex) {
-            pw.println("      Failure while dumping the provider: " + ex);
-        } catch (RemoteException ex) {
-            pw.println("      Got a RemoteException while dumping the service");
         }
     }
 }

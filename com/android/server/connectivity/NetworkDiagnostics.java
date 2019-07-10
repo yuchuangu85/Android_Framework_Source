@@ -18,19 +18,15 @@ package com.android.server.connectivity;
 
 import static android.system.OsConstants.*;
 
-import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkUtils;
 import android.net.RouteInfo;
-import android.net.TrafficStats;
-import android.net.util.NetworkConstants;
 import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.StructTimeval;
 import android.text.TextUtils;
-import android.util.Pair;
 
 import com.android.internal.util.IndentingPrintWriter;
 
@@ -51,9 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -111,33 +105,27 @@ public class NetworkDiagnostics {
     // so callers can wait for completion.
     private final CountDownLatch mCountDownLatch;
 
-    public class Measurement {
+    private class Measurement {
         private static final String SUCCEEDED = "SUCCEEDED";
         private static final String FAILED = "FAILED";
 
-        private boolean succeeded;
+        // TODO: Refactor to make these private for better encapsulation.
+        public String description = "";
+        public long startTime;
+        public long finishTime;
+        public String result = "";
+        public Thread thread;
 
-        // Package private.  TODO: investigate better encapsulation.
-        String description = "";
-        long startTime;
-        long finishTime;
-        String result = "";
-        Thread thread;
-
-        public boolean checkSucceeded() { return succeeded; }
-
-        void recordSuccess(String msg) {
+        public void recordSuccess(String msg) {
             maybeFixupTimes();
-            succeeded = true;
             result = SUCCEEDED + ": " + msg;
             if (mCountDownLatch != null) {
                 mCountDownLatch.countDown();
             }
         }
 
-        void recordFailure(String msg) {
+        public void recordFailure(String msg) {
             maybeFixupTimes();
-            succeeded = false;
             result = FAILED + ": " + msg;
             if (mCountDownLatch != null) {
                 mCountDownLatch.countDown();
@@ -161,8 +149,6 @@ public class NetworkDiagnostics {
     }
 
     private final Map<InetAddress, Measurement> mIcmpChecks = new HashMap<>();
-    private final Map<Pair<InetAddress, InetAddress>, Measurement> mExplicitSourceIcmpChecks =
-            new HashMap<>();
     private final Map<InetAddress, Measurement> mDnsUdpChecks = new HashMap<>();
     private final String mDescription;
 
@@ -192,11 +178,7 @@ public class NetworkDiagnostics {
 
         for (RouteInfo route : mLinkProperties.getRoutes()) {
             if (route.hasGateway()) {
-                InetAddress gateway = route.getGateway();
-                prepareIcmpMeasurement(gateway);
-                if (route.isIPv6Default()) {
-                    prepareExplicitSourceIcmpMeasurements(gateway);
-                }
+                prepareIcmpMeasurement(route.getGateway());
             }
         }
         for (InetAddress nameserver : mLinkProperties.getDnsServers()) {
@@ -231,20 +213,6 @@ public class NetworkDiagnostics {
         }
     }
 
-    private void prepareExplicitSourceIcmpMeasurements(InetAddress target) {
-        for (LinkAddress l : mLinkProperties.getLinkAddresses()) {
-            InetAddress source = l.getAddress();
-            if (source instanceof Inet6Address && l.isGlobalPreferred()) {
-                Pair<InetAddress, InetAddress> srcTarget = new Pair<>(source, target);
-                if (!mExplicitSourceIcmpChecks.containsKey(srcTarget)) {
-                    Measurement measurement = new Measurement();
-                    measurement.thread = new Thread(new IcmpCheck(source, target, measurement));
-                    mExplicitSourceIcmpChecks.put(srcTarget, measurement);
-                }
-            }
-        }
-    }
-
     private void prepareDnsMeasurement(InetAddress target) {
         if (!mDnsUdpChecks.containsKey(target)) {
             Measurement measurement = new Measurement();
@@ -254,14 +222,11 @@ public class NetworkDiagnostics {
     }
 
     private int totalMeasurementCount() {
-        return mIcmpChecks.size() + mExplicitSourceIcmpChecks.size() + mDnsUdpChecks.size();
+        return mIcmpChecks.size() + mDnsUdpChecks.size();
     }
 
     private void startMeasurements() {
         for (Measurement measurement : mIcmpChecks.values()) {
-            measurement.thread.start();
-        }
-        for (Measurement measurement : mExplicitSourceIcmpChecks.values()) {
             measurement.thread.start();
         }
         for (Measurement measurement : mDnsUdpChecks.values()) {
@@ -275,51 +240,6 @@ public class NetworkDiagnostics {
         } catch (InterruptedException ignored) {}
     }
 
-    public List<Measurement> getMeasurements() {
-        // TODO: Consider moving waitForMeasurements() in here to minimize the
-        // chance of caller errors.
-
-        ArrayList<Measurement> measurements = new ArrayList(totalMeasurementCount());
-
-        // Sort measurements IPv4 first.
-        for (Map.Entry<InetAddress, Measurement> entry : mIcmpChecks.entrySet()) {
-            if (entry.getKey() instanceof Inet4Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-        for (Map.Entry<Pair<InetAddress, InetAddress>, Measurement> entry :
-                mExplicitSourceIcmpChecks.entrySet()) {
-            if (entry.getKey().first instanceof Inet4Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-        for (Map.Entry<InetAddress, Measurement> entry : mDnsUdpChecks.entrySet()) {
-            if (entry.getKey() instanceof Inet4Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-
-        // IPv6 measurements second.
-        for (Map.Entry<InetAddress, Measurement> entry : mIcmpChecks.entrySet()) {
-            if (entry.getKey() instanceof Inet6Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-        for (Map.Entry<Pair<InetAddress, InetAddress>, Measurement> entry :
-                mExplicitSourceIcmpChecks.entrySet()) {
-            if (entry.getKey().first instanceof Inet6Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-        for (Map.Entry<InetAddress, Measurement> entry : mDnsUdpChecks.entrySet()) {
-            if (entry.getKey() instanceof Inet6Address) {
-                measurements.add(entry.getValue());
-            }
-        }
-
-        return measurements;
-    }
-
     public void dump(IndentingPrintWriter pw) {
         pw.println(TAG + ":" + mDescription);
         final long unfinished = mCountDownLatch.getCount();
@@ -331,27 +251,38 @@ public class NetworkDiagnostics {
         }
 
         pw.increaseIndent();
-
-        String prefix;
-        for (Measurement m : getMeasurements()) {
-            prefix = m.checkSucceeded() ? "." : "F";
-            pw.println(prefix + "  " + m.toString());
+        for (Map.Entry<InetAddress, Measurement> entry : mIcmpChecks.entrySet()) {
+            if (entry.getKey() instanceof Inet4Address) {
+                pw.println(entry.getValue().toString());
+            }
         }
-
+        for (Map.Entry<InetAddress, Measurement> entry : mIcmpChecks.entrySet()) {
+            if (entry.getKey() instanceof Inet6Address) {
+                pw.println(entry.getValue().toString());
+            }
+        }
+        for (Map.Entry<InetAddress, Measurement> entry : mDnsUdpChecks.entrySet()) {
+            if (entry.getKey() instanceof Inet4Address) {
+                pw.println(entry.getValue().toString());
+            }
+        }
+        for (Map.Entry<InetAddress, Measurement> entry : mDnsUdpChecks.entrySet()) {
+            if (entry.getKey() instanceof Inet6Address) {
+                pw.println(entry.getValue().toString());
+            }
+        }
         pw.decreaseIndent();
     }
 
 
     private class SimpleSocketCheck implements Closeable {
-        protected final InetAddress mSource;  // Usually null.
         protected final InetAddress mTarget;
         protected final int mAddressFamily;
         protected final Measurement mMeasurement;
         protected FileDescriptor mFileDescriptor;
         protected SocketAddress mSocketAddress;
 
-        protected SimpleSocketCheck(
-                InetAddress source, InetAddress target, Measurement measurement) {
+        protected SimpleSocketCheck(InetAddress target, Measurement measurement) {
             mMeasurement = measurement;
 
             if (target instanceof Inet6Address) {
@@ -370,25 +301,12 @@ public class NetworkDiagnostics {
                 mTarget = target;
                 mAddressFamily = AF_INET;
             }
-
-            // We don't need to check the scope ID here because we currently only do explicit-source
-            // measurements from global IPv6 addresses.
-            mSource = source;
-        }
-
-        protected SimpleSocketCheck(InetAddress target, Measurement measurement) {
-            this(null, target, measurement);
         }
 
         protected void setupSocket(
                 int sockType, int protocol, long writeTimeout, long readTimeout, int dstPort)
                 throws ErrnoException, IOException {
-            final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PROBE);
-            try {
-                mFileDescriptor = Os.socket(mAddressFamily, sockType, protocol);
-            } finally {
-                TrafficStats.setThreadStatsTag(oldTag);
-            }
+            mFileDescriptor = Os.socket(mAddressFamily, sockType, protocol);
             // Setting SNDTIMEO is purely for defensive purposes.
             Os.setsockoptTimeval(mFileDescriptor,
                     SOL_SOCKET, SO_SNDTIMEO, StructTimeval.fromMillis(writeTimeout));
@@ -396,9 +314,6 @@ public class NetworkDiagnostics {
                     SOL_SOCKET, SO_RCVTIMEO, StructTimeval.fromMillis(readTimeout));
             // TODO: Use IP_RECVERR/IPV6_RECVERR, pending OsContants availability.
             mNetwork.bindSocket(mFileDescriptor);
-            if (mSource != null) {
-                Os.bind(mFileDescriptor, mSource, 0);
-            }
             Os.connect(mFileDescriptor, mTarget, dstPort);
             mSocketAddress = Os.getsockname(mFileDescriptor);
         }
@@ -422,28 +337,26 @@ public class NetworkDiagnostics {
     private class IcmpCheck extends SimpleSocketCheck implements Runnable {
         private static final int TIMEOUT_SEND = 100;
         private static final int TIMEOUT_RECV = 300;
+        private static final int ICMPV4_ECHO_REQUEST = 8;
+        private static final int ICMPV6_ECHO_REQUEST = 128;
         private static final int PACKET_BUFSIZE = 512;
         private final int mProtocol;
         private final int mIcmpType;
 
-        public IcmpCheck(InetAddress source, InetAddress target, Measurement measurement) {
-            super(source, target, measurement);
+        public IcmpCheck(InetAddress target, Measurement measurement) {
+            super(target, measurement);
 
             if (mAddressFamily == AF_INET6) {
                 mProtocol = IPPROTO_ICMPV6;
-                mIcmpType = NetworkConstants.ICMPV6_ECHO_REQUEST_TYPE;
+                mIcmpType = ICMPV6_ECHO_REQUEST;
                 mMeasurement.description = "ICMPv6";
             } else {
                 mProtocol = IPPROTO_ICMP;
-                mIcmpType = NetworkConstants.ICMPV4_ECHO_REQUEST_TYPE;
+                mIcmpType = ICMPV4_ECHO_REQUEST;
                 mMeasurement.description = "ICMPv4";
             }
 
             mMeasurement.description += " dst{" + mTarget.getHostAddress() + "}";
-        }
-
-        public IcmpCheck(InetAddress target, Measurement measurement) {
-            this(null, target, measurement);
         }
 
         @Override
@@ -503,6 +416,7 @@ public class NetworkDiagnostics {
     private class DnsUdpCheck extends SimpleSocketCheck implements Runnable {
         private static final int TIMEOUT_SEND = 100;
         private static final int TIMEOUT_RECV = 500;
+        private static final int DNS_SERVER_PORT = 53;
         private static final int RR_TYPE_A = 1;
         private static final int RR_TYPE_AAAA = 28;
         private static final int PACKET_BUFSIZE = 512;
@@ -544,8 +458,7 @@ public class NetworkDiagnostics {
             }
 
             try {
-                setupSocket(SOCK_DGRAM, IPPROTO_UDP, TIMEOUT_SEND, TIMEOUT_RECV,
-                        NetworkConstants.DNS_SERVER_PORT);
+                setupSocket(SOCK_DGRAM, IPPROTO_UDP, TIMEOUT_SEND, TIMEOUT_RECV, DNS_SERVER_PORT);
             } catch (ErrnoException | IOException e) {
                 mMeasurement.recordFailure(e.toString());
                 return;
@@ -553,7 +466,8 @@ public class NetworkDiagnostics {
             mMeasurement.description += " src{" + getSocketAddressString() + "}";
 
             // This needs to be fixed length so it can be dropped into the pre-canned packet.
-            final String sixRandomDigits = String.valueOf(mRandom.nextInt(900000) + 100000);
+            final String sixRandomDigits =
+                    Integer.valueOf(mRandom.nextInt(900000) + 100000).toString();
             mMeasurement.description += " qtype{" + mQueryType + "}"
                     + " qname{" + sixRandomDigits + "-android-ds.metric.gstatic.com}";
 

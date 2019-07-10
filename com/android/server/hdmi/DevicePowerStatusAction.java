@@ -23,9 +23,6 @@ import android.hardware.hdmi.IHdmiControlCallback;
 import android.os.RemoteException;
 import android.util.Slog;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Feature action that queries the power status of other device. This action is initiated via
  * {@link HdmiPlaybackClient#queryDisplayStatus(DisplayStatusCallback)} from the Android system
@@ -40,7 +37,7 @@ final class DevicePowerStatusAction extends HdmiCecFeatureAction {
     private static final int STATE_WAITING_FOR_REPORT_POWER_STATUS = 1;
 
     private final int mTargetAddress;
-    private final List<IHdmiControlCallback> mCallbacks = new ArrayList<>();
+    private final IHdmiControlCallback mCallback;
 
     static DevicePowerStatusAction create(HdmiCecLocalDevice source,
             int targetAddress, IHdmiControlCallback callback) {
@@ -55,7 +52,7 @@ final class DevicePowerStatusAction extends HdmiCecFeatureAction {
             int targetAddress, IHdmiControlCallback callback) {
         super(localDevice);
         mTargetAddress = targetAddress;
-        addCallback(callback);
+        mCallback = callback;
     }
 
     @Override
@@ -98,15 +95,9 @@ final class DevicePowerStatusAction extends HdmiCecFeatureAction {
         }
     }
 
-    public void addCallback(IHdmiControlCallback callback) {
-        mCallbacks.add(callback);
-    }
-
     private void invokeCallback(int result) {
         try {
-            for (IHdmiControlCallback callback : mCallbacks) {
-                callback.onComplete(result);
-            }
+            mCallback.onComplete(result);
         } catch (RemoteException e) {
             Slog.e(TAG, "Callback failed:" + e);
         }

@@ -16,13 +16,10 @@
 
 package android.view;
 
-import com.android.layoutlib.bridge.impl.GcSnapshot;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 
-import android.graphics.BaseCanvas_Delegate;
 import android.graphics.Canvas;
 import android.graphics.Canvas_Delegate;
-import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
 import android.graphics.Paint;
@@ -35,8 +32,6 @@ import android.graphics.RectF;
 import android.graphics.Region.Op;
 import android.graphics.Shader.TileMode;
 
-import java.awt.Rectangle;
-
 /**
  * Paints shadow for rounded rectangles. Inspiration from CardView. Couldn't use that directly,
  * since it modifies the size of the content, that we can't do.
@@ -48,45 +43,24 @@ public class RectShadowPainter {
     private static final int END_COLOR = ResourceHelper.getColor("#03000000");
     private static final float PERPENDICULAR_ANGLE = 90f;
 
-    public static void paintShadow(Outline viewOutline, float elevation, Canvas canvas,
-            float alpha) {
-        Rect outline = new Rect();
-        if (!viewOutline.getRect(outline)) {
-            assert false : "Outline is not a rect shadow";
-            return;
-        }
-
-        // TODO replacing the algorithm here to create better shadow
-
+    public static void paintShadow(Outline viewOutline, float elevation, Canvas canvas) {
         float shadowSize = elevationToShadow(elevation);
         int saved = modifyCanvas(canvas, shadowSize);
         if (saved == -1) {
             return;
         }
-
-        float radius = viewOutline.getRadius();
-        if (radius <= 0) {
-            // We can not paint a shadow with radius 0
-            return;
-        }
-
         try {
             Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
             cornerPaint.setStyle(Style.FILL);
             Paint edgePaint = new Paint(cornerPaint);
             edgePaint.setAntiAlias(false);
+            Rect outline = viewOutline.mRect;
+            float radius = viewOutline.mRadius;
             float outerArcRadius = radius + shadowSize;
             int[] colors = {START_COLOR, START_COLOR, END_COLOR};
-            if (alpha != 1f) {
-                // Correct colors using the given component alpha
-                for (int i = 0; i < colors.length; i++) {
-                    colors[i] = Color.argb((int) (Color.alpha(colors[i]) * alpha), Color.red(colors[i]),
-                            Color.green(colors[i]), Color.blue(colors[i]));
-                }
-            }
             cornerPaint.setShader(new RadialGradient(0, 0, outerArcRadius, colors,
                     new float[]{0f, radius / outerArcRadius, 1f}, TileMode.CLAMP));
-            edgePaint.setShader(new LinearGradient(0, 0, -shadowSize, 0, colors[0], colors[2],
+            edgePaint.setShader(new LinearGradient(0, 0, -shadowSize, 0, START_COLOR, END_COLOR,
                     TileMode.CLAMP));
             Path path = new Path();
             path.setFillType(FillType.EVEN_ODD);
@@ -143,16 +117,9 @@ public class RectShadowPainter {
         int saved = canvas.save();
         // Usually canvas has been translated to the top left corner of the view when this is
         // called. So, setting a clip rect at 0,0 will clip the top left part of the shadow.
-        // Thus, we just expand in each direction by width and height of the canvas, while staying
-        // inside the original drawing region.
-        GcSnapshot snapshot = Canvas_Delegate.getDelegate(canvas).getSnapshot();
-        Rectangle originalClip = snapshot.getOriginalClip();
-        if (originalClip != null) {
-            canvas.clipRect(originalClip.x, originalClip.y, originalClip.x + originalClip.width,
-              originalClip.y + originalClip.height, Op.REPLACE);
-            canvas.clipRect(-canvas.getWidth(), -canvas.getHeight(), canvas.getWidth(),
-              canvas.getHeight(), Op.INTERSECT);
-        }
+        // Thus, we just expand in each direction by width and height of the canvas.
+        canvas.clipRect(-canvas.getWidth(), -canvas.getHeight(), canvas.getWidth(),
+                canvas.getHeight(), Op.REPLACE);
         canvas.translate(0, shadowSize / 2f);
         return saved;
     }
@@ -194,8 +161,7 @@ public class RectShadowPainter {
     /**
      * Differs from {@link RectF#isEmpty()} as this first converts the rect to int and then checks.
      * <p/>
-     * This is required because {@link BaseCanvas_Delegate#native_drawRect(long, float, float,
-     * float,
+     * This is required because {@link Canvas_Delegate#native_drawRect(long, float, float, float,
      * float, long)} casts the co-ordinates to int and we want to ensure that it doesn't end up
      * drawing empty rectangles, which results in IllegalArgumentException.
      */

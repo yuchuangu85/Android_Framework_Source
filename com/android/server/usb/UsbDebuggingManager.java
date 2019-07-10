@@ -16,15 +16,12 @@
 
 package com.android.server.usb;
 
-import static com.android.internal.util.dump.DumpUtils.writeStringIfNotNull;
-
 import android.app.ActivityManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
@@ -37,19 +34,20 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.service.usb.UsbDebuggingManagerProto;
 import android.util.Base64;
 import android.util.Slog;
 
 import com.android.internal.R;
-import com.android.internal.util.dump.DualDumpOutputStream;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.FgThread;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.security.MessageDigest;
 import java.util.Arrays;
 
@@ -57,10 +55,10 @@ public class UsbDebuggingManager {
     private static final String TAG = "UsbDebuggingManager";
     private static final boolean DEBUG = false;
 
-    private static final String ADBD_SOCKET = "adbd";
-    private static final String ADB_DIRECTORY = "misc/adb";
-    private static final String ADB_KEYS_FILE = "adb_keys";
-    private static final int BUFFER_SIZE = 4096;
+    private final String ADBD_SOCKET = "adbd";
+    private final String ADB_DIRECTORY = "misc/adb";
+    private final String ADB_KEYS_FILE = "adb_keys";
+    private final int BUFFER_SIZE = 4096;
 
     private final Context mContext;
     private final Handler mHandler;
@@ -325,21 +323,21 @@ public class UsbDebuggingManager {
 
     private void startConfirmation(String key, String fingerprints) {
         int currentUserId = ActivityManager.getCurrentUser();
-        UserInfo userInfo = UserManager.get(mContext).getUserInfo(currentUserId);
+        UserHandle userHandle =
+                UserManager.get(mContext).getUserInfo(currentUserId).getUserHandle();
         String componentString;
-        if (userInfo.isAdmin()) {
+        if (currentUserId == UserHandle.USER_OWNER) {
             componentString = Resources.getSystem().getString(
                     com.android.internal.R.string.config_customAdbPublicKeyConfirmationComponent);
         } else {
-            // If the current foreground user is not the admin user we send a different
+            // If the current foreground user is not the primary user we send a different
             // notification specific to secondary users.
             componentString = Resources.getSystem().getString(
                     R.string.config_customAdbPublicKeyConfirmationSecondaryUserComponent);
         }
         ComponentName componentName = ComponentName.unflattenFromString(componentString);
-        if (startConfirmationActivity(componentName, userInfo.getUserHandle(), key, fingerprints)
-                || startConfirmationService(componentName, userInfo.getUserHandle(),
-                        key, fingerprints)) {
+        if (startConfirmationActivity(componentName, userHandle, key, fingerprints)
+                || startConfirmationService(componentName, userHandle, key, fingerprints)) {
             return;
         }
         Slog.e(TAG, "unable to start customAdbPublicKeyConfirmation[SecondaryUser]Component "
@@ -347,7 +345,7 @@ public class UsbDebuggingManager {
     }
 
     /**
-     * @return true if the componentName led to an Activity that was started.
+     * @returns true if the componentName led to an Activity that was started.
      */
     private boolean startConfirmationActivity(ComponentName componentName, UserHandle userHandle,
             String key, String fingerprints) {
@@ -366,7 +364,7 @@ public class UsbDebuggingManager {
     }
 
     /**
-     * @return true if the componentName led to a Service that was started.
+     * @returns true if the componentName led to a Service that was started.
      */
     private boolean startConfirmationService(ComponentName componentName, UserHandle userHandle,
             String key, String fingerprints) {
@@ -454,30 +452,21 @@ public class UsbDebuggingManager {
         mHandler.sendEmptyMessage(UsbDebuggingHandler.MESSAGE_ADB_CLEAR);
     }
 
-    /**
-     * Dump the USB debugging state.
-     */
-    public void dump(DualDumpOutputStream dump, String idName, long id) {
-        long token = dump.start(idName, id);
-
-        dump.write("connected_to_adb", UsbDebuggingManagerProto.CONNECTED_TO_ADB, mThread != null);
-        writeStringIfNotNull(dump, "last_key_received", UsbDebuggingManagerProto.LAST_KEY_RECEIVED,
-                mFingerprints);
-
+    public void dump(IndentingPrintWriter pw) {
+        pw.println("USB Debugging State:");
+        pw.println("  Connected to adbd: " + (mThread != null));
+        pw.println("  Last key received: " + mFingerprints);
+        pw.println("  User keys:");
         try {
-            dump.write("user_keys", UsbDebuggingManagerProto.USER_KEYS,
-                    FileUtils.readTextFile(new File("/data/misc/adb/adb_keys"), 0, null));
+            pw.println(FileUtils.readTextFile(new File("/data/misc/adb/adb_keys"), 0, null));
         } catch (IOException e) {
-            Slog.e(TAG, "Cannot read user keys", e);
+            pw.println("IOException: " + e);
         }
-
+        pw.println("  System keys:");
         try {
-            dump.write("system_keys", UsbDebuggingManagerProto.SYSTEM_KEYS,
-                    FileUtils.readTextFile(new File("/adb_keys"), 0, null));
+            pw.println(FileUtils.readTextFile(new File("/adb_keys"), 0, null));
         } catch (IOException e) {
-            Slog.e(TAG, "Cannot read system keys", e);
+            pw.println("IOException: " + e);
         }
-
-        dump.end(token);
     }
 }

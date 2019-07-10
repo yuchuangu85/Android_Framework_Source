@@ -20,7 +20,7 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Service;
 import android.content.Intent;
-import android.content.PermissionChecker;
+import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -174,8 +174,8 @@ public abstract class RecognitionService extends Service {
      */
     private boolean checkPermissions(IRecognitionListener listener) {
         if (DBG) Log.d(TAG, "checkPermissions");
-        if (PermissionChecker.checkCallingOrSelfPermission(this,
-                android.Manifest.permission.RECORD_AUDIO) == PermissionChecker.PERMISSION_GRANTED) {
+        if (RecognitionService.this.checkCallingOrSelfPermission(android.Manifest.permission.
+                RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             return true;
         }
         try {
@@ -303,7 +303,7 @@ public abstract class RecognitionService extends Service {
          * The service should call this method when recognition results are ready.
          * 
          * @param results the recognition results. To retrieve the results in {@code
-         *        ArrayList<String>} format use {@link Bundle#getStringArrayList(String)} with
+         *        ArrayList&lt;String&gt;} format use {@link Bundle#getStringArrayList(String)} with
          *        {@link SpeechRecognizer#RESULTS_RECOGNITION} as a parameter
          */
         public void results(Bundle results) throws RemoteException {

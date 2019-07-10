@@ -23,12 +23,10 @@ import android.provider.Telephony.Sms.Intents;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.InboundSmsHandler;
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 import com.android.internal.telephony.SmsConstants;
-import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
-import com.android.internal.telephony.VisualVoicemailSmsFilter;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UsimServiceTable;
@@ -46,7 +44,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * Create a new GSM inbound SMS handler.
      */
     private GsmInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
-            Phone phone) {
+            PhoneBase phone) {
         super("GsmInboundSmsHandler", context, storageMonitor, phone,
                 GsmCellBroadcastHandler.makeGsmCellBroadcastHandler(context, phone));
         phone.mCi.setOnNewGsmSms(getHandler(), EVENT_NEW_SMS, null);
@@ -69,7 +67,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * Wait for state machine to enter startup state. We can't send any messages until then.
      */
     public static GsmInboundSmsHandler makeInboundSmsHandler(Context context,
-            SmsStorageMonitor storageMonitor, Phone phone) {
+            SmsStorageMonitor storageMonitor, PhoneBase phone) {
         GsmInboundSmsHandler handler = new GsmInboundSmsHandler(context, storageMonitor, phone);
         handler.start();
         return handler;
@@ -97,16 +95,6 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         SmsMessage sms = (SmsMessage) smsb;
 
         if (sms.isTypeZero()) {
-            // Some carriers will send visual voicemail SMS as type zero.
-            int destPort = -1;
-            SmsHeader smsHeader = sms.getUserDataHeader();
-            if (smsHeader != null && smsHeader.portAddrs != null) {
-                // The message was sent to a port.
-                destPort = smsHeader.portAddrs.destPort;
-            }
-            VisualVoicemailSmsFilter
-                    .filter(mContext, new byte[][]{sms.getPdu()}, SmsConstants.FORMAT_3GPP,
-                            destPort, mPhone.getSubId());
             // As per 3GPP TS 23.040 9.2.3.9, Type Zero messages should not be
             // Displayed/Stored/Notified. They should only be acknowledged.
             log("Received short message type 0, Don't display or store it. Send Ack");
@@ -143,7 +131,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         return dispatchNormalMessage(smsb);
     }
 
-    private void updateMessageWaitingIndicator(int voicemailCount) {
+    /* package */ void updateMessageWaitingIndicator(int voicemailCount) {
         // range check
         if (voicemailCount < 0) {
             voicemailCount = -1;
@@ -152,7 +140,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             // "The value 255 shall be taken to mean 255 or greater"
             voicemailCount = 0xff;
         }
-        // update voice mail count in Phone
+        // update voice mail count in GsmPhone
         mPhone.setVoiceMessageCount(voicemailCount);
         // store voice mail count in SIM & shared preferences
         IccRecords records = UiccController.getInstance().getIccRecords(
@@ -163,6 +151,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         } else {
             log("updateMessageWaitingIndicator: SIM Records not found");
         }
+        storeVoiceMailCount();
     }
 
     /**
@@ -184,7 +173,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * @param phone
      */
     @Override
-    protected void onUpdatePhoneObject(Phone phone) {
+    protected void onUpdatePhoneObject(PhoneBase phone) {
         super.onUpdatePhoneObject(phone);
         log("onUpdatePhoneObject: dispose of old CellBroadcastHandler and make a new one");
         mCellBroadcastHandler.dispose();

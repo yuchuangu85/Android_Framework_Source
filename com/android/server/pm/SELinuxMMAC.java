@@ -18,19 +18,20 @@ package com.android.server.pm;
 
 import android.content.pm.PackageParser;
 import android.content.pm.Signature;
-import android.content.pm.PackageParser.SigningDetails;
 import android.os.Environment;
 import android.util.Slog;
 import android.util.Xml;
 
 import libcore.io.IoUtils;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -39,6 +40,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 /**
  * Centralized access to SELinux MMAC (middleware MAC) implementation. This
@@ -58,57 +62,51 @@ public final class SELinuxMMAC {
     // All policy stanzas read from mac_permissions.xml. This is also the lock
     // to synchronize access during policy load and access attempts.
     private static List<Policy> sPolicies = new ArrayList<>();
-    /** Whether or not the policy files have been read */
-    private static boolean sPolicyRead;
 
-    /** Required MAC permissions files */
-    private static List<File> sMacPermissions = new ArrayList<>();
+    // Data policy override version file.
+    private static final String DATA_VERSION_FILE =
+            Environment.getDataDirectory() + "/security/current/selinux_version";
 
-    private static final String DEFAULT_SEINFO = "default";
+    // Base policy version file.
+    private static final String BASE_VERSION_FILE = "/selinux_version";
 
-    // Append privapp to existing seinfo label
-    private static final String PRIVILEGED_APP_STR = ":privapp";
+    // Whether override security policies should be loaded.
+    private static final boolean USE_OVERRIDE_POLICY = useOverridePolicy();
 
-    // Append v2 to existing seinfo label
-    private static final String SANDBOX_V2_STR = ":v2";
+    // Data override mac_permissions.xml policy file.
+    private static final String DATA_MAC_PERMISSIONS =
+            Environment.getDataDirectory() + "/security/current/mac_permissions.xml";
 
-    // Append targetSdkVersion=n to existing seinfo label where n is the app's targetSdkVersion
-    private static final String TARGETSDKVERSION_STR = ":targetSdkVersion=";
+    // Base mac_permissions.xml policy file.
+    private static final String BASE_MAC_PERMISSIONS =
+            Environment.getRootDirectory() + "/etc/security/mac_permissions.xml";
 
-    // Only initialize sMacPermissions once.
-    static {
-        // Platform mac permissions.
-        sMacPermissions.add(new File(
-            Environment.getRootDirectory(), "/etc/selinux/plat_mac_permissions.xml"));
+    // Determine which mac_permissions.xml file to use.
+    private static final String MAC_PERMISSIONS = USE_OVERRIDE_POLICY ?
+            DATA_MAC_PERMISSIONS : BASE_MAC_PERMISSIONS;
 
-        // Vendor mac permissions.
-        // The filename has been renamed from nonplat_mac_permissions to
-        // vendor_mac_permissions. Either of them should exist.
-        final File vendorMacPermission = new File(
-            Environment.getVendorDirectory(), "/etc/selinux/vendor_mac_permissions.xml");
-        if (vendorMacPermission.exists()) {
-            sMacPermissions.add(vendorMacPermission);
-        } else {
-            // For backward compatibility.
-            sMacPermissions.add(new File(Environment.getVendorDirectory(),
-                                         "/etc/selinux/nonplat_mac_permissions.xml"));
-        }
+    // Data override seapp_contexts policy file.
+    private static final String DATA_SEAPP_CONTEXTS =
+            Environment.getDataDirectory() + "/security/current/seapp_contexts";
 
-        // ODM mac permissions (optional).
-        final File odmMacPermission = new File(
-            Environment.getOdmDirectory(), "/etc/selinux/odm_mac_permissions.xml");
-        if (odmMacPermission.exists()) {
-            sMacPermissions.add(odmMacPermission);
-        }
-    }
+    // Base seapp_contexts policy file.
+    private static final String BASE_SEAPP_CONTEXTS = "/seapp_contexts";
+
+    // Determine which seapp_contexts file to use.
+    private static final String SEAPP_CONTEXTS = USE_OVERRIDE_POLICY ?
+            DATA_SEAPP_CONTEXTS : BASE_SEAPP_CONTEXTS;
+
+    // Stores the hash of the last used seapp_contexts file.
+    private static final String SEAPP_HASH_FILE =
+            Environment.getDataDirectory().toString() + "/system/seapp_hash";
 
     /**
      * Load the mac_permissions.xml file containing all seinfo assignments used to
-     * label apps. The loaded mac_permissions.xml files are plat_mac_permissions.xml and
-     * vendor_mac_permissions.xml, on /system and /vendor partitions, respectively.
-     * odm_mac_permissions.xml on /odm partition is optional. For further guidance on
+     * label apps. The loaded mac_permissions.xml file is determined by the
+     * MAC_PERMISSIONS class variable which is set at class load time which itself
+     * is based on the USE_OVERRIDE_POLICY class variable. For further guidance on
      * the proper structure of a mac_permissions.xml file consult the source code
-     * located at system/sepolicy/private/mac_permissions.xml.
+     * located at external/sepolicy/mac_permissions.xml.
      *
      * @return boolean indicating if policy was correctly loaded. A value of false
      *         typically indicates a structural problem with the xml or incorrectly
@@ -116,72 +114,62 @@ public final class SELinuxMMAC {
      *         were loaded successfully; no partial loading is possible.
      */
     public static boolean readInstallPolicy() {
-        synchronized (sPolicies) {
-            if (sPolicyRead) {
-                return true;
-            }
-        }
-
         // Temp structure to hold the rules while we parse the xml file
         List<Policy> policies = new ArrayList<>();
 
         FileReader policyFile = null;
         XmlPullParser parser = Xml.newPullParser();
+        try {
+            policyFile = new FileReader(MAC_PERMISSIONS);
+            Slog.d(TAG, "Using policy file " + MAC_PERMISSIONS);
 
-        final int count = sMacPermissions.size();
-        for (int i = 0; i < count; ++i) {
-            final File macPermission = sMacPermissions.get(i);
-            try {
-                policyFile = new FileReader(macPermission);
-                Slog.d(TAG, "Using policy file " + macPermission);
+            parser.setInput(policyFile);
+            parser.nextTag();
+            parser.require(XmlPullParser.START_TAG, null, "policy");
 
-                parser.setInput(policyFile);
-                parser.nextTag();
-                parser.require(XmlPullParser.START_TAG, null, "policy");
-
-                while (parser.next() != XmlPullParser.END_TAG) {
-                    if (parser.getEventType() != XmlPullParser.START_TAG) {
-                        continue;
-                    }
-
-                    switch (parser.getName()) {
-                        case "signer":
-                            policies.add(readSignerOrThrow(parser));
-                            break;
-                        default:
-                            skip(parser);
-                    }
+            while (parser.next() != XmlPullParser.END_TAG) {
+                if (parser.getEventType() != XmlPullParser.START_TAG) {
+                    continue;
                 }
-            } catch (IllegalStateException | IllegalArgumentException |
-                     XmlPullParserException ex) {
-                StringBuilder sb = new StringBuilder("Exception @");
-                sb.append(parser.getPositionDescription());
-                sb.append(" while parsing ");
-                sb.append(macPermission);
-                sb.append(":");
-                sb.append(ex);
-                Slog.w(TAG, sb.toString());
-                return false;
-            } catch (IOException ioe) {
-                Slog.w(TAG, "Exception parsing " + macPermission, ioe);
-                return false;
-            } finally {
-                IoUtils.closeQuietly(policyFile);
+
+                switch (parser.getName()) {
+                    case "signer":
+                        policies.add(readSignerOrThrow(parser));
+                        break;
+                    case "default":
+                        policies.add(readDefaultOrThrow(parser));
+                        break;
+                    default:
+                        skip(parser);
+                }
             }
+        } catch (IllegalStateException | IllegalArgumentException |
+                XmlPullParserException ex) {
+            StringBuilder sb = new StringBuilder("Exception @");
+            sb.append(parser.getPositionDescription());
+            sb.append(" while parsing ");
+            sb.append(MAC_PERMISSIONS);
+            sb.append(":");
+            sb.append(ex);
+            Slog.w(TAG, sb.toString());
+            return false;
+        } catch (IOException ioe) {
+            Slog.w(TAG, "Exception parsing " + MAC_PERMISSIONS, ioe);
+            return false;
+        } finally {
+            IoUtils.closeQuietly(policyFile);
         }
 
         // Now sort the policy stanzas
         PolicyComparator policySort = new PolicyComparator();
         Collections.sort(policies, policySort);
         if (policySort.foundDuplicate()) {
-            Slog.w(TAG, "ERROR! Duplicate entries found parsing mac_permissions.xml files");
+            Slog.w(TAG, "ERROR! Duplicate entries found parsing " + MAC_PERMISSIONS);
             return false;
         }
 
         synchronized (sPolicies) {
-            sPolicies.clear();
-            sPolicies.addAll(policies);
-            sPolicyRead = true;
+            sPolicies = policies;
 
             if (DEBUG_POLICY_ORDER) {
                 for (Policy policy : sPolicies) {
@@ -236,6 +224,45 @@ public final class SELinuxMMAC {
                 String sig = parser.getAttributeValue(null, "signature");
                 pb.addSignature(sig);
                 readCert(parser);
+            } else {
+                skip(parser);
+            }
+        }
+
+        return pb.build();
+    }
+
+    /**
+     * Loop over a default element looking for seinfo child tags. A {@link Policy}
+     * instance will be created and returned in the process. All other tags encountered
+     * will be skipped.
+     *
+     * @param parser an XmlPullParser object representing a default element.
+     * @return the constructed {@link Policy} instance
+     * @throws IOException
+     * @throws XmlPullParserException
+     * @throws IllegalArgumentException if any of the validation checks fail while
+     *         parsing tag values.
+     * @throws IllegalStateException if any of the invariants fail when constructing
+     *         the {@link Policy} instance.
+     */
+    private static Policy readDefaultOrThrow(XmlPullParser parser) throws IOException,
+            XmlPullParserException {
+
+        parser.require(XmlPullParser.START_TAG, null, "default");
+        Policy.PolicyBuilder pb = new Policy.PolicyBuilder();
+        pb.setAsDefaultPolicy();
+
+        while (parser.next() != XmlPullParser.END_TAG) {
+            if (parser.getEventType() != XmlPullParser.START_TAG) {
+                continue;
+            }
+
+            String tagName = parser.getName();
+            if ("seinfo".equals(tagName)) {
+                String seinfo = parser.getAttributeValue(null, "value");
+                pb.setGlobalSeinfoOrThrow(seinfo);
+                readSeinfo(parser);
             } else {
                 skip(parser);
             }
@@ -309,56 +336,138 @@ public final class SELinuxMMAC {
     }
 
     /**
-     * Selects a security label to a package based on input parameters and the seinfo tag taken
-     * from a matched policy. All signature based policy stanzas are consulted and, if no match
-     * is found, the default seinfo label of 'default' is used. The security label is attached to
-     * the ApplicationInfo instance of the package.
+     * Applies a security label to a package based on an seinfo tag taken from a matched
+     * policy. All signature based policy stanzas are consulted first and, if no match
+     * is found, the default policy stanza is then consulted. The security label is
+     * attached to the ApplicationInfo instance of the package in the event that a matching
+     * policy was found.
      *
      * @param pkg object representing the package to be labeled.
-     * @param isPrivileged boolean.
-     * @param targetSandboxVersion int.
-     * @param targetSdkVersion int. If this pkg runs as a sharedUser, targetSdkVersion is the
-     *        greater of: lowest targetSdk for all pkgs in the sharedUser, or
-     *        MINIMUM_TARGETSDKVERSION.
-     * @return String representing the resulting seinfo.
+     * @return boolean which determines whether a non null seinfo label was assigned
+     *         to the package. A null value simply represents that no policy matched.
      */
-    public static String getSeInfo(PackageParser.Package pkg, boolean isPrivileged,
-            int targetSandboxVersion, int targetSdkVersion) {
-        String seInfo = null;
+    public static boolean assignSeinfoValue(PackageParser.Package pkg) {
         synchronized (sPolicies) {
-            if (!sPolicyRead) {
-                if (DEBUG_POLICY) {
-                    Slog.d(TAG, "Policy not read");
-                }
-            } else {
-                for (Policy policy : sPolicies) {
-                    seInfo = policy.getMatchedSeInfo(pkg);
-                    if (seInfo != null) {
-                        break;
+            for (Policy policy : sPolicies) {
+                String seinfo = policy.getMatchedSeinfo(pkg);
+                if (seinfo != null) {
+                    pkg.applicationInfo.seinfo = seinfo;
+                    if (DEBUG_POLICY_INSTALL) {
+                        Slog.i(TAG, "package (" + pkg.packageName + ") labeled with " +
+                               "seinfo=" + seinfo);
                     }
+                    return true;
                 }
             }
         }
 
-        if (seInfo == null) {
-            seInfo = DEFAULT_SEINFO;
-        }
-
-        if (targetSandboxVersion == 2) {
-            seInfo += SANDBOX_V2_STR;
-        }
-
-        if (isPrivileged) {
-            seInfo += PRIVILEGED_APP_STR;
-        }
-
-        seInfo += TARGETSDKVERSION_STR + targetSdkVersion;
-
         if (DEBUG_POLICY_INSTALL) {
-            Slog.i(TAG, "package (" + pkg.packageName + ") labeled with " +
-                    "seinfo=" + seInfo);
+            Slog.i(TAG, "package (" + pkg.packageName + ") doesn't match any policy; " +
+                   "seinfo will remain null");
         }
-        return seInfo;
+        return false;
+    }
+
+    /**
+     * Determines if a recursive restorecon on /data/data and /data/user is needed.
+     * It does this by comparing the SHA-1 of the seapp_contexts file against the
+     * stored hash at /data/system/seapp_hash.
+     *
+     * @return Returns true if the restorecon should occur or false otherwise.
+     */
+    public static boolean shouldRestorecon() {
+        // Any error with the seapp_contexts file should be fatal
+        byte[] currentHash = null;
+        try {
+            currentHash = returnHash(SEAPP_CONTEXTS);
+        } catch (IOException ioe) {
+            Slog.e(TAG, "Error with hashing seapp_contexts.", ioe);
+            return false;
+        }
+
+        // Push past any error with the stored hash file
+        byte[] storedHash = null;
+        try {
+            storedHash = IoUtils.readFileAsByteArray(SEAPP_HASH_FILE);
+        } catch (IOException ioe) {
+            Slog.w(TAG, "Error opening " + SEAPP_HASH_FILE + ". Assuming first boot.");
+        }
+
+        return (storedHash == null || !MessageDigest.isEqual(storedHash, currentHash));
+    }
+
+    /**
+     * Stores the SHA-1 of the seapp_contexts to /data/system/seapp_hash.
+     */
+    public static void setRestoreconDone() {
+        try {
+            final byte[] currentHash = returnHash(SEAPP_CONTEXTS);
+            dumpHash(new File(SEAPP_HASH_FILE), currentHash);
+        } catch (IOException ioe) {
+            Slog.e(TAG, "Error with saving hash to " + SEAPP_HASH_FILE, ioe);
+        }
+    }
+
+    /**
+     * Dump the contents of a byte array to a specified file.
+     *
+     * @param file The file that receives the byte array content.
+     * @param content A byte array that will be written to the specified file.
+     * @throws IOException if any failed I/O operation occured.
+     *         Included is the failure to atomically rename the tmp
+     *         file used in the process.
+     */
+    private static void dumpHash(File file, byte[] content) throws IOException {
+        FileOutputStream fos = null;
+        File tmp = null;
+        try {
+            tmp = File.createTempFile("seapp_hash", ".journal", file.getParentFile());
+            tmp.setReadable(true);
+            fos = new FileOutputStream(tmp);
+            fos.write(content);
+            fos.getFD().sync();
+            if (!tmp.renameTo(file)) {
+                throw new IOException("Failure renaming " + file.getCanonicalPath());
+            }
+        } finally {
+            if (tmp != null) {
+                tmp.delete();
+            }
+            IoUtils.closeQuietly(fos);
+        }
+    }
+
+    /**
+     * Return the SHA-1 of a file.
+     *
+     * @param file The path to the file given as a string.
+     * @return Returns the SHA-1 of the file as a byte array.
+     * @throws IOException if any failed I/O operations occured.
+     */
+    private static byte[] returnHash(String file) throws IOException {
+        try {
+            final byte[] contents = IoUtils.readFileAsByteArray(file);
+            return MessageDigest.getInstance("SHA-1").digest(contents);
+        } catch (NoSuchAlgorithmException nsae) {
+            throw new RuntimeException(nsae);  // impossible
+        }
+    }
+
+    private static boolean useOverridePolicy() {
+        try {
+            final String overrideVersion = IoUtils.readFileAsString(DATA_VERSION_FILE);
+            final String baseVersion = IoUtils.readFileAsString(BASE_VERSION_FILE);
+            if (overrideVersion.equals(baseVersion)) {
+                return true;
+            }
+            Slog.e(TAG, "Override policy version '" + overrideVersion + "' doesn't match " +
+                   "base version '" + baseVersion + "'. Skipping override policy files.");
+        } catch (FileNotFoundException fnfe) {
+            // Override version file doesn't have to exist so silently ignore.
+        } catch (IOException ioe) {
+            Slog.w(TAG, "Skipping override policy files.", ioe);
+        }
+        return false;
     }
 }
 
@@ -368,7 +477,7 @@ public final class SELinuxMMAC {
  * {@link Policy#getMatchedSeinfo} method. To create an instance of this use the
  * {@link PolicyBuilder} pattern class, where each instance is validated against a set
  * of invariants before being built and returned. Each instance can be guaranteed to
- * hold one valid policy stanza as outlined in the system/sepolicy/mac_permissions.xml
+ * hold one valid policy stanza as outlined in the external/sepolicy/mac_permissions.xml
  * file.
  * <p>
  * The following is an example of how to use {@link Policy.PolicyBuilder} to create a
@@ -397,16 +506,30 @@ public final class SELinuxMMAC {
  *         .build();
  * }
  * </pre>
+ * <p>
+ * The following is an example of how to use {@link Policy.PolicyBuilder} to create a
+ * default based Policy instance.
+ * </p>
+ * <pre>
+ * {@code
+ * Policy policy = new Policy.PolicyBuilder()
+ *         .setAsDefaultPolicy()
+ *         .setGlobalSeinfoOrThrow("default")
+ *         .build();
+ * }
+ * </pre>
  */
 final class Policy {
 
     private final String mSeinfo;
+    private final boolean mDefaultStanza;
     private final Set<Signature> mCerts;
     private final Map<String, String> mPkgMap;
 
     // Use the PolicyBuilder pattern to instantiate
     private Policy(PolicyBuilder builder) {
         mSeinfo = builder.mSeinfo;
+        mDefaultStanza = builder.mDefaultStanza;
         mCerts = Collections.unmodifiableSet(builder.mCerts);
         mPkgMap = Collections.unmodifiableMap(builder.mPkgMap);
     }
@@ -419,6 +542,15 @@ final class Policy {
      */
     public Set<Signature> getSignatures() {
         return mCerts;
+    }
+
+    /**
+     * Return whether this policy object represents a default stanza.
+     *
+     * @return A boolean indicating if this object represents a default policy stanza.
+     */
+    public boolean isDefaultStanza() {
+        return mDefaultStanza;
     }
 
     /**
@@ -452,6 +584,10 @@ final class Policy {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        if (mDefaultStanza) {
+            sb.append("defaultStanza=true ");
+        }
+
         for (Signature cert : mCerts) {
             sb.append("cert=" + cert.toCharsString().substring(0, 11) + "... ");
         }
@@ -473,15 +609,22 @@ final class Policy {
      * is determined using the following steps:
      * </p>
      * <ul>
-     *   <li> All certs used to sign the apk and all certs stored with this policy
-     *     instance are tested for set equality. If this fails then null is returned.
+     *   <li> If this Policy instance is defined as a default stanza:
+     *       <ul><li>Return the global seinfo value</li></ul>
      *   </li>
-     *   <li> If all certs match then an appropriate inner package stanza is
-     *     searched based on package name alone. If matched, the stored seinfo
-     *     value for that mapping is returned.
-     *   </li>
-     *   <li> If all certs matched and no inner package stanza matches then return
-     *     the global seinfo value. The returned value can be null in this case.
+     *   <li> If this Policy instance is defined as a signer stanza:
+     *     <ul>
+     *       <li> All certs used to sign the apk and all certs stored with this policy
+     *         instance are tested for set equality. If this fails then null is returned.
+     *       </li>
+     *       <li> If all certs match then an appropriate inner package stanza is
+     *         searched based on package name alone. If matched, the stored seinfo
+     *         value for that mapping is returned.
+     *       </li>
+     *       <li> If all certs matched and no inner package stanza matches then return
+     *         the global seinfo value. The returned value can be null in this case.
+     *       </li>
+     *     </ul>
      *   </li>
      * </ul>
      * <p>
@@ -492,46 +635,57 @@ final class Policy {
      * @return A string representing the seinfo matched during policy lookup.
      *         A value of null can also be returned if no match occured.
      */
-    public String getMatchedSeInfo(PackageParser.Package pkg) {
-        // Check for exact signature matches across all certs.
-        Signature[] certs = mCerts.toArray(new Signature[0]);
-        if (pkg.mSigningDetails != SigningDetails.UNKNOWN
-                && !Signature.areExactMatch(certs, pkg.mSigningDetails.signatures)) {
-
-            // certs aren't exact match, but the package may have rotated from the known system cert
-            if (certs.length > 1 || !pkg.mSigningDetails.hasCertificate(certs[0])) {
+    public String getMatchedSeinfo(PackageParser.Package pkg) {
+        if (!mDefaultStanza) {
+            // Check for exact signature matches across all certs.
+            Signature[] certs = mCerts.toArray(new Signature[0]);
+            if (!Signature.areExactMatch(certs, pkg.mSignatures)) {
                 return null;
+            }
+
+            // Check for inner package name matches given that the
+            // signature checks already passed.
+            String seinfoValue = mPkgMap.get(pkg.packageName);
+            if (seinfoValue != null) {
+                return seinfoValue;
             }
         }
 
-        // Check for inner package name matches given that the
-        // signature checks already passed.
-        String seinfoValue = mPkgMap.get(pkg.packageName);
-        if (seinfoValue != null) {
-            return seinfoValue;
-        }
-
-        // Return the global seinfo value.
+        // Return the global seinfo value (even if it's null).
         return mSeinfo;
     }
 
     /**
      * A nested builder class to create {@link Policy} instances. A {@link Policy}
      * class instance represents one valid policy stanza found in a mac_permissions.xml
-     * file. A valid policy stanza is defined to be a signer stanza which obeys the rules
-     * outlined in system/sepolicy/mac_permissions.xml. The {@link #build} method
-     * ensures a set of invariants are upheld enforcing the correct stanza structure
-     * before returning a valid Policy object.
+     * file. A valid policy stanza is defined to be either a signer or default stanza
+     * which obeys the rules outlined in external/sepolicy/mac_permissions.xml. The
+     * {@link #build} method ensures a set of invariants are upheld enforcing the correct
+     * stanza structure before returning a valid Policy object.
      */
     public static final class PolicyBuilder {
 
         private String mSeinfo;
+        private boolean mDefaultStanza;
         private final Set<Signature> mCerts;
         private final Map<String, String> mPkgMap;
 
         public PolicyBuilder() {
             mCerts = new HashSet<Signature>(2);
             mPkgMap = new HashMap<String, String>(2);
+        }
+
+        /**
+         * Sets this stanza as a default stanza. All policy stanzas are assumed to
+         * be signer stanzas unless this method is explicitly called. Default stanzas
+         * are treated differently with respect to allowable child tags, ordering and
+         * when and how policy decisions are enforced.
+         *
+         * @return The reference to this PolicyBuilder.
+         */
+        public PolicyBuilder setAsDefaultPolicy() {
+            mDefaultStanza = true;
+            return this;
         }
 
         /**
@@ -556,8 +710,11 @@ final class Policy {
 
         /**
          * Set the global seinfo tag for this policy stanza. The global seinfo tag
-         * when attached to a signer tag represents the assignment when there isn't a
-         * further inner package refinement in policy.
+         * represents the seinfo element that is used in one of two ways depending on
+         * its context. When attached to a signer tag the global seinfo represents an
+         * assignment when there isn't a further inner package refinement in policy.
+         * When used with a default tag, it represents the only allowable assignment
+         * value.
          *
          * @param seinfo the seinfo value given as a String.
          * @return The reference to this PolicyBuilder.
@@ -583,7 +740,9 @@ final class Policy {
         /**
          * Create a package name to seinfo value mapping. Each mapping represents
          * the seinfo value that will be assigned to the described package name.
-         * These localized mappings allow the global seinfo to be overriden.
+         * These localized mappings allow the global seinfo to be overriden. This
+         * mapping provides no value when used in conjunction with a default stanza;
+         * enforced through the {@link #build} method.
          *
          * @param pkgName the android package name given to the app
          * @param seinfo the seinfo value that will be assigned to the passed pkgName
@@ -640,25 +799,51 @@ final class Policy {
          * about the expected structure of a policy stanza.
          * Those invariants are:
          * </p>
-         * <ul>
-         *   <li> at least one cert must be found </li>
-         *   <li> either a global seinfo value is present OR at least one
-         *     inner package mapping must be present BUT not both. </li>
-         * </ul>
+         *    <ul>
+         *      <li> If a default stanza
+         *        <ul>
+         *          <li> an attached global seinfo tag must be present </li>
+         *          <li> no signatures and no package names can be present </li>
+         *        </ul>
+         *      </li>
+         *      <li> If a signer stanza
+         *        <ul>
+         *           <li> at least one cert must be found </li>
+         *           <li> either a global seinfo value is present OR at least one
+         *           inner package mapping must be present BUT not both. </li>
+         *        </ul>
+         *      </li>
+         *    </ul>
+         *
          * @return an instance of {@link Policy} with the options set from this builder
          * @throws IllegalStateException if an invariant is violated.
          */
         public Policy build() {
             Policy p = new Policy(this);
 
-            if (p.mCerts.isEmpty()) {
-                String err = "Missing certs with signer tag. Expecting at least one.";
-                throw new IllegalStateException(err);
-            }
-            if (!(p.mSeinfo == null ^ p.mPkgMap.isEmpty())) {
-                String err = "Only seinfo tag XOR package tags are allowed within " +
-                        "a signer stanza.";
-                throw new IllegalStateException(err);
+            if (p.mDefaultStanza) {
+                if (p.mSeinfo == null) {
+                    String err = "Missing global seinfo tag with default stanza.";
+                    throw new IllegalStateException(err);
+                }
+                if (p.mCerts.size() != 0) {
+                    String err = "Certs not allowed with default stanza.";
+                    throw new IllegalStateException(err);
+                }
+                if (!p.mPkgMap.isEmpty()) {
+                    String err = "Inner package mappings not allowed with default stanza.";
+                    throw new IllegalStateException(err);
+                }
+            } else {
+                if (p.mCerts.size() == 0) {
+                    String err = "Missing certs with signer tag. Expecting at least one.";
+                    throw new IllegalStateException(err);
+                }
+                if (!(p.mSeinfo == null ^ p.mPkgMap.isEmpty())) {
+                    String err = "Only seinfo tag XOR package tags are allowed within " +
+                            "a signer stanza.";
+                    throw new IllegalStateException(err);
+                }
             }
 
             return p;
@@ -673,6 +858,7 @@ final class Policy {
  * <ul>
  *   <li> signer stanzas with inner package mappings </li>
  *   <li> signer stanzas with global seinfo tags </li>
+ *   <li> default stanza </li>
  * </ul>
  * This comparison also checks for duplicate entries on the input selectors. Any
  * found duplicates will be flagged and can be checked with {@link #foundDuplicate}.
@@ -689,6 +875,11 @@ final class PolicyComparator implements Comparator<Policy> {
     @Override
     public int compare(Policy p1, Policy p2) {
 
+        // Give precedence to signature stanzas over default stanzas
+        if (p1.isDefaultStanza() != p2.isDefaultStanza()) {
+            return p1.isDefaultStanza() ? 1 : -1;
+        }
+
         // Give precedence to stanzas with inner package mappings
         if (p1.hasInnerPackages() != p2.hasInnerPackages()) {
             return p1.hasInnerPackages() ? -1 : 1;
@@ -696,7 +887,7 @@ final class PolicyComparator implements Comparator<Policy> {
 
         // Check for duplicate entries
         if (p1.getSignatures().equals(p2.getSignatures())) {
-            // Checks if signer w/o inner package names
+            // Checks if default stanza or a signer w/o inner package names
             if (p1.hasGlobalSeinfo()) {
                 duplicateFound = true;
                 Slog.e(SELinuxMMAC.TAG, "Duplicate policy entry: " + p1.toString());

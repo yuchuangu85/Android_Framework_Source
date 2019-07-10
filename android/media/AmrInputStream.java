@@ -18,183 +18,121 @@ package android.media;
 
 import java.io.InputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-
-import android.media.MediaCodec.BufferInfo;
-import android.util.Log;
 
 
 /**
- * DO NOT USE
+ * AmrInputStream
  * @hide
  */
-public final class AmrInputStream extends InputStream {
+public final class AmrInputStream extends InputStream
+{    
+    static {
+        System.loadLibrary("media_jni");
+    }
+    
     private final static String TAG = "AmrInputStream";
-
+    
     // frame is 20 msec at 8.000 khz
     private final static int SAMPLES_PER_FRAME = 8000 * 20 / 1000;
-
-    MediaCodec mCodec;
-    BufferInfo mInfo;
-    boolean mSawOutputEOS;
-    boolean mSawInputEOS;
-
+    
     // pcm input stream
     private InputStream mInputStream;
-
+    
+    // native handle
+    private long mGae;
+    
     // result amr stream
     private final byte[] mBuf = new byte[SAMPLES_PER_FRAME * 2];
     private int mBufIn = 0;
     private int mBufOut = 0;
-
+    
     // helper for bytewise read()
     private byte[] mOneByte = new byte[1];
-
+    
     /**
-     * DO NOT USE - use MediaCodec instead
+     * Create a new AmrInputStream, which converts 16 bit PCM to AMR
+     * @param inputStream InputStream containing 16 bit PCM.
      */
     public AmrInputStream(InputStream inputStream) {
-        Log.w(TAG, "@@@@ AmrInputStream is not a public API @@@@");
         mInputStream = inputStream;
-
-        MediaFormat format  = new MediaFormat();
-        format.setString(MediaFormat.KEY_MIME, MediaFormat.MIMETYPE_AUDIO_AMR_NB);
-        format.setInteger(MediaFormat.KEY_SAMPLE_RATE, 8000);
-        format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 1);
-        format.setInteger(MediaFormat.KEY_BIT_RATE, 12200);
-
-        MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
-        String name = mcl.findEncoderForFormat(format);
-        if (name != null) {
-            try {
-                mCodec = MediaCodec.createByCodecName(name);
-                mCodec.configure(format,
-                        null /* surface */,
-                        null /* crypto */,
-                        MediaCodec.CONFIGURE_FLAG_ENCODE);
-                mCodec.start();
-            } catch (IOException e) {
-                if (mCodec != null) {
-                    mCodec.release();
-                }
-                mCodec = null;
-            }
-        }
-        mInfo = new BufferInfo();
+        mGae = GsmAmrEncoderNew();
+        GsmAmrEncoderInitialize(mGae);
     }
 
-    /**
-     * DO NOT USE
-     */
     @Override
     public int read() throws IOException {
         int rtn = read(mOneByte, 0, 1);
         return rtn == 1 ? (0xff & mOneByte[0]) : -1;
     }
-
-    /**
-     * DO NOT USE
-     */
+    
     @Override
     public int read(byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
 
-    /**
-     * DO NOT USE
-     */
     @Override
     public int read(byte[] b, int offset, int length) throws IOException {
-        if (mCodec == null) {
-            throw new IllegalStateException("not open");
-        }
-
-        if (mBufOut >= mBufIn && !mSawOutputEOS) {
-            // no data left in buffer, refill it
+        if (mGae == 0) throw new IllegalStateException("not open");
+        
+        // local buffer of amr encoded audio empty
+        if (mBufOut >= mBufIn) {
+            // reset the buffer
             mBufOut = 0;
             mBufIn = 0;
-
-            // first push as much data into the encoder as possible
-            while (!mSawInputEOS) {
-                int index = mCodec.dequeueInputBuffer(0);
-                if (index < 0) {
-                    // no input buffer currently available
-                    break;
-                } else {
-                    int numRead;
-                    for (numRead = 0; numRead < SAMPLES_PER_FRAME * 2; ) {
-                        int n = mInputStream.read(mBuf, numRead, SAMPLES_PER_FRAME * 2 - numRead);
-                        if (n == -1) {
-                            mSawInputEOS = true;
-                            break;
-                        }
-                        numRead += n;
-                    }
-                    ByteBuffer buf = mCodec.getInputBuffer(index);
-                    buf.put(mBuf, 0, numRead);
-                    mCodec.queueInputBuffer(index,
-                            0 /* offset */,
-                            numRead,
-                            0 /* presentationTimeUs */,
-                            mSawInputEOS ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0 /* flags */);
-                }
+            
+            // fetch a 20 msec frame of pcm
+            for (int i = 0; i < SAMPLES_PER_FRAME * 2; ) {
+                int n = mInputStream.read(mBuf, i, SAMPLES_PER_FRAME * 2 - i);
+                if (n == -1) return -1;
+                i += n;
             }
-
-            // now read encoded data from the encoder
-            int index = mCodec.dequeueOutputBuffer(mInfo, 0);
-            if (index >= 0) {
-                mBufIn = mInfo.size;
-                ByteBuffer out = mCodec.getOutputBuffer(index);
-                out.get(mBuf, 0 /* offset */, mBufIn /* length */);
-                mCodec.releaseOutputBuffer(index,  false /* render */);
-                if ((mInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                    mSawOutputEOS = true;
-                }
-            }
+            
+            // encode it
+            mBufIn = GsmAmrEncoderEncode(mGae, mBuf, 0, mBuf, 0);
         }
-
-        if (mBufOut < mBufIn) {
-            // there is data in the buffer
-            if (length > mBufIn - mBufOut) {
-                length = mBufIn - mBufOut;
-            }
-            System.arraycopy(mBuf, mBufOut, b, offset, length);
-            mBufOut += length;
-            return length;
-        }
-
-        if (mSawInputEOS && mSawOutputEOS) {
-            // no more data available in buffer, codec or input stream
-            return -1;
-        }
-
-        // caller should try again
-        return 0;
+        
+        // return encoded audio to user
+        if (length > mBufIn - mBufOut) length = mBufIn - mBufOut;
+        System.arraycopy(mBuf, mBufOut, b, offset, length);
+        mBufOut += length;
+        
+        return length;
     }
 
     @Override
     public void close() throws IOException {
         try {
-            if (mInputStream != null) {
-                mInputStream.close();
-            }
+            if (mInputStream != null) mInputStream.close();
         } finally {
             mInputStream = null;
             try {
-                if (mCodec != null) {
-                    mCodec.release();
-                }
+                if (mGae != 0) GsmAmrEncoderCleanup(mGae);
             } finally {
-                mCodec = null;
+                try {
+                    if (mGae != 0) GsmAmrEncoderDelete(mGae);
+                } finally {
+                    mGae = 0;
+                }
             }
         }
     }
 
     @Override
     protected void finalize() throws Throwable {
-        if (mCodec != null) {
-            Log.w(TAG, "AmrInputStream wasn't closed");
-            mCodec.release();
+        if (mGae != 0) {
+            close();
+            throw new IllegalStateException("someone forgot to close AmrInputStream");
         }
     }
+    
+    //
+    // AudioRecord JNI interface
+    //
+    private static native long GsmAmrEncoderNew();
+    private static native void GsmAmrEncoderInitialize(long gae);
+    private static native int GsmAmrEncoderEncode(long gae,
+            byte[] pcm, int pcmOffset, byte[] amr, int amrOffset) throws IOException;
+    private static native void GsmAmrEncoderCleanup(long gae);
+    private static native void GsmAmrEncoderDelete(long gae);
+
 }

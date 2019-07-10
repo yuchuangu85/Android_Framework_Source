@@ -1,85 +1,73 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+
 package java.security.spec;
 
 /**
- * This immutable class specifies an elliptic curve public key with
- * its associated parameters.
- *
- * @see KeySpec
- * @see ECPoint
- * @see ECParameterSpec
- *
- * @author Valerie Peng
- *
- * @since 1.5
+ * The parameters specifying an Elliptic Curve (EC) public key.
  */
 public class ECPublicKeySpec implements KeySpec {
-
-    private ECPoint w;
-    private ECParameterSpec params;
+    // The public point
+    private final ECPoint w;
+    // The associated elliptic curve domain parameters
+    private final ECParameterSpec params;
 
     /**
-     * Creates a new ECPublicKeySpec with the specified
-     * parameter values.
-     * @param w the public point.
-     * @param params the associated elliptic curve domain
-     * parameters.
-     * @exception NullPointerException if {@code w}
-     * or {@code params} is null.
-     * @exception IllegalArgumentException if {@code w}
-     * is point at infinity, i.e. ECPoint.POINT_INFINITY
+     * Creates a new {@code ECPublicKey} with the specified public elliptic
+     * curve point and parameter specification.
+     *
+     * @param w
+     *            the public elliptic curve point {@code W}.
+     * @param params
+     *            the domain parameter specification.
+     * @throws IllegalArgumentException
+     *             if the specified point {@code W} is at infinity.
      */
     public ECPublicKeySpec(ECPoint w, ECParameterSpec params) {
-        if (w == null) {
-            throw new NullPointerException("w is null");
-        }
-        if (params == null) {
-            throw new NullPointerException("params is null");
-        }
-        if (w == ECPoint.POINT_INFINITY) {
-            throw new IllegalArgumentException("w is ECPoint.POINT_INFINITY");
-        }
         this.w = w;
         this.params = params;
+        // throw NullPointerException if w or params is null
+        if (this.w == null) {
+            throw new NullPointerException("w == null");
+        }
+        if (this.params == null) {
+            throw new NullPointerException("params == null");
+        }
+        // throw IllegalArgumentException if w is point at infinity
+        if (this.w.equals(ECPoint.POINT_INFINITY)) {
+            throw new IllegalArgumentException("the w parameter is point at infinity");
+        }
     }
 
     /**
-     * Returns the public point W.
-     * @return the public point W.
-     */
-    public ECPoint getW() {
-        return w;
-    }
-
-    /**
-     * Returns the associated elliptic curve domain
-     * parameters.
-     * @return the EC domain parameters.
+     * Returns the domain parameter specification.
+     *
+     * @return the domain parameter specification.
      */
     public ECParameterSpec getParams() {
         return params;
+    }
+
+    /**
+     * Returns the public elliptic curve point {@code W}.
+     *
+     * @return the public elliptic curve point {@code W}.
+     */
+    public ECPoint getW() {
+        return w;
     }
 }

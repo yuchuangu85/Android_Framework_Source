@@ -1,83 +1,73 @@
 /*
- * Copyright (c) 1997, 2003, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Copyright (C) 2008 The Android Open Source Project
  *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang.ref;
 
-
 /**
- * Phantom reference objects, which are enqueued after the collector
- * determines that their referents may otherwise be reclaimed.  Phantom
- * references are most often used for scheduling pre-mortem cleanup actions in
- * a more flexible way than is possible with the Java finalization mechanism.
- *
- * <p> If the garbage collector determines at a certain point in time that the
- * referent of a phantom reference is <a
- * href="package-summary.html#reachability">phantom reachable</a>, then at that
- * time or at some later time it will enqueue the reference.
- *
- * <p> In order to ensure that a reclaimable object remains so, the referent of
- * a phantom reference may not be retrieved: The <code>get</code> method of a
- * phantom reference always returns <code>null</code>.
- *
- * <p> Unlike soft and weak references, phantom references are not
- * automatically cleared by the garbage collector as they are enqueued.  An
- * object that is reachable via phantom references will remain so until all
- * such references are cleared or themselves become unreachable.
- *
- * @author   Mark Reinhold
- * @since    1.2
+ * Implements a phantom reference, which is the weakest of the three types of
+ * references. Once the garbage collector decides that an object {@code obj} is
+ * phantom-reachable, it is being enqueued
+ * on the corresponding queue, but its referent is not cleared. That is, the
+ * reference queue of the phantom reference must explicitly be processed by some
+ * application code. As a consequence, a phantom reference that is not
+ * registered with any reference queue does not make any sense.
+ * <p>
+ * Phantom references are useful for implementing cleanup operations that are
+ * necessary before an object gets garbage-collected. They are sometimes more
+ * flexible than the {@link Object#finalize()} method.
  */
-
 public class PhantomReference<T> extends Reference<T> {
 
     /**
-     * Returns this reference object's referent.  Because the referent of a
-     * phantom reference is always inaccessible, this method always returns
-     * <code>null</code>.
+     * Constructs a new phantom reference and registers it with the given
+     * reference queue. The reference queue may be {@code null}, but this case
+     * does not make any sense, since the reference will never be enqueued, and
+     * the {@link #get()} method always returns {@code null}.
      *
-     * @return  <code>null</code>
+     * @param r the referent to track
+     * @param q the queue to register the phantom reference object with
      */
-    public T get() {
-        return null;
+    public PhantomReference(T r, ReferenceQueue<? super T> q) {
+        super(r, q);
     }
 
     /**
-     * Creates a new phantom reference that refers to the given object and
-     * is registered with the given queue.
+     * Returns {@code null}.  The referent of a phantom reference is not
+     * accessible.
      *
-     * <p> It is possible to create a phantom reference with a <tt>null</tt>
-     * queue, but such a reference is completely useless: Its <tt>get</tt>
-     * method will always return null and, since it does not have a queue, it
-     * will never be enqueued.
-     *
-     * @param referent the object the new phantom reference will refer to
-     * @param q the queue with which the reference is to be registered,
-     *          or <tt>null</tt> if registration is not required
+     * @return {@code null} (always)
      */
-    public PhantomReference(T referent, ReferenceQueue<? super T> q) {
-        super(referent, q);
+    @Override
+    public T get() {
+        return null;
     }
-
 }

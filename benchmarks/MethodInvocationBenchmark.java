@@ -16,10 +16,14 @@
 
 package benchmarks;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 /**
  * Compares various kinds of method invocation.
  */
-public class MethodInvocationBenchmark {
+public class MethodInvocationBenchmark extends SimpleBenchmark {
     interface I {
         void emptyInterface();
     }

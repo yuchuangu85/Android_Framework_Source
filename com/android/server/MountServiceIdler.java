@@ -18,7 +18,7 @@ package com.android.server;
 
 import java.util.Calendar;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
@@ -59,7 +59,7 @@ public class MountServiceIdler extends JobService {
         // is really more than just mount, some day it should be renamed to be system
         // idleer).
         try {
-            ActivityManager.getService().performIdleMaintenance();
+            ActivityManagerNative.getDefault().performIdleMaintenance();
         } catch (RemoteException e) {
         }
         // The mount service will run an fstrim operation asynchronously
@@ -67,12 +67,12 @@ public class MountServiceIdler extends JobService {
         // that lets us cleanly end our idle timeslice.  It's safe to call
         // finishIdle() from any thread.
         mJobParams = params;
-        StorageManagerService ms = StorageManagerService.sSelf;
+        MountService ms = MountService.sSelf;
         if (ms != null) {
             synchronized (mFinishCallback) {
                 mStarted = true;
             }
-            ms.runIdleMaint(mFinishCallback);
+            ms.runIdleMaintenance(mFinishCallback);
         }
         return ms != null;
     }
@@ -82,12 +82,8 @@ public class MountServiceIdler extends JobService {
         // Once we kick off the fstrim we aren't actually interruptible; just note
         // that we don't need to call jobFinished(), and let everything happen in
         // the callback from the mount service.
-        StorageManagerService ms = StorageManagerService.sSelf;
-        if (ms != null) {
-            ms.abortIdleMaint(mFinishCallback);
-            synchronized (mFinishCallback) {
-                mStarted = false;
-            }
+        synchronized (mFinishCallback) {
+            mStarted = false;
         }
         return false;
     }

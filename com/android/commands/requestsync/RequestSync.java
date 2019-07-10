@@ -19,7 +19,6 @@ package com.android.commands.requestsync;
 
 import android.accounts.Account;
 import android.content.ContentResolver;
-import android.content.SyncRequest;
 import android.os.Bundle;
 
 import java.net.URISyntaxException;
@@ -30,58 +29,10 @@ public class RequestSync {
     private int mNextArg;
     private String mCurArgData;
 
-    private int mExemptionFlag = ContentResolver.SYNC_EXEMPTION_NONE;
-
-    enum Operation {
-        REQUEST_SYNC {
-            @Override
-            void invoke(RequestSync caller) {
-                final int flag = caller.mExemptionFlag;
-                caller.mExtras.putInt(ContentResolver.SYNC_VIRTUAL_EXTRAS_EXEMPTION_FLAG, flag);
-                if (flag == ContentResolver.SYNC_EXEMPTION_NONE) {
-                    System.out.println(
-                            "Making a sync request as a background app.\n"
-                            + "Note: request may be throttled by App Standby.\n"
-                            + "To override this behavior and run a sync immediately,"
-                            + " pass a -f or -F option (use -h for help).\n");
-                }
-                final SyncRequest request =
-                        new SyncRequest.Builder()
-                                .setSyncAdapter(caller.mAccount, caller.mAuthority)
-                                .setExtras(caller.mExtras)
-                                .syncOnce()
-                                .build();
-                ContentResolver.requestSync(request);
-            }
-        },
-        ADD_PERIODIC_SYNC {
-            @Override
-            void invoke(RequestSync caller) {
-                ContentResolver.addPeriodicSync(caller.mAccount, caller.mAuthority, caller.mExtras,
-                        caller.mPeriodicIntervalSeconds);
-            }
-        },
-        REMOVE_PERIODIC_SYNC {
-            @Override
-            void invoke(RequestSync caller) {
-                ContentResolver.removePeriodicSync(
-                        caller.mAccount, caller.mAuthority, caller.mExtras);
-            }
-        };
-
-        abstract void invoke(RequestSync caller);
-    }
-
-    private Operation mOperation;
-
     // account & authority
-    private String mAccountName;
-    private String mAccountType;
-    private String mAuthority;
-
-    private Account mAccount;
-
-    private int mPeriodicIntervalSeconds;
+    private String mAccountName = null;
+    private String mAccountType = null;
+    private String mAuthority = null;
 
     // extras
     private Bundle mExtras = new Bundle();
@@ -129,28 +80,11 @@ public class RequestSync {
                 }
             }
 
-            mAccount = account;
-
-            mOperation.invoke(this);
+            ContentResolver.requestSync(account, mAuthority, mExtras);
         }
     }
 
     private boolean parseArgs() throws URISyntaxException {
-        mOperation = Operation.REQUEST_SYNC;
-        if (mArgs.length > 0) {
-            switch (mArgs[0]) {
-                case "add-periodic":
-                    mNextArg++;
-                    mOperation = Operation.ADD_PERIODIC_SYNC;
-                    mPeriodicIntervalSeconds = Integer.parseInt(nextArgRequired());
-                    break;
-                case "remove-periodic":
-                    mNextArg++;
-                    mOperation = Operation.REMOVE_PERIODIC_SYNC;
-                    break;
-            }
-        }
-
         String opt;
         while ((opt=nextOption()) != null) {
             if (opt.equals("-h") || opt.equals("--help")) {
@@ -180,8 +114,6 @@ public class RequestSync {
                 mExtras.putBoolean(ContentResolver.SYNC_EXTRAS_OVERRIDE_TOO_MANY_DELETIONS, true);
             } else if (opt.equals("-u") || opt.equals("--upload-only")) {
                 mExtras.putBoolean(ContentResolver.SYNC_EXTRAS_UPLOAD, true);
-            } else if (opt.equals("--rc") || opt.equals("--require-charging")) {
-                mExtras.putBoolean(ContentResolver.SYNC_EXTRAS_REQUIRE_CHARGING, true);
             } else if (opt.equals("-e") || opt.equals("--es") || opt.equals("--extra-string")) {
                 final String key = nextArgRequired();
                 final String value = nextArgRequired();
@@ -196,26 +128,19 @@ public class RequestSync {
             } else if (opt.equals("--el") || opt.equals("--extra-long")) {
                 final String key = nextArgRequired();
                 final String value = nextArgRequired();
-                mExtras.putLong(key, Long.parseLong(value));
+                mExtras.putLong(key, Long.valueOf(value));
             } else if (opt.equals("--ef") || opt.equals("--extra-float")) {
                 final String key = nextArgRequired();
                 final String value = nextArgRequired();
-                mExtras.putFloat(key, Long.parseLong(value));
+                mExtras.putFloat(key, Long.valueOf(value));
             } else if (opt.equals("--ed") || opt.equals("--extra-double")) {
                 final String key = nextArgRequired();
                 final String value = nextArgRequired();
-                mExtras.putFloat(key, Long.parseLong(value));
+                mExtras.putFloat(key, Long.valueOf(value));
             } else if (opt.equals("--ez") || opt.equals("--extra-bool")) {
                 final String key = nextArgRequired();
                 final String value = nextArgRequired();
                 mExtras.putBoolean(key, Boolean.valueOf(value));
-
-            } else if (opt.equals("-f") || opt.equals("--foreground")) {
-                mExemptionFlag = ContentResolver.SYNC_EXEMPTION_PROMOTE_BUCKET;
-
-            } else if (opt.equals("-F") || opt.equals("--top")) {
-                mExemptionFlag = ContentResolver.SYNC_EXEMPTION_PROMOTE_BUCKET_WITH_TEMP;
-
             } else {
                 System.err.println("Error: Unknown option: " + opt);
                 showUsage();
@@ -282,48 +207,31 @@ public class RequestSync {
 
     private static void showUsage() {
         System.err.println(
-                "Usage:\n" +
-                "\n" +
-                "  requestsync [options]\n" +
-                "    With no options, a sync will be requested for all account and all sync\n" +
-                "    authorities with no extras.\n" +
-                "    Basic options:\n" +
-                "       -h|--help: Display this message\n" +
-                "       -n|--account-name <ACCOUNT-NAME>\n" +
-                "       -t|--account-type <ACCOUNT-TYPE>\n" +
-                "       -a|--authority <AUTHORITY>\n" +
-                "    App-standby related options\n" +
-                "\n" +
-                "       -f|--foreground (cause WORKING_SET, FREQUENT sync adapters" +
-                        " to run immediately)\n" +
-                "       -F|--top (cause even RARE sync adapters to run immediately)\n" +
-                "    ContentResolver extra options:\n" +
-                "      --is|--ignore-settings: Add SYNC_EXTRAS_IGNORE_SETTINGS\n" +
-                "      --ib|--ignore-backoff: Add SYNC_EXTRAS_IGNORE_BACKOFF\n" +
-                "      --dd|--discard-deletions: Add SYNC_EXTRAS_DISCARD_LOCAL_DELETIONS\n" +
-                "      --nr|--no-retry: Add SYNC_EXTRAS_DO_NOT_RETRY\n" +
-                "      --ex|--expedited: Add SYNC_EXTRAS_EXPEDITED\n" +
-                "      -i|--initialize: Add SYNC_EXTRAS_INITIALIZE\n" +
-                "      --m|--manual: Add SYNC_EXTRAS_MANUAL\n" +
-                "      --od|--override-deletions: Add SYNC_EXTRAS_OVERRIDE_TOO_MANY_DELETIONS\n" +
-                "      -u|--upload-only: Add SYNC_EXTRAS_UPLOAD\n" +
-                "      --rc|--require-charging: Add SYNC_EXTRAS_REQUIRE_CHARGING\n" +
-                "    Custom extra options:\n" +
-                "      -e|--es|--extra-string <KEY> <VALUE>\n" +
-                "      --esn|--extra-string-null <KEY>\n" +
-                "      --ei|--extra-int <KEY> <VALUE>\n" +
-                "      --el|--extra-long <KEY> <VALUE>\n" +
-                "      --ef|--extra-float <KEY> <VALUE>\n" +
-                "      --ed|--extra-double <KEY> <VALUE>\n" +
-                "      --ez|--extra-bool <KEY> <VALUE>\n" +
-                "\n" +
-                "  requestsync add-periodic INTERVAL-SECOND [options]\n" +
-                        "  requestsync remove-periodic [options]\n" +
-                "    Mandatory options:\n" +
-                "      -n|--account-name <ACCOUNT-NAME>\n" +
-                "      -t|--account-type <ACCOUNT-TYPE>\n" +
-                "      -a|--authority <AUTHORITY>\n" +
-                "    Also takes the above extra options.\n"
+                "usage: requestsync [options]\n" +
+                "With no options, a sync will be requested for all account and all sync\n" +
+                "authorities with no extras. Options can be:\n" +
+                "    -h|--help: Display this message\n" +
+                "    -n|--account-name <ACCOUNT-NAME>\n" +
+                "    -t|--account-type <ACCOUNT-TYPE>\n" +
+                "    -a|--authority <AUTHORITY>\n" +
+                "  Add ContentResolver extras:\n" +
+                "    --is|--ignore-settings: Add SYNC_EXTRAS_IGNORE_SETTINGS\n" +
+                "    --ib|--ignore-backoff: Add SYNC_EXTRAS_IGNORE_BACKOFF\n" +
+                "    --dd|--discard-deletions: Add SYNC_EXTRAS_DISCARD_LOCAL_DELETIONS\n" +
+                "    --nr|--no-retry: Add SYNC_EXTRAS_DO_NOT_RETRY\n" +
+                "    --ex|--expedited: Add SYNC_EXTRAS_EXPEDITED\n" +
+                "    --i|--initialize: Add SYNC_EXTRAS_INITIALIZE\n" +
+                "    --m|--manual: Add SYNC_EXTRAS_MANUAL\n" +
+                "    --od|--override-deletions: Add SYNC_EXTRAS_OVERRIDE_TOO_MANY_DELETIONS\n" +
+                "    --u|--upload-only: Add SYNC_EXTRAS_UPLOAD\n" +
+                "  Add custom extras:\n" +
+                "    -e|--es|--extra-string <KEY> <VALUE>\n" +
+                "    --esn|--extra-string-null <KEY>\n" +
+                "    --ei|--extra-int <KEY> <VALUE>\n" +
+                "    --el|--extra-long <KEY> <VALUE>\n" +
+                "    --ef|--extra-float <KEY> <VALUE>\n" +
+                "    --ed|--extra-double <KEY> <VALUE>\n" +
+                "    --ez|--extra-bool <KEY> <VALUE>\n"
                 );
     }
 }

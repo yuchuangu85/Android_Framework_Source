@@ -16,13 +16,15 @@
 
 package benchmarks.regression;
 
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 import java.util.Formatter;
 import java.util.Locale;
 
 /**
  * Compares Formatter against hand-written StringBuilder code.
  */
-public class FormatterBenchmark {
+public class FormatterBenchmark extends SimpleBenchmark {
     public void timeFormatter_NoFormatting(int reps) {
         for (int i = 0; i < reps; i++) {
             Formatter f = new Formatter();

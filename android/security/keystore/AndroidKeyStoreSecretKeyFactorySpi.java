@@ -17,12 +17,10 @@
 package android.security.keystore;
 
 import android.security.Credentials;
-import android.security.GateKeeper;
 import android.security.KeyStore;
 import android.security.keymaster.KeyCharacteristics;
 import android.security.keymaster.KeymasterDefs;
 
-import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.ProviderException;
 import java.security.spec.InvalidKeySpecException;
@@ -61,26 +59,21 @@ public class AndroidKeyStoreSecretKeyFactorySpi extends SecretKeyFactorySpi {
         if (!KeyInfo.class.equals(keySpecClass)) {
             throw new InvalidKeySpecException("Unsupported key spec: " + keySpecClass.getName());
         }
-        AndroidKeyStoreKey keystoreKey = (AndroidKeyStoreKey) key;
-        String keyAliasInKeystore = keystoreKey.getAlias();
+        String keyAliasInKeystore = ((AndroidKeyStoreKey) key).getAlias();
         String entryAlias;
-        if (keyAliasInKeystore.startsWith(Credentials.USER_PRIVATE_KEY)) {
-            entryAlias = keyAliasInKeystore.substring(Credentials.USER_PRIVATE_KEY.length());
-        } else if (keyAliasInKeystore.startsWith(Credentials.USER_SECRET_KEY)){
-            // key has legacy prefix
+        if (keyAliasInKeystore.startsWith(Credentials.USER_SECRET_KEY)) {
             entryAlias = keyAliasInKeystore.substring(Credentials.USER_SECRET_KEY.length());
         } else {
             throw new InvalidKeySpecException("Invalid key alias: " + keyAliasInKeystore);
         }
 
-        return getKeyInfo(mKeyStore, entryAlias, keyAliasInKeystore, keystoreKey.getUid());
+        return getKeyInfo(mKeyStore, entryAlias, keyAliasInKeystore);
     }
 
-    static KeyInfo getKeyInfo(KeyStore keyStore, String entryAlias, String keyAliasInKeystore,
-            int keyUid) {
+    static KeyInfo getKeyInfo(KeyStore keyStore, String entryAlias, String keyAliasInKeystore) {
         KeyCharacteristics keyCharacteristics = new KeyCharacteristics();
-        int errorCode = keyStore.getKeyCharacteristics(
-                keyAliasInKeystore, null, null, keyUid, keyCharacteristics);
+        int errorCode =
+                keyStore.getKeyCharacteristics(keyAliasInKeystore, null, null, keyCharacteristics);
         if (errorCode != KeyStore.NO_ERROR) {
             throw new ProviderException("Failed to obtain information about key."
                     + " Keystore error: " + errorCode);
@@ -96,7 +89,6 @@ public class AndroidKeyStoreSecretKeyFactorySpi extends SecretKeyFactorySpi {
         @KeyProperties.BlockModeEnum String[] blockModes;
         int keymasterSwEnforcedUserAuthenticators;
         int keymasterHwEnforcedUserAuthenticators;
-        List<BigInteger> keymasterSecureUserIds;
         try {
             if (keyCharacteristics.hwEnforced.containsTag(KeymasterDefs.KM_TAG_ORIGIN)) {
                 insideSecureHardware = true;
@@ -153,8 +145,6 @@ public class AndroidKeyStoreSecretKeyFactorySpi extends SecretKeyFactorySpi {
                     keyCharacteristics.swEnforced.getEnum(KeymasterDefs.KM_TAG_USER_AUTH_TYPE, 0);
             keymasterHwEnforcedUserAuthenticators =
                     keyCharacteristics.hwEnforced.getEnum(KeymasterDefs.KM_TAG_USER_AUTH_TYPE, 0);
-            keymasterSecureUserIds =
-                keyCharacteristics.getUnsignedLongs(KeymasterDefs.KM_TAG_USER_SECURE_ID);
         } catch (IllegalArgumentException e) {
             throw new ProviderException("Unsupported key characteristic", e);
         }
@@ -175,22 +165,6 @@ public class AndroidKeyStoreSecretKeyFactorySpi extends SecretKeyFactorySpi {
         boolean userAuthenticationRequirementEnforcedBySecureHardware = (userAuthenticationRequired)
                 && (keymasterHwEnforcedUserAuthenticators != 0)
                 && (keymasterSwEnforcedUserAuthenticators == 0);
-        boolean userAuthenticationValidWhileOnBody =
-                keyCharacteristics.hwEnforced.getBoolean(KeymasterDefs.KM_TAG_ALLOW_WHILE_ON_BODY);
-        boolean trustedUserPresenceRequred =
-                keyCharacteristics.hwEnforced.getBoolean(
-                    KeymasterDefs.KM_TAG_TRUSTED_USER_PRESENCE_REQUIRED);
-
-        boolean invalidatedByBiometricEnrollment = false;
-        if (keymasterSwEnforcedUserAuthenticators == KeymasterDefs.HW_AUTH_FINGERPRINT
-            || keymasterHwEnforcedUserAuthenticators == KeymasterDefs.HW_AUTH_FINGERPRINT) {
-            // Fingerprint-only key; will be invalidated if the root SID isn't in the SID list.
-            invalidatedByBiometricEnrollment = keymasterSecureUserIds != null
-                    && !keymasterSecureUserIds.isEmpty()
-                    && !keymasterSecureUserIds.contains(getGateKeeperSecureUserId());
-        }
-
-        boolean userConfirmationRequired = keyCharacteristics.hwEnforced.getBoolean(KeymasterDefs.KM_TAG_TRUSTED_CONFIRMATION_REQUIRED);
 
         return new KeyInfo(entryAlias,
                 insideSecureHardware,
@@ -206,19 +180,7 @@ public class AndroidKeyStoreSecretKeyFactorySpi extends SecretKeyFactorySpi {
                 blockModes,
                 userAuthenticationRequired,
                 (int) userAuthenticationValidityDurationSeconds,
-                userAuthenticationRequirementEnforcedBySecureHardware,
-                userAuthenticationValidWhileOnBody,
-                trustedUserPresenceRequred,
-                invalidatedByBiometricEnrollment,
-                userConfirmationRequired);
-    }
-
-    private static BigInteger getGateKeeperSecureUserId() throws ProviderException {
-    	try {
-    		return BigInteger.valueOf(GateKeeper.getSecureUserId());
-    	} catch (IllegalStateException e) {
-    		throw new ProviderException("Failed to get GateKeeper secure user ID", e);
-    	}
+                userAuthenticationRequirementEnforcedBySecureHardware);
     }
 
     @Override

@@ -17,110 +17,73 @@
 package com.android.systemui.statusbar.phone;
 
 import android.content.Context;
-import android.os.PowerManager;
 import android.os.SystemProperties;
-import android.os.UserHandle;
-import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.MathUtils;
-import android.util.SparseBooleanArray;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.hardware.AmbientDisplayConfiguration;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
-import com.android.systemui.doze.AlwaysOnDisplayPolicy;
-import com.android.systemui.doze.DozeScreenState;
-import com.android.systemui.tuner.TunerService;
 
 import java.io.PrintWriter;
+import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-public class DozeParameters implements TunerService.Tunable {
-    private static final int MAX_DURATION = 60 * 1000;
-    public static final String DOZE_SENSORS_WAKE_UP_FULLY = "doze_sensors_wake_up_fully";
-    public static final boolean FORCE_NO_BLANKING =
-            SystemProperties.getBoolean("debug.force_no_blanking", false);
+public class DozeParameters {
+    private static final String TAG = "DozeParameters";
+    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
-    private static IntInOutMatcher sPickupSubtypePerformsProxMatcher;
-    private static DozeParameters sInstance;
+    private static final int MAX_DURATION = 10 * 1000;
 
     private final Context mContext;
-    private final AmbientDisplayConfiguration mAmbientDisplayConfiguration;
-    private final PowerManager mPowerManager;
 
-    private final AlwaysOnDisplayPolicy mAlwaysOnPolicy;
+    private static PulseSchedule sPulseSchedule;
 
-    private boolean mDozeAlwaysOn;
-    private boolean mControlScreenOffAnimation;
-
-    public static DozeParameters getInstance(Context context) {
-        if (sInstance == null) {
-            sInstance = new DozeParameters(context);
-        }
-        return sInstance;
-    }
-
-    @VisibleForTesting
-    protected DozeParameters(Context context) {
-        mContext = context.getApplicationContext();
-        mAmbientDisplayConfiguration = new AmbientDisplayConfiguration(mContext);
-        mAlwaysOnPolicy = new AlwaysOnDisplayPolicy(mContext);
-
-        mControlScreenOffAnimation = !getDisplayNeedsBlanking();
-        mPowerManager = mContext.getSystemService(PowerManager.class);
-        mPowerManager.setDozeAfterScreenOff(!mControlScreenOffAnimation);
-
-        Dependency.get(TunerService.class).addTunable(this, Settings.Secure.DOZE_ALWAYS_ON,
-                Settings.Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED);
+    public DozeParameters(Context context) {
+        mContext = context;
     }
 
     public void dump(PrintWriter pw) {
         pw.println("  DozeParameters:");
         pw.print("    getDisplayStateSupported(): "); pw.println(getDisplayStateSupported());
-        pw.print("    getPulseDuration(): "); pw.println(getPulseDuration());
-        pw.print("    getPulseInDuration(): "); pw.println(getPulseInDuration());
+        pw.print("    getPulseDuration(pickup=false): "); pw.println(getPulseDuration(false));
+        pw.print("    getPulseDuration(pickup=true): "); pw.println(getPulseDuration(true));
+        pw.print("    getPulseInDuration(pickup=false): "); pw.println(getPulseInDuration(false));
+        pw.print("    getPulseInDuration(pickup=true): "); pw.println(getPulseInDuration(true));
+        pw.print("    getPulseInDelay(pickup=false): "); pw.println(getPulseInDelay(false));
+        pw.print("    getPulseInDelay(pickup=true): "); pw.println(getPulseInDelay(true));
         pw.print("    getPulseInVisibleDuration(): "); pw.println(getPulseVisibleDuration());
         pw.print("    getPulseOutDuration(): "); pw.println(getPulseOutDuration());
         pw.print("    getPulseOnSigMotion(): "); pw.println(getPulseOnSigMotion());
         pw.print("    getVibrateOnSigMotion(): "); pw.println(getVibrateOnSigMotion());
+        pw.print("    getPulseOnPickup(): "); pw.println(getPulseOnPickup());
         pw.print("    getVibrateOnPickup(): "); pw.println(getVibrateOnPickup());
         pw.print("    getProxCheckBeforePulse(): "); pw.println(getProxCheckBeforePulse());
+        pw.print("    getPulseOnNotifications(): "); pw.println(getPulseOnNotifications());
+        pw.print("    getPulseSchedule(): "); pw.println(getPulseSchedule());
+        pw.print("    getPulseScheduleResets(): "); pw.println(getPulseScheduleResets());
         pw.print("    getPickupVibrationThreshold(): "); pw.println(getPickupVibrationThreshold());
-        pw.print("    getPickupSubtypePerformsProxCheck(): ");pw.println(
-                dumpPickupSubtypePerformsProxCheck());
-    }
-
-    private String dumpPickupSubtypePerformsProxCheck() {
-        // Refresh sPickupSubtypePerformsProxMatcher
-        getPickupSubtypePerformsProxCheck(0);
-
-        if (sPickupSubtypePerformsProxMatcher == null) {
-            return "fallback: " + mContext.getResources().getBoolean(
-                    R.bool.doze_pickup_performs_proximity_check);
-        } else {
-            return "spec: " + sPickupSubtypePerformsProxMatcher.mSpec;
-        }
+        pw.print("    getPickupPerformsProxCheck(): "); pw.println(getPickupPerformsProxCheck());
     }
 
     public boolean getDisplayStateSupported() {
         return getBoolean("doze.display.supported", R.bool.doze_display_state_supported);
     }
 
-    public boolean getDozeSuspendDisplayStateSupported() {
-        return mContext.getResources().getBoolean(R.bool.doze_suspend_display_state_supported);
+    public int getPulseDuration(boolean pickup) {
+        return getPulseInDuration(pickup) + getPulseVisibleDuration() + getPulseOutDuration();
     }
 
-    public int getPulseDuration() {
-        return getPulseInDuration() + getPulseVisibleDuration() + getPulseOutDuration();
+    public int getPulseInDuration(boolean pickup) {
+        return pickup
+                ? getInt("doze.pulse.duration.in.pickup", R.integer.doze_pulse_duration_in_pickup)
+                : getInt("doze.pulse.duration.in", R.integer.doze_pulse_duration_in);
     }
 
-    public float getScreenBrightnessDoze() {
-        return mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_screenBrightnessDoze) / 255f;
-    }
-
-    public int getPulseInDuration() {
-        return getInt("doze.pulse.duration.in", R.integer.doze_pulse_duration_in);
+    public int getPulseInDelay(boolean pickup) {
+        return pickup
+                ? getInt("doze.pulse.delay.in.pickup", R.integer.doze_pulse_delay_in_pickup)
+                : getInt("doze.pulse.delay.in", R.integer.doze_pulse_delay_in);
     }
 
     public int getPulseVisibleDuration() {
@@ -139,6 +102,10 @@ public class DozeParameters implements TunerService.Tunable {
         return SystemProperties.getBoolean("doze.vibrate.sigmotion", false);
     }
 
+    public boolean getPulseOnPickup() {
+        return getBoolean("doze.pulse.pickup", R.bool.doze_pulse_on_pick_up);
+    }
+
     public boolean getVibrateOnPickup() {
         return SystemProperties.getBoolean("doze.vibrate.pickup", false);
     }
@@ -147,61 +114,28 @@ public class DozeParameters implements TunerService.Tunable {
         return getBoolean("doze.pulse.proxcheck", R.bool.doze_proximity_check_before_pulse);
     }
 
+    public boolean getPickupPerformsProxCheck() {
+        return getBoolean("doze.pickup.proxcheck", R.bool.doze_pickup_performs_proximity_check);
+    }
+
+    public boolean getPulseOnNotifications() {
+        return getBoolean("doze.pulse.notifications", R.bool.doze_pulse_on_notifications);
+    }
+
+    public PulseSchedule getPulseSchedule() {
+        final String spec = getString("doze.pulse.schedule", R.string.doze_pulse_schedule);
+        if (sPulseSchedule == null || !sPulseSchedule.mSpec.equals(spec)) {
+            sPulseSchedule = PulseSchedule.parse(spec);
+        }
+        return sPulseSchedule;
+    }
+
+    public int getPulseScheduleResets() {
+        return getInt("doze.pulse.schedule.resets", R.integer.doze_pulse_schedule_resets);
+    }
+
     public int getPickupVibrationThreshold() {
         return getInt("doze.pickup.vibration.threshold", R.integer.doze_pickup_vibration_threshold);
-    }
-
-    /**
-     * For how long a wallpaper can be visible in AoD before it fades aways.
-     * @return duration in millis.
-     */
-    public long getWallpaperAodDuration() {
-        return shouldControlScreenOff() ? DozeScreenState.ENTER_DOZE_HIDE_WALLPAPER_DELAY
-                : mAlwaysOnPolicy.wallpaperVisibilityDuration;
-    }
-
-    /**
-     * How long it takes for the wallpaper fade away (Animation duration.)
-     * @return duration in millis.
-     */
-    public long getWallpaperFadeOutDuration() {
-        return mAlwaysOnPolicy.wallpaperFadeOutDuration;
-    }
-
-    /**
-     * Checks if always on is available and enabled for the current user.
-     * @return {@code true} if enabled and available.
-     */
-    public boolean getAlwaysOn() {
-        return mDozeAlwaysOn;
-    }
-
-    /**
-     * Some screens need to be completely black before changing the display power mode,
-     * unexpected behavior might happen if this parameter isn't respected.
-     *
-     * @return {@code true} if screen needs to be completely black before a power transition.
-     */
-    public boolean getDisplayNeedsBlanking() {
-        return !FORCE_NO_BLANKING && mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_displayBlanksAfterDoze);
-    }
-
-    public boolean shouldControlScreenOff() {
-        return mControlScreenOffAnimation;
-    }
-
-    public void setControlScreenOffAnimation(boolean controlScreenOffAnimation) {
-        if (mControlScreenOffAnimation == controlScreenOffAnimation) {
-            return;
-        }
-        mControlScreenOffAnimation = controlScreenOffAnimation;
-        getPowerManager().setDozeAfterScreenOff(!controlScreenOffAnimation);
-    }
-
-    @VisibleForTesting
-    protected PowerManager getPowerManager() {
-        return mPowerManager;
     }
 
     private boolean getBoolean(String propName, int resId) {
@@ -217,114 +151,43 @@ public class DozeParameters implements TunerService.Tunable {
         return SystemProperties.get(propName, mContext.getString(resId));
     }
 
-    public boolean getPickupSubtypePerformsProxCheck(int subType) {
-        String spec = getString("doze.pickup.proxcheck",
-                R.string.doze_pickup_subtype_performs_proximity_check);
+    public static class PulseSchedule {
+        private static final Pattern PATTERN = Pattern.compile("(\\d+?)s", 0);
 
-        if (TextUtils.isEmpty(spec)) {
-            // Fall back to non-subtype based property.
-            return mContext.getResources().getBoolean(R.bool.doze_pickup_performs_proximity_check);
+        private String mSpec;
+        private int[] mSchedule;
+
+        public static PulseSchedule parse(String spec) {
+            if (TextUtils.isEmpty(spec)) return null;
+            try {
+                final PulseSchedule rt = new PulseSchedule();
+                rt.mSpec = spec;
+                final String[] tokens = spec.split(",");
+                rt.mSchedule = new int[tokens.length];
+                for (int i = 0; i < tokens.length; i++) {
+                    final Matcher m = PATTERN.matcher(tokens[i]);
+                    if (!m.matches()) throw new IllegalArgumentException("Bad token: " + tokens[i]);
+                    rt.mSchedule[i] = Integer.parseInt(m.group(1));
+                }
+                if (DEBUG) Log.d(TAG, "Parsed spec [" + spec + "] as: " + rt);
+                return rt;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Error parsing spec: " + spec, e);
+                return null;
+            }
         }
 
-        if (sPickupSubtypePerformsProxMatcher == null
-                || !TextUtils.equals(spec, sPickupSubtypePerformsProxMatcher.mSpec)) {
-            sPickupSubtypePerformsProxMatcher = new IntInOutMatcher(spec);
+        @Override
+        public String toString() {
+            return Arrays.toString(mSchedule);
         }
 
-        return sPickupSubtypePerformsProxMatcher.isIn(subType);
-    }
-
-    public int getPulseVisibleDurationExtended() {
-        return 2 * getPulseVisibleDuration();
-    }
-
-    public boolean doubleTapReportsTouchCoordinates() {
-        return mContext.getResources().getBoolean(R.bool.doze_double_tap_reports_touch_coordinates);
-    }
-
-    @Override
-    public void onTuningChanged(String key, String newValue) {
-        mDozeAlwaysOn = mAmbientDisplayConfiguration.alwaysOnEnabled(UserHandle.USER_CURRENT);
-    }
-
-    public AlwaysOnDisplayPolicy getPolicy() {
-        return mAlwaysOnPolicy;
-    }
-
-    /**
-     * Parses a spec of the form `1,2,3,!5,*`. The resulting object will match numbers that are
-     * listed, will not match numbers that are listed with a ! prefix, and will match / not match
-     * unlisted numbers depending on whether * or !* is present.
-     *
-     * *  -> match any numbers that are not explicitly listed
-     * !* -> don't match any numbers that are not explicitly listed
-     * 2  -> match 2
-     * !3 -> don't match 3
-     *
-     * It is illegal to specify:
-     * - an empty spec
-     * - a spec containing that are empty, or a lone !
-     * - a spec for anything other than numbers or *
-     * - multiple terms for the same number / multiple *s
-     */
-    public static class IntInOutMatcher {
-        private static final String WILDCARD = "*";
-        private static final char OUT_PREFIX = '!';
-
-        private final SparseBooleanArray mIsIn;
-        private final boolean mDefaultIsIn;
-        final String mSpec;
-
-        public IntInOutMatcher(String spec) {
-            if (TextUtils.isEmpty(spec)) {
-                throw new IllegalArgumentException("Spec must not be empty");
+        public long getNextTime(long now, long notificationTime) {
+            for (int i = 0; i < mSchedule.length; i++) {
+                final long time = notificationTime + mSchedule[i] * 1000;
+                if (time > now) return time;
             }
-
-            boolean defaultIsIn = false;
-            boolean foundWildcard = false;
-
-            mSpec = spec;
-            mIsIn = new SparseBooleanArray();
-
-            for (String itemPrefixed : spec.split(",", -1)) {
-                if (itemPrefixed.length() == 0) {
-                    throw new IllegalArgumentException(
-                            "Illegal spec, must not have zero-length items: `" + spec + "`");
-                }
-                boolean isIn = itemPrefixed.charAt(0) != OUT_PREFIX;
-                String item = isIn ? itemPrefixed : itemPrefixed.substring(1);
-
-                if (itemPrefixed.length() == 0) {
-                    throw new IllegalArgumentException(
-                            "Illegal spec, must not have zero-length items: `" + spec + "`");
-                }
-
-                if (WILDCARD.equals(item)) {
-                    if (foundWildcard) {
-                        throw new IllegalArgumentException("Illegal spec, `" + WILDCARD +
-                                "` must not appear multiple times in `" + spec + "`");
-                    }
-                    defaultIsIn = isIn;
-                    foundWildcard = true;
-                } else {
-                    int key = Integer.parseInt(item);
-                    if (mIsIn.indexOfKey(key) >= 0) {
-                        throw new IllegalArgumentException("Illegal spec, `" + key +
-                                "` must not appear multiple times in `" + spec + "`");
-                    }
-                    mIsIn.put(key, isIn);
-                }
-            }
-
-            if (!foundWildcard) {
-                throw new IllegalArgumentException("Illegal spec, must specify either * or !*");
-            }
-
-            mDefaultIsIn = defaultIsIn;
-        }
-
-        public boolean isIn(int value) {
-            return (mIsIn.get(value, mDefaultIsIn));
+            return 0;
         }
     }
 }

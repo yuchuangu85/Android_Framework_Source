@@ -1,88 +1,78 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
 
-import java.util.*;
-
-import java.security.KeyStore.*;
+import java.security.KeyStore;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * A parameters object for X509KeyManagers that encapsulates a List
- * of KeyStore.Builders.
+ * The parameters for {@code KeyManager}s. The parameters are a list of
+ * {@code KeyStore.Builder}s.
  *
- * @see java.security.KeyStore.Builder
- * @see X509KeyManager
- *
- * @author  Andreas Sterbenz
- * @since   1.5
+ * @since 1.5
+ * @see KeyStore.Builder
  */
 public class KeyStoreBuilderParameters implements ManagerFactoryParameters {
 
-    private final List<Builder> parameters;
+    private final List<KeyStore.Builder> ksbuilders;
 
     /**
-     * Construct new KeyStoreBuilderParameters from the specified
-     * {@linkplain java.security.KeyStore.Builder}.
+     * Creates a new {@code KeyStoreBuilderParameters} with the specified key
+     * store builder.
      *
-     * @param builder the Builder object
-     * @exception NullPointerException if builder is null
+     * @param builder
+     *            the key store builder.
      */
-    public KeyStoreBuilderParameters(Builder builder) {
-        parameters = Collections.singletonList(Objects.requireNonNull(builder));
-    }
-
-    /**
-     * Construct new KeyStoreBuilderParameters from a List
-     * of {@linkplain java.security.KeyStore.Builder}s. Note that the list
-     * is cloned to protect against subsequent modification.
-     *
-     * @param parameters the List of Builder objects
-     * @exception NullPointerException if parameters is null
-     * @exception IllegalArgumentException if parameters is an empty list
-     */
-    public KeyStoreBuilderParameters(List<Builder> parameters) {
-        if (parameters.isEmpty()) {
-            throw new IllegalArgumentException();
+    public KeyStoreBuilderParameters(KeyStore.Builder builder) {
+        if (builder == null) {
+            throw new NullPointerException("builder == null");
         }
-
-        this.parameters = Collections.unmodifiableList(
-            new ArrayList<Builder>(parameters));
+        ksbuilders = Collections.singletonList(builder);
     }
 
     /**
-     * Return the unmodifiable List of the
-     * {@linkplain java.security.KeyStore.Builder}s
-     * encapsulated by this object.
+     * Creates a new {@code KeyStoreBuilderParameters} with the specified list
+     * of {@code KeyStore.Builder}s.
      *
-     * @return the unmodifiable List of the
-     * {@linkplain java.security.KeyStore.Builder}s
-     * encapsulated by this object.
+     * @param parameters
+     *            the list of key store builders
+     * @throws IllegalArgumentException
+     *             if the specified list is empty.
      */
-    public List<Builder> getParameters() {
-        return parameters;
+    public KeyStoreBuilderParameters(List<KeyStore.Builder> parameters) {
+        if (parameters == null) {
+            throw new NullPointerException("parameters == null");
+        }
+        if (parameters.isEmpty()) {
+            throw new IllegalArgumentException("parameters.isEmpty()");
+        }
+        ksbuilders = Collections.unmodifiableList(new ArrayList<KeyStore.Builder>(parameters));
     }
 
+    /**
+     * Returns the unmodifiable list of {@code KeyStore.Builder}s associated
+     * with this parameters instance.
+     *
+     * @return the unmodifiable list of {@code KeyStore.Builder}s.
+     */
+    public List<KeyStore.Builder> getParameters() {
+        return ksbuilders;
+    }
 }

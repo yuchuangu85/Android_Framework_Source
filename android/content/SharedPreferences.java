@@ -30,12 +30,8 @@ import java.util.Set;
  * when they are committed to storage.  Objects that are returned from the
  * various <code>get</code> methods must be treated as immutable by the application.
  *
- * <p>Note: This class provides strong consistency guarantees. It is using expensive operations
- * which might slow down an app. Frequently changing properties or properties where loss can be
- * tolerated should use other mechanisms. For more details read the comments on
- * {@link Editor#commit()} and {@link Editor#apply()}.
- *
- * <p><em>Note: This class does not support use across multiple processes.</em>
+ * <p><em>Note: currently this class does not support use across multiple
+ * processes.  This will be added later.</em>
  *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
@@ -77,9 +73,7 @@ public interface SharedPreferences {
          * {@link #commit} or {@link #apply} are called.
          * 
          * @param key The name of the preference to modify.
-         * @param value The new value for the preference.  Passing {@code null}
-         *    for this argument is equivalent to calling {@link #remove(String)} with
-         *    this key.
+         * @param value The new value for the preference.
          * 
          * @return Returns a reference to the same Editor object, so you can
          * chain put calls together.

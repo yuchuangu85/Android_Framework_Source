@@ -18,23 +18,18 @@ package android.provider;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
-import android.annotation.TestApi;
-import android.app.job.JobService;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
-import android.database.ContentObserver;
 import android.database.sqlite.SqliteWrapper;
 import android.net.Uri;
-import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.SmsMessage;
 import android.telephony.SubscriptionManager;
-import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.telephony.Rlog;
 import android.util.Patterns;
 
 import com.android.internal.telephony.PhoneConstants;
@@ -48,11 +43,11 @@ import java.util.regex.Pattern;
 
 /**
  * The Telephony provider contains data related to phone operation, specifically SMS and MMS
- * messages, access to the APN list, including the MMSC to use, and the service state.
+ * messages and access to the APN list, including the MMSC to use.
  *
  * <p class="note"><strong>Note:</strong> These APIs are not available on all Android-powered
  * devices. If your app depends on telephony features such as for managing SMS messages, include
- * a <a href="{@docRoot}guide/topics/manifest/uses-feature-element.html">{@code <uses-feature>}
+ * a <a href="{@docRoot}guide/topics/manifest/uses-feature-element.html">{@code &lt;uses-feature>}
  * </a> element in your manifest that declares the {@code "android.hardware.telephony"} hardware
  * feature. Alternatively, you can check for telephony availability at runtime using either
  * {@link android.content.pm.PackageManager#hasSystemFeature
@@ -343,7 +338,7 @@ public final class Telephony {
         public static Uri addMessageToUri(ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport) {
-            return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+            return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                     resolver, uri, address, body, subject, date, read, deliveryReport, -1L);
         }
 
@@ -387,7 +382,7 @@ public final class Telephony {
         public static Uri addMessageToUri(ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport, long threadId) {
-            return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+            return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                     resolver, uri, address, body, subject,
                     date, read, deliveryReport, threadId);
         }
@@ -527,7 +522,7 @@ public final class Telephony {
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date,
                     boolean read) {
-                return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+                return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                         resolver, CONTENT_URI, address, body, subject, date, read, false);
             }
 
@@ -586,7 +581,7 @@ public final class Telephony {
              */
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date) {
-                return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+                return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                         resolver, CONTENT_URI, address, body, subject, date, true, false);
             }
 
@@ -631,7 +626,7 @@ public final class Telephony {
             */
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date) {
-                return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+                return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                         resolver, CONTENT_URI, address, body, subject, date, true, false);
             }
 
@@ -696,7 +691,7 @@ public final class Telephony {
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date,
                     boolean deliveryReport, long threadId) {
-                return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
+                return addMessageToUri(SubscriptionManager.getDefaultSmsSubId(),
                         resolver, CONTENT_URI, address, body, subject, date,
                         true, deliveryReport, threadId);
             }
@@ -850,9 +845,7 @@ public final class Telephony {
              * The broadcast receiver that filters for this intent must declare
              * {@link android.Manifest.permission#BROADCAST_SMS} as a required permission in
              * the <a href="{@docRoot}guide/topics/manifest/receiver-element.html">{@code
-             * <receiver>}</a> tag.
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
+             * &lt;receiver>}</a> tag.
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_DELIVER_ACTION =
@@ -875,8 +868,6 @@ public final class Telephony {
              *
              * <p>If a BroadcastReceiver encounters an error while processing
              * this intent it should set the result code appropriately.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_RECEIVED_ACTION =
@@ -898,8 +889,6 @@ public final class Telephony {
              *
              * <p>If a BroadcastReceiver encounters an error while processing
              * this intent it should set the result code appropriately.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String DATA_SMS_RECEIVED_ACTION =
@@ -937,15 +926,11 @@ public final class Telephony {
              * be 'unassigned/0x...', where '...' is the hex value of the unassigned parameter.  If
              * a parameter has No-Value the value in the map will be null.</p>
              *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_MMS} or
-             * {@link android.Manifest.permission#RECEIVE_WAP_PUSH} (depending on WAP PUSH type) to
-             * receive.</p>
-             *
              * <p class="note"><strong>Note:</strong>
              * The broadcast receiver that filters for this intent must declare
              * {@link android.Manifest.permission#BROADCAST_WAP_PUSH} as a required permission in
              * the <a href="{@docRoot}guide/topics/manifest/receiver-element.html">{@code
-             * <receiver>}</a> tag.
+             * &lt;receiver>}</a> tag.
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String WAP_PUSH_DELIVER_ACTION =
@@ -977,10 +962,6 @@ public final class Telephony {
              * <p>If any unassigned well-known parameters are encountered, the key of the map will
              * be 'unassigned/0x...', where '...' is the hex value of the unassigned parameter.  If
              * a parameter has No-Value the value in the map will be null.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_MMS} or
-             * {@link android.Manifest.permission#RECEIVE_WAP_PUSH} (depending on WAP PUSH type) to
-             * receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String WAP_PUSH_RECEIVED_ACTION =
@@ -1001,22 +982,10 @@ public final class Telephony {
              *
              * <p>If a BroadcastReceiver encounters an error while processing
              * this intent it should set the result code appropriately.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_CB_RECEIVED_ACTION =
                     "android.provider.Telephony.SMS_CB_RECEIVED";
-
-            /**
-             * Action: A SMS based carrier provision intent. Used to identify default
-             * carrier provisioning app on the device.
-             * @hide
-             */
-            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-            @TestApi
-            public static final String SMS_CARRIER_PROVISION_ACTION =
-                    "android.provider.Telephony.SMS_CARRIER_PROVISION";
 
             /**
              * Broadcast Action: A new Emergency Broadcast message has been received
@@ -1033,10 +1002,6 @@ public final class Telephony {
              *
              * <p>If a BroadcastReceiver encounters an error while processing
              * this intent it should set the result code appropriately.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_EMERGENCY_BROADCAST} to
-             * receive.</p>
-             * @removed
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_EMERGENCY_CB_RECEIVED_ACTION =
@@ -1057,8 +1022,6 @@ public final class Telephony {
              *
              * <p>If a BroadcastReceiver encounters an error while processing
              * this intent it should set the result code appropriately.</p>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_SERVICE_CATEGORY_PROGRAM_DATA_RECEIVED_ACTION =
@@ -1068,8 +1031,6 @@ public final class Telephony {
              * Broadcast Action: The SIM storage for SMS messages is full.  If
              * space is not freed, messages targeted for the SIM (class 2) may
              * not be saved.
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SIM_FULL_ACTION =
@@ -1085,8 +1046,6 @@ public final class Telephony {
              *   <li><em>"result"</em> - An int result code, e.g. {@link #RESULT_SMS_OUT_OF_MEMORY}
              *   indicating the error returned to the network.</li>
              * </ul>
-             *
-             * <p>Requires {@link android.Manifest.permission#RECEIVE_SMS} to receive.</p>
              */
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SMS_REJECTED_ACTION =
@@ -1103,54 +1062,6 @@ public final class Telephony {
                 "android.provider.Telephony.MMS_DOWNLOADED";
 
             /**
-             * Broadcast Action: A debug code has been entered in the dialer. This intent is
-             * broadcast by the system and OEM telephony apps may need to receive these broadcasts.
-             * These "secret codes" are used to activate developer menus by dialing certain codes.
-             * And they are of the form {@code *#*#&lt;code&gt;#*#*}. The intent will have the data
-             * URI: {@code android_secret_code://&lt;code&gt;}. It is possible that a manifest
-             * receiver would be woken up even if it is not currently running.
-             *
-             * <p>Requires {@code android.Manifest.permission#CONTROL_INCALL_EXPERIENCE} to
-             * send and receive.</p>
-             */
-            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-            public static final String SECRET_CODE_ACTION =
-                    "android.provider.Telephony.SECRET_CODE";
-
-            /**
-             * Broadcast action: When the default SMS package changes,
-             * the previous default SMS package and the new default SMS
-             * package are sent this broadcast to notify them of the change.
-             * A boolean is specified in {@link #EXTRA_IS_DEFAULT_SMS_APP} to
-             * indicate whether the package is the new default SMS package.
-            */
-            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-            public static final String ACTION_DEFAULT_SMS_PACKAGE_CHANGED =
-                            "android.provider.action.DEFAULT_SMS_PACKAGE_CHANGED";
-
-            /**
-             * The IsDefaultSmsApp boolean passed as an
-             * extra for {@link #ACTION_DEFAULT_SMS_PACKAGE_CHANGED} to indicate whether the
-             * SMS app is becoming the default SMS app or is no longer the default.
-             *
-             * @see #ACTION_DEFAULT_SMS_PACKAGE_CHANGED
-             */
-            public static final String EXTRA_IS_DEFAULT_SMS_APP =
-                    "android.provider.extra.IS_DEFAULT_SMS_APP";
-
-            /**
-             * Broadcast action: When a change is made to the SmsProvider or
-             * MmsProvider by a process other than the default SMS application,
-             * this intent is broadcast to the default SMS application so it can
-             * re-sync or update the change. The uri that was used to call the provider
-             * can be retrieved from the intent with getData(). The actual affected uris
-             * (which would depend on the selection specified) are not included.
-            */
-            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-            public static final String ACTION_EXTERNAL_PROVIDER_CHANGE =
-                          "android.provider.action.EXTERNAL_PROVIDER_CHANGE";
-
-            /**
              * Read the PDUs out of an {@link #SMS_RECEIVED_ACTION} or a
              * {@link #DATA_SMS_RECEIVED_ACTION} intent.
              *
@@ -1158,23 +1069,10 @@ public final class Telephony {
              * @return an array of SmsMessages for the PDUs
              */
             public static SmsMessage[] getMessagesFromIntent(Intent intent) {
-                Object[] messages;
-                try {
-                    messages = (Object[]) intent.getSerializableExtra("pdus");
-                }
-                catch (ClassCastException e) {
-                    Rlog.e(TAG, "getMessagesFromIntent: " + e);
-                    return null;
-                }
-
-                if (messages == null) {
-                    Rlog.e(TAG, "pdus does not exist in the intent");
-                    return null;
-                }
-
+                Object[] messages = (Object[]) intent.getSerializableExtra("pdus");
                 String format = intent.getStringExtra("format");
                 int subId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
-                        SubscriptionManager.getDefaultSmsSubscriptionId());
+                        SubscriptionManager.getDefaultSmsSubId());
 
                 Rlog.v(TAG, " getMessagesFromIntent sub_id : " + subId);
 
@@ -1184,34 +1082,11 @@ public final class Telephony {
                 for (int i = 0; i < pduCount; i++) {
                     byte[] pdu = (byte[]) messages[i];
                     msgs[i] = SmsMessage.createFromPdu(pdu, format);
-                    if (msgs[i] != null) msgs[i].setSubId(subId);
+                    msgs[i].setSubId(subId);
                 }
                 return msgs;
             }
         }
-    }
-
-    /**
-     * Base column for the table that contain Carrier Public key.
-     * @hide
-     */
-    public interface CarrierColumns extends BaseColumns {
-
-        public static final String MCC = "mcc";
-        public static final String MNC = "mnc";
-        public static final String KEY_TYPE = "key_type";
-        public static final String MVNO_TYPE = "mvno_type";
-        public static final String MVNO_MATCH_DATA = "mvno_match_data";
-        public static final String PUBLIC_KEY = "public_key";
-        public static final String KEY_IDENTIFIER = "key_identifier";
-        public static final String EXPIRATION_TIME = "expiration_time";
-        public static final String LAST_MODIFIED = "last_modified";
-
-        /**
-         * The {@code content://} style URL for this table.
-         * @hide
-         */
-        public static final Uri CONTENT_URI = Uri.parse("content://carrier_information/carrier");
     }
 
     /**
@@ -2580,35 +2455,6 @@ public final class Telephony {
         public static final Uri CONTENT_URI = Uri.parse("content://telephony/carriers");
 
         /**
-         * The {@code content://} style URL to be called from DevicePolicyManagerService,
-         * can manage DPC-owned APNs.
-         * @hide
-         */
-        public static final Uri DPC_URI = Uri.parse("content://telephony/carriers/dpc");
-
-        /**
-         * The {@code content://} style URL to be called from Telephony to query APNs.
-         * When DPC-owned APNs are enforced, only DPC-owned APNs are returned, otherwise only
-         * non-DPC-owned APNs are returned.
-         * @hide
-         */
-        public static final Uri FILTERED_URI = Uri.parse("content://telephony/carriers/filtered");
-
-        /**
-         * The {@code content://} style URL to be called from DevicePolicyManagerService
-         * or Telephony to manage whether DPC-owned APNs are enforced.
-         * @hide
-         */
-        public static final Uri ENFORCE_MANAGED_URI = Uri.parse(
-                "content://telephony/carriers/enforce_managed");
-
-        /**
-         * The column name for ENFORCE_MANAGED_URI, indicates whether DPC-owned APNs are enforced.
-         * @hide
-         */
-        public static final String ENFORCE_KEY = "enforced";
-
-        /**
          * The default sort order for this table.
          */
         public static final String DEFAULT_SORT_ORDER = "name ASC";
@@ -2737,9 +2583,7 @@ public final class Telephony {
          * This should be spread to other technologies,
          * but is currently only used for LTE (14) and eHRPD (13).
          * <P>Type: INTEGER</P>
-         * @deprecated this column is no longer supported, use {@link #NETWORK_TYPE_BITMASK} instead
          */
-        @Deprecated
         public static final String BEARER = "bearer";
 
         /**
@@ -2750,19 +2594,8 @@ public final class Telephony {
          * Bitmask for a radio tech R is (1 << (R - 1))
          * <P>Type: INTEGER</P>
          * @hide
-         * @deprecated this column is no longer supported, use {@link #NETWORK_TYPE_BITMASK} instead
          */
-        @Deprecated
         public static final String BEARER_BITMASK = "bearer_bitmask";
-
-        /**
-         * Radio technology (network type) bitmask.
-         * To check what values can be contained, refer to the NETWORK_TYPE_ constants in
-         * {@link android.telephony.TelephonyManager}.
-         * Bitmask for a radio tech R is (1 << (R - 1))
-         * <P>Type: INTEGER</P>
-         */
-        public static final String NETWORK_TYPE_BITMASK = "network_type_bitmask";
 
         /**
          * MVNO type:
@@ -2839,20 +2672,6 @@ public final class Telephony {
         public static final String EDITED = "edited";
 
         /**
-         * Is this APN visible to the user?
-         * <p>Type: INTEGER (boolean) </p>
-         * @hide
-         */
-        public static final String USER_VISIBLE = "user_visible";
-
-        /**
-         * Is the user allowed to edit this APN?
-         * <p>Type: INTEGER (boolean) </p>
-         * @hide
-         */
-        public static final String USER_EDITABLE = "user_editable";
-
-        /**
          * Following are possible values for the EDITED field
          * @hide
          */
@@ -2886,44 +2705,6 @@ public final class Telephony {
          *  @hide
          */
         public static final int CARRIER_DELETED_BUT_PRESENT_IN_XML = 6;
-
-        /**
-         * The owner of the APN.
-         * <p>Type: INTEGER</p>
-         * @hide
-         */
-        public static final String OWNED_BY = "owned_by";
-
-        /**
-         * Possible value for the OWNED_BY field.
-         * APN is owned by DPC.
-         * @hide
-         */
-        public static final int OWNED_BY_DPC = 0;
-
-        /**
-         * Possible value for the OWNED_BY field.
-         * APN is owned by other sources.
-         * @hide
-         */
-        public static final int OWNED_BY_OTHERS = 1;
-
-        /**
-         * The APN set id. When the user manually selects an APN or the framework sets an APN as
-         * preferred, all APNs with the same set id as the selected APN should be prioritized over
-         * APNs in other sets.
-         * @hide
-         */
-        public static final String APN_SET_ID = "apn_set_id";
-
-        /**
-         * Possible value for the APN_SET_ID field. By default APNs will not belong to a set. If the
-         * user manually selects an APN with no set set, there is no need to prioritize any specific
-         * APN set ids.
-         * @hide
-         */
-        public static final int NO_SET_SET = 0;
-
     }
 
     /**
@@ -3100,389 +2881,5 @@ public final class Telephony {
                 CMAS_URGENCY,
                 CMAS_CERTAINTY
         };
-    }
-
-    /**
-     * Constants for interfacing with the ServiceStateProvider and the different fields of the
-     * {@link ServiceState} class accessible through the provider.
-     */
-    public static final class ServiceStateTable {
-
-        /**
-         * Not instantiable.
-         * @hide
-         */
-        private ServiceStateTable() {}
-
-        /**
-         * The authority string for the ServiceStateProvider
-         */
-        public static final String AUTHORITY = "service-state";
-
-        /**
-         * The {@code content://} style URL for the ServiceStateProvider
-         */
-        public static final Uri CONTENT_URI = Uri.parse("content://service-state/");
-
-        /**
-         * Generates a content {@link Uri} used to receive updates on a specific field in the
-         * ServiceState provider.
-         * <p>
-         * Use this {@link Uri} with a {@link ContentObserver} to be notified of changes to the
-         * {@link ServiceState} while your app is running.  You can also use a {@link JobService} to
-         * ensure your app is notified of changes to the {@link Uri} even when it is not running.
-         * Note, however, that using a {@link JobService} does not guarantee timely delivery of
-         * updates to the {@link Uri}.
-         *
-         * @param subscriptionId the subscriptionId to receive updates on
-         * @param field the ServiceState field to receive updates on
-         * @return the Uri used to observe {@link ServiceState} changes
-         */
-        public static Uri getUriForSubscriptionIdAndField(int subscriptionId, String field) {
-            return CONTENT_URI.buildUpon().appendEncodedPath(String.valueOf(subscriptionId))
-                    .appendEncodedPath(field).build();
-        }
-
-        /**
-         * Generates a content {@link Uri} used to receive updates on every field in the
-         * ServiceState provider.
-         * <p>
-         * Use this {@link Uri} with a {@link ContentObserver} to be notified of changes to the
-         * {@link ServiceState} while your app is running.  You can also use a {@link JobService} to
-         * ensure your app is notified of changes to the {@link Uri} even when it is not running.
-         * Note, however, that using a {@link JobService} does not guarantee timely delivery of
-         * updates to the {@link Uri}.
-         *
-         * @param subscriptionId the subscriptionId to receive updates on
-         * @return the Uri used to observe {@link ServiceState} changes
-         */
-        public static Uri getUriForSubscriptionId(int subscriptionId) {
-            return CONTENT_URI.buildUpon().appendEncodedPath(String.valueOf(subscriptionId)).build();
-        }
-
-        /**
-         * Used to insert a ServiceState into the ServiceStateProvider as a ContentValues instance.
-         *
-         * @param state the ServiceState to convert into ContentValues
-         * @return the convertedContentValues instance
-         * @hide
-         */
-        public static ContentValues getContentValuesForServiceState(ServiceState state) {
-            ContentValues values = new ContentValues();
-            values.put(VOICE_REG_STATE, state.getVoiceRegState());
-            values.put(DATA_REG_STATE, state.getDataRegState());
-            values.put(VOICE_ROAMING_TYPE, state.getVoiceRoamingType());
-            values.put(DATA_ROAMING_TYPE, state.getDataRoamingType());
-            values.put(VOICE_OPERATOR_ALPHA_LONG, state.getVoiceOperatorAlphaLong());
-            values.put(VOICE_OPERATOR_ALPHA_SHORT, state.getVoiceOperatorAlphaShort());
-            values.put(VOICE_OPERATOR_NUMERIC, state.getVoiceOperatorNumeric());
-            values.put(DATA_OPERATOR_ALPHA_LONG, state.getDataOperatorAlphaLong());
-            values.put(DATA_OPERATOR_ALPHA_SHORT, state.getDataOperatorAlphaShort());
-            values.put(DATA_OPERATOR_NUMERIC, state.getDataOperatorNumeric());
-            values.put(IS_MANUAL_NETWORK_SELECTION, state.getIsManualSelection());
-            values.put(RIL_VOICE_RADIO_TECHNOLOGY, state.getRilVoiceRadioTechnology());
-            values.put(RIL_DATA_RADIO_TECHNOLOGY, state.getRilDataRadioTechnology());
-            values.put(CSS_INDICATOR, state.getCssIndicator());
-            values.put(NETWORK_ID, state.getCdmaNetworkId());
-            values.put(SYSTEM_ID, state.getCdmaSystemId());
-            values.put(CDMA_ROAMING_INDICATOR, state.getCdmaRoamingIndicator());
-            values.put(CDMA_DEFAULT_ROAMING_INDICATOR, state.getCdmaDefaultRoamingIndicator());
-            values.put(CDMA_ERI_ICON_INDEX, state.getCdmaEriIconIndex());
-            values.put(CDMA_ERI_ICON_MODE, state.getCdmaEriIconMode());
-            values.put(IS_EMERGENCY_ONLY, state.isEmergencyOnly());
-            values.put(IS_DATA_ROAMING_FROM_REGISTRATION, state.getDataRoamingFromRegistration());
-            values.put(IS_USING_CARRIER_AGGREGATION, state.isUsingCarrierAggregation());
-            return values;
-        }
-
-        /**
-         * An integer value indicating the current voice service state.
-         * <p>
-         * Valid values: {@link ServiceState#STATE_IN_SERVICE},
-         * {@link ServiceState#STATE_OUT_OF_SERVICE}, {@link ServiceState#STATE_EMERGENCY_ONLY},
-         * {@link ServiceState#STATE_POWER_OFF}.
-         * <p>
-         * This is the same as {@link ServiceState#getState()}.
-         */
-        public static final String VOICE_REG_STATE = "voice_reg_state";
-
-        /**
-         * An integer value indicating the current data service state.
-         * <p>
-         * Valid values: {@link ServiceState#STATE_IN_SERVICE},
-         * {@link ServiceState#STATE_OUT_OF_SERVICE}, {@link ServiceState#STATE_EMERGENCY_ONLY},
-         * {@link ServiceState#STATE_POWER_OFF}.
-         * <p>
-         * This is the same as {@link ServiceState#getDataRegState()}.
-         * @hide
-         */
-        public static final String DATA_REG_STATE = "data_reg_state";
-
-        /**
-         * An integer value indicating the current voice roaming type.
-         * <p>
-         * This is the same as {@link ServiceState#getVoiceRoamingType()}.
-         * @hide
-         */
-        public static final String VOICE_ROAMING_TYPE = "voice_roaming_type";
-
-        /**
-         * An integer value indicating the current data roaming type.
-         * <p>
-         * This is the same as {@link ServiceState#getDataRoamingType()}.
-         * @hide
-         */
-        public static final String DATA_ROAMING_TYPE = "data_roaming_type";
-
-        /**
-         * The current registered voice network operator name in long alphanumeric format.
-         * <p>
-         * This is the same as {@link ServiceState#getVoiceOperatorAlphaLong()}.
-         * @hide
-         */
-        public static final String VOICE_OPERATOR_ALPHA_LONG = "voice_operator_alpha_long";
-
-        /**
-         * The current registered operator name in short alphanumeric format.
-         * <p>
-         * In GSM/UMTS, short format can be up to 8 characters long. The current registered voice
-         * network operator name in long alphanumeric format.
-         * <p>
-         * This is the same as {@link ServiceState#getVoiceOperatorAlphaShort()}.
-         * @hide
-         */
-        public static final String VOICE_OPERATOR_ALPHA_SHORT = "voice_operator_alpha_short";
-
-
-        /**
-         * The current registered operator numeric id.
-         * <p>
-         * In GSM/UMTS, numeric format is 3 digit country code plus 2 or 3 digit
-         * network code.
-         * <p>
-         * This is the same as {@link ServiceState#getOperatorNumeric()}.
-         */
-        public static final String VOICE_OPERATOR_NUMERIC = "voice_operator_numeric";
-
-        /**
-         * The current registered data network operator name in long alphanumeric format.
-         * <p>
-         * This is the same as {@link ServiceState#getDataOperatorAlphaLong()}.
-         * @hide
-         */
-        public static final String DATA_OPERATOR_ALPHA_LONG = "data_operator_alpha_long";
-
-        /**
-         * The current registered data network operator name in short alphanumeric format.
-         * <p>
-         * This is the same as {@link ServiceState#getDataOperatorAlphaShort()}.
-         * @hide
-         */
-        public static final String DATA_OPERATOR_ALPHA_SHORT = "data_operator_alpha_short";
-
-        /**
-         * The current registered data network operator numeric id.
-         * <p>
-         * This is the same as {@link ServiceState#getDataOperatorNumeric()}.
-         * @hide
-         */
-        public static final String DATA_OPERATOR_NUMERIC = "data_operator_numeric";
-
-        /**
-         * The current network selection mode.
-         * <p>
-         * This is the same as {@link ServiceState#getIsManualSelection()}.
-         */
-        public static final String IS_MANUAL_NETWORK_SELECTION = "is_manual_network_selection";
-
-        /**
-         * This is the same as {@link ServiceState#getRilVoiceRadioTechnology()}.
-         * @hide
-         */
-        public static final String RIL_VOICE_RADIO_TECHNOLOGY = "ril_voice_radio_technology";
-
-        /**
-         * This is the same as {@link ServiceState#getRilDataRadioTechnology()}.
-         * @hide
-         */
-        public static final String RIL_DATA_RADIO_TECHNOLOGY = "ril_data_radio_technology";
-
-        /**
-         * This is the same as {@link ServiceState#getCssIndicator()}.
-         * @hide
-         */
-        public static final String CSS_INDICATOR = "css_indicator";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaNetworkId()}.
-         * @hide
-         */
-        public static final String NETWORK_ID = "network_id";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaSystemId()}.
-         * @hide
-         */
-        public static final String SYSTEM_ID = "system_id";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaRoamingIndicator()}.
-         * @hide
-         */
-        public static final String CDMA_ROAMING_INDICATOR = "cdma_roaming_indicator";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaDefaultRoamingIndicator()}.
-         * @hide
-         */
-        public static final String CDMA_DEFAULT_ROAMING_INDICATOR =
-                "cdma_default_roaming_indicator";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaEriIconIndex()}.
-         * @hide
-         */
-        public static final String CDMA_ERI_ICON_INDEX = "cdma_eri_icon_index";
-
-        /**
-         * This is the same as {@link ServiceState#getCdmaEriIconMode()}.
-         * @hide
-         */
-        public static final String CDMA_ERI_ICON_MODE = "cdma_eri_icon_mode";
-
-        /**
-         * This is the same as {@link ServiceState#isEmergencyOnly()}.
-         * @hide
-         */
-        public static final String IS_EMERGENCY_ONLY = "is_emergency_only";
-
-        /**
-         * This is the same as {@link ServiceState#getDataRoamingFromRegistration()}.
-         * @hide
-         */
-        public static final String IS_DATA_ROAMING_FROM_REGISTRATION =
-                "is_data_roaming_from_registration";
-
-        /**
-         * This is the same as {@link ServiceState#isUsingCarrierAggregation()}.
-         * @hide
-         */
-        public static final String IS_USING_CARRIER_AGGREGATION = "is_using_carrier_aggregation";
-    }
-
-    /**
-     * Contains carrier identification information for the current subscriptions.
-     * @see SubscriptionManager#getActiveSubscriptionIdList()
-     */
-    public static final class CarrierId implements BaseColumns {
-        /**
-         * Not instantiable.
-         * @hide
-         */
-        private CarrierId() {}
-
-        /**
-         * The {@code content://} style URI for this provider.
-         */
-        public static final Uri CONTENT_URI = Uri.parse("content://carrier_id");
-
-        /**
-         * The authority string for the CarrierId Provider
-         * @hide
-         */
-        public static final String AUTHORITY = "carrier_id";
-
-
-        /**
-         * Generates a content {@link Uri} used to receive updates on carrier identity change
-         * on the given subscriptionId
-         * <p>
-         * Use this {@link Uri} with a {@link ContentObserver} to be notified of changes to the
-         * carrier identity {@link TelephonyManager#getSimCarrierId()}
-         * while your app is running. You can also use a {@link JobService} to ensure your app
-         * is notified of changes to the {@link Uri} even when it is not running.
-         * Note, however, that using a {@link JobService} does not guarantee timely delivery of
-         * updates to the {@link Uri}.
-         *
-         * @param subscriptionId the subscriptionId to receive updates on
-         * @return the Uri used to observe carrier identity changes
-         */
-        public static Uri getUriForSubscriptionId(int subscriptionId) {
-            return CONTENT_URI.buildUpon().appendEncodedPath(
-                    String.valueOf(subscriptionId)).build();
-        }
-
-        /**
-         * A user facing carrier name.
-         * @see TelephonyManager#getSimCarrierIdName()
-         * <P>Type: TEXT </P>
-         */
-        public static final String CARRIER_NAME = "carrier_name";
-
-        /**
-         * A unique carrier id
-         * @see TelephonyManager#getSimCarrierId()
-         * <P>Type: INTEGER </P>
-         */
-        public static final String CARRIER_ID = "carrier_id";
-
-        /**
-         * Contains mappings between matching rules with carrier id for all carriers.
-         * @hide
-         */
-        public static final class All implements BaseColumns {
-            /**
-             * Numeric operator ID (as String). {@code MCC + MNC}
-             * <P>Type: TEXT </P>
-             */
-            public static final String MCCMNC = "mccmnc";
-
-            /**
-             * Group id level 1 (as String).
-             * <P>Type: TEXT </P>
-             */
-            public static final String GID1 = "gid1";
-
-            /**
-             * Group id level 2 (as String).
-             * <P>Type: TEXT </P>
-             */
-            public static final String GID2 = "gid2";
-
-            /**
-             * Public Land Mobile Network name.
-             * <P>Type: TEXT </P>
-             */
-            public static final String PLMN = "plmn";
-
-            /**
-             * Prefix xpattern of IMSI (International Mobile Subscriber Identity).
-             * <P>Type: TEXT </P>
-             */
-            public static final String IMSI_PREFIX_XPATTERN = "imsi_prefix_xpattern";
-
-            /**
-             * Service Provider Name.
-             * <P>Type: TEXT </P>
-             */
-            public static final String SPN = "spn";
-
-            /**
-             * Prefer APN name.
-             * <P>Type: TEXT </P>
-             */
-            public static final String APN = "apn";
-
-            /**
-             * Prefix of Integrated Circuit Card Identifier.
-             * <P>Type: TEXT </P>
-             */
-            public static final String ICCID_PREFIX = "iccid_prefix";
-
-            /**
-             * The {@code content://} URI for this table.
-             */
-            public static final Uri CONTENT_URI = Uri.parse("content://carrier_id/all");
-        }
     }
 }

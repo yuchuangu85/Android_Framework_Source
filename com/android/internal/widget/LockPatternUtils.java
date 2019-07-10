@@ -16,60 +16,41 @@
 
 package com.android.internal.widget;
 
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_COMPLEX;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_MANAGED;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_NUMERIC;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_SOMETHING;
-import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED;
-
-import android.annotation.IntDef;
-import android.annotation.Nullable;
+import android.Manifest;
+import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.admin.DevicePolicyManager;
-import android.app.admin.PasswordMetrics;
-import android.app.trust.IStrongAuthTracker;
 import android.app.trust.TrustManager;
+import android.bluetooth.BluetoothClass;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.pm.UserInfo;
+import android.content.pm.PackageManager;
 import android.os.AsyncTask;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.UserHandle;
-import android.os.UserManager;
-import android.os.storage.IStorageManager;
+import android.os.storage.IMountService;
 import android.os.storage.StorageManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
-import android.util.SparseIntArray;
-import android.util.SparseLongArray;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.LocalServices;
 import com.google.android.collect.Lists;
 
-import libcore.util.HexEncoding;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.StringJoiner;
+
+import libcore.util.HexEncoding;
+
 /**
  * Utilities for the lock pattern and its settings.
  */
@@ -77,12 +58,6 @@ public class LockPatternUtils {
 
     private static final String TAG = "LockPatternUtils";
     private static final boolean DEBUG = false;
-    private static final boolean FRP_CREDENTIAL_ENABLED = true;
-
-    /**
-     * The key to identify when the lock pattern enabled flag is being accessed for legacy reasons.
-     */
-    public static final String LEGACY_LOCK_PATTERN_ENABLED = "legacy_lock_pattern_enabled";
 
     /**
      * The number of incorrect attempts before which we fall back on an alternative
@@ -119,19 +94,10 @@ public class LockPatternUtils {
      */
     public static final int MIN_PATTERN_REGISTER_FAIL = MIN_LOCK_PATTERN_SIZE;
 
-    public static final int CREDENTIAL_TYPE_NONE = -1;
-
-    public static final int CREDENTIAL_TYPE_PATTERN = 1;
-
-    public static final int CREDENTIAL_TYPE_PASSWORD = 2;
-
-    /**
-     * Special user id for triggering the FRP verification flow.
-     */
-    public static final int USER_FRP = UserHandle.USER_NULL + 1;
-
     @Deprecated
     public final static String LOCKOUT_PERMANENT_KEY = "lockscreen.lockedoutpermanently";
+    public final static String LOCKOUT_ATTEMPT_DEADLINE = "lockscreen.lockoutattemptdeadline";
+    public final static String LOCKOUT_ATTEMPT_TIMEOUT_MS = "lockscreen.lockoutattempttimeoutmss";
     public final static String PATTERN_EVER_CHOSEN_KEY = "lockscreen.patterneverchosen";
     public final static String PASSWORD_TYPE_KEY = "lockscreen.password_type";
     @Deprecated
@@ -156,59 +122,17 @@ public class LockPatternUtils {
     private static final String LOCK_SCREEN_OWNER_INFO_ENABLED =
             Settings.Secure.LOCK_SCREEN_OWNER_INFO_ENABLED;
 
-    private static final String LOCK_SCREEN_DEVICE_OWNER_INFO = "lockscreen.device_owner_info";
-
     private static final String ENABLED_TRUST_AGENTS = "lockscreen.enabledtrustagents";
-    private static final String IS_TRUST_USUALLY_MANAGED = "lockscreen.istrustusuallymanaged";
 
-    public static final String PROFILE_KEY_NAME_ENCRYPT = "profile_key_name_encrypt_";
-    public static final String PROFILE_KEY_NAME_DECRYPT = "profile_key_name_decrypt_";
-    public static final String SYNTHETIC_PASSWORD_KEY_PREFIX = "synthetic_password_";
-
-    public static final String SYNTHETIC_PASSWORD_HANDLE_KEY = "sp-handle";
-    public static final String SYNTHETIC_PASSWORD_ENABLED_KEY = "enable-sp";
-    private static final String HISTORY_DELIMITER = ",";
+    // Maximum allowed number of repeated or ordered characters in a sequence before we'll
+    // consider it a complex PIN/password.
+    public static final int MAX_ALLOWED_SEQUENCE = 3;
 
     private final Context mContext;
     private final ContentResolver mContentResolver;
     private DevicePolicyManager mDevicePolicyManager;
     private ILockSettings mLockSettingsService;
-    private UserManager mUserManager;
-    private final Handler mHandler;
-    private final SparseLongArray mLockoutDeadlines = new SparseLongArray();
 
-    /**
-     * Use {@link TrustManager#isTrustUsuallyManaged(int)}.
-     *
-     * This returns the lazily-peristed value and should only be used by TrustManagerService.
-     */
-    public boolean isTrustUsuallyManaged(int userId) {
-        if (!(mLockSettingsService instanceof ILockSettings.Stub)) {
-            throw new IllegalStateException("May only be called by TrustManagerService. "
-                    + "Use TrustManager.isTrustUsuallyManaged()");
-        }
-        try {
-            return getLockSettings().getBoolean(IS_TRUST_USUALLY_MANAGED, false, userId);
-        } catch (RemoteException e) {
-            return false;
-        }
-    }
-
-    public void setTrustUsuallyManaged(boolean managed, int userId) {
-        try {
-            getLockSettings().setBoolean(IS_TRUST_USUALLY_MANAGED, managed, userId);
-        } catch (RemoteException e) {
-            // System dead.
-        }
-    }
-
-    public void userPresent(int userId) {
-        try {
-            getLockSettings().userPresent(userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
 
     public static final class RequestThrottledException extends Exception {
         private int mTimeoutMs;
@@ -238,13 +162,6 @@ public class LockPatternUtils {
         return mDevicePolicyManager;
     }
 
-    private UserManager getUserManager() {
-        if (mUserManager == null) {
-            mUserManager = UserManager.get(mContext);
-        }
-        return mUserManager;
-    }
-
     private TrustManager getTrustManager() {
         TrustManager trust = (TrustManager) mContext.getSystemService(Context.TRUST_SERVICE);
         if (trust == null) {
@@ -257,13 +174,9 @@ public class LockPatternUtils {
     public LockPatternUtils(Context context) {
         mContext = context;
         mContentResolver = context.getContentResolver();
-
-        Looper looper = Looper.myLooper();
-        mHandler = looper != null ? new Handler(looper) : null;
     }
 
-    @VisibleForTesting
-    public ILockSettings getLockSettings() {
+    private ILockSettings getLockSettings() {
         if (mLockSettingsService == null) {
             ILockSettings service = ILockSettings.Stub.asInterface(
                     ServiceManager.getService("lock_settings"));
@@ -313,77 +226,14 @@ public class LockPatternUtils {
     }
 
     public void reportFailedPasswordAttempt(int userId) {
-        if (userId == USER_FRP && frpCredentialEnabled(mContext)) {
-            return;
-        }
         getDevicePolicyManager().reportFailedPasswordAttempt(userId);
         getTrustManager().reportUnlockAttempt(false /* authenticated */, userId);
+        getTrustManager().reportRequireCredentialEntry(userId);
     }
 
     public void reportSuccessfulPasswordAttempt(int userId) {
-        if (userId == USER_FRP && frpCredentialEnabled(mContext)) {
-            return;
-        }
         getDevicePolicyManager().reportSuccessfulPasswordAttempt(userId);
         getTrustManager().reportUnlockAttempt(true /* authenticated */, userId);
-    }
-
-    public void reportPasswordLockout(int timeoutMs, int userId) {
-        if (userId == USER_FRP && frpCredentialEnabled(mContext)) {
-            return;
-        }
-        getTrustManager().reportUnlockLockout(timeoutMs, userId);
-    }
-
-    public int getCurrentFailedPasswordAttempts(int userId) {
-        if (userId == USER_FRP && frpCredentialEnabled(mContext)) {
-            return 0;
-        }
-        return getDevicePolicyManager().getCurrentFailedPasswordAttempts(userId);
-    }
-
-    public int getMaximumFailedPasswordsForWipe(int userId) {
-        if (userId == USER_FRP && frpCredentialEnabled(mContext)) {
-            return 0;
-        }
-        return getDevicePolicyManager().getMaximumFailedPasswordsForWipe(
-                null /* componentName */, userId);
-    }
-
-    private byte[] verifyCredential(String credential, int type, long challenge, int userId)
-            throws RequestThrottledException {
-        try {
-            VerifyCredentialResponse response = getLockSettings().verifyCredential(credential,
-                    type, challenge, userId);
-            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-                return response.getPayload();
-            } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
-                throw new RequestThrottledException(response.getTimeout());
-            } else {
-                return null;
-            }
-        } catch (RemoteException re) {
-            return null;
-        }
-    }
-
-    private boolean checkCredential(String credential, int type, int userId,
-            @Nullable CheckCredentialProgressCallback progressCallback)
-            throws RequestThrottledException {
-        try {
-            VerifyCredentialResponse response = getLockSettings().checkCredential(credential, type,
-                    userId, wrapCallback(progressCallback));
-
-            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-                return true;
-            } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
-                throw new RequestThrottledException(response.getTimeout());
-            } else {
-                return false;
-            }
-        } catch (RemoteException re) {
-            return false;
-        }
     }
 
     /**
@@ -397,9 +247,24 @@ public class LockPatternUtils {
      */
     public byte[] verifyPattern(List<LockPatternView.Cell> pattern, long challenge, int userId)
             throws RequestThrottledException {
-        throwIfCalledOnMainThread();
-        return verifyCredential(patternToString(pattern), CREDENTIAL_TYPE_PATTERN, challenge,
-                userId);
+        try {
+            VerifyCredentialResponse response =
+                getLockSettings().verifyPattern(patternToString(pattern), challenge, userId);
+            if (response == null) {
+                // Shouldn't happen
+                return null;
+            }
+
+            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
+                return response.getPayload();
+            } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+                throw new RequestThrottledException(response.getTimeout());
+            } else {
+                return null;
+            }
+        } catch (RemoteException re) {
+            return null;
+        }
     }
 
     /**
@@ -410,21 +275,20 @@ public class LockPatternUtils {
      */
     public boolean checkPattern(List<LockPatternView.Cell> pattern, int userId)
             throws RequestThrottledException {
-        return checkPattern(pattern, userId, null /* progressCallback */);
-    }
+        try {
+            VerifyCredentialResponse response =
+                    getLockSettings().checkPattern(patternToString(pattern), userId);
 
-    /**
-     * Check to see if a pattern matches the saved pattern.  If no pattern exists,
-     * always returns true.
-     * @param pattern The pattern to check.
-     * @return Whether the pattern matches the stored one.
-     */
-    public boolean checkPattern(List<LockPatternView.Cell> pattern, int userId,
-            @Nullable CheckCredentialProgressCallback progressCallback)
-            throws RequestThrottledException {
-        throwIfCalledOnMainThread();
-        return checkCredential(patternToString(pattern), CREDENTIAL_TYPE_PATTERN, userId,
-                progressCallback);
+            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
+                return true;
+            } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+                throw new RequestThrottledException(response.getTimeout());
+            } else {
+                return false;
+            }
+        } catch (RemoteException re) {
+            return true;
+        }
     }
 
     /**
@@ -438,28 +302,9 @@ public class LockPatternUtils {
      */
     public byte[] verifyPassword(String password, long challenge, int userId)
             throws RequestThrottledException {
-        throwIfCalledOnMainThread();
-        return verifyCredential(password, CREDENTIAL_TYPE_PASSWORD, challenge, userId);
-    }
-
-
-    /**
-     * Check to see if a password matches the saved password.
-     * If password matches, return an opaque attestation that the challenge
-     * was verified.
-     *
-     * @param password The password to check.
-     * @param challenge The challenge to verify against the password
-     * @return the attestation that the challenge was verified, or null.
-     */
-    public byte[] verifyTiedProfileChallenge(String password, boolean isPattern, long challenge,
-            int userId) throws RequestThrottledException {
-        throwIfCalledOnMainThread();
         try {
             VerifyCredentialResponse response =
-                    getLockSettings().verifyTiedProfileChallenge(password,
-                            isPattern ? CREDENTIAL_TYPE_PATTERN : CREDENTIAL_TYPE_PASSWORD, challenge,
-                            userId);
+                    getLockSettings().verifyPassword(password, challenge, userId);
 
             if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
                 return response.getPayload();
@@ -480,20 +325,19 @@ public class LockPatternUtils {
      * @return Whether the password matches the stored one.
      */
     public boolean checkPassword(String password, int userId) throws RequestThrottledException {
-        return checkPassword(password, userId, null /* progressCallback */);
-    }
-
-    /**
-     * Check to see if a password matches the saved password.  If no password exists,
-     * always returns true.
-     * @param password The password to check.
-     * @return Whether the password matches the stored one.
-     */
-    public boolean checkPassword(String password, int userId,
-            @Nullable CheckCredentialProgressCallback progressCallback)
-            throws RequestThrottledException {
-        throwIfCalledOnMainThread();
-        return checkCredential(password, CREDENTIAL_TYPE_PASSWORD, userId, progressCallback);
+        try {
+            VerifyCredentialResponse response =
+                    getLockSettings().checkPassword(password, userId);
+            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
+                return true;
+            } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+                throw new RequestThrottledException(response.getTimeout());
+            } else {
+                return false;
+            }
+        } catch (RemoteException re) {
+            return true;
+        }
     }
 
     /**
@@ -510,50 +354,31 @@ public class LockPatternUtils {
     }
 
     /**
-     * Returns the password history hash factor, needed to check new password against password
-     * history with {@link #checkPasswordHistory(String, byte[], int)}
-     */
-    public byte[] getPasswordHistoryHashFactor(String currentPassword, int userId) {
-        try {
-            return getLockSettings().getHashFactor(currentPassword, userId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "failed to get hash factor", e);
-            return null;
-        }
-    }
-
-    /**
      * Check to see if a password matches any of the passwords stored in the
      * password history.
      *
-     * @param passwordToCheck The password to check.
-     * @param hashFactor Hash factor of the current user returned from
-     *        {@link ILockSettings#getHashFactor}
+     * @param password The password to check.
      * @return Whether the password matches any in the history.
      */
-    public boolean checkPasswordHistory(String passwordToCheck, byte[] hashFactor, int userId) {
-        if (TextUtils.isEmpty(passwordToCheck)) {
-            Log.e(TAG, "checkPasswordHistory: empty password");
-            return false;
-        }
+    public boolean checkPasswordHistory(String password, int userId) {
+        String passwordHashString = new String(
+                passwordToHash(password, userId), StandardCharsets.UTF_8);
         String passwordHistory = getString(PASSWORD_HISTORY_KEY, userId);
-        if (TextUtils.isEmpty(passwordHistory)) {
+        if (passwordHistory == null) {
             return false;
         }
+        // Password History may be too long...
+        int passwordHashLength = passwordHashString.length();
         int passwordHistoryLength = getRequestedPasswordHistoryLength(userId);
         if(passwordHistoryLength == 0) {
             return false;
         }
-        String legacyHash = legacyPasswordToHash(passwordToCheck, userId);
-        String passwordHash = passwordToHistoryHash(passwordToCheck, hashFactor, userId);
-        String[] history = passwordHistory.split(HISTORY_DELIMITER);
-        // Password History may be too long...
-        for (int i = 0; i < Math.min(passwordHistoryLength, history.length); i++) {
-            if (history[i].equals(legacyHash) || history[i].equals(passwordHash)) {
-                return true;
-            }
+        int neededPasswordHistoryLength = passwordHashLength * passwordHistoryLength
+                + passwordHistoryLength - 1;
+        if (passwordHistory.length() > neededPasswordHistoryLength) {
+            passwordHistory = passwordHistory.substring(0, neededPasswordHistoryLength);
         }
-        return false;
+        return passwordHistory.contains(passwordHashString);
     }
 
     /**
@@ -591,14 +416,6 @@ public class LockPatternUtils {
     }
 
     /**
-     * Records that the user has chosen a pattern at some time, even if the pattern is
-     * currently cleared.
-     */
-    public void reportPatternWasChosen(int userId) {
-        setBoolean(PATTERN_EVER_CHOSEN_KEY, true, userId);
-    }
-
-    /**
      * Used by device policy manager to validate the current password
      * information it has.
      */
@@ -615,42 +432,31 @@ public class LockPatternUtils {
             return quality;
         }
 
-        return PASSWORD_QUALITY_UNSPECIFIED;
-    }
-
-    /**
-     * Use it to reset keystore without wiping work profile
-     */
-    public void resetKeyStore(int userId) {
-        try {
-            getLockSettings().resetKeyStore(userId);
-        } catch (RemoteException e) {
-            // It should not happen
-            Log.e(TAG, "Couldn't reset keystore " + e);
-        }
+        return DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED;
     }
 
     /**
      * Clear any lock pattern or password.
      */
-    public void clearLock(String savedCredential, int userHandle) {
-        final int currentQuality = getKeyguardStoredPasswordQuality(userHandle);
-        setKeyguardStoredPasswordQuality(PASSWORD_QUALITY_UNSPECIFIED, userHandle);
+    public void clearLock(int userHandle) {
+        setLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userHandle);
 
-        try{
-            getLockSettings().setLockCredential(null, CREDENTIAL_TYPE_NONE, savedCredential,
-                    PASSWORD_QUALITY_UNSPECIFIED, userHandle);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to clear lock", e);
-            setKeyguardStoredPasswordQuality(currentQuality, userHandle);
-            return;
+        try {
+            getLockSettings().setLockPassword(null, null, userHandle);
+            getLockSettings().setLockPattern(null, null, userHandle);
+        } catch (RemoteException e) {
+            // well, we tried...
         }
 
-        if (userHandle == UserHandle.USER_SYSTEM) {
+        if (userHandle == UserHandle.USER_OWNER) {
             // Set the encryption password to default.
             updateEncryptionPassword(StorageManager.CRYPT_TYPE_DEFAULT, null);
-            setCredentialRequiredToDecrypt(false);
         }
+
+        setCredentialRequiredToDecrypt(false);
+
+        getDevicePolicyManager().setActivePasswordState(
+                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, 0, 0, 0, 0, 0, 0, 0, userHandle);
 
         onAfterChangingPassword(userHandle);
     }
@@ -673,18 +479,8 @@ public class LockPatternUtils {
      * @return true if lock screen is disabled
      */
     public boolean isLockScreenDisabled(int userId) {
-        if (isSecure(userId)) {
-            return false;
-        }
-        boolean disabledByDefault = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_disableLockscreenByDefault);
-        boolean isSystemUser = UserManager.isSplitSystemUser() && userId == UserHandle.USER_SYSTEM;
-        UserInfo userInfo = getUserManager().getUserInfo(userId);
-        boolean isDemoUser = UserManager.isDeviceInDemoMode(mContext) && userInfo != null
-                && userInfo.isDemo();
-        return getBoolean(DISABLE_LOCKSCREEN_KEY, false, userId)
-                || (disabledByDefault && !isSystemUser)
-                || isDemoUser;
+        return !isSecure(userId) &&
+                getBoolean(DISABLE_LOCKSCREEN_KEY, false, userId);
     }
 
     /**
@@ -702,38 +498,39 @@ public class LockPatternUtils {
      * @param userId the user whose pattern is to be saved.
      */
     public void saveLockPattern(List<LockPatternView.Cell> pattern, String savedPattern, int userId) {
-        if (pattern == null || pattern.size() < MIN_LOCK_PATTERN_SIZE) {
-            throw new IllegalArgumentException("pattern must not be null and at least "
-                    + MIN_LOCK_PATTERN_SIZE + " dots long.");
-        }
-
-        final String stringPattern = patternToString(pattern);
-        final int currentQuality = getKeyguardStoredPasswordQuality(userId);
-        setKeyguardStoredPasswordQuality(PASSWORD_QUALITY_SOMETHING, userId);
         try {
-            getLockSettings().setLockCredential(stringPattern, CREDENTIAL_TYPE_PATTERN,
-                    savedPattern, PASSWORD_QUALITY_SOMETHING, userId);
-        } catch (Exception e) {
-            Log.e(TAG, "Couldn't save lock pattern", e);
-            setKeyguardStoredPasswordQuality(currentQuality, userId);
-            return;
-        }
-        // Update the device encryption password.
-        if (userId == UserHandle.USER_SYSTEM
-                && LockPatternUtils.isDeviceEncryptionEnabled()) {
-            if (!shouldEncryptWithCredentials(true)) {
-                clearEncryptionPassword();
-            } else {
-                updateEncryptionPassword(StorageManager.CRYPT_TYPE_PATTERN, stringPattern);
+            if (pattern == null || pattern.size() < MIN_LOCK_PATTERN_SIZE) {
+                throw new IllegalArgumentException("pattern must not be null and at least "
+                        + MIN_LOCK_PATTERN_SIZE + " dots long.");
             }
-        }
 
-        reportPatternWasChosen(userId);
-        onAfterChangingPassword(userId);
+            getLockSettings().setLockPattern(patternToString(pattern), savedPattern, userId);
+            DevicePolicyManager dpm = getDevicePolicyManager();
+
+            // Update the device encryption password.
+            if (userId == UserHandle.USER_OWNER
+                    && LockPatternUtils.isDeviceEncryptionEnabled()) {
+                if (!shouldEncryptWithCredentials(true)) {
+                    clearEncryptionPassword();
+                } else {
+                    String stringPattern = patternToString(pattern);
+                    updateEncryptionPassword(StorageManager.CRYPT_TYPE_PATTERN, stringPattern);
+                }
+            }
+
+            setBoolean(PATTERN_EVER_CHOSEN_KEY, true, userId);
+
+            setLong(PASSWORD_TYPE_KEY, DevicePolicyManager.PASSWORD_QUALITY_SOMETHING, userId);
+            dpm.setActivePasswordState(DevicePolicyManager.PASSWORD_QUALITY_SOMETHING,
+                    pattern.size(), 0, 0, 0, 0, 0, 0, userId);
+            onAfterChangingPassword(userId);
+        } catch (RemoteException re) {
+            Log.e(TAG, "Couldn't save lock pattern " + re);
+        }
     }
 
     private void updateCryptoUserInfo(int userId) {
-        if (userId != UserHandle.USER_SYSTEM) {
+        if (userId != UserHandle.USER_OWNER) {
             return;
         }
 
@@ -745,10 +542,10 @@ public class LockPatternUtils {
             return;
         }
 
-        IStorageManager storageManager = IStorageManager.Stub.asInterface(service);
+        IMountService mountService = IMountService.Stub.asInterface(service);
         try {
             Log.d(TAG, "Setting owner info");
-            storageManager.setField(StorageManager.OWNER_INFO_KEY, ownerInfo);
+            mountService.setField(StorageManager.OWNER_INFO_KEY, ownerInfo);
         } catch (RemoteException e) {
             Log.e(TAG, "Error changing user info", e);
         }
@@ -773,26 +570,93 @@ public class LockPatternUtils {
     }
 
     /**
-     * Sets the device owner information. If the information is {@code null} or empty then the
-     * device owner info is cleared.
-     *
-     * @param info Device owner information which will be displayed instead of the user
-     * owner info.
+     * Compute the password quality from the given password string.
      */
-    public void setDeviceOwnerInfo(String info) {
-        if (info != null && info.isEmpty()) {
-            info = null;
+    static public int computePasswordQuality(String password) {
+        boolean hasDigit = false;
+        boolean hasNonDigit = false;
+        final int len = password.length();
+        for (int i = 0; i < len; i++) {
+            if (Character.isDigit(password.charAt(i))) {
+                hasDigit = true;
+            } else {
+                hasNonDigit = true;
+            }
         }
 
-        setString(LOCK_SCREEN_DEVICE_OWNER_INFO, info, UserHandle.USER_SYSTEM);
+        if (hasNonDigit && hasDigit) {
+            return DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC;
+        }
+        if (hasNonDigit) {
+            return DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC;
+        }
+        if (hasDigit) {
+            return maxLengthSequence(password) > MAX_ALLOWED_SEQUENCE
+                    ? DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
+                    : DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX;
+        }
+        return DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED;
     }
 
-    public String getDeviceOwnerInfo() {
-        return getString(LOCK_SCREEN_DEVICE_OWNER_INFO, UserHandle.USER_SYSTEM);
+    private static int categoryChar(char c) {
+        if ('a' <= c && c <= 'z') return 0;
+        if ('A' <= c && c <= 'Z') return 1;
+        if ('0' <= c && c <= '9') return 2;
+        return 3;
     }
 
-    public boolean isDeviceOwnerInfoEnabled() {
-        return getDeviceOwnerInfo() != null;
+    private static int maxDiffCategory(int category) {
+        if (category == 0 || category == 1) return 1;
+        else if (category == 2) return 10;
+        return 0;
+    }
+
+    /*
+     * Returns the maximum length of a sequential characters.  A sequence is defined as
+     * monotonically increasing characters with a constant interval or the same character repeated.
+     *
+     * For example:
+     * maxLengthSequence("1234") == 4
+     * maxLengthSequence("1234abc") == 4
+     * maxLengthSequence("aabc") == 3
+     * maxLengthSequence("qwertyuio") == 1
+     * maxLengthSequence("@ABC") == 3
+     * maxLengthSequence(";;;;") == 4 (anything that repeats)
+     * maxLengthSequence(":;<=>") == 1  (ordered, but not composed of alphas or digits)
+     *
+     * @param string the pass
+     * @return the number of sequential letters or digits
+     */
+    public static int maxLengthSequence(String string) {
+        if (string.length() == 0) return 0;
+        char previousChar = string.charAt(0);
+        int category = categoryChar(previousChar); //current category of the sequence
+        int diff = 0; //difference between two consecutive characters
+        boolean hasDiff = false; //if we are currently targeting a sequence
+        int maxLength = 0; //maximum length of a sequence already found
+        int startSequence = 0; //where the current sequence started
+        for (int current = 1; current < string.length(); current++) {
+            char currentChar = string.charAt(current);
+            int categoryCurrent = categoryChar(currentChar);
+            int currentDiff = (int) currentChar - (int) previousChar;
+            if (categoryCurrent != category || Math.abs(currentDiff) > maxDiffCategory(category)) {
+                maxLength = Math.max(maxLength, current - startSequence);
+                startSequence = current;
+                hasDiff = false;
+                category = categoryCurrent;
+            }
+            else {
+                if(hasDiff && currentDiff != diff) {
+                    maxLength = Math.max(maxLength, current - startSequence);
+                    startSequence = current - 1;
+                }
+                diff = currentDiff;
+                hasDiff = true;
+            }
+            previousChar = currentChar;
+        }
+        maxLength = Math.max(maxLength, string.length() - startSequence);
+        return maxLength;
     }
 
     /** Update the encryption password if it is enabled **/
@@ -809,9 +673,9 @@ public class LockPatternUtils {
         new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... dummy) {
-                IStorageManager storageManager = IStorageManager.Stub.asInterface(service);
+                IMountService mountService = IMountService.Stub.asInterface(service);
                 try {
-                    storageManager.changeEncryptionPassword(type, password);
+                    mountService.changeEncryptionPassword(type, password);
                 } catch (RemoteException e) {
                     Log.e(TAG, "Error changing encryption password", e);
                 }
@@ -826,93 +690,112 @@ public class LockPatternUtils {
      * password.
      * @param password The password to save
      * @param savedPassword The previously saved lock password, or null if none
-     * @param requestedQuality {@see DevicePolicyManager#getPasswordQuality(android.content.ComponentName)}
+     * @param quality {@see DevicePolicyManager#getPasswordQuality(android.content.ComponentName)}
      * @param userHandle The userId of the user to change the password for
      */
-    public void saveLockPassword(String password, String savedPassword, int requestedQuality,
+    public void saveLockPassword(String password, String savedPassword, int quality,
             int userHandle) {
-        if (password == null || password.length() < MIN_LOCK_PASSWORD_SIZE) {
-            throw new IllegalArgumentException("password must not be null and at least "
-                    + "of length " + MIN_LOCK_PASSWORD_SIZE);
-        }
-
-        final int currentQuality = getKeyguardStoredPasswordQuality(userHandle);
-        setKeyguardStoredPasswordQuality(
-                computePasswordQuality(CREDENTIAL_TYPE_PASSWORD, password, requestedQuality),
-                userHandle);
         try {
-            getLockSettings().setLockCredential(password, CREDENTIAL_TYPE_PASSWORD,
-                    savedPassword, requestedQuality, userHandle);
-        } catch (Exception e) {
-            Log.e(TAG, "Unable to save lock password", e);
-            setKeyguardStoredPasswordQuality(currentQuality, userHandle);
-            return;
-        }
-
-        updateEncryptionPasswordIfNeeded(password,
-                PasswordMetrics.computeForPassword(password).quality, userHandle);
-        updatePasswordHistory(password, userHandle);
-        onAfterChangingPassword(userHandle);
-    }
-
-    /**
-     * Update device encryption password if calling user is USER_SYSTEM and device supports
-     * encryption.
-     */
-    private void updateEncryptionPasswordIfNeeded(String password, int quality, int userHandle) {
-        // Update the device encryption password.
-        if (userHandle == UserHandle.USER_SYSTEM
-                && LockPatternUtils.isDeviceEncryptionEnabled()) {
-            if (!shouldEncryptWithCredentials(true)) {
-                clearEncryptionPassword();
-            } else {
-                boolean numeric = quality == PASSWORD_QUALITY_NUMERIC;
-                boolean numericComplex = quality == PASSWORD_QUALITY_NUMERIC_COMPLEX;
-                int type = numeric || numericComplex ? StorageManager.CRYPT_TYPE_PIN
-                        : StorageManager.CRYPT_TYPE_PASSWORD;
-                updateEncryptionPassword(type, password);
+            DevicePolicyManager dpm = getDevicePolicyManager();
+            if (password == null || password.length() < MIN_LOCK_PASSWORD_SIZE) {
+                throw new IllegalArgumentException("password must not be null and at least "
+                        + "of length " + MIN_LOCK_PASSWORD_SIZE);
             }
-        }
-    }
 
-    /**
-     * Store the hash of the *current* password in the password history list, if device policy
-     * enforces password history requirement.
-     */
-    private void updatePasswordHistory(String password, int userHandle) {
-        if (TextUtils.isEmpty(password)) {
-            Log.e(TAG, "checkPasswordHistory: empty password");
-            return;
-        }
-        // Add the password to the password history. We assume all
-        // password hashes have the same length for simplicity of implementation.
-        String passwordHistory = getString(PASSWORD_HISTORY_KEY, userHandle);
-        if (passwordHistory == null) {
-            passwordHistory = "";
-        }
-        int passwordHistoryLength = getRequestedPasswordHistoryLength(userHandle);
-        if (passwordHistoryLength == 0) {
-            passwordHistory = "";
-        } else {
-            final byte[] hashFactor = getPasswordHistoryHashFactor(password, userHandle);
-            String hash = passwordToHistoryHash(password, hashFactor, userHandle);
-            if (hash == null) {
-                Log.e(TAG, "Compute new style password hash failed, fallback to legacy style");
-                hash = legacyPasswordToHash(password, userHandle);
-            }
-            if (TextUtils.isEmpty(passwordHistory)) {
-                passwordHistory = hash;
-            } else {
-                String[] history = passwordHistory.split(HISTORY_DELIMITER);
-                StringJoiner joiner = new StringJoiner(HISTORY_DELIMITER);
-                joiner.add(hash);
-                for (int i = 0; i < passwordHistoryLength - 1 && i < history.length; i++) {
-                    joiner.add(history[i]);
+            getLockSettings().setLockPassword(password, savedPassword, userHandle);
+            int computedQuality = computePasswordQuality(password);
+
+            // Update the device encryption password.
+            if (userHandle == UserHandle.USER_OWNER
+                    && LockPatternUtils.isDeviceEncryptionEnabled()) {
+                if (!shouldEncryptWithCredentials(true)) {
+                    clearEncryptionPassword();
+                } else {
+                    boolean numeric = computedQuality
+                            == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC;
+                    boolean numericComplex = computedQuality
+                            == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX;
+                    int type = numeric || numericComplex ? StorageManager.CRYPT_TYPE_PIN
+                            : StorageManager.CRYPT_TYPE_PASSWORD;
+                    updateEncryptionPassword(type, password);
                 }
-                passwordHistory = joiner.toString();
             }
+
+            setLong(PASSWORD_TYPE_KEY, Math.max(quality, computedQuality), userHandle);
+            if (computedQuality != DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
+                int letters = 0;
+                int uppercase = 0;
+                int lowercase = 0;
+                int numbers = 0;
+                int symbols = 0;
+                int nonletter = 0;
+                for (int i = 0; i < password.length(); i++) {
+                    char c = password.charAt(i);
+                    if (c >= 'A' && c <= 'Z') {
+                        letters++;
+                        uppercase++;
+                    } else if (c >= 'a' && c <= 'z') {
+                        letters++;
+                        lowercase++;
+                    } else if (c >= '0' && c <= '9') {
+                        numbers++;
+                        nonletter++;
+                    } else {
+                        symbols++;
+                        nonletter++;
+                    }
+                }
+                dpm.setActivePasswordState(Math.max(quality, computedQuality),
+                        password.length(), letters, uppercase, lowercase,
+                        numbers, symbols, nonletter, userHandle);
+            } else {
+                // The password is not anything.
+                dpm.setActivePasswordState(
+                        DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED,
+                        0, 0, 0, 0, 0, 0, 0, userHandle);
+            }
+
+            // Add the password to the password history. We assume all
+            // password hashes have the same length for simplicity of implementation.
+            String passwordHistory = getString(PASSWORD_HISTORY_KEY, userHandle);
+            if (passwordHistory == null) {
+                passwordHistory = "";
+            }
+            int passwordHistoryLength = getRequestedPasswordHistoryLength(userHandle);
+            if (passwordHistoryLength == 0) {
+                passwordHistory = "";
+            } else {
+                byte[] hash = passwordToHash(password, userHandle);
+                passwordHistory = new String(hash, StandardCharsets.UTF_8) + "," + passwordHistory;
+                // Cut it to contain passwordHistoryLength hashes
+                // and passwordHistoryLength -1 commas.
+                passwordHistory = passwordHistory.substring(0, Math.min(hash.length
+                        * passwordHistoryLength + passwordHistoryLength - 1, passwordHistory
+                        .length()));
+            }
+            setString(PASSWORD_HISTORY_KEY, passwordHistory, userHandle);
+            onAfterChangingPassword(userHandle);
+        } catch (RemoteException re) {
+            // Cant do much
+            Log.e(TAG, "Unable to save lock password " + re);
         }
-        setString(PASSWORD_HISTORY_KEY, passwordHistory, userHandle);
+    }
+
+    /**
+     * Gets whether the device is encrypted.
+     *
+     * @return Whether the device is encrypted.
+     */
+    public static boolean isDeviceEncrypted() {
+        IMountService mountService = IMountService.Stub.asInterface(
+                ServiceManager.getService("mount"));
+        try {
+            return mountService.getEncryptionState() != IMountService.ENCRYPTION_STATE_NONE
+                    && mountService.getPasswordType() != StorageManager.CRYPT_TYPE_DEFAULT;
+        } catch (RemoteException re) {
+            Log.e(TAG, "Error getting encryption state", re);
+        }
+        return true;
     }
 
     /**
@@ -922,15 +805,8 @@ public class LockPatternUtils {
      * @return true if device encryption is enabled
      */
     public static boolean isDeviceEncryptionEnabled() {
-        return StorageManager.isEncrypted();
-    }
-
-    /**
-     * Determine if the device is file encrypted
-     * @return true if device is file encrypted
-     */
-    public static boolean isFileEncryptionEnabled() {
-        return StorageManager.isFileEncryptedNativeOrEmulated();
+        final String status = SystemProperties.get("ro.crypto.state", "unsupported");
+        return "encrypted".equalsIgnoreCase(status);
     }
 
     /**
@@ -947,99 +823,8 @@ public class LockPatternUtils {
      * @return stored password quality
      */
     public int getKeyguardStoredPasswordQuality(int userHandle) {
-        return (int) getLong(PASSWORD_TYPE_KEY, PASSWORD_QUALITY_UNSPECIFIED, userHandle);
-    }
-
-    private void setKeyguardStoredPasswordQuality(int quality, int userHandle) {
-        setLong(PASSWORD_TYPE_KEY, quality, userHandle);
-    }
-
-    /**
-     * Returns the password quality of the given credential, promoting it to a higher level
-     * if DevicePolicyManager has a stronger quality requirement. This value will be written
-     * to PASSWORD_TYPE_KEY.
-     */
-    private int computePasswordQuality(int type, String credential, int requestedQuality) {
-        final int quality;
-        if (type == CREDENTIAL_TYPE_PASSWORD) {
-            int computedQuality = PasswordMetrics.computeForPassword(credential).quality;
-            quality = Math.max(requestedQuality, computedQuality);
-        } else if (type == CREDENTIAL_TYPE_PATTERN)  {
-            quality = PASSWORD_QUALITY_SOMETHING;
-        } else /* if (type == CREDENTIAL_TYPE_NONE) */ {
-            quality = PASSWORD_QUALITY_UNSPECIFIED;
-        }
-        return quality;
-    }
-
-    /**
-     * Enables/disables the Separate Profile Challenge for this {@param userHandle}. This is a no-op
-     * for user handles that do not belong to a managed profile.
-     *
-     * @param userHandle Managed profile user id
-     * @param enabled True if separate challenge is enabled
-     * @param managedUserPassword Managed profile previous password. Null when {@param enabled} is
-     *            true
-     */
-    public void setSeparateProfileChallengeEnabled(int userHandle, boolean enabled,
-            String managedUserPassword) {
-        if (!isManagedProfile(userHandle)) {
-            return;
-        }
-        try {
-            getLockSettings().setSeparateProfileChallengeEnabled(userHandle, enabled,
-                    managedUserPassword);
-            onAfterChangingPassword(userHandle);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Couldn't update work profile challenge enabled");
-        }
-    }
-
-    /**
-     * Returns true if {@param userHandle} is a managed profile with separate challenge.
-     */
-    public boolean isSeparateProfileChallengeEnabled(int userHandle) {
-        return isManagedProfile(userHandle) && hasSeparateChallenge(userHandle);
-    }
-
-    /**
-     * Returns true if {@param userHandle} is a managed profile with unified challenge.
-     */
-    public boolean isManagedProfileWithUnifiedChallenge(int userHandle) {
-        return isManagedProfile(userHandle) && !hasSeparateChallenge(userHandle);
-    }
-
-    /**
-     * Retrieves whether the current DPM allows use of the Profile Challenge.
-     */
-    public boolean isSeparateProfileChallengeAllowed(int userHandle) {
-        return isManagedProfile(userHandle)
-                && getDevicePolicyManager().isSeparateProfileChallengeAllowed(userHandle);
-    }
-
-    /**
-     * Retrieves whether the current profile and device locks can be unified.
-     * @param userHandle profile user handle.
-     */
-    public boolean isSeparateProfileChallengeAllowedToUnify(int userHandle) {
-        return getDevicePolicyManager().isProfileActivePasswordSufficientForParent(userHandle)
-                && !getUserManager().hasUserRestriction(
-                        UserManager.DISALLOW_UNIFIED_PASSWORD, UserHandle.of(userHandle));
-    }
-
-    private boolean hasSeparateChallenge(int userHandle) {
-        try {
-            return getLockSettings().getSeparateProfileChallengeEnabled(userHandle);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Couldn't get separate profile challenge enabled");
-            // Default value is false
-            return false;
-        }
-    }
-
-    private boolean isManagedProfile(int userHandle) {
-        final UserInfo info = getUserManager().getUserInfo(userHandle);
-        return info != null && info.isManagedProfile();
+        return (int) getLong(PASSWORD_TYPE_KEY,
+                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userHandle);
     }
 
     /**
@@ -1137,7 +922,7 @@ public class LockPatternUtils {
         return Long.toHexString(salt);
     }
 
-    /**
+    /*
      * Generate a hash for the given password. To avoid brute force attacks, we use a salted hash.
      * Not the most secure, but it is at least a second level of protection. First level is that
      * the file is in a location only readable by the system process.
@@ -1146,7 +931,7 @@ public class LockPatternUtils {
      *
      * @return the hash of the pattern in a byte array.
      */
-    public String legacyPasswordToHash(String password, int userId) {
+    public byte[] passwordToHash(String password, int userId) {
         if (password == null) {
             return null;
         }
@@ -1161,24 +946,7 @@ public class LockPatternUtils {
             System.arraycopy(md5, 0, combined, sha1.length, md5.length);
 
             final char[] hexEncoded = HexEncoding.encode(combined);
-            return new String(hexEncoded);
-        } catch (NoSuchAlgorithmException e) {
-            throw new AssertionError("Missing digest algorithm: ", e);
-        }
-    }
-
-    /**
-     * Hash the password for password history check purpose.
-     */
-    private String passwordToHistoryHash(String passwordToHash, byte[] hashFactor, int userId) {
-        if (TextUtils.isEmpty(passwordToHash) || hashFactor == null) {
-            return null;
-        }
-        try {
-            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-            sha256.update(hashFactor);
-            sha256.update((passwordToHash + getSalt(userId)).getBytes());
-            return new String(HexEncoding.encode(sha256.digest()));
+            return new String(hexEncoded).getBytes(StandardCharsets.UTF_8);
         } catch (NoSuchAlgorithmException e) {
             throw new AssertionError("Missing digest algorithm: ", e);
         }
@@ -1198,12 +966,11 @@ public class LockPatternUtils {
     }
 
     private boolean isLockPasswordEnabled(int mode, int userId) {
-        final boolean passwordEnabled = mode == PASSWORD_QUALITY_ALPHABETIC
-                || mode == PASSWORD_QUALITY_NUMERIC
-                || mode == PASSWORD_QUALITY_NUMERIC_COMPLEX
-                || mode == PASSWORD_QUALITY_ALPHANUMERIC
-                || mode == PASSWORD_QUALITY_COMPLEX
-                || mode == PASSWORD_QUALITY_MANAGED;
+        final boolean passwordEnabled = mode == DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC
+                || mode == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC
+                || mode == DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX
+                || mode == DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC
+                || mode == DevicePolicyManager.PASSWORD_QUALITY_COMPLEX;
         return passwordEnabled && savedPasswordExists(userId);
     }
 
@@ -1214,21 +981,9 @@ public class LockPatternUtils {
         return isLockPatternEnabled(getKeyguardStoredPasswordQuality(userId), userId);
     }
 
-    @Deprecated
-    public boolean isLegacyLockPatternEnabled(int userId) {
-        // Note: this value should default to {@code true} to avoid any reset that might result.
-        // We must use a special key to read this value, since it will by default return the value
-        // based on the new logic.
-        return getBoolean(LEGACY_LOCK_PATTERN_ENABLED, true, userId);
-    }
-
-    @Deprecated
-    public void setLegacyLockPatternEnabled(int userId) {
-        setBoolean(Settings.Secure.LOCK_PATTERN_ENABLED, true, userId);
-    }
-
     private boolean isLockPatternEnabled(int mode, int userId) {
-        return mode == PASSWORD_QUALITY_SOMETHING && savedPatternExists(userId);
+        return mode == DevicePolicyManager.PASSWORD_QUALITY_SOMETHING
+                && savedPatternExists(userId);
     }
 
     /**
@@ -1245,7 +1000,7 @@ public class LockPatternUtils {
         setBoolean(Settings.Secure.LOCK_PATTERN_VISIBLE, enabled, userId);
 
         // Update for crypto if owner
-        if (userId != UserHandle.USER_SYSTEM) {
+        if (userId != UserHandle.USER_OWNER) {
             return;
         }
 
@@ -1255,16 +1010,12 @@ public class LockPatternUtils {
             return;
         }
 
-        IStorageManager storageManager = IStorageManager.Stub.asInterface(service);
+        IMountService mountService = IMountService.Stub.asInterface(service);
         try {
-            storageManager.setField(StorageManager.PATTERN_VISIBLE_KEY, enabled ? "1" : "0");
+            mountService.setField(StorageManager.PATTERN_VISIBLE_KEY, enabled ? "1" : "0");
         } catch (RemoteException e) {
             Log.e(TAG, "Error changing pattern visible state", e);
         }
-    }
-
-    public boolean isVisiblePatternEverChosen(int userId) {
-        return getString(Settings.Secure.LOCK_PATTERN_VISIBLE, userId) != null;
     }
 
     /**
@@ -1272,7 +1023,7 @@ public class LockPatternUtils {
      */
     public void setVisiblePasswordEnabled(boolean enabled, int userId) {
         // Update for crypto if owner
-        if (userId != UserHandle.USER_SYSTEM) {
+        if (userId != UserHandle.USER_OWNER) {
             return;
         }
 
@@ -1282,9 +1033,9 @@ public class LockPatternUtils {
             return;
         }
 
-        IStorageManager storageManager = IStorageManager.Stub.asInterface(service);
+        IMountService mountService = IMountService.Stub.asInterface(service);
         try {
-            storageManager.setField(StorageManager.PASSWORD_VISIBLE_KEY, enabled ? "1" : "0");
+            mountService.setField(StorageManager.PASSWORD_VISIBLE_KEY, enabled ? "1" : "0");
         } catch (RemoteException e) {
             Log.e(TAG, "Error changing password visible state", e);
         }
@@ -1305,12 +1056,8 @@ public class LockPatternUtils {
      */
     public long setLockoutAttemptDeadline(int userId, int timeoutMs) {
         final long deadline = SystemClock.elapsedRealtime() + timeoutMs;
-        if (userId == USER_FRP) {
-            // For secure password storage (that is required for FRP), the underlying storage also
-            // enforces the deadline. Since we cannot store settings for the FRP user, don't.
-            return deadline;
-        }
-        mLockoutDeadlines.put(userId, deadline);
+        setLong(LOCKOUT_ATTEMPT_DEADLINE, deadline, userId);
+        setLong(LOCKOUT_ATTEMPT_TIMEOUT_MS, timeoutMs, userId);
         return deadline;
     }
 
@@ -1320,11 +1067,10 @@ public class LockPatternUtils {
      *   enter a pattern.
      */
     public long getLockoutAttemptDeadline(int userId) {
-        final long deadline = mLockoutDeadlines.get(userId, 0L);
+        final long deadline = getLong(LOCKOUT_ATTEMPT_DEADLINE, 0L, userId);
+        final long timeoutMs = getLong(LOCKOUT_ATTEMPT_TIMEOUT_MS, 0L, userId);
         final long now = SystemClock.elapsedRealtime();
-        if (deadline < now && deadline != 0) {
-            // timeout expired
-            mLockoutDeadlines.put(userId, 0);
+        if (deadline < now || deadline > (now + timeoutMs)) {
             return 0L;
         }
         return deadline;
@@ -1389,10 +1135,6 @@ public class LockPatternUtils {
         return getBoolean(LOCKSCREEN_POWER_BUTTON_INSTANTLY_LOCKS, true, userId);
     }
 
-    public boolean isPowerButtonInstantlyLocksEverChosen(int userId) {
-        return getString(LOCKSCREEN_POWER_BUTTON_INSTANTLY_LOCKS, userId) != null;
-    }
-
     public void setEnabledTrustAgents(Collection<ComponentName> activeTrustAgents, int userId) {
         StringBuilder sb = new StringBuilder();
         for (ComponentName cn : activeTrustAgents) {
@@ -1421,32 +1163,10 @@ public class LockPatternUtils {
     }
 
     /**
-     * Disable trust until credentials have been entered for user {@param userId}.
-     *
-     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
-     *
-     * @param userId either an explicit user id or {@link android.os.UserHandle#USER_ALL}
+     * @see android.app.trust.TrustManager#reportRequireCredentialEntry(int)
      */
     public void requireCredentialEntry(int userId) {
-        requireStrongAuth(StrongAuthTracker.SOME_AUTH_REQUIRED_AFTER_USER_REQUEST, userId);
-    }
-
-    /**
-     * Requests strong authentication for user {@param userId}.
-     *
-     * Requires the {@link android.Manifest.permission#ACCESS_KEYGUARD_SECURE_STORAGE} permission.
-     *
-     * @param strongAuthReason a combination of {@link StrongAuthTracker.StrongAuthFlags} indicating
-     *                         the reason for and the strength of the requested authentication.
-     * @param userId either an explicit user id or {@link android.os.UserHandle#USER_ALL}
-     */
-    public void requireStrongAuth(@StrongAuthTracker.StrongAuthFlags int strongAuthReason,
-            int userId) {
-        try {
-            getLockSettings().requireStrongAuth(strongAuthReason, userId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error while requesting strong auth: " + e);
-        }
+        getTrustManager().reportRequireCredentialEntry(userId);
     }
 
     private void onAfterChangingPassword(int userHandle) {
@@ -1460,9 +1180,9 @@ public class LockPatternUtils {
     }
 
     public void setCredentialRequiredToDecrypt(boolean required) {
-        if (!(getUserManager().isSystemUser() || getUserManager().isPrimaryUser())) {
-            throw new IllegalStateException(
-                    "Only the system or primary user may call setCredentialRequiredForDecrypt()");
+        if (ActivityManager.getCurrentUser() != UserHandle.USER_OWNER) {
+            Log.w(TAG, "Only device owner may call setCredentialRequiredForDecrypt()");
+            return;
         }
 
         if (isDeviceEncryptionEnabled()){
@@ -1472,386 +1192,10 @@ public class LockPatternUtils {
     }
 
     private boolean isDoNotAskCredentialsOnBootSet() {
-        return getDevicePolicyManager().getDoNotAskCredentialsOnBoot();
+        return mDevicePolicyManager.getDoNotAskCredentialsOnBoot();
     }
 
     private boolean shouldEncryptWithCredentials(boolean defaultValue) {
         return isCredentialRequiredToDecrypt(defaultValue) && !isDoNotAskCredentialsOnBootSet();
-    }
-
-    private void throwIfCalledOnMainThread() {
-        if (Looper.getMainLooper().isCurrentThread()) {
-            throw new IllegalStateException("should not be called from the main thread.");
-        }
-    }
-
-    public void registerStrongAuthTracker(final StrongAuthTracker strongAuthTracker) {
-        try {
-            getLockSettings().registerStrongAuthTracker(strongAuthTracker.mStub);
-        } catch (RemoteException e) {
-            throw new RuntimeException("Could not register StrongAuthTracker");
-        }
-    }
-
-    public void unregisterStrongAuthTracker(final StrongAuthTracker strongAuthTracker) {
-        try {
-            getLockSettings().unregisterStrongAuthTracker(strongAuthTracker.mStub);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Could not unregister StrongAuthTracker", e);
-        }
-    }
-
-    /**
-     * @see StrongAuthTracker#getStrongAuthForUser
-     */
-    public int getStrongAuthForUser(int userId) {
-        try {
-            return getLockSettings().getStrongAuthForUser(userId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Could not get StrongAuth", e);
-            return StrongAuthTracker.getDefaultFlags(mContext);
-        }
-    }
-
-    /**
-     * @see StrongAuthTracker#isTrustAllowedForUser
-     */
-    public boolean isTrustAllowedForUser(int userId) {
-        return getStrongAuthForUser(userId) == StrongAuthTracker.STRONG_AUTH_NOT_REQUIRED;
-    }
-
-    /**
-     * @see StrongAuthTracker#isFingerprintAllowedForUser
-     */
-    public boolean isFingerprintAllowedForUser(int userId) {
-        return (getStrongAuthForUser(userId) & ~StrongAuthTracker.ALLOWING_FINGERPRINT) == 0;
-    }
-
-    public boolean isUserInLockdown(int userId) {
-        return getStrongAuthForUser(userId)
-                == StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN;
-    }
-
-    private ICheckCredentialProgressCallback wrapCallback(
-            final CheckCredentialProgressCallback callback) {
-        if (callback == null) {
-            return null;
-        } else {
-            if (mHandler == null) {
-                throw new IllegalStateException("Must construct LockPatternUtils on a looper thread"
-                        + " to use progress callbacks.");
-            }
-            return new ICheckCredentialProgressCallback.Stub() {
-
-                @Override
-                public void onCredentialVerified() throws RemoteException {
-                    mHandler.post(callback::onEarlyMatched);
-                }
-            };
-        }
-    }
-
-    private LockSettingsInternal getLockSettingsInternal() {
-        LockSettingsInternal service = LocalServices.getService(LockSettingsInternal.class);
-        if (service == null) {
-            throw new SecurityException("Only available to system server itself");
-        }
-        return service;
-    }
-    /**
-     * Create an escrow token for the current user, which can later be used to unlock FBE
-     * or change user password.
-     *
-     * After adding, if the user currently has lockscreen password, he will need to perform a
-     * confirm credential operation in order to activate the token for future use. If the user
-     * has no secure lockscreen, then the token is activated immediately.
-     *
-     * <p>This method is only available to code running in the system server process itself.
-     *
-     * @return a unique 64-bit token handle which is needed to refer to this token later.
-     */
-    public long addEscrowToken(byte[] token, int userId) {
-        return getLockSettingsInternal().addEscrowToken(token, userId);
-    }
-
-    /**
-     * Remove an escrow token.
-     *
-     * <p>This method is only available to code running in the system server process itself.
-     *
-     * @return true if the given handle refers to a valid token previously returned from
-     * {@link #addEscrowToken}, whether it's active or not. return false otherwise.
-     */
-    public boolean removeEscrowToken(long handle, int userId) {
-        return getLockSettingsInternal().removeEscrowToken(handle, userId);
-    }
-
-    /**
-     * Check if the given escrow token is active or not. Only active token can be used to call
-     * {@link #setLockCredentialWithToken} and {@link #unlockUserWithToken}
-     *
-     * <p>This method is only available to code running in the system server process itself.
-     */
-    public boolean isEscrowTokenActive(long handle, int userId) {
-        return getLockSettingsInternal().isEscrowTokenActive(handle, userId);
-    }
-
-    /**
-     * Change a user's lock credential with a pre-configured escrow token.
-     *
-     * <p>This method is only available to code running in the system server process itself.
-     *
-     * @param credential The new credential to be set
-     * @param type Credential type: password / pattern / none.
-     * @param requestedQuality the requested password quality by DevicePolicyManager.
-     *        See {@link DevicePolicyManager#getPasswordQuality(android.content.ComponentName)}
-     * @param tokenHandle Handle of the escrow token
-     * @param token Escrow token
-     * @param userId The user who's lock credential to be changed
-     * @return {@code true} if the operation is successful.
-     */
-    public boolean setLockCredentialWithToken(String credential, int type, int requestedQuality,
-            long tokenHandle, byte[] token, int userId) {
-        LockSettingsInternal localService = getLockSettingsInternal();
-        if (type != CREDENTIAL_TYPE_NONE) {
-            if (TextUtils.isEmpty(credential) || credential.length() < MIN_LOCK_PASSWORD_SIZE) {
-                throw new IllegalArgumentException("password must not be null and at least "
-                        + "of length " + MIN_LOCK_PASSWORD_SIZE);
-            }
-            final int quality = computePasswordQuality(type, credential, requestedQuality);
-            if (!localService.setLockCredentialWithToken(credential, type, tokenHandle,
-                    token, quality, userId)) {
-                return false;
-            }
-            setKeyguardStoredPasswordQuality(quality, userId);
-
-            updateEncryptionPasswordIfNeeded(credential, quality, userId);
-            updatePasswordHistory(credential, userId);
-            onAfterChangingPassword(userId);
-        } else {
-            if (!TextUtils.isEmpty(credential)) {
-                throw new IllegalArgumentException("password must be emtpy for NONE type");
-            }
-            if (!localService.setLockCredentialWithToken(null, CREDENTIAL_TYPE_NONE,
-                    tokenHandle, token, PASSWORD_QUALITY_UNSPECIFIED, userId)) {
-                return false;
-            }
-            setKeyguardStoredPasswordQuality(PASSWORD_QUALITY_UNSPECIFIED, userId);
-
-            if (userId == UserHandle.USER_SYSTEM) {
-                // Set the encryption password to default.
-                updateEncryptionPassword(StorageManager.CRYPT_TYPE_DEFAULT, null);
-                setCredentialRequiredToDecrypt(false);
-            }
-        }
-        onAfterChangingPassword(userId);
-        return true;
-    }
-
-    /**
-     * Unlock the specified user by an pre-activated escrow token. This should have the same effect
-     * on device encryption as the user entering his lockscreen credentials for the first time after
-     * boot, this includes unlocking the user's credential-encrypted storage as well as the keystore
-     *
-     * <p>This method is only available to code running in the system server process itself.
-     *
-     * @return {@code true} if the supplied token is valid and unlock succeeds,
-     *         {@code false} otherwise.
-     */
-    public boolean unlockUserWithToken(long tokenHandle, byte[] token, int userId) {
-        return getLockSettingsInternal().unlockUserWithToken(tokenHandle, token, userId);
-    }
-
-
-    /**
-     * Callback to be notified about progress when checking credentials.
-     */
-    public interface CheckCredentialProgressCallback {
-
-        /**
-         * Called as soon as possible when we know that the credentials match but the user hasn't
-         * been fully unlocked.
-         */
-        void onEarlyMatched();
-    }
-
-    /**
-     * Tracks the global strong authentication state.
-     */
-    public static class StrongAuthTracker {
-
-        @IntDef(flag = true,
-                value = { STRONG_AUTH_NOT_REQUIRED,
-                        STRONG_AUTH_REQUIRED_AFTER_BOOT,
-                        STRONG_AUTH_REQUIRED_AFTER_DPM_LOCK_NOW,
-                        SOME_AUTH_REQUIRED_AFTER_USER_REQUEST,
-                        STRONG_AUTH_REQUIRED_AFTER_LOCKOUT,
-                        STRONG_AUTH_REQUIRED_AFTER_TIMEOUT,
-                        STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN})
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface StrongAuthFlags {}
-
-        /**
-         * Strong authentication is not required.
-         */
-        public static final int STRONG_AUTH_NOT_REQUIRED = 0x0;
-
-        /**
-         * Strong authentication is required because the user has not authenticated since boot.
-         */
-        public static final int STRONG_AUTH_REQUIRED_AFTER_BOOT = 0x1;
-
-        /**
-         * Strong authentication is required because a device admin has requested it.
-         */
-        public static final int STRONG_AUTH_REQUIRED_AFTER_DPM_LOCK_NOW = 0x2;
-
-        /**
-         * Some authentication is required because the user has temporarily disabled trust.
-         */
-        public static final int SOME_AUTH_REQUIRED_AFTER_USER_REQUEST = 0x4;
-
-        /**
-         * Strong authentication is required because the user has been locked out after too many
-         * attempts.
-         */
-        public static final int STRONG_AUTH_REQUIRED_AFTER_LOCKOUT = 0x8;
-
-        /**
-         * Strong authentication is required because it hasn't been used for a time required by
-         * a device admin.
-         */
-        public static final int STRONG_AUTH_REQUIRED_AFTER_TIMEOUT = 0x10;
-
-        /**
-         * Strong authentication is required because the user has triggered lockdown.
-         */
-        public static final int STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN = 0x20;
-
-        /**
-         * Strong auth flags that do not prevent fingerprint from being accepted as auth.
-         *
-         * If any other flags are set, fingerprint is disabled.
-         */
-        private static final int ALLOWING_FINGERPRINT = STRONG_AUTH_NOT_REQUIRED
-                | SOME_AUTH_REQUIRED_AFTER_USER_REQUEST;
-
-        private final SparseIntArray mStrongAuthRequiredForUser = new SparseIntArray();
-        private final H mHandler;
-        private final int mDefaultStrongAuthFlags;
-
-        public StrongAuthTracker(Context context) {
-            this(context, Looper.myLooper());
-        }
-
-        /**
-         * @param looper the looper on whose thread calls to {@link #onStrongAuthRequiredChanged}
-         *               will be scheduled.
-         * @param context the current {@link Context}
-         */
-        public StrongAuthTracker(Context context, Looper looper) {
-            mHandler = new H(looper);
-            mDefaultStrongAuthFlags = getDefaultFlags(context);
-        }
-
-        public static @StrongAuthFlags int getDefaultFlags(Context context) {
-            boolean strongAuthRequired = context.getResources().getBoolean(
-                    com.android.internal.R.bool.config_strongAuthRequiredOnBoot);
-            return strongAuthRequired ? STRONG_AUTH_REQUIRED_AFTER_BOOT : STRONG_AUTH_NOT_REQUIRED;
-        }
-
-        /**
-         * Returns {@link #STRONG_AUTH_NOT_REQUIRED} if strong authentication is not required,
-         * otherwise returns a combination of {@link StrongAuthFlags} indicating why strong
-         * authentication is required.
-         *
-         * @param userId the user for whom the state is queried.
-         */
-        public @StrongAuthFlags int getStrongAuthForUser(int userId) {
-            return mStrongAuthRequiredForUser.get(userId, mDefaultStrongAuthFlags);
-        }
-
-        /**
-         * @return true if unlocking with trust alone is allowed for {@param userId} by the current
-         * strong authentication requirements.
-         */
-        public boolean isTrustAllowedForUser(int userId) {
-            return getStrongAuthForUser(userId) == STRONG_AUTH_NOT_REQUIRED;
-        }
-
-        /**
-         * @return true if unlocking with fingerprint alone is allowed for {@param userId} by the
-         * current strong authentication requirements.
-         */
-        public boolean isFingerprintAllowedForUser(int userId) {
-            return (getStrongAuthForUser(userId) & ~ALLOWING_FINGERPRINT) == 0;
-        }
-
-        /**
-         * Called when the strong authentication requirements for {@param userId} changed.
-         */
-        public void onStrongAuthRequiredChanged(int userId) {
-        }
-
-        protected void handleStrongAuthRequiredChanged(@StrongAuthFlags int strongAuthFlags,
-                int userId) {
-            int oldValue = getStrongAuthForUser(userId);
-            if (strongAuthFlags != oldValue) {
-                if (strongAuthFlags == mDefaultStrongAuthFlags) {
-                    mStrongAuthRequiredForUser.delete(userId);
-                } else {
-                    mStrongAuthRequiredForUser.put(userId, strongAuthFlags);
-                }
-                onStrongAuthRequiredChanged(userId);
-            }
-        }
-
-
-        protected final IStrongAuthTracker.Stub mStub = new IStrongAuthTracker.Stub() {
-            @Override
-            public void onStrongAuthRequiredChanged(@StrongAuthFlags int strongAuthFlags,
-                    int userId) {
-                mHandler.obtainMessage(H.MSG_ON_STRONG_AUTH_REQUIRED_CHANGED,
-                        strongAuthFlags, userId).sendToTarget();
-            }
-        };
-
-        private class H extends Handler {
-            static final int MSG_ON_STRONG_AUTH_REQUIRED_CHANGED = 1;
-
-            public H(Looper looper) {
-                super(looper);
-            }
-
-            @Override
-            public void handleMessage(Message msg) {
-                switch (msg.what) {
-                    case MSG_ON_STRONG_AUTH_REQUIRED_CHANGED:
-                        handleStrongAuthRequiredChanged(msg.arg1, msg.arg2);
-                        break;
-                }
-            }
-        }
-    }
-
-    public void enableSyntheticPassword() {
-        setLong(SYNTHETIC_PASSWORD_ENABLED_KEY, 1L, UserHandle.USER_SYSTEM);
-    }
-
-    public void disableSyntheticPassword() {
-        setLong(SYNTHETIC_PASSWORD_ENABLED_KEY, 0L, UserHandle.USER_SYSTEM);
-    }
-
-    public boolean isSyntheticPasswordEnabled() {
-        return getLong(SYNTHETIC_PASSWORD_ENABLED_KEY, 0, UserHandle.USER_SYSTEM) != 0;
-    }
-
-    public static boolean userOwnsFrpCredential(Context context, UserInfo info) {
-        return info != null && info.isPrimary() && info.isAdmin() && frpCredentialEnabled(context);
-    }
-
-    public static boolean frpCredentialEnabled(Context context) {
-        return FRP_CREDENTIAL_ENABLED && context.getResources().getBoolean(
-                com.android.internal.R.bool.config_enableCredentialFactoryResetProtection);
     }
 }

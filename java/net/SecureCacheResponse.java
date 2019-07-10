@@ -1,108 +1,93 @@
-/*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
 package java.net;
 
-import java.security.cert.Certificate;
-import javax.net.ssl.SSLPeerUnverifiedException;
 import java.security.Principal;
+import java.security.cert.Certificate;
 import java.util.List;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 /**
- * Represents a cache response originally retrieved through secure
- * means, such as TLS.
+ * A secure cache response represents data which is originally retrieved over a
+ * secure connection. Such a connection can be secured by using a cryptographic
+ * protocol like TLS or SSL.
  *
- * @since 1.5
+ * @see ResponseCache
  */
 public abstract class SecureCacheResponse extends CacheResponse {
+
     /**
-     * Returns the cipher suite in use on the original connection that
-     * retrieved the network resource.
+     * Creates a new instance of this class.
+     */
+    public SecureCacheResponse() {
+    }
+
+    /**
+     * Gets the cipher suite string on the connection which is originally used
+     * to retrieve the network resource.
      *
-     * @return a string representing the cipher suite
+     * @return the cipher suite string.
      */
     public abstract String getCipherSuite();
 
     /**
-     * Returns the certificate chain that were sent to the server during
-     * handshaking of the original connection that retrieved the
-     * network resource.  Note: This method is useful only
-     * when using certificate-based cipher suites.
+     * Gets the local certificate chain. When the original connection retrieved
+     * the resource data, this certificate chain was sent to the server during
+     * handshaking process. This method only takes effect when certificate-based
+     * cipher suite is enabled.
      *
-     * @return an immutable List of Certificate representing the
-     *           certificate chain that was sent to the server. If no
-     *           certificate chain was sent, null will be returned.
-     * @see #getLocalPrincipal()
+     * @return the certificate chain that was sent to the server. If no
+     *         certificate chain was sent, the method returns {@code null}.
      */
     public abstract List<Certificate> getLocalCertificateChain();
 
     /**
-     * Returns the server's certificate chain, which was established as
-     * part of defining the session in the original connection that
-     * retrieved the network resource, from cache.  Note: This method
-     * can be used only when using certificate-based cipher suites;
-     * using it with non-certificate-based cipher suites, such as
-     * Kerberos, will throw an SSLPeerUnverifiedException.
+     * Gets the cached server's certificate chain. As part of defining the
+     * session, the certificate chain was established when the original
+     * connection retrieved network resource. This method can only be invoked
+     * when certificated-based cipher suite is enabled. Otherwise, it throws an
+     * {@code SSLPeerUnverifiedException}.
      *
-     * @return an immutable List of Certificate representing the server's
-     *         certificate chain.
-     * @throws SSLPeerUnverifiedException if the peer is not verified.
-     * @see #getPeerPrincipal()
+     * @return the server's certificate chain.
+     * @throws SSLPeerUnverifiedException
+     *             if the peer is unverified.
      */
     public abstract List<Certificate> getServerCertificateChain()
-        throws SSLPeerUnverifiedException;
+            throws SSLPeerUnverifiedException;
 
     /**
-     * Returns the server's principal which was established as part of
-     * defining the session during the original connection that
-     * retrieved the network resource.
+     * Gets the server's principle. When the original connection retrieved
+     * network resource, the principle was established when defining the
+     * session.
      *
-     * @return the server's principal. Returns an X500Principal of the
-     * end-entity certiticate for X509-based cipher suites, and
-     * KerberosPrincipal for Kerberos cipher suites.
-     *
-     * @throws SSLPeerUnverifiedException if the peer was not verified.
-     *
-     * @see #getServerCertificateChain()
-     * @see #getLocalPrincipal()
+     * @return a principal object representing the server's principal.
+     * @throws SSLPeerUnverifiedException
+     *             if the peer is unverified.
      */
-     public abstract Principal getPeerPrincipal()
-             throws SSLPeerUnverifiedException;
+    public abstract Principal getPeerPrincipal()
+            throws SSLPeerUnverifiedException;
 
     /**
-      * Returns the principal that was sent to the server during
-      * handshaking in the original connection that retrieved the
-      * network resource.
-      *
-      * @return the principal sent to the server. Returns an X500Principal
-      * of the end-entity certificate for X509-based cipher suites, and
-      * KerberosPrincipal for Kerberos cipher suites. If no principal was
-      * sent, then null is returned.
-      *
-      * @see #getLocalCertificateChain()
-      * @see #getPeerPrincipal()
-      */
-     public abstract Principal getLocalPrincipal();
+     * Gets the local principle that the original connection sent to the server.
+     * When the original connection fetched the network resource, the principle
+     * was sent to the server during handshaking process.
+     *
+     * @return the local principal object being sent to the server. Returns an
+     *         {@code X500Principal} object for X509-based cipher suites. If no
+     *         principal was sent, it returns {@code null}.
+     */
+    public abstract Principal getLocalPrincipal();
 }

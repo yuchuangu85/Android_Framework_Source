@@ -16,9 +16,7 @@
 
 package android.app;
 
-import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
-import android.os.Build;
 import android.os.Bundle;
 
 /**
@@ -30,34 +28,14 @@ import android.os.Bundle;
 @SystemApi
 public class BroadcastOptions {
     private long mTemporaryAppWhitelistDuration;
-    private int mMinManifestReceiverApiLevel = 0;
-    private int mMaxManifestReceiverApiLevel = Build.VERSION_CODES.CUR_DEVELOPMENT;
-    private boolean mDontSendToRestrictedApps = false;
 
     /**
      * How long to temporarily put an app on the power whitelist when executing this broadcast
      * to it.
+     * @hide
      */
-    static final String KEY_TEMPORARY_APP_WHITELIST_DURATION
+    public static final String KEY_TEMPORARY_APP_WHITELIST_DURATION
             = "android:broadcast.temporaryAppWhitelistDuration";
-
-    /**
-     * Corresponds to {@link #setMinManifestReceiverApiLevel}.
-     */
-    static final String KEY_MIN_MANIFEST_RECEIVER_API_LEVEL
-            = "android:broadcast.minManifestReceiverApiLevel";
-
-    /**
-     * Corresponds to {@link #setMaxManifestReceiverApiLevel}.
-     */
-    static final String KEY_MAX_MANIFEST_RECEIVER_API_LEVEL
-            = "android:broadcast.maxManifestReceiverApiLevel";
-
-    /**
-     * Corresponds to {@link #setMaxManifestReceiverApiLevel}.
-     */
-    static final String KEY_DONT_SEND_TO_RESTRICTED_APPS =
-            "android:broadcast.dontSendToRestrictedApps";
 
     public static BroadcastOptions makeBasic() {
         BroadcastOptions opts = new BroadcastOptions();
@@ -70,10 +48,6 @@ public class BroadcastOptions {
     /** @hide */
     public BroadcastOptions(Bundle opts) {
         mTemporaryAppWhitelistDuration = opts.getLong(KEY_TEMPORARY_APP_WHITELIST_DURATION);
-        mMinManifestReceiverApiLevel = opts.getInt(KEY_MIN_MANIFEST_RECEIVER_API_LEVEL, 0);
-        mMaxManifestReceiverApiLevel = opts.getInt(KEY_MAX_MANIFEST_RECEIVER_API_LEVEL,
-                Build.VERSION_CODES.CUR_DEVELOPMENT);
-        mDontSendToRestrictedApps = opts.getBoolean(KEY_DONT_SEND_TO_RESTRICTED_APPS, false);
     }
 
     /**
@@ -81,7 +55,6 @@ public class BroadcastOptions {
      * power whitelist when this broadcast is being delivered to it.
      * @param duration The duration in milliseconds; 0 means to not place on whitelist.
      */
-    @RequiresPermission(android.Manifest.permission.CHANGE_DEVICE_IDLE_TEMP_WHITELIST)
     public void setTemporaryAppWhitelistDuration(long duration) {
         mTemporaryAppWhitelistDuration = duration;
     }
@@ -95,63 +68,10 @@ public class BroadcastOptions {
     }
 
     /**
-     * Set the minimum target API level of receivers of the broadcast.  If an application
-     * is targeting an API level less than this, the broadcast will not be delivered to
-     * them.  This only applies to receivers declared in the app's AndroidManifest.xml.
-     * @hide
-     */
-    public void setMinManifestReceiverApiLevel(int apiLevel) {
-        mMinManifestReceiverApiLevel = apiLevel;
-    }
-
-    /**
-     * Return {@link #setMinManifestReceiverApiLevel}.
-     * @hide
-     */
-    public int getMinManifestReceiverApiLevel() {
-        return mMinManifestReceiverApiLevel;
-    }
-
-    /**
-     * Set the maximum target API level of receivers of the broadcast.  If an application
-     * is targeting an API level greater than this, the broadcast will not be delivered to
-     * them.  This only applies to receivers declared in the app's AndroidManifest.xml.
-     * @hide
-     */
-    public void setMaxManifestReceiverApiLevel(int apiLevel) {
-        mMaxManifestReceiverApiLevel = apiLevel;
-    }
-
-    /**
-     * Return {@link #setMaxManifestReceiverApiLevel}.
-     * @hide
-     */
-    public int getMaxManifestReceiverApiLevel() {
-        return mMaxManifestReceiverApiLevel;
-    }
-
-    /**
-     * Sets whether pending intent can be sent for an application with background restrictions
-     * @param dontSendToRestrictedApps if true, pending intent will not be sent for an application
-     * with background restrictions. Default value is {@code false}
-     */
-    public void setDontSendToRestrictedApps(boolean dontSendToRestrictedApps) {
-        mDontSendToRestrictedApps = dontSendToRestrictedApps;
-    }
-
-    /**
-     * @hide
-     * @return #setDontSendToRestrictedApps
-     */
-    public boolean isDontSendToRestrictedApps() {
-        return mDontSendToRestrictedApps;
-    }
-
-    /**
      * Returns the created options as a Bundle, which can be passed to
      * {@link android.content.Context#sendBroadcast(android.content.Intent)
      * Context.sendBroadcast(Intent)} and related methods.
-     * Note that the returned Bundle is still owned by the BroadcastOptions
+     * Note that the returned Bundle is still owned by the ActivityOptions
      * object; you must not modify it, but can supply it to the sendBroadcast
      * methods that take an options Bundle.
      */
@@ -159,15 +79,6 @@ public class BroadcastOptions {
         Bundle b = new Bundle();
         if (mTemporaryAppWhitelistDuration > 0) {
             b.putLong(KEY_TEMPORARY_APP_WHITELIST_DURATION, mTemporaryAppWhitelistDuration);
-        }
-        if (mMinManifestReceiverApiLevel != 0) {
-            b.putInt(KEY_MIN_MANIFEST_RECEIVER_API_LEVEL, mMinManifestReceiverApiLevel);
-        }
-        if (mMaxManifestReceiverApiLevel != Build.VERSION_CODES.CUR_DEVELOPMENT) {
-            b.putInt(KEY_MAX_MANIFEST_RECEIVER_API_LEVEL, mMaxManifestReceiverApiLevel);
-        }
-        if (mDontSendToRestrictedApps) {
-            b.putBoolean(KEY_DONT_SEND_TO_RESTRICTED_APPS, true);
         }
         return b.isEmpty() ? null : b;
     }

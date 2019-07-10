@@ -17,12 +17,9 @@
 package android.databinding.tool;
 
 import org.antlr.v4.runtime.ANTLRInputStream;
-import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
-import org.antlr.v4.runtime.RecognitionException;
-import org.antlr.v4.runtime.Recognizer;
-import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.misc.Nullable;
 import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -31,12 +28,9 @@ import android.databinding.parser.BindingExpressionLexer;
 import android.databinding.parser.BindingExpressionParser;
 import android.databinding.tool.expr.Expr;
 import android.databinding.tool.expr.ExprModel;
-import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
-
-import com.android.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,19 +44,11 @@ public class ExpressionParser {
         visitor = new ExpressionVisitor(mModel);
     }
 
-    public Expr parse(String input, @Nullable Location locationInFile, BindingTarget target) {
+    public Expr parse(String input, @Nullable Location locationInFile) {
         ANTLRInputStream inputStream = new ANTLRInputStream(input);
         BindingExpressionLexer lexer = new BindingExpressionLexer(inputStream);
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         final BindingExpressionParser parser = new BindingExpressionParser(tokenStream);
-        visitor.setBindingTarget(target);
-        parser.addErrorListener(new BaseErrorListener() {
-            @Override
-            public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line,
-                    int charPositionInLine, String msg, RecognitionException e) {
-                L.e(ErrorMessages.SYNTAX_ERROR, msg);
-            }
-        });
         BindingExpressionParser.BindingSyntaxContext root = parser.bindingSyntax();
         try {
             mModel.setCurrentLocationInFile(locationInFile);

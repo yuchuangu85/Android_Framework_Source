@@ -15,11 +15,11 @@
  */
 package android.hardware.camera2.utils;
 
+import android.os.Handler;
 import android.util.Log;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.Executor;
 
 import static com.android.internal.util.Preconditions.*;
 
@@ -29,9 +29,8 @@ import static com.android.internal.util.Preconditions.*;
  * (and new ones won't begin).
  *
  * <p>The initial state is to allow all tasks to be started and finished. A task may only be started
- * once, after which it must be finished before starting again. Likewise, a task may only be
- * finished once, after which it must be started before finishing again. It is okay to finish a
- * task before starting it due to different threads handling starting and finishing.</p>
+ * once, after which it must be finished before starting again. Likewise, finishing a task
+ * that hasn't been started is also not allowed.</p>
  *
  * <p>When draining begins, no more new tasks can be started. This guarantees that at some
  * point when all the tasks are finished there will be no more collective new tasks,
@@ -55,17 +54,12 @@ public class TaskDrainer<T> {
     private static final String TAG = "TaskDrainer";
     private final boolean DEBUG = false;
 
-    private final Executor mExecutor;
+    private final Handler mHandler;
     private final DrainListener mListener;
     private final String mName;
 
     /** Set of tasks which have been started but not yet finished with #taskFinished */
     private final Set<T> mTaskSet = new HashSet<T>();
-    /**
-     * Set of tasks which have been finished but not yet started with #taskStarted. This may happen
-     * if taskStarted and taskFinished are called from two different threads.
-     */
-    private final Set<T> mEarlyFinishedTaskSet = new HashSet<T>();
     private final Object mLock = new Object();
 
     private boolean mDraining = false;
@@ -73,27 +67,28 @@ public class TaskDrainer<T> {
 
     /**
      * Create a new task drainer; {@code onDrained} callbacks will be posted to the listener
-     * via the {@code executor}.
+     * via the {@code handler}.
      *
-     * @param executor a non-{@code null} executor to use for listener execution
+     * @param handler a non-{@code null} handler to use to post runnables to
      * @param listener a non-{@code null} listener where {@code onDrained} will be called
      */
-    public TaskDrainer(Executor executor, DrainListener listener) {
-        mExecutor = checkNotNull(executor, "executor must not be null");
+    public TaskDrainer(Handler handler, DrainListener listener) {
+        mHandler = checkNotNull(handler, "handler must not be null");
         mListener = checkNotNull(listener, "listener must not be null");
         mName = null;
     }
 
     /**
      * Create a new task drainer; {@code onDrained} callbacks will be posted to the listener
-     * via the {@code executor}.
+     * via the {@code handler}.
      *
-     * @param executor a non-{@code null} executor to use for listener execution
+     * @param handler a non-{@code null} handler to use to post runnables to
      * @param listener a non-{@code null} listener where {@code onDrained} will be called
      * @param name an optional name used for debug logging
      */
-    public TaskDrainer(Executor executor, DrainListener listener, String name) {
-        mExecutor = checkNotNull(executor, "executor must not be null");
+    public TaskDrainer(Handler handler, DrainListener listener, String name) {
+        // XX: Probably don't need a handler at all here
+        mHandler = checkNotNull(handler, "handler must not be null");
         mListener = checkNotNull(listener, "listener must not be null");
         mName = name;
     }
@@ -123,12 +118,8 @@ public class TaskDrainer<T> {
                 throw new IllegalStateException("Can't start more tasks after draining has begun");
             }
 
-            // Try to remove the task from the early finished set.
-            if (!mEarlyFinishedTaskSet.remove(task)) {
-                // The task is not finished early. Add it to the started set.
-                if (!mTaskSet.add(task)) {
-                    throw new IllegalStateException("Task " + task + " was already started");
-                }
+            if (!mTaskSet.add(task)) {
+                throw new IllegalStateException("Task " + task + " was already started");
             }
         }
     }
@@ -137,7 +128,8 @@ public class TaskDrainer<T> {
     /**
      * Mark an asynchronous task as having finished.
      *
-     * <p>A task cannot be finished more than once without first having started.</p>
+     * <p>A task cannot be finished if it hasn't started. Once finished, a task
+     * cannot be finished again (unless it's started again).</p>
      *
      * @param task a key to identify a task
      *
@@ -145,7 +137,7 @@ public class TaskDrainer<T> {
      * @see #beginDrain
      *
      * @throws IllegalStateException
-     *          If attempting to finish a task which is already finished (and not started),
+     *          If attempting to start a task which is already finished (and not re-started),
      */
     public void taskFinished(T task) {
         synchronized (mLock) {
@@ -153,12 +145,8 @@ public class TaskDrainer<T> {
                 Log.v(TAG + "[" + mName + "]", "taskFinished " + task);
             }
 
-            // Try to remove the task from started set.
             if (!mTaskSet.remove(task)) {
-                // Task is not started yet. Add it to the early finished set.
-                if (!mEarlyFinishedTaskSet.add(task)) {
-                    throw new IllegalStateException("Task " + task + " was already finished");
-                }
+                throw new IllegalStateException("Task " + task + " was already finished");
             }
 
             // If this is the last finished task and draining has already begun, fire #onDrained
@@ -199,12 +187,15 @@ public class TaskDrainer<T> {
     }
 
     private void postDrained() {
-        mExecutor.execute(() -> {
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
                 if (DEBUG) {
                     Log.v(TAG + "[" + mName + "]", "onDrained");
                 }
 
                 mListener.onDrained();
+            }
         });
     }
 }

@@ -53,7 +53,8 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Enumeration;
-import java.util.Objects;
+
+import libcore.util.Objects;
 
 /**
  * Manages all of the various asynchronous interactions with the {@link WifiP2pManager}
@@ -943,7 +944,7 @@ final class WifiDisplayController implements DumpUtils.Dump {
 
     private void advertiseDisplay(final WifiDisplay display,
             final Surface surface, final int width, final int height, final int flags) {
-        if (!Objects.equals(mAdvertisedDisplay, display)
+        if (!Objects.equal(mAdvertisedDisplay, display)
                 || mAdvertisedDisplaySurface != surface
                 || mAdvertisedDisplayWidth != width
                 || mAdvertisedDisplayHeight != height

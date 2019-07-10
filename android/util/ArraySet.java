@@ -64,12 +64,11 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * The first entry in the array is a pointer to the next array in the
      * list; the second entry is a pointer to the int[] hash code array for it.
      */
-    static Object[] sBaseCache;
-    static int sBaseCacheSize;
-    static Object[] sTwiceBaseCache;
-    static int sTwiceBaseCacheSize;
+    static Object[] mBaseCache;
+    static int mBaseCacheSize;
+    static Object[] mTwiceBaseCache;
+    static int mTwiceBaseCacheSize;
 
-    final boolean mIdentityHashCode;
     int[] mHashes;
     Object[] mArray;
     int mSize;
@@ -152,54 +151,32 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     }
 
     private void allocArrays(final int size) {
-        if (size == (BASE_SIZE * 2)) {
+        if (size == (BASE_SIZE*2)) {
             synchronized (ArraySet.class) {
-                if (sTwiceBaseCache != null) {
-                    final Object[] array = sTwiceBaseCache;
-                    try {
-                        mArray = array;
-                        sTwiceBaseCache = (Object[]) array[0];
-                        mHashes = (int[]) array[1];
-                        array[0] = array[1] = null;
-                        sTwiceBaseCacheSize--;
-                        if (DEBUG) {
-                            Log.d(TAG, "Retrieving 2x cache " + mHashes + " now have "
-                                    + sTwiceBaseCacheSize + " entries");
-                    }
+                if (mTwiceBaseCache != null) {
+                    final Object[] array = mTwiceBaseCache;
+                    mArray = array;
+                    mTwiceBaseCache = (Object[])array[0];
+                    mHashes = (int[])array[1];
+                    array[0] = array[1] = null;
+                    mTwiceBaseCacheSize--;
+                    if (DEBUG) Log.d(TAG, "Retrieving 2x cache " + mHashes
+                            + " now have " + mTwiceBaseCacheSize + " entries");
                     return;
-                    } catch (ClassCastException e) {
-                    }
-                    // Whoops!  Someone trampled the array (probably due to not protecting
-                    // their access with a lock).  Our cache is corrupt; report and give up.
-                    Slog.wtf(TAG, "Found corrupt ArraySet cache: [0]=" + array[0]
-                            + " [1]=" + array[1]);
-                    sTwiceBaseCache = null;
-                    sTwiceBaseCacheSize = 0;
                 }
             }
         } else if (size == BASE_SIZE) {
             synchronized (ArraySet.class) {
-                if (sBaseCache != null) {
-                    final Object[] array = sBaseCache;
-                    try {
-                        mArray = array;
-                        sBaseCache = (Object[]) array[0];
-                        mHashes = (int[]) array[1];
-                        array[0] = array[1] = null;
-                        sBaseCacheSize--;
-                        if (DEBUG) {
-                            Log.d(TAG, "Retrieving 1x cache " + mHashes + " now have " + sBaseCacheSize
-                                    + " entries");
-                        }
-                        return;
-                    } catch (ClassCastException e) {
-                    }
-                    // Whoops!  Someone trampled the array (probably due to not protecting
-                    // their access with a lock).  Our cache is corrupt; report and give up.
-                    Slog.wtf(TAG, "Found corrupt ArraySet cache: [0]=" + array[0]
-                            + " [1]=" + array[1]);
-                    sBaseCache = null;
-                    sBaseCacheSize = 0;
+                if (mBaseCache != null) {
+                    final Object[] array = mBaseCache;
+                    mArray = array;
+                    mBaseCache = (Object[])array[0];
+                    mHashes = (int[])array[1];
+                    array[0] = array[1] = null;
+                    mBaseCacheSize--;
+                    if (DEBUG) Log.d(TAG, "Retrieving 1x cache " + mHashes
+                            + " now have " + mBaseCacheSize + " entries");
+                    return;
                 }
             }
         }
@@ -209,36 +186,32 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     }
 
     private static void freeArrays(final int[] hashes, final Object[] array, final int size) {
-        if (hashes.length == (BASE_SIZE * 2)) {
+        if (hashes.length == (BASE_SIZE*2)) {
             synchronized (ArraySet.class) {
-                if (sTwiceBaseCacheSize < CACHE_SIZE) {
-                    array[0] = sTwiceBaseCache;
+                if (mTwiceBaseCacheSize < CACHE_SIZE) {
+                    array[0] = mTwiceBaseCache;
                     array[1] = hashes;
-                    for (int i = size - 1; i >= 2; i--) {
+                    for (int i=size-1; i>=2; i--) {
                         array[i] = null;
                     }
-                    sTwiceBaseCache = array;
-                    sTwiceBaseCacheSize++;
-                    if (DEBUG) {
-                        Log.d(TAG, "Storing 2x cache " + array + " now have " + sTwiceBaseCacheSize
-                                + " entries");
-                    }
+                    mTwiceBaseCache = array;
+                    mTwiceBaseCacheSize++;
+                    if (DEBUG) Log.d(TAG, "Storing 2x cache " + array
+                            + " now have " + mTwiceBaseCacheSize + " entries");
                 }
             }
         } else if (hashes.length == BASE_SIZE) {
             synchronized (ArraySet.class) {
-                if (sBaseCacheSize < CACHE_SIZE) {
-                    array[0] = sBaseCache;
+                if (mBaseCacheSize < CACHE_SIZE) {
+                    array[0] = mBaseCache;
                     array[1] = hashes;
-                    for (int i = size - 1; i >= 2; i--) {
+                    for (int i=size-1; i>=2; i--) {
                         array[i] = null;
                     }
-                    sBaseCache = array;
-                    sBaseCacheSize++;
-                    if (DEBUG) {
-                        Log.d(TAG, "Storing 1x cache " + array + " now have "
-                                + sBaseCacheSize + " entries");
-                    }
+                    mBaseCache = array;
+                    mBaseCacheSize++;
+                    if (DEBUG) Log.d(TAG, "Storing 1x cache " + array
+                            + " now have " + mBaseCacheSize + " entries");
                 }
             }
         }
@@ -249,19 +222,15 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * will grow once items are added to it.
      */
     public ArraySet() {
-        this(0, false);
+        mHashes = EmptyArray.INT;
+        mArray = EmptyArray.OBJECT;
+        mSize = 0;
     }
 
     /**
      * Create a new ArraySet with a given initial capacity.
      */
     public ArraySet(int capacity) {
-        this(capacity, false);
-    }
-
-    /** {@hide} */
-    public ArraySet(int capacity, boolean identityHashCode) {
-        mIdentityHashCode = identityHashCode;
         if (capacity == 0) {
             mHashes = EmptyArray.INT;
             mArray = EmptyArray.OBJECT;
@@ -337,8 +306,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * @return Returns the index of the value if it exists, else a negative integer.
      */
     public int indexOf(Object key) {
-        return key == null ? indexOfNull()
-                : indexOf(key, mIdentityHashCode ? System.identityHashCode(key) : key.hashCode());
+        return key == null ? indexOfNull() : indexOf(key, key.hashCode());
     }
 
     /**
@@ -347,7 +315,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * @return Returns the value stored at the given index.
      */
     public E valueAt(int index) {
-        return (E) mArray[index];
+        return (E)mArray[index];
     }
 
     /**
@@ -375,7 +343,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             hash = 0;
             index = indexOfNull();
         } else {
-            hash = mIdentityHashCode ? System.identityHashCode(value) : value.hashCode();
+            hash = value.hashCode();
             index = indexOf(value, hash);
         }
         if (index >= 0) {
@@ -384,8 +352,8 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
 
         index = ~index;
         if (mSize >= mHashes.length) {
-            final int n = mSize >= (BASE_SIZE * 2) ? (mSize + (mSize >> 1))
-                    : (mSize >= BASE_SIZE ? (BASE_SIZE * 2) : BASE_SIZE);
+            final int n = mSize >= (BASE_SIZE*2) ? (mSize+(mSize>>1))
+                    : (mSize >= BASE_SIZE ? (BASE_SIZE*2) : BASE_SIZE);
 
             if (DEBUG) Log.d(TAG, "add: grow from " + mHashes.length + " to " + n);
 
@@ -403,9 +371,8 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         }
 
         if (index < mSize) {
-            if (DEBUG) {
-                Log.d(TAG, "add: move " + index + "-" + (mSize - index) + " to " + (index + 1));
-            }
+            if (DEBUG) Log.d(TAG, "add: move " + index + "-" + (mSize-index)
+                    + " to " + (index+1));
             System.arraycopy(mHashes, index, mHashes, index + 1, mSize - index);
             System.arraycopy(mArray, index, mArray, index + 1, mSize - index);
         }
@@ -414,35 +381,6 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         mArray[index] = value;
         mSize++;
         return true;
-    }
-
-    /**
-     * Special fast path for appending items to the end of the array without validation.
-     * The array must already be large enough to contain the item.
-     * @hide
-     */
-    public void append(E value) {
-        final int index = mSize;
-        final int hash = value == null ? 0
-                : (mIdentityHashCode ? System.identityHashCode(value) : value.hashCode());
-        if (index >= mHashes.length) {
-            throw new IllegalStateException("Array is full");
-        }
-        if (index > 0 && mHashes[index - 1] > hash) {
-            // Cannot optimize since it would break the sorted order - fallback to add()
-            if (DEBUG) {
-                RuntimeException e = new RuntimeException("here");
-                e.fillInStackTrace();
-                Log.w(TAG, "New hash " + hash
-                        + " is before end of array hash " + mHashes[index - 1]
-                        + " at index " + index, e);
-            }
-            add(value);
-            return;
-        }
-        mSize = index + 1;
-        mHashes[index] = hash;
-        mArray[index] = value;
     }
 
     /**
@@ -459,7 +397,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
                 mSize = N;
             }
         } else {
-            for (int i = 0; i < N; i++) {
+            for (int i=0; i<N; i++) {
                 add(array.valueAt(i));
             }
         }
@@ -496,11 +434,11 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             mArray = EmptyArray.OBJECT;
             mSize = 0;
         } else {
-            if (mHashes.length > (BASE_SIZE * 2) && mSize < mHashes.length / 3) {
+            if (mHashes.length > (BASE_SIZE*2) && mSize < mHashes.length/3) {
                 // Shrunk enough to reduce size of arrays.  We don't allow it to
                 // shrink smaller than (BASE_SIZE*2) to avoid flapping between
                 // that and BASE_SIZE.
-                final int n = mSize > (BASE_SIZE * 2) ? (mSize + (mSize >> 1)) : (BASE_SIZE * 2);
+                final int n = mSize > (BASE_SIZE*2) ? (mSize + (mSize>>1)) : (BASE_SIZE*2);
 
                 if (DEBUG) Log.d(TAG, "remove: shrink from " + mHashes.length + " to " + n);
 
@@ -515,26 +453,23 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
                     System.arraycopy(oarray, 0, mArray, 0, index);
                 }
                 if (index < mSize) {
-                    if (DEBUG) {
-                        Log.d(TAG, "remove: copy from " + (index + 1) + "-" + mSize
-                                + " to " + index);
-                    }
+                    if (DEBUG) Log.d(TAG, "remove: copy from " + (index+1) + "-" + mSize
+                            + " to " + index);
                     System.arraycopy(ohashes, index + 1, mHashes, index, mSize - index);
                     System.arraycopy(oarray, index + 1, mArray, index, mSize - index);
                 }
             } else {
                 mSize--;
                 if (index < mSize) {
-                    if (DEBUG) {
-                        Log.d(TAG, "remove: move " + (index + 1) + "-" + mSize + " to " + index);
-                    }
+                    if (DEBUG) Log.d(TAG, "remove: move " + (index+1) + "-" + mSize
+                            + " to " + index);
                     System.arraycopy(mHashes, index + 1, mHashes, index, mSize - index);
                     System.arraycopy(mArray, index + 1, mArray, index, mSize - index);
                 }
                 mArray[mSize] = null;
             }
         }
-        return (E) old;
+        return (E)old;
     }
 
     /**
@@ -575,8 +510,8 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     @Override
     public <T> T[] toArray(T[] array) {
         if (array.length < mSize) {
-            @SuppressWarnings("unchecked") T[] newArray =
-                    (T[]) Array.newInstance(array.getClass().getComponentType(), mSize);
+            @SuppressWarnings("unchecked") T[] newArray
+                = (T[]) Array.newInstance(array.getClass().getComponentType(), mSize);
             array = newArray;
         }
         System.arraycopy(mArray, 0, array, 0, mSize);
@@ -607,7 +542,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             }
 
             try {
-                for (int i = 0; i < mSize; i++) {
+                for (int i=0; i<mSize; i++) {
                     E mine = valueAt(i);
                     if (!set.contains(mine)) {
                         return false;
@@ -651,7 +586,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
 
         StringBuilder buffer = new StringBuilder(mSize * 14);
         buffer.append('{');
-        for (int i = 0; i < mSize; i++) {
+        for (int i=0; i<mSize; i++) {
             if (i > 0) {
                 buffer.append(", ");
             }
@@ -789,7 +724,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     @Override
     public boolean retainAll(Collection<?> collection) {
         boolean removed = false;
-        for (int i = mSize - 1; i >= 0; i--) {
+        for (int i=mSize-1; i>=0; i--) {
             if (!collection.contains(mArray[i])) {
                 removeAt(i);
                 removed = true;

@@ -1,88 +1,80 @@
-/*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio;
 
-
 /**
- * A typesafe enumeration for byte orders.
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * Defines byte order constants.
  */
-
 public final class ByteOrder {
+    private static final ByteOrder NATIVE_ORDER;
 
-    private String name;
+    /**
+     * This constant represents big endian.
+     */
+    public static final ByteOrder BIG_ENDIAN;
 
-    private ByteOrder(String name) {
+    /**
+     * This constant represents little endian.
+     */
+    public static final ByteOrder LITTLE_ENDIAN;
+
+    private static native boolean isLittleEndian();
+
+    static {
+        boolean isLittleEndian = isLittleEndian();
+        BIG_ENDIAN = new ByteOrder("BIG_ENDIAN", isLittleEndian);
+        LITTLE_ENDIAN = new ByteOrder("LITTLE_ENDIAN", !isLittleEndian);
+        NATIVE_ORDER = isLittleEndian ? LITTLE_ENDIAN : BIG_ENDIAN;
+    }
+
+    private final String name;
+
+    /**
+     * This is the only thing that ByteOrder is really used for: to know whether we need to swap
+     * bytes to get this order, given bytes in native order. (That is, this is the opposite of
+     * the hypothetical "isNativeOrder".)
+     * @hide - needed in libcore.io too.
+     */
+    public final boolean needsSwap;
+
+    private ByteOrder(String name, boolean needsSwap) {
         this.name = name;
+        this.needsSwap = needsSwap;
     }
 
     /**
-     * Constant denoting big-endian byte order.  In this order, the bytes of a
-     * multibyte value are ordered from most significant to least significant.
-     */
-    public static final ByteOrder BIG_ENDIAN
-        = new ByteOrder("BIG_ENDIAN");
-
-    /**
-     * Constant denoting little-endian byte order.  In this order, the bytes of
-     * a multibyte value are ordered from least significant to most
-     * significant.
-     */
-    public static final ByteOrder LITTLE_ENDIAN
-        = new ByteOrder("LITTLE_ENDIAN");
-
-    /**
-     * Retrieves the native byte order of the underlying platform.
+     * Returns the current platform byte order.
      *
-     * <p> This method is defined so that performance-sensitive Java code can
-     * allocate direct buffers with the same byte order as the hardware.
-     * Native code libraries are often more efficient when such buffers are
-     * used.  </p>
-     *
-     * @return  The native byte order of the hardware upon which this Java
-     *          virtual machine is running
+     * @return the byte order object, which is either LITTLE_ENDIAN or
+     *         BIG_ENDIAN.
      */
     public static ByteOrder nativeOrder() {
-        return Bits.byteOrder();
+        return NATIVE_ORDER;
     }
 
     /**
-     * Constructs a string describing this object.
+     * Returns a string that describes this object.
      *
-     * <p> This method returns the string <tt>"BIG_ENDIAN"</tt> for {@link
-     * #BIG_ENDIAN} and <tt>"LITTLE_ENDIAN"</tt> for {@link #LITTLE_ENDIAN}.
-     * </p>
-     *
-     * @return  The specified string
+     * @return "BIG_ENDIAN" for {@link #BIG_ENDIAN ByteOrder.BIG_ENDIAN}
+     *         objects, "LITTLE_ENDIAN" for
+     *         {@link #LITTLE_ENDIAN ByteOrder.LITTLE_ENDIAN} objects.
      */
+    @Override
     public String toString() {
         return name;
     }
-
 }

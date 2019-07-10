@@ -16,8 +16,14 @@
 
 package android.inputmethodservice;
 
-import android.annotation.BinderThread;
-import android.annotation.MainThread;
+import com.android.internal.os.HandlerCaller;
+import com.android.internal.os.SomeArgs;
+import com.android.internal.view.IInputContext;
+import com.android.internal.view.IInputMethod;
+import com.android.internal.view.IInputMethodSession;
+import com.android.internal.view.IInputSessionCallback;
+import com.android.internal.view.InputConnectionWrapper;
+
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
@@ -30,25 +36,15 @@ import android.view.InputChannel;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputBinding;
 import android.view.inputmethod.InputConnection;
-import android.view.inputmethod.InputConnectionInspector;
 import android.view.inputmethod.InputMethod;
 import android.view.inputmethod.InputMethodSession;
 import android.view.inputmethod.InputMethodSubtype;
-
-import com.android.internal.os.HandlerCaller;
-import com.android.internal.os.SomeArgs;
-import com.android.internal.view.IInputContext;
-import com.android.internal.view.IInputMethod;
-import com.android.internal.view.IInputMethodSession;
-import com.android.internal.view.IInputSessionCallback;
-import com.android.internal.view.InputConnectionWrapper;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implements the internal IInputMethod interface to convert incoming calls
@@ -64,33 +60,24 @@ class IInputMethodWrapper extends IInputMethod.Stub
     private static final int DO_SET_INPUT_CONTEXT = 20;
     private static final int DO_UNSET_INPUT_CONTEXT = 30;
     private static final int DO_START_INPUT = 32;
+    private static final int DO_RESTART_INPUT = 34;
     private static final int DO_CREATE_SESSION = 40;
     private static final int DO_SET_SESSION_ENABLED = 45;
     private static final int DO_REVOKE_SESSION = 50;
     private static final int DO_SHOW_SOFT_INPUT = 60;
     private static final int DO_HIDE_SOFT_INPUT = 70;
     private static final int DO_CHANGE_INPUTMETHOD_SUBTYPE = 80;
-
+   
     final WeakReference<AbstractInputMethodService> mTarget;
     final Context mContext;
     final HandlerCaller mCaller;
     final WeakReference<InputMethod> mInputMethod;
     final int mTargetSdkVersion;
-
-    /**
-     * This is not {@null} only between {@link #bindInput(InputBinding)} and {@link #unbindInput()}
-     * so that {@link InputConnectionWrapper} can query if {@link #unbindInput()} has already been
-     * called or not, mainly to avoid unnecessary blocking operations.
-     *
-     * <p>This field must be set and cleared only from the binder thread(s), where the system
-     * guarantees that {@link #bindInput(InputBinding)},
-     * {@link #startInput(IBinder, IInputContext, int, EditorInfo, boolean)}, and
-     * {@link #unbindInput()} are called with the same order as the original calls
-     * in {@link com.android.server.InputMethodManagerService}.  See {@link IBinder#FLAG_ONEWAY}
-     * for detailed semantics.</p>
-     */
-    AtomicBoolean mIsUnbindIssued = null;
-
+    
+    static class Notifier {
+        boolean notified;
+    }
+    
     // NOTE: we should have a cache of these.
     static final class InputMethodSessionCallbackWrapper implements InputMethod.SessionCallback {
         final Context mContext;
@@ -121,16 +108,20 @@ class IInputMethodWrapper extends IInputMethod.Stub
             }
         }
     }
-
-    public IInputMethodWrapper(AbstractInputMethodService context, InputMethod inputMethod) {
-        mTarget = new WeakReference<>(context);
+    
+    public IInputMethodWrapper(AbstractInputMethodService context,
+            InputMethod inputMethod) {
+        mTarget = new WeakReference<AbstractInputMethodService>(context);
         mContext = context.getApplicationContext();
         mCaller = new HandlerCaller(mContext, null, this, true /*asyncHandler*/);
-        mInputMethod = new WeakReference<>(inputMethod);
+        mInputMethod = new WeakReference<InputMethod>(inputMethod);
         mTargetSdkVersion = context.getApplicationInfo().targetSdkVersion;
     }
 
-    @MainThread
+    public InputMethod getInternalInputMethod() {
+        return mInputMethod.get();
+    }
+
     @Override
     public void executeMessage(Message msg) {
         InputMethod inputMethod = mInputMethod.get();
@@ -172,19 +163,24 @@ class IInputMethodWrapper extends IInputMethod.Stub
                 inputMethod.unbindInput();
                 return;
             case DO_START_INPUT: {
-                final SomeArgs args = (SomeArgs) msg.obj;
-                final int missingMethods = msg.arg1;
-                final boolean restarting = msg.arg2 != 0;
-                final IBinder startInputToken = (IBinder) args.arg1;
-                final IInputContext inputContext = (IInputContext) args.arg2;
-                final EditorInfo info = (EditorInfo) args.arg3;
-                final AtomicBoolean isUnbindIssued = (AtomicBoolean) args.arg4;
-                final InputConnection ic = inputContext != null
-                        ? new InputConnectionWrapper(
-                                mTarget, inputContext, missingMethods, isUnbindIssued) : null;
+                SomeArgs args = (SomeArgs)msg.obj;
+                IInputContext inputContext = (IInputContext)args.arg1;
+                InputConnection ic = inputContext != null
+                        ? new InputConnectionWrapper(inputContext) : null;
+                EditorInfo info = (EditorInfo)args.arg2;
                 info.makeCompatible(mTargetSdkVersion);
-                inputMethod.dispatchStartInputWithToken(ic, info, restarting /* restarting */,
-                        startInputToken);
+                inputMethod.startInput(ic, info);
+                args.recycle();
+                return;
+            }
+            case DO_RESTART_INPUT: {
+                SomeArgs args = (SomeArgs)msg.obj;
+                IInputContext inputContext = (IInputContext)args.arg1;
+                InputConnection ic = inputContext != null
+                        ? new InputConnectionWrapper(inputContext) : null;
+                EditorInfo info = (EditorInfo)args.arg2;
+                info.makeCompatible(mTargetSdkVersion);
+                inputMethod.restartInput(ic, info);
                 args.recycle();
                 return;
             }
@@ -216,7 +212,6 @@ class IInputMethodWrapper extends IInputMethod.Stub
         Log.w(TAG, "Unhandled message code: " + msg.what);
     }
 
-    @BinderThread
     @Override
     protected void dump(FileDescriptor fd, PrintWriter fout, String[] args) {
         AbstractInputMethodService target = mTarget.get();
@@ -244,63 +239,42 @@ class IInputMethodWrapper extends IInputMethod.Stub
         }
     }
 
-    @BinderThread
     @Override
     public void attachToken(IBinder token) {
         mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_ATTACH_TOKEN, token));
     }
 
-    @BinderThread
     @Override
     public void bindInput(InputBinding binding) {
-        if (mIsUnbindIssued != null) {
-            Log.e(TAG, "bindInput must be paired with unbindInput.");
-        }
-        mIsUnbindIssued = new AtomicBoolean();
-        // This IInputContext is guaranteed to implement all the methods.
-        final int missingMethodFlags = 0;
-        InputConnection ic = new InputConnectionWrapper(mTarget,
-                IInputContext.Stub.asInterface(binding.getConnectionToken()), missingMethodFlags,
-                mIsUnbindIssued);
+        InputConnection ic = new InputConnectionWrapper(
+                IInputContext.Stub.asInterface(binding.getConnectionToken()));
         InputBinding nu = new InputBinding(ic, binding);
         mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_SET_INPUT_CONTEXT, nu));
     }
 
-    @BinderThread
     @Override
     public void unbindInput() {
-        if (mIsUnbindIssued != null) {
-            // Signal the flag then forget it.
-            mIsUnbindIssued.set(true);
-            mIsUnbindIssued = null;
-        } else {
-            Log.e(TAG, "unbindInput must be paired with bindInput.");
-        }
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_UNSET_INPUT_CONTEXT));
     }
 
-    @BinderThread
     @Override
-    public void startInput(IBinder startInputToken, IInputContext inputContext,
-            @InputConnectionInspector.MissingMethodFlags final int missingMethods,
-            EditorInfo attribute, boolean restarting) {
-        if (mIsUnbindIssued == null) {
-            Log.e(TAG, "startInput must be called after bindInput.");
-            mIsUnbindIssued = new AtomicBoolean();
-        }
-        mCaller.executeOrSendMessage(mCaller.obtainMessageIIOOOO(DO_START_INPUT,
-                missingMethods, restarting ? 1 : 0, startInputToken, inputContext, attribute,
-                mIsUnbindIssued));
+    public void startInput(IInputContext inputContext, EditorInfo attribute) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageOO(DO_START_INPUT,
+                inputContext, attribute));
     }
 
-    @BinderThread
+    @Override
+    public void restartInput(IInputContext inputContext, EditorInfo attribute) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageOO(DO_RESTART_INPUT,
+                inputContext, attribute));
+    }
+
     @Override
     public void createSession(InputChannel channel, IInputSessionCallback callback) {
         mCaller.executeOrSendMessage(mCaller.obtainMessageOO(DO_CREATE_SESSION,
                 channel, callback));
     }
 
-    @BinderThread
     @Override
     public void setSessionEnabled(IInputMethodSession session, boolean enabled) {
         try {
@@ -317,7 +291,6 @@ class IInputMethodWrapper extends IInputMethod.Stub
         }
     }
 
-    @BinderThread
     @Override
     public void revokeSession(IInputMethodSession session) {
         try {
@@ -333,21 +306,18 @@ class IInputMethodWrapper extends IInputMethod.Stub
         }
     }
 
-    @BinderThread
     @Override
     public void showSoftInput(int flags, ResultReceiver resultReceiver) {
         mCaller.executeOrSendMessage(mCaller.obtainMessageIO(DO_SHOW_SOFT_INPUT,
                 flags, resultReceiver));
     }
 
-    @BinderThread
     @Override
     public void hideSoftInput(int flags, ResultReceiver resultReceiver) {
         mCaller.executeOrSendMessage(mCaller.obtainMessageIO(DO_HIDE_SOFT_INPUT,
                 flags, resultReceiver));
     }
 
-    @BinderThread
     @Override
     public void changeInputMethodSubtype(InputMethodSubtype subtype) {
         mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_CHANGE_INPUTMETHOD_SUBTYPE,

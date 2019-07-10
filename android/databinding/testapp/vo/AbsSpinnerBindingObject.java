@@ -16,10 +16,6 @@
 package android.databinding.testapp.vo;
 
 import android.databinding.Bindable;
-import android.databinding.ObservableArrayList;
-import android.databinding.ObservableList;
-
-import java.util.List;
 
 public class AbsSpinnerBindingObject extends BindingAdapterBindingObject {
     @Bindable
@@ -34,13 +30,6 @@ public class AbsSpinnerBindingObject extends BindingAdapterBindingObject {
             "world"
     };
 
-    private ObservableList<String> mList = new ObservableArrayList<String>();
-
-    public AbsSpinnerBindingObject() {
-        mList.add("Hello");
-        mList.add("World");
-    }
-
     public CharSequence[] getEntries() {
         return mEntries;
     }
@@ -48,9 +37,5 @@ public class AbsSpinnerBindingObject extends BindingAdapterBindingObject {
     public void changeValues() {
         mEntries = CHANGED_VALUES;
         notifyChange();
-    }
-
-    public List<String> getList() {
-        return mList;
     }
 }

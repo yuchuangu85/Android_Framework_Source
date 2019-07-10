@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -210,25 +181,18 @@
  * collections are unshared, or are accessible only when
  * holding other locks.
  *
- * <p id="Weakly">Most concurrent Collection implementations
- * (including most Queues) also differ from the usual {@code java.util}
- * conventions in that their {@linkplain java.util.Iterator Iterators}
- * and {@linkplain java.util.Spliterator Spliterators} provide
- * <em>weakly consistent</em> rather than fast-fail traversal:
- * <ul>
- * <li>they may proceed concurrently with other operations
- * <li>they will never throw {@link java.util.ConcurrentModificationException
- * ConcurrentModificationException}
- * <li>they are guaranteed to traverse elements as they existed upon
- * construction exactly once, and may (but are not guaranteed to)
- * reflect any modifications subsequent to construction.
- * </ul>
+ * <p>Most concurrent Collection implementations (including most
+ * Queues) also differ from the usual java.util conventions in that
+ * their Iterators provide <em>weakly consistent</em> rather than
+ * fast-fail traversal.  A weakly consistent iterator is thread-safe,
+ * but does not necessarily freeze the collection while iterating, so
+ * it may (or may not) reflect any updates since the iterator was
+ * created.
  *
  * <h2 id="MemoryVisibility">Memory Consistency Properties</h2>
  *
- * <a href="https://docs.oracle.com/javase/specs/jls/se8/html/jls-17.html#jls-17.4.5">
- * Chapter 17 of
- * <cite>The Java&trade; Language Specification</cite></a> defines the
+ * <a href="http://docs.oracle.com/javase/specs/jls/se7/html/jls-17.html#jls-17.4.5">
+ * Chapter 17 of the Java Language Specification</a> defines the
  * <i>happens-before</i> relation on memory operations such as reads and
  * writes of shared variables.  The results of a write by one thread are
  * guaranteed to be visible to a read by another thread only if the write

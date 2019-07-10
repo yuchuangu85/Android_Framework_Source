@@ -16,8 +16,9 @@
 
 package benchmarks;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -36,7 +37,7 @@ import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 import org.xmlpull.v1.XmlPullParser;
 
-public class XmlParseBenchmark {
+public class XmlParseBenchmark extends SimpleBenchmark {
 
     @Param String xmlFile;
     ByteArrayInputStream inputStream;
@@ -53,8 +54,7 @@ public class XmlParseBenchmark {
     private Constructor<? extends XmlPullParser> expatConstructor;
 
     @SuppressWarnings("unchecked")
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         byte[] xmlBytes = getXmlBytes();
         inputStream = new ByteArrayInputStream(xmlBytes);
         inputStream.mark(xmlBytes.length);
@@ -145,5 +145,9 @@ public class XmlParseBenchmark {
             }
         }
         return elementCount;
+    }
+
+    public static void main(String[] args) {
+        Runner.main(XmlParseBenchmark.class, args);
     }
 }

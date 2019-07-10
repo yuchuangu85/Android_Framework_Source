@@ -144,12 +144,7 @@ import android.widget.TextView;
  *
  * @see #setListAdapter
  * @see android.widget.ListView
- *
- * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
- *      {@link android.support.v4.app.ListFragment} for consistent behavior across all devices
- *      and access to <a href="{@docRoot}topic/libraries/architecture/lifecycle.html">Lifecycle</a>.
  */
-@Deprecated
 public class ListFragment extends Fragment {
     final private Handler mHandler = new Handler();
 
@@ -279,7 +274,7 @@ public class ListFragment extends Fragment {
     }
 
     /**
-     * Get the fragment's list view widget.
+     * Get the activity's list view widget.
      */
     public ListView getListView() {
         ensureList();
@@ -351,9 +346,9 @@ public class ListFragment extends Fragment {
         if (shown) {
             if (animate) {
                 mProgressContainer.startAnimation(AnimationUtils.loadAnimation(
-                        getContext(), android.R.anim.fade_out));
+                        getActivity(), android.R.anim.fade_out));
                 mListContainer.startAnimation(AnimationUtils.loadAnimation(
-                        getContext(), android.R.anim.fade_in));
+                        getActivity(), android.R.anim.fade_in));
             } else {
                 mProgressContainer.clearAnimation();
                 mListContainer.clearAnimation();
@@ -363,9 +358,9 @@ public class ListFragment extends Fragment {
         } else {
             if (animate) {
                 mProgressContainer.startAnimation(AnimationUtils.loadAnimation(
-                        getContext(), android.R.anim.fade_in));
+                        getActivity(), android.R.anim.fade_in));
                 mListContainer.startAnimation(AnimationUtils.loadAnimation(
-                        getContext(), android.R.anim.fade_out));
+                        getActivity(), android.R.anim.fade_out));
             } else {
                 mProgressContainer.clearAnimation();
                 mListContainer.clearAnimation();
@@ -376,7 +371,7 @@ public class ListFragment extends Fragment {
     }
     
     /**
-     * Get the ListAdapter associated with this fragment's ListView.
+     * Get the ListAdapter associated with this activity's ListView.
      */
     public ListAdapter getListAdapter() {
         return mAdapter;

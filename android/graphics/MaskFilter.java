@@ -25,7 +25,6 @@ public class MaskFilter {
 
     protected void finalize() throws Throwable {
         nativeDestructor(native_instance);
-        native_instance = 0;  // Other finalizers can still call us.
     }
 
     private static native void nativeDestructor(long native_filter);

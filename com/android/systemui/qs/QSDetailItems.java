@@ -28,13 +28,13 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+
 import com.android.systemui.FontSizeUtils;
 import com.android.systemui.R;
-import com.android.systemui.plugins.qs.QSTile;
 
 /**
  * Quick settings common detail view with line items.
@@ -43,27 +43,23 @@ public class QSDetailItems extends FrameLayout {
     private static final String TAG = "QSDetailItems";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
-    private final int mQsDetailIconOverlaySize;
     private final Context mContext;
     private final H mHandler = new H();
-    private final Adapter mAdapter = new Adapter();
 
     private String mTag;
     private Callback mCallback;
     private boolean mItemsVisible = true;
-    private AutoSizingList mItemList;
+    private LinearLayout mItems;
     private View mEmpty;
+    private View mMinHeightSpacer;
     private TextView mEmptyText;
     private ImageView mEmptyIcon;
-
-    private Item[] mItems;
+    private int mMaxItems;
 
     public QSDetailItems(Context context, AttributeSet attrs) {
         super(context, attrs);
         mContext = context;
         mTag = TAG;
-        mQsDetailIconOverlaySize = (int) getResources().getDimension(
-                R.dimen.qs_detail_icon_overlay_size);
     }
 
     public static QSDetailItems convertOrInflate(Context context, View convert, ViewGroup parent) {
@@ -77,22 +73,27 @@ public class QSDetailItems extends FrameLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mItemList = findViewById(android.R.id.list);
-        mItemList.setVisibility(GONE);
-        mItemList.setAdapter(mAdapter);
+        mItems = (LinearLayout) findViewById(android.R.id.list);
+        mItems.setVisibility(GONE);
         mEmpty = findViewById(android.R.id.empty);
         mEmpty.setVisibility(GONE);
-        mEmptyText = mEmpty.findViewById(android.R.id.title);
-        mEmptyIcon = mEmpty.findViewById(android.R.id.icon);
+        mEmptyText = (TextView) mEmpty.findViewById(android.R.id.title);
+        mEmptyIcon = (ImageView) mEmpty.findViewById(android.R.id.icon);
+        mMinHeightSpacer = findViewById(R.id.min_height_spacer);
+
+        // By default, a detail item view has fixed size.
+        mMaxItems = getResources().getInteger(
+                R.integer.quick_settings_detail_max_item_count);
+        setMinHeightInItems(mMaxItems);
     }
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         FontSizeUtils.updateFontSize(mEmptyText, R.dimen.qs_detail_empty_text_size);
-        int count = mItemList.getChildCount();
+        int count = mItems.getChildCount();
         for (int i = 0; i < count; i++) {
-            View item = mItemList.getChildAt(i);
+            View item = mItems.getChildAt(i);
             FontSizeUtils.updateFontSize(item, android.R.id.title,
                     R.dimen.qs_detail_item_primary_text_size);
             FontSizeUtils.updateFontSize(item, android.R.id.summary,
@@ -105,10 +106,18 @@ public class QSDetailItems extends FrameLayout {
     }
 
     public void setEmptyState(int icon, int text) {
-        mEmptyIcon.post(() -> {
-            mEmptyIcon.setImageResource(icon);
-            mEmptyText.setText(text);
-        });
+        mEmptyIcon.setImageResource(icon);
+        mEmptyText.setText(text);
+    }
+
+    /**
+     * Set the minimum height of this detail view, in item count.
+     */
+    public void setMinHeightInItems(int minHeightInItems) {
+        ViewGroup.LayoutParams lp = mMinHeightSpacer.getLayoutParams();
+        lp.height = minHeightInItems * getResources().getDimensionPixelSize(
+                R.dimen.qs_detail_item_height);
+        mMinHeightSpacer.setLayoutParams(lp);
     }
 
     @Override
@@ -144,97 +153,65 @@ public class QSDetailItems extends FrameLayout {
     }
 
     private void handleSetItems(Item[] items) {
-        final int itemCount = items != null ? items.length : 0;
+        final int itemCount = items != null ? Math.min(items.length, mMaxItems) : 0;
         mEmpty.setVisibility(itemCount == 0 ? VISIBLE : GONE);
-        mItemList.setVisibility(itemCount == 0 ? GONE : VISIBLE);
-        mItems = items;
-        mAdapter.notifyDataSetChanged();
+        mItems.setVisibility(itemCount == 0 ? GONE : VISIBLE);
+        for (int i = mItems.getChildCount() - 1; i >= itemCount; i--) {
+            mItems.removeViewAt(i);
+        }
+        for (int i = 0; i < itemCount; i++) {
+            bind(items[i], mItems.getChildAt(i));
+        }
     }
 
     private void handleSetItemsVisible(boolean visible) {
         if (mItemsVisible == visible) return;
         mItemsVisible = visible;
-        for (int i = 0; i < mItemList.getChildCount(); i++) {
-            mItemList.getChildAt(i).setVisibility(mItemsVisible ? VISIBLE : INVISIBLE);
+        for (int i = 0; i < mItems.getChildCount(); i++) {
+            mItems.getChildAt(i).setVisibility(mItemsVisible ? VISIBLE : INVISIBLE);
         }
     }
 
-    private class Adapter extends BaseAdapter {
-
-        @Override
-        public int getCount() {
-            return mItems != null ? mItems.length : 0;
+    private void bind(final Item item, View view) {
+        if (view == null) {
+            view = LayoutInflater.from(mContext).inflate(R.layout.qs_detail_item, this, false);
+            mItems.addView(view);
         }
-
-        @Override
-        public Object getItem(int position) {
-            return mItems[position];
+        view.setVisibility(mItemsVisible ? VISIBLE : INVISIBLE);
+        final ImageView iv = (ImageView) view.findViewById(android.R.id.icon);
+        iv.setImageResource(item.icon);
+        iv.getOverlay().clear();
+        if (item.overlay != null) {
+            item.overlay.setBounds(0, 0, item.overlay.getIntrinsicWidth(),
+                    item.overlay.getIntrinsicHeight());
+            iv.getOverlay().add(item.overlay);
         }
-
-        @Override
-        public long getItemId(int position) {
-            return 0;
-        }
-
-        @Override
-        public View getView(int position, View view, ViewGroup parent) {
-            final Item item = mItems[position];
-            if (view == null) {
-                view = LayoutInflater.from(mContext).inflate(R.layout.qs_detail_item, parent,
-                        false);
-            }
-            view.setVisibility(mItemsVisible ? VISIBLE : INVISIBLE);
-            final ImageView iv = (ImageView) view.findViewById(android.R.id.icon);
-            if (item.icon != null) {
-                iv.setImageDrawable(item.icon.getDrawable(iv.getContext()));
-            } else {
-                iv.setImageResource(item.iconResId);
-            }
-            iv.getOverlay().clear();
-            if (item.overlay != null) {
-                item.overlay.setBounds(0, 0, mQsDetailIconOverlaySize, mQsDetailIconOverlaySize);
-                iv.getOverlay().add(item.overlay);
-            }
-            final TextView title = (TextView) view.findViewById(android.R.id.title);
-            title.setText(item.line1);
-            final TextView summary = (TextView) view.findViewById(android.R.id.summary);
-            final boolean twoLines = !TextUtils.isEmpty(item.line2);
-            title.setMaxLines(twoLines ? 1 : 2);
-            summary.setVisibility(twoLines ? VISIBLE : GONE);
-            summary.setText(twoLines ? item.line2 : null);
-            view.setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (mCallback != null) {
-                        mCallback.onDetailItemClick(item);
-                    }
+        final TextView title = (TextView) view.findViewById(android.R.id.title);
+        title.setText(item.line1);
+        final TextView summary = (TextView) view.findViewById(android.R.id.summary);
+        final boolean twoLines = !TextUtils.isEmpty(item.line2);
+        title.setMaxLines(twoLines ? 1 : 2);
+        summary.setVisibility(twoLines ? VISIBLE : GONE);
+        summary.setText(twoLines ? item.line2 : null);
+        view.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mCallback != null) {
+                    mCallback.onDetailItemClick(item);
                 }
-            });
-
-            final ImageView icon2 = (ImageView) view.findViewById(android.R.id.icon2);
-            if (item.canDisconnect) {
-                icon2.setImageResource(R.drawable.ic_qs_cancel);
-                icon2.setVisibility(VISIBLE);
-                icon2.setClickable(true);
-                icon2.setOnClickListener(new OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        if (mCallback != null) {
-                            mCallback.onDetailItemDisconnect(item);
-                        }
-                    }
-                });
-            } else if (item.icon2 != -1) {
-                icon2.setVisibility(VISIBLE);
-                icon2.setImageResource(item.icon2);
-                icon2.setClickable(false);
-            } else {
-                icon2.setVisibility(GONE);
             }
-
-            return view;
-        }
-    };
+        });
+        final ImageView disconnect = (ImageView) view.findViewById(android.R.id.icon2);
+        disconnect.setVisibility(item.canDisconnect ? VISIBLE : GONE);
+        disconnect.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mCallback != null) {
+                    mCallback.onDetailItemDisconnect(item);
+                }
+            }
+        });
+    }
 
     private class H extends Handler {
         private static final int SET_ITEMS = 1;
@@ -258,14 +235,12 @@ public class QSDetailItems extends FrameLayout {
     }
 
     public static class Item {
-        public int iconResId;
-        public QSTile.Icon icon;
+        public int icon;
         public Drawable overlay;
         public CharSequence line1;
         public CharSequence line2;
         public Object tag;
         public boolean canDisconnect;
-        public int icon2 = -1;
     }
 
     public interface Callback {

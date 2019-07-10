@@ -1,73 +1,59 @@
 /*
- * Copyright (c) 2000, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package javax.sql;
 
 import java.sql.SQLException;
 
-
 /**
- * A factory for <code>PooledConnection</code>
- * objects.  An object that implements this interface will typically be
- * registered with a naming service that is based on the
- * Java<sup><font size=-2>TM</font></sup> Naming and Directory Interface
- * (JNDI).
- *
- * @since 1.4
+ * An interface for the creation of {@code ConnectionPoolDataSource} objects.
+ * Used internally within the package.
+ * <p>
+ * A class which implements the {@code ConnectionPoolDataSource} interface is
+ * typically registered with a JNDI naming service directory and is retrieved
+ * from there by name.
  */
+public interface ConnectionPoolDataSource extends CommonDataSource {
 
-public interface ConnectionPoolDataSource  extends CommonDataSource {
+    /**
+     * Creates a connection to a database which can then be used as a pooled
+     * connection.
+     *
+     * @return a {@code PooledConnection} which represents the connection to the
+     *         database.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public PooledConnection getPooledConnection() throws SQLException;
 
-  /**
-   * Attempts to establish a physical database connection that can
-   * be used as a pooled connection.
-   *
-   * @return  a <code>PooledConnection</code> object that is a physical
-   *         connection to the database that this
-   *         <code>ConnectionPoolDataSource</code> object represents
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.4
-   */
-  PooledConnection getPooledConnection() throws SQLException;
-
-  /**
-   * Attempts to establish a physical database connection that can
-   * be used as a pooled connection.
-   *
-   * @param user the database user on whose behalf the connection is being made
-   * @param password the user's password
-   * @return  a <code>PooledConnection</code> object that is a physical
-   *         connection to the database that this
-   *         <code>ConnectionPoolDataSource</code> object represents
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.4
-   */
-  PooledConnection getPooledConnection(String user, String password)
-    throws SQLException;
- }
+    /**
+     * Creates a connection to a database, using the supplied user name and
+     * password, which can then be used as a pooled connection.
+     *
+     * @param theUser
+     *            the a user name for the database login.
+     * @param thePassword
+     *            the password associated with the user identified by {@code
+     *            theUser}.
+     * @return a {@code PooledConnection} object which represents the connection
+     *         to the database.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public PooledConnection getPooledConnection(String theUser,
+            String thePassword) throws SQLException;
+}

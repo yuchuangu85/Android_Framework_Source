@@ -36,9 +36,9 @@ public class ScriptIntrinsicConvolve5x5 extends ScriptIntrinsic {
      * Supported elements types are {@link Element#U8}, {@link
      * Element#U8_2}, {@link Element#U8_3}, {@link Element#U8_4},
      * {@link Element#F32}, {@link Element#F32_2}, {@link
-     * Element#F32_3}, and {@link Element#F32_4}.
+     * Element#F32_3}, and {@link Element#F32_4}
      *
-     * <p> The default coefficients are:
+     * The default coefficients are.
      * <code>
      * <p> [ 0,  0,  0,  0,  0  ]
      * <p> [ 0,  0,  0,  0,  0  ]
@@ -61,7 +61,7 @@ public class ScriptIntrinsicConvolve5x5 extends ScriptIntrinsic {
             !e.isCompatible(Element.F32_2(rs)) &&
             !e.isCompatible(Element.F32_3(rs)) &&
             !e.isCompatible(Element.F32_4(rs))) {
-            throw new RSIllegalArgumentException("Unsupported element type.");
+            throw new RSIllegalArgumentException("Unsuported element type.");
         }
         long id;
         boolean mUseIncSupp = rs.isUseNative() &&
@@ -76,7 +76,7 @@ public class ScriptIntrinsicConvolve5x5 extends ScriptIntrinsic {
     }
 
     /**
-     * Set the input of the 5x5 convolve.
+     * Set the input of the blur.
      * Must match the element type supplied during create.
      *
      * @param ain The input allocation.
@@ -89,7 +89,7 @@ public class ScriptIntrinsicConvolve5x5 extends ScriptIntrinsic {
     /**
     * Set the coefficients for the convolve.
     *
-    * <p> The convolve layout is:
+    * The convolve layout is
     * <code>
     * <p> [ 0,  1,  2,  3,  4  ]
     * <p> [ 5,  6,  7,  8,  9  ]
@@ -117,7 +117,7 @@ public class ScriptIntrinsicConvolve5x5 extends ScriptIntrinsic {
      *             type.
      */
     public void forEach(Allocation aout) {
-        forEach(0, (Allocation) null, aout, null);
+        forEach(0, null, aout, null);
     }
 
     /**

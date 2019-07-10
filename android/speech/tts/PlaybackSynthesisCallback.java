@@ -15,8 +15,6 @@
  */
 package android.speech.tts;
 
-import android.annotation.NonNull;
-import android.media.AudioFormat;
 import android.speech.tts.TextToSpeechService.AudioOutputParams;
 import android.speech.tts.TextToSpeechService.UtteranceProgressDispatcher;
 import android.util.Log;
@@ -52,10 +50,9 @@ class PlaybackSynthesisCallback extends AbstractSynthesisCallback {
     private final Object mCallerIdentity;
     private final AbstractEventLogger mLogger;
 
-    PlaybackSynthesisCallback(@NonNull AudioOutputParams audioParams,
-            @NonNull AudioPlaybackHandler audioTrackHandler,
-            @NonNull UtteranceProgressDispatcher dispatcher, @NonNull Object callerIdentity,
-            @NonNull AbstractEventLogger logger, boolean clientIsUsingV2) {
+    PlaybackSynthesisCallback(AudioOutputParams audioParams, AudioPlaybackHandler audioTrackHandler,
+            UtteranceProgressDispatcher dispatcher, Object callerIdentity,
+            AbstractEventLogger logger, boolean clientIsUsingV2) {
         super(clientIsUsingV2);
         mAudioParams = audioParams;
         mAudioTrackHandler = audioTrackHandler;
@@ -125,14 +122,6 @@ class PlaybackSynthesisCallback extends AbstractSynthesisCallback {
     public int start(int sampleRateInHz, int audioFormat, int channelCount) {
         if (DBG) Log.d(TAG, "start(" + sampleRateInHz + "," + audioFormat + "," + channelCount
                 + ")");
-        if (audioFormat != AudioFormat.ENCODING_PCM_8BIT &&
-            audioFormat != AudioFormat.ENCODING_PCM_16BIT &&
-            audioFormat != AudioFormat.ENCODING_PCM_FLOAT) {
-            Log.w(TAG, "Audio format encoding " + audioFormat + " not supported. Please use one " +
-                       "of AudioFormat.ENCODING_PCM_8BIT, AudioFormat.ENCODING_PCM_16BIT or " +
-                       "AudioFormat.ENCODING_PCM_FLOAT");
-        }
-        mDispatcher.dispatchOnBeginSynthesis(sampleRateInHz, audioFormat, channelCount);
 
         int channelConfig = BlockingAudioTrack.getChannelConfig(channelCount);
 
@@ -193,7 +182,6 @@ class PlaybackSynthesisCallback extends AbstractSynthesisCallback {
         // Sigh, another copy.
         final byte[] bufferCopy = new byte[length];
         System.arraycopy(buffer, offset, bufferCopy, 0, length);
-        mDispatcher.dispatchOnAudioAvailable(bufferCopy);
 
         // Might block on mItem.this, if there are too many buffers waiting to
         // be consumed.
@@ -270,14 +258,5 @@ class PlaybackSynthesisCallback extends AbstractSynthesisCallback {
             }
             mStatusCode = errorCode;
         }
-    }
-
-    @Override
-    public void rangeStart(int markerInFrames, int start, int end) {
-        if (mItem == null) {
-            Log.e(TAG, "mItem is null");
-            return;
-        }
-        mItem.rangeStart(markerInFrames, start, end);
     }
 }

@@ -1,437 +1,334 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
+import java.io.InputStream;
+import java.io.Reader;
+import java.math.BigDecimal;
+import java.net.URL;
+
 /**
- * The output stream for writing the attributes of a user-defined
- * type back to the database.  This interface, used
- * only for custom mapping, is used by the driver, and its
- * methods are never directly invoked by a programmer.
- * <p>When an object of a class implementing the interface
- * <code>SQLData</code> is passed as an argument to an SQL statement, the
- * JDBC driver calls the method <code>SQLData.getSQLType</code> to
- * determine the  kind of SQL
- * datum being passed to the database.
- * The driver then creates an instance of <code>SQLOutput</code> and
- * passes it to the method <code>SQLData.writeSQL</code>.
- * The method <code>writeSQL</code> in turn calls the
- * appropriate <code>SQLOutput</code> <i>writer</i> methods
- * <code>writeBoolean</code>, <code>writeCharacterStream</code>, and so on)
- * to write data from the <code>SQLData</code> object to
- * the <code>SQLOutput</code> output stream as the
- * representation of an SQL user-defined type.
- * @since 1.2
+ * The interface for an output stream used to write attributes of an SQL <i>User
+ * Defined Type</i> (UDT) to the database. This interface is used for custom
+ * mapping of types and is called by the JDBC driver. It is not intended to be
+ * used by applications.
+ * <p>
+ * When an object which implements the {@code SQLData} interface is used as an
+ * argument to an SQL statement, the JDBC driver calls the method {@code
+ * SQLData.getSQLType} to establish the type of the SQL UDT that is being
+ * passed. The driver then creates an {@code SQLOutput} stream and passes it to
+ * the {@code SQLData.writeSQL} method, which in turn uses the appropriate
+ * {@code SQLOutput} writer methods to write the data from the {@code SQLData}
+ * object into the stream according to the defined mapping.
+ *
+ * @see SQLData
  */
+public interface SQLOutput {
 
- public interface SQLOutput {
+    /**
+     * Write a {@code String} value into the output stream.
+     *
+     * @param theString
+     *            the {@code String} to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeString(String theString) throws SQLException;
 
-  //================================================================
-  // Methods for writing attributes to the stream of SQL data.
-  // These methods correspond to the column-accessor methods of
-  // java.sql.ResultSet.
-  //================================================================
+    /**
+     * Write a {@code boolean} value into the output stream.
+     *
+     * @param theFlag
+     *            the {@code boolean} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeBoolean(boolean theFlag) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeString(String x) throws SQLException;
+    /**
+     * Write a {@code byte} value into the output stream.
+     *
+     * @param theByte
+     *            the {@code byte} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeByte(byte theByte) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java boolean.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeBoolean(boolean x) throws SQLException;
+    /**
+     * Write a {@code short} value into the output stream.
+     *
+     * @param theShort
+     *            the {@code short} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeShort(short theShort) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java byte.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeByte(byte x) throws SQLException;
+    /**
+     * Write an {@code int} value into the output stream.
+     *
+     * @param theInt
+     *            the {@code int} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeInt(int theInt) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java short.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeShort(short x) throws SQLException;
+    /**
+     * Write a {@code long} value into the output stream.
+     *
+     * @param theLong
+     *            the {@code long} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeLong(long theLong) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java int.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeInt(int x) throws SQLException;
+    /**
+     * Write a {@code float} value into the output stream.
+     *
+     * @param theFloat
+     *            the {@code float} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeFloat(float theFloat) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java long.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeLong(long x) throws SQLException;
+    /**
+     * Write a {@code double} value into the output stream.
+     *
+     * @param theDouble
+     *            the {@code double} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeDouble(double theDouble) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java float.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeFloat(float x) throws SQLException;
+    /**
+     * Write a {@code java.math.BigDecimal} value into the output stream.
+     *
+     * @param theBigDecimal
+     *            the {@code BigDecimal} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeBigDecimal(BigDecimal theBigDecimal) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a Java double.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeDouble(double x) throws SQLException;
+    /**
+     * Write an array of bytes into the output stream.
+     *
+     * @param theBytes
+     *            the array of bytes to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeBytes(byte[] theBytes) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a java.math.BigDecimal object.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeBigDecimal(java.math.BigDecimal x) throws SQLException;
+    /**
+     * Write a {@code java.sql.Date} value into the output stream.
+     *
+     * @param theDate
+     *            the {@code Date} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Date
+     */
+    public void writeDate(Date theDate) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as an array of bytes.
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeBytes(byte[] x) throws SQLException;
+    /**
+     * Write a {@code java.sql.Time} value into the output stream.
+     *
+     * @param theTime
+     *            the {@code Time} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
+     */
+    public void writeTime(Time theTime) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a java.sql.Date object.
-   * Writes the next attribute to the stream as a <code>java.sql.Date</code> object
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeDate(java.sql.Date x) throws SQLException;
+    /**
+     * Write a {@code java.sql.Timestamp} value into the output stream.
+     *
+     * @param theTimestamp
+     *            the {@code Timestamp} value to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public void writeTimestamp(Timestamp theTimestamp) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a java.sql.Time object.
-   * Writes the next attribute to the stream as a <code>java.sql.Date</code> object
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeTime(java.sql.Time x) throws SQLException;
+    /**
+     * Write a stream of unicode characters into the output stream.
+     *
+     * @param theStream
+     *            the stream of unicode characters to write, as a {@code
+     *            java.io.Reader} object.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeCharacterStream(Reader theStream) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a java.sql.Timestamp object.
-   * Writes the next attribute to the stream as a <code>java.sql.Date</code> object
-   * in the Java programming language.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeTimestamp(java.sql.Timestamp x) throws SQLException;
+    /**
+     * Write a stream of ASCII characters into the output stream.
+     *
+     * @param theStream
+     *            the stream of ASCII characters to write, as a {@code
+     *            java.io.InputStream} object
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeAsciiStream(InputStream theStream) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a stream of Unicode characters.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeCharacterStream(java.io.Reader x) throws SQLException;
+    /**
+     * Write a stream of uninterpreted bytes into the output stream.
+     *
+     * @param theStream
+     *            the stream of bytes to write, as a {@code java.io.InputStream}
+     *            object
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeBinaryStream(InputStream theStream) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a stream of ASCII characters.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeAsciiStream(java.io.InputStream x) throws SQLException;
+    /**
+     * Write an {@code SQLData} object into the output stream.
+     * <p>
+     * If the {@code SQLData} object is null, writes {@code NULL} to the stream.
+     * <p>
+     * Otherwise, calls the {@code SQLData.writeSQL} method of the object, which
+     * writes the object's attributes to the stream by calling the appropriate
+     * SQLOutput writer methods for each attribute, in order. The order of the
+     * attributes is the order they are listed in the SQL definition of the User
+     * Defined Type.
+     *
+     * @param theObject
+     *            the {@code SQLData} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see SQLData
+     */
+    public void writeObject(SQLData theObject) throws SQLException;
 
-  /**
-   * Writes the next attribute to the stream as a stream of uninterpreted
-   * bytes.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeBinaryStream(java.io.InputStream x) throws SQLException;
+    /**
+     * Write an SQL {@code Ref} value into the output stream.
+     *
+     * @param theRef
+     *            the {@code java.sql.Ref} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Ref
+     */
+    public void writeRef(Ref theRef) throws SQLException;
 
-  //================================================================
-  // Methods for writing items of SQL user-defined types to the stream.
-  // These methods pass objects to the database as values of SQL
-  // Structured Types, Distinct Types, Constructed Types, and Locator
-  // Types.  They decompose the Java object(s) and write leaf data
-  // items using the methods above.
-  //================================================================
+    /**
+     * Write an SQL {@code Blob} value into the output stream.
+     *
+     * @param theBlob
+     *            the {@code java.sql.Blob} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Blob
+     */
+    public void writeBlob(Blob theBlob) throws SQLException;
 
-  /**
-   * Writes to the stream the data contained in the given
-   * <code>SQLData</code> object.
-   * When the <code>SQLData</code> object is <code>null</code>, this
-   * method writes an SQL <code>NULL</code> to the stream.
-   * Otherwise, it calls the <code>SQLData.writeSQL</code>
-   * method of the given object, which
-   * writes the object's attributes to the stream.
-   * The implementation of the method <code>SQLData.writeSQ</code>
-   * calls the appropriate <code>SQLOutput</code> writer method(s)
-   * for writing each of the object's attributes in order.
-   * The attributes must be read from an <code>SQLInput</code>
-   * input stream and written to an <code>SQLOutput</code>
-   * output stream in the same order in which they were
-   * listed in the SQL definition of the user-defined type.
-   *
-   * @param x the object representing data of an SQL structured or
-   * distinct type
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeObject(SQLData x) throws SQLException;
+    /**
+     * Write an SQL {@code Clob} value into the output stream.
+     *
+     * @param theClob
+     *            the {@code java.sql.Clob} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Clob
+     */
+    public void writeClob(Clob theClob) throws SQLException;
 
-  /**
-   * Writes an SQL <code>REF</code> value to the stream.
-   *
-   * @param x a <code>Ref</code> object representing data of an SQL
-   * <code>REF</code> value
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeRef(Ref x) throws SQLException;
+    /**
+     * Write an SQL {@code Struct} value into the output stream.
+     *
+     * @param theStruct
+     *            the {@code java.sql.Struct} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Struct
+     */
+    public void writeStruct(Struct theStruct) throws SQLException;
 
-  /**
-   * Writes an SQL <code>BLOB</code> value to the stream.
-   *
-   * @param x a <code>Blob</code> object representing data of an SQL
-   * <code>BLOB</code> value
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeBlob(Blob x) throws SQLException;
+    /**
+     * Write an SQL {@code Array} value into the output stream.
+     *
+     * @param theArray
+     *            the {@code java.sql.Array} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Array
+     */
+    public void writeArray(Array theArray) throws SQLException;
 
-  /**
-   * Writes an SQL <code>CLOB</code> value to the stream.
-   *
-   * @param x a <code>Clob</code> object representing data of an SQL
-   * <code>CLOB</code> value
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeClob(Clob x) throws SQLException;
+    /**
+     * Write a {@code URL} into the output stream as an SQL DATALINK.
+     *
+     * @param theURL
+     *            the datalink value as a {@code java.net.URL} to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see java.net.URL
+     */
+    public void writeURL(URL theURL) throws SQLException;
 
-  /**
-   * Writes an SQL structured type value to the stream.
-   *
-   * @param x a <code>Struct</code> object representing data of an SQL
-   * structured type
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeStruct(Struct x) throws SQLException;
+    /**
+     * Write a {@code String} into the output stream as an SQL NCHAR, NVARCHAR,
+     * or LONGNVARCHAR.
+     *
+     * @param theString
+     *            the {@code String} to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeNString(String theString) throws SQLException;
 
-  /**
-   * Writes an SQL <code>ARRAY</code> value to the stream.
-   *
-   * @param x an <code>Array</code> object representing data of an SQL
-   * <code>ARRAY</code> type
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.2
-   */
-  void writeArray(Array x) throws SQLException;
+    /**
+     * Write a {@code Clob} into the output stream as an SQL NCLOB.
+     *
+     * @param theNClob
+     *            the {@code java.sql.Clob} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeNClob(NClob theNClob) throws SQLException;
 
-     //--------------------------- JDBC 3.0 ------------------------
+    /**
+     * Write a {@code RowId} into the output stream as an SQL ROWID.
+     *
+     * @param theRowId
+     *            the {@code java.sql.RowId} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeRowId(RowId theRowId) throws SQLException;
 
-     /**
-      * Writes a SQL <code>DATALINK</code> value to the stream.
-      *
-      * @param x a <code>java.net.URL</code> object representing the data
-      * of SQL DATALINK type
-      *
-      * @exception SQLException if a database access error occurs
-      * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-      * this method
-      * @since 1.4
-      */
-     void writeURL(java.net.URL x) throws SQLException;
-
-     //--------------------------- JDBC 4.0 ------------------------
-
-  /**
-   * Writes the next attribute to the stream as a <code>String</code>
-   * in the Java programming language. The driver converts this to a
-   * SQL <code>NCHAR</code> or
-   * <code>NVARCHAR</code> or <code>LONGNVARCHAR</code> value
-   * (depending on the argument's
-   * size relative to the driver's limits on <code>NVARCHAR</code> values)
-   * when it sends it to the stream.
-   *
-   * @param x the value to pass to the database
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.6
-   */
-  void writeNString(String x) throws SQLException;
-
-  /**
-   * Writes an SQL <code>NCLOB</code> value to the stream.
-   *
-   * @param x a <code>NClob</code> object representing data of an SQL
-   * <code>NCLOB</code> value
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.6
-   */
-  void writeNClob(NClob x) throws SQLException;
-
-
-  /**
-   * Writes an SQL <code>ROWID</code> value to the stream.
-   *
-   * @param x a <code>RowId</code> object representing data of an SQL
-   * <code>ROWID</code> value
-   *
-   * @exception SQLException if a database access error occurs
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.6
-   */
-  void writeRowId(RowId x) throws SQLException;
-
-
-  /**
-   * Writes an SQL <code>XML</code> value to the stream.
-   *
-   * @param x a <code>SQLXML</code> object representing data of an SQL
-   * <code>XML</code> value
-   *
-   * @throws SQLException if a database access error occurs,
-   * the <code>java.xml.transform.Result</code>,
-   *  <code>Writer</code> or <code>OutputStream</code> has not been closed for the <code>SQLXML</code> object or
-   *  if there is an error processing the XML value.  The <code>getCause</code> method
-   *  of the exception may provide a more detailed exception, for example, if the
-   *  stream does not contain valid XML.
-   * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-   * this method
-   * @since 1.6
-   */
-  void writeSQLXML(SQLXML x) throws SQLException;
-
-
+    /**
+     * Write a {@code SQLXML} into the output stream as an SQL XML.
+     *
+     * @param theXml
+     *            the {@code java.sql.SQLXML} object to write.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void writeSQLXML(SQLXML theXml) throws SQLException;
 }

@@ -16,7 +16,9 @@
 
 package com.android.systemui;
 
-import android.app.ActivityManager;
+import com.android.systemui.statusbar.phone.SystemUIDialog;
+
+import android.app.ActivityManagerNative;
 import android.app.Dialog;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
@@ -32,8 +34,6 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.WindowManagerGlobal;
 
-import com.android.systemui.statusbar.phone.SystemUIDialog;
-
 /**
  * Manages notification when a guest session is resumed.
  */
@@ -47,7 +47,7 @@ public class GuestResumeSessionReceiver extends BroadcastReceiver {
 
     public void register(Context context) {
         IntentFilter f = new IntentFilter(Intent.ACTION_USER_SWITCHED);
-        context.registerReceiverAsUser(this, UserHandle.SYSTEM,
+        context.registerReceiverAsUser(this, UserHandle.OWNER,
                 f, null /* permission */, null /* scheduler */);
     }
 
@@ -66,7 +66,7 @@ public class GuestResumeSessionReceiver extends BroadcastReceiver {
 
             UserInfo currentUser;
             try {
-                currentUser = ActivityManager.getService().getCurrentUser();
+                currentUser = ActivityManagerNative.getDefault().getCurrentUser();
             } catch (RemoteException e) {
                 return;
             }
@@ -96,7 +96,7 @@ public class GuestResumeSessionReceiver extends BroadcastReceiver {
         UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
         UserInfo currentUser;
         try {
-            currentUser = ActivityManager.getService().getCurrentUser();
+            currentUser = ActivityManagerNative.getDefault().getCurrentUser();
         } catch (RemoteException e) {
             Log.e(TAG, "Couldn't wipe session because ActivityManager is dead");
             return;
@@ -121,13 +121,13 @@ public class GuestResumeSessionReceiver extends BroadcastReceiver {
 
         try {
             if (newGuest == null) {
-                Log.e(TAG, "Could not create new guest, switching back to system user");
-                ActivityManager.getService().switchUser(UserHandle.USER_SYSTEM);
+                Log.e(TAG, "Could not create new guest, switching back to owner");
+                ActivityManagerNative.getDefault().switchUser(UserHandle.USER_OWNER);
                 userManager.removeUser(currentUser.id);
                 WindowManagerGlobal.getWindowManagerService().lockNow(null /* options */);
                 return;
             }
-            ActivityManager.getService().switchUser(newGuest.id);
+            ActivityManagerNative.getDefault().switchUser(newGuest.id);
             userManager.removeUser(currentUser.id);
         } catch (RemoteException e) {
             Log.e(TAG, "Couldn't wipe session because ActivityManager or WindowManager is dead");

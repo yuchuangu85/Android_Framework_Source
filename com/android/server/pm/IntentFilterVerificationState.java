@@ -96,12 +96,7 @@ public class IntentFilterVerificationState {
             if (i > 0) {
                 sb.append(" ");
             }
-            String host = mHosts.valueAt(i);
-            // "*.example.tld" is validated via https://example.tld
-            if (host.startsWith("*.")) {
-                host = host.substring(2);
-            }
-            sb.append(host);
+            sb.append(mHosts.valueAt(i));
         }
         return sb.toString();
     }

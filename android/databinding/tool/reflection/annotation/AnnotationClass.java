@@ -15,6 +15,8 @@
  */
 package android.databinding.tool.reflection.annotation;
 
+import org.antlr.v4.codegen.model.decl.Decl;
+
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.reflection.ModelField;
@@ -55,9 +57,6 @@ class AnnotationClass extends ModelClass {
 
     @Override
     public String toJavaCode() {
-        if (isIncomplete()) {
-            return getCanonicalName();
-        }
         return mTypeMirror.toString();
     }
 
@@ -248,11 +247,6 @@ class AnnotationClass extends ModelClass {
     }
 
     @Override
-    public boolean isWildcard() {
-        return mTypeMirror.getKind() == TypeKind.WILDCARD;
-    }
-
-    @Override
     public boolean isInterface() {
         return mTypeMirror.getKind() == TypeKind.DECLARED &&
                 ((DeclaredType)mTypeMirror).asElement().getKind() == ElementKind.INTERFACE;
@@ -286,17 +280,10 @@ class AnnotationClass extends ModelClass {
 
     @Override
     public boolean isAssignableFrom(ModelClass that) {
-        ModelClass other = that;
-        while (other != null && !(other instanceof AnnotationClass)) {
-            other = other.getSuperclass();
-        }
-        if (other == null) {
+        if (that == null) {
             return false;
         }
-        if (equals(other)) {
-            return true;
-        }
-        AnnotationClass thatAnnotationClass = (AnnotationClass) other;
+        AnnotationClass thatAnnotationClass = (AnnotationClass) that;
         return getTypeUtils().isAssignable(thatAnnotationClass.mTypeMirror, this.mTypeMirror);
     }
 
@@ -371,19 +358,6 @@ class AnnotationClass extends ModelClass {
         return declaredFields;
     }
 
-    private static Types getTypeUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getTypeUtils();
-    }
-
-    private static Elements getElementUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getElementUtils();
-    }
-
-    @Override
-    public String toString() {
-        return mTypeMirror.toString();
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof AnnotationClass) {
@@ -396,5 +370,18 @@ class AnnotationClass extends ModelClass {
     @Override
     public int hashCode() {
         return mTypeMirror.toString().hashCode();
+    }
+
+    private static Types getTypeUtils() {
+        return AnnotationAnalyzer.get().mProcessingEnv.getTypeUtils();
+    }
+
+    private static Elements getElementUtils() {
+        return AnnotationAnalyzer.get().mProcessingEnv.getElementUtils();
+    }
+
+    @Override
+    public String toString() {
+        return mTypeMirror.toString();
     }
 }

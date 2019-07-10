@@ -25,21 +25,15 @@ import java.security.Key;
  */
 public class AndroidKeyStoreKey implements Key {
     private final String mAlias;
-    private final int mUid;
     private final String mAlgorithm;
 
-    public AndroidKeyStoreKey(String alias, int uid, String algorithm) {
+    public AndroidKeyStoreKey(String alias, String algorithm) {
         mAlias = alias;
-        mUid = uid;
         mAlgorithm = algorithm;
     }
 
     String getAlias() {
         return mAlias;
-    }
-
-    int getUid() {
-        return mUid;
     }
 
     @Override
@@ -65,7 +59,6 @@ public class AndroidKeyStoreKey implements Key {
         int result = 1;
         result = prime * result + ((mAlgorithm == null) ? 0 : mAlgorithm.hashCode());
         result = prime * result + ((mAlias == null) ? 0 : mAlias.hashCode());
-        result = prime * result + mUid;
         return result;
     }
 
@@ -93,9 +86,6 @@ public class AndroidKeyStoreKey implements Key {
                 return false;
             }
         } else if (!mAlias.equals(other.mAlias)) {
-            return false;
-        }
-        if (mUid != other.mUid) {
             return false;
         }
         return true;

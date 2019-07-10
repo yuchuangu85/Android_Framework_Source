@@ -24,32 +24,22 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
-import android.os.Build.VERSION;
-import android.os.Build.VERSION_CODES;
-import android.support.annotation.AnyRes;
-import android.support.annotation.ColorRes;
-import android.support.annotation.DrawableRes;
-import android.support.annotation.StringRes;
-import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 
-import java.util.List;
+import com.android.setupwizardlib.annotations.VisibleForTesting;
 
 /**
- * Utilities to discover and interact with partner customizations. An overlay package is one that
- * registers the broadcast receiver for {@code com.android.setupwizard.action.PARTNER_CUSTOMIZATION}
- * in its manifest. There can only be one customization APK on a device, and it must be bundled with
- * the system.
+ * Utilities to discover and interact with partner customizations. There can only be one set of
+ * customizations on a device, and it must be bundled with the system.
  *
- * <p>Derived from {@code com.android.launcher3/Partner.java}
+ * Derived from com.android.launcher3/Partner.java
  */
 public class Partner {
-
     private static final String TAG = "(SUW) Partner";
 
     /** Marker action used to discover partner */
-    private static final String ACTION_PARTNER_CUSTOMIZATION =
-            "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
+    private static final String
+            ACTION_PARTNER_CUSTOMIZATION = "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
 
     private static boolean sSearched = false;
     private static Partner sPartner;
@@ -60,7 +50,7 @@ public class Partner {
      *
      * @see #getResourceEntry(android.content.Context, int)
      */
-    public static Drawable getDrawable(Context context, @DrawableRes int id) {
+    public static Drawable getDrawable(Context context, int id) {
         final ResourceEntry entry = getResourceEntry(context, id);
         return entry.resources.getDrawable(entry.id);
     }
@@ -71,27 +61,9 @@ public class Partner {
      *
      * @see #getResourceEntry(android.content.Context, int)
      */
-    public static String getString(Context context, @StringRes int id) {
+    public static String getString(Context context, int id) {
         final ResourceEntry entry = getResourceEntry(context, id);
         return entry.resources.getString(entry.id);
-    }
-
-    /**
-     * Convenience method to get color from partner overlay, or if not available, the color from
-     * the original context.
-     */
-    public static int getColor(Context context, @ColorRes int id) {
-        final ResourceEntry resourceEntry = getResourceEntry(context, id);
-        return resourceEntry.resources.getColor(resourceEntry.id);
-    }
-
-    /**
-     * Convenience method to get a CharSequence from partner overlay, or if not available, the text
-     * from the original context.
-     */
-    public static CharSequence getText(Context context, @StringRes int id) {
-        final ResourceEntry entry = getResourceEntry(context, id);
-        return entry.resources.getText(entry.id);
     }
 
     /**
@@ -104,7 +76,7 @@ public class Partner {
      * {@code entry.resources.getString(entry.id)}, or other methods available in
      * {@link android.content.res.Resources}.
      */
-    public static ResourceEntry getResourceEntry(Context context, @AnyRes int id) {
+    public static ResourceEntry getResourceEntry(Context context, int id) {
         final Partner partner = Partner.get(context);
         if (partner != null) {
             final Resources ourResources = context.getResources();
@@ -133,27 +105,14 @@ public class Partner {
     /**
      * Find and return partner details, or {@code null} if none exists. A partner package is marked
      * by a broadcast receiver declared in the manifest that handles the
-     * {@code com.android.setupwizard.action.PARTNER_CUSTOMIZATION} intent action. The overlay
-     * package must also be a system package.
+     * com.android.setupwizard.action.PARTNER_CUSTOMIZATION intent action. The overlay package must
+     * also be a system package.
      */
     public static synchronized Partner get(Context context) {
         if (!sSearched) {
             PackageManager pm = context.getPackageManager();
             final Intent intent = new Intent(ACTION_PARTNER_CUSTOMIZATION);
-            List<ResolveInfo> receivers;
-            if (VERSION.SDK_INT >= VERSION_CODES.N) {
-                receivers = pm.queryBroadcastReceivers(
-                        intent,
-                        PackageManager.MATCH_SYSTEM_ONLY
-                                | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE);
-            } else {
-                // On versions before N, direct boot doesn't exist. And the MATCH_SYSTEM_ONLY flag
-                // doesn't exist so we filter for system apps in code below.
-                receivers = pm.queryBroadcastReceivers(intent, 0);
-            }
-
-            for (ResolveInfo info : receivers) {
+            for (ResolveInfo info : pm.queryBroadcastReceivers(intent, 0)) {
                 if (info.activityInfo == null) {
                     continue;
                 }

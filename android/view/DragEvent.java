@@ -21,12 +21,10 @@ import android.content.ClipDescription;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.internal.view.IDragAndDropPermissions;
-
 //TODO: Improve Javadoc
 /**
  * Represents an event that is sent out by the system at various times during a drag and drop
- * operation. It is a data structure that contains several important pieces of data about
+ * operation. It is a complex data structure that contains several important pieces of data about
  * the operation and the underlying data.
  * <p>
  *  View objects that receive a DragEvent call {@link #getAction()}, which returns
@@ -102,7 +100,7 @@ import com.android.internal.view.IDragAndDropPermissions;
  *  </tr>
  *  <tr>
  *      <td>ACTION_DRAG_ENDED</td>
- *      <td style="text-align: center;">&nbsp;</td>
+ *      <td style="text-align: center;">X</td>
  *      <td style="text-align: center;">X</td>
  *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
@@ -112,7 +110,6 @@ import com.android.internal.view.IDragAndDropPermissions;
  * </table>
  * <p>
  *  The {@link android.view.DragEvent#getAction()},
- *  {@link android.view.DragEvent#getLocalState()}
  *  {@link android.view.DragEvent#describeContents()},
  *  {@link android.view.DragEvent#writeToParcel(Parcel,int)}, and
  *  {@link android.view.DragEvent#toString()} methods always return valid data.
@@ -131,11 +128,8 @@ public class DragEvent implements Parcelable {
     float mX, mY;
     ClipDescription mClipDescription;
     ClipData mClipData;
-    IDragAndDropPermissions mDragAndDropPermissions;
-
     Object mLocalState;
     boolean mDragResult;
-    boolean mEventHandlerWasCalled;
 
     private DragEvent mNext;
     private RuntimeException mRecycledLocation;
@@ -150,32 +144,25 @@ public class DragEvent implements Parcelable {
      * Action constant returned by {@link #getAction()}: Signals the start of a
      * drag and drop operation. The View should return {@code true} from its
      * {@link View#onDragEvent(DragEvent) onDragEvent()} handler method or
-     * {@link View.OnDragListener#onDrag(View,DragEvent) OnDragListener.onDrag()} listener
+     * {@link View.View.OnDragListener#onDrag(View,DragEvent) OnDragListener.onDrag()} listener
      * if it can accept a drop. The onDragEvent() or onDrag() methods usually inspect the metadata
      * from {@link #getClipDescription()} to determine if they can accept the data contained in
      * this drag. For an operation that doesn't represent data transfer, these methods may
-     * perform other actions to determine whether or not the View should accept the data.
+     * perform other actions to determine whether or not the View should accept the drag.
      * If the View wants to indicate that it is a valid drop target, it can also react by
      * changing its appearance.
      * <p>
-     *  Views added or becoming visible for the first time during a drag operation receive this
-     *  event when they are added or becoming visible.
-     * </p>
-     * <p>
-     *  A View only receives further drag events for the drag operation if it returns {@code true}
-     *  in response to ACTION_DRAG_STARTED.
+     * A View only receives further drag events if it returns {@code true} in response to
+     * ACTION_DRAG_STARTED.
      * </p>
      * @see #ACTION_DRAG_ENDED
-     * @see #getX()
-     * @see #getY()
      */
     public static final int ACTION_DRAG_STARTED = 1;
 
     /**
      * Action constant returned by {@link #getAction()}: Sent to a View after
-     * {@link #ACTION_DRAG_ENTERED} while the drag shadow is still within the View object's bounding
-     * box, but not within a descendant view that can accept the data. The {@link #getX()} and
-     * {@link #getY()} methods supply
+     * {@link #ACTION_DRAG_ENTERED} if the drag shadow is still within the View object's bounding
+     * box. The {@link #getX()} and {@link #getY()} methods supply
      * the X and Y position of of the drag point within the View object's bounding box.
      * <p>
      * A View receives an {@link #ACTION_DRAG_ENTERED} event before receiving any
@@ -183,10 +170,9 @@ public class DragEvent implements Parcelable {
      * </p>
      * <p>
      * The system stops sending ACTION_DRAG_LOCATION events to a View once the user moves the
-     * drag shadow out of the View object's bounding box or into a descendant view that can accept
-     * the data. If the user moves the drag shadow back into the View object's bounding box or out
-     * of a descendant view that can accept the data, the View receives an ACTION_DRAG_ENTERED again
-     * before receiving any more ACTION_DRAG_LOCATION events.
+     * drag shadow out of the View object's bounding box. If the user moves the drag shadow back
+     * into the View object's bounding box, the View receives an ACTION_DRAG_ENTERED again before
+     * receiving any more ACTION_DRAG_LOCATION events.
      * </p>
      * @see #ACTION_DRAG_ENTERED
      * @see #getX()
@@ -196,14 +182,13 @@ public class DragEvent implements Parcelable {
 
     /**
      * Action constant returned by {@link #getAction()}: Signals to a View that the user
-     * has released the drag shadow, and the drag point is within the bounding box of the View and
-     * not within a descendant view that can accept the data.
+     * has released the drag shadow, and the drag point is within the bounding box of the View.
      * The View should retrieve the data from the DragEvent by calling {@link #getClipData()}.
      * The methods {@link #getX()} and {@link #getY()} return the X and Y position of the drop point
      * within the View object's bounding box.
      * <p>
      * The View should return {@code true} from its {@link View#onDragEvent(DragEvent)}
-     * handler or {@link View.OnDragListener#onDrag(View,DragEvent) OnDragListener.onDrag()}
+     * handler or {@link View.View.OnDragListener#onDrag(View,DragEvent) OnDragListener.onDrag()}
      * listener if it accepted the drop, and {@code false} if it ignored the drop.
      * </p>
      * <p>
@@ -220,10 +205,8 @@ public class DragEvent implements Parcelable {
      * operation has concluded.  A View that changed its appearance during the operation should
      * return to its usual drawing state in response to this event.
      * <p>
-     *  All views with listeners that returned boolean <code>true</code> for the ACTION_DRAG_STARTED
-     *  event will receive the ACTION_DRAG_ENDED event even if they are not currently visible when
-     *  the drag ends. Views removed during the drag operation won't receive the ACTION_DRAG_ENDED
-     *  event.
+     * All views that received an ACTION_DRAG_STARTED event will receive the
+     * ACTION_DRAG_ENDED event even if they are not currently visible when the drag ends.
      * </p>
      * <p>
      *  The View object can call {@link #getResult()} to see the result of the operation.
@@ -244,10 +227,9 @@ public class DragEvent implements Parcelable {
      *  drop target.
      * </p>
      * The system stops sending ACTION_DRAG_LOCATION events to a View once the user moves the
-     * drag shadow out of the View object's bounding box or into a descendant view that can accept
-     * the data. If the user moves the drag shadow back into the View object's bounding box or out
-     * of a descendant view that can accept the data, the View receives an ACTION_DRAG_ENTERED again
-     * before receiving any more ACTION_DRAG_LOCATION events.
+     * drag shadow out of the View object's bounding box. If the user moves the drag shadow back
+     * into the View object's bounding box, the View receives an ACTION_DRAG_ENTERED again before
+     * receiving any more ACTION_DRAG_LOCATION events.
      * </p>
      * @see #ACTION_DRAG_ENTERED
      * @see #ACTION_DRAG_LOCATION
@@ -256,8 +238,7 @@ public class DragEvent implements Parcelable {
 
     /**
      * Action constant returned by {@link #getAction()}: Signals that the user has moved the
-     * drag shadow out of the bounding box of the View or into a descendant view that can accept
-     * the data.
+     * drag shadow outside the bounding box of the View.
      * The View can react by changing its appearance in a way that tells the user that
      * View is no longer the immediate drop target.
      * <p>
@@ -272,31 +253,28 @@ public class DragEvent implements Parcelable {
     }
 
     private void init(int action, float x, float y, ClipDescription description, ClipData data,
-            IDragAndDropPermissions dragAndDropPermissions, Object localState, boolean result) {
+            Object localState, boolean result) {
         mAction = action;
         mX = x;
         mY = y;
         mClipDescription = description;
         mClipData = data;
-        this.mDragAndDropPermissions = dragAndDropPermissions;
         mLocalState = localState;
         mDragResult = result;
     }
 
     static DragEvent obtain() {
-        return DragEvent.obtain(0, 0f, 0f, null, null, null, null, false);
+        return DragEvent.obtain(0, 0f, 0f, null, null, null, false);
     }
 
     /** @hide */
     public static DragEvent obtain(int action, float x, float y, Object localState,
-            ClipDescription description, ClipData data,
-            IDragAndDropPermissions dragAndDropPermissions, boolean result) {
+            ClipDescription description, ClipData data, boolean result) {
         final DragEvent ev;
         synchronized (gRecyclerLock) {
             if (gRecyclerTop == null) {
                 ev = new DragEvent();
-                ev.init(action, x, y, description, data, dragAndDropPermissions, localState,
-                        result);
+                ev.init(action, x, y, description, data, localState, result);
                 return ev;
             }
             ev = gRecyclerTop;
@@ -307,7 +285,7 @@ public class DragEvent implements Parcelable {
         ev.mRecycled = false;
         ev.mNext = null;
 
-        ev.init(action, x, y, description, data, dragAndDropPermissions, localState, result);
+        ev.init(action, x, y, description, data, localState, result);
 
         return ev;
     }
@@ -315,8 +293,7 @@ public class DragEvent implements Parcelable {
     /** @hide */
     public static DragEvent obtain(DragEvent source) {
         return obtain(source.mAction, source.mX, source.mY, source.mLocalState,
-                source.mClipDescription, source.mClipData, source.mDragAndDropPermissions,
-                source.mDragResult);
+                source.mClipDescription, source.mClipData, source.mDragResult);
     }
 
     /**
@@ -338,16 +315,17 @@ public class DragEvent implements Parcelable {
 
     /**
      * Gets the X coordinate of the drag point. The value is only valid if the event action is
-     * {@link #ACTION_DRAG_STARTED}, {@link #ACTION_DRAG_LOCATION} or {@link #ACTION_DROP}.
-     * @return The current drag point's X coordinate
+     * {@link #ACTION_DRAG_LOCATION} or {@link #ACTION_DROP}.
+     * @return The current drag point's Y coordinate
      */
     public float getX() {
         return mX;
     }
 
     /**
-     * Gets the Y coordinate of the drag point. The value is only valid if the event action is
-     * {@link #ACTION_DRAG_STARTED}, {@link #ACTION_DRAG_LOCATION} or {@link #ACTION_DROP}.
+     * Gets the Y coordinate of the drag point. The value is valid if the
+     * event action is {@link #ACTION_DRAG_ENTERED}, {@link #ACTION_DRAG_LOCATION},
+     * {@link #ACTION_DROP}, or {@link #ACTION_DRAG_EXITED}.
      * @return The current drag point's Y coordinate
      */
     public float getY() {
@@ -357,10 +335,9 @@ public class DragEvent implements Parcelable {
     /**
      * Returns the {@link android.content.ClipData} object sent to the system as part of the call
      * to
-     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
-     * startDragAndDrop()}.
+     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
      * This method only returns valid data if the event action is {@link #ACTION_DROP}.
-     * @return The ClipData sent to the system by startDragAndDrop().
+     * @return The ClipData sent to the system by startDrag().
      */
     public ClipData getClipData() {
         return mClipData;
@@ -369,38 +346,26 @@ public class DragEvent implements Parcelable {
     /**
      * Returns the {@link android.content.ClipDescription} object contained in the
      * {@link android.content.ClipData} object sent to the system as part of the call to
-     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
-     * startDragAndDrop()}.
+     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
      * The drag handler or listener for a View can use the metadata in this object to decide if the
      * View can accept the dragged View object's data.
      * <p>
-     * This method returns valid data for all event actions except for {@link #ACTION_DRAG_ENDED}.
-     * @return The ClipDescription that was part of the ClipData sent to the system by
-     *     startDragAndDrop().
+     * This method returns valid data for all event actions.
+     * @return The ClipDescription that was part of the ClipData sent to the system by startDrag().
      */
     public ClipDescription getClipDescription() {
         return mClipDescription;
     }
 
-    /** @hide */
-    public IDragAndDropPermissions getDragAndDropPermissions() {
-        return mDragAndDropPermissions;
-    }
-
     /**
      * Returns the local state object sent to the system as part of the call to
-     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
-     * startDragAndDrop()}.
+     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
      * The object is intended to provide local information about the drag and drop operation. For
      * example, it can indicate whether the drag and drop operation is a copy or a move.
      * <p>
-     * The local state is available only to views in the activity which has started the drag
-     * operation. In all other activities this method will return null
-     * </p>
-     * <p>
      *  This method returns valid data for all event actions.
      * </p>
-     * @return The local state object sent to the system by startDragAndDrop().
+     * @return The local state object sent to the system by startDrag().
      */
     public Object getLocalState() {
         return mLocalState;
@@ -456,7 +421,6 @@ public class DragEvent implements Parcelable {
         mClipData = null;
         mClipDescription = null;
         mLocalState = null;
-        mEventHandlerWasCalled = false;
 
         synchronized (gRecyclerLock) {
             if (gRecyclerUsed < MAX_RECYCLED) {
@@ -513,12 +477,6 @@ public class DragEvent implements Parcelable {
             dest.writeInt(1);
             mClipDescription.writeToParcel(dest, flags);
         }
-        if (mDragAndDropPermissions == null) {
-            dest.writeInt(0);
-        } else {
-            dest.writeInt(1);
-            dest.writeStrongBinder(mDragAndDropPermissions.asBinder());
-        }
     }
 
     /**
@@ -537,10 +495,6 @@ public class DragEvent implements Parcelable {
             }
             if (in.readInt() != 0) {
                 event.mClipDescription = ClipDescription.CREATOR.createFromParcel(in);
-            }
-            if (in.readInt() != 0) {
-                event.mDragAndDropPermissions =
-                        IDragAndDropPermissions.Stub.asInterface(in.readStrongBinder());;
             }
             return event;
         }

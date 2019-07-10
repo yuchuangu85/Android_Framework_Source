@@ -16,42 +16,26 @@
 
 package com.android.printspooler.ui;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.app.Activity;
-import android.app.LoaderManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Loader;
 import android.content.pm.ServiceInfo;
-import android.location.Criteria;
-import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.location.LocationRequest;
 import android.os.AsyncTask;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.SystemClock;
 import android.print.PrintManager;
-import android.print.PrintServicesLoader;
 import android.print.PrinterDiscoverySession;
 import android.print.PrinterDiscoverySession.OnPrintersChangeListener;
 import android.print.PrinterId;
 import android.print.PrinterInfo;
 import android.printservice.PrintServiceInfo;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.AtomicFile;
 import android.util.Log;
-import android.util.Pair;
 import android.util.Slog;
 import android.util.Xml;
 
 import com.android.internal.util.FastXmlSerializer;
-
-import libcore.io.IoUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -65,19 +49,18 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+
+import libcore.io.IoUtils;
 
 /**
  * This class is responsible for loading printers by doing discovery
  * and merging the discovered printers with the previously used ones.
  */
-public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
-        implements LocationListener {
+public final class FusedPrintersProvider extends Loader<List<PrinterInfo>> {
     private static final String LOG_TAG = "FusedPrintersProvider";
 
     private static final boolean DEBUG = false;
@@ -87,22 +70,10 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
     private static final int MAX_FAVORITE_PRINTER_COUNT = 4;
 
-    /** Interval of location updated in ms */
-    private static final int LOCATION_UPDATE_MS = 30 * 1000;
-
-    /** Maximum acceptable age of the location in ms */
-    private static final int MAX_LOCATION_AGE_MS = 10 * 60 * 1000;
-
-    /** The worst accuracy that is considered usable in m */
-    private static final int MIN_LOCATION_ACCURACY = 50;
-
-    /** Maximum distance where a printer is still considered "near" */
-    private static final int MAX_PRINTER_DISTANCE = MIN_LOCATION_ACCURACY * 2;
-
     private final List<PrinterInfo> mPrinters =
             new ArrayList<>();
 
-    private final List<Pair<PrinterInfo, Location>> mFavoritePrinters =
+    private final List<PrinterInfo> mFavoritePrinters =
             new ArrayList<>();
 
     private final PersistenceManager mPersistenceManager;
@@ -113,112 +84,33 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
     private boolean mPrintersUpdatedBefore;
 
-    /** Last known location, can be null or out of date */
-    private final Object mLocationLock;
-    private Location mLocation;
-
-    /** Location used when the printers were updated the last time */
-    private Location mLocationOfLastPrinterUpdate;
-
-    /** Reference to the system's location manager */
-    private final LocationManager mLocationManager;
-
-    /**
-     * Get a reference to the current location.
-     */
-    private Location getCurrentLocation() {
-        synchronized (mLocationLock) {
-            return mLocation;
-        }
-    }
-
-    public FusedPrintersProvider(Activity activity, int internalLoaderId) {
-        super(activity);
-        mLocationLock = new Object();
-        mPersistenceManager = new PersistenceManager(activity, internalLoaderId);
-        mLocationManager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
+    public FusedPrintersProvider(Context context) {
+        super(context);
+        mPersistenceManager = new PersistenceManager(context);
     }
 
     public void addHistoricalPrinter(PrinterInfo printer) {
         mPersistenceManager.addPrinterAndWritePrinterHistory(printer);
     }
 
-    /**
-     * Add printer to dest, or if updatedPrinters add the updated printer. If the updated printer
-     * was added, remove it from updatedPrinters.
-     *
-     * @param dest The list the printers should be added to
-     * @param printer The printer to add
-     * @param updatedPrinters The printer to add
-     */
-    private void updateAndAddPrinter(List<PrinterInfo> dest, PrinterInfo printer,
-            Map<PrinterId, PrinterInfo> updatedPrinters) {
-        PrinterInfo updatedPrinter = updatedPrinters.remove(printer.getId());
-        if (updatedPrinter != null) {
-            dest.add(updatedPrinter);
-        } else {
-            dest.add(printer);
-        }
-    }
-
-    /**
-     * Compute the printers, order them appropriately and deliver the printers to the clients. We
-     * prefer printers that have been previously used (favorites) and printers that have been used
-     * previously close to the current location (near printers).
-     *
-     * @param discoveredPrinters All printers currently discovered by the print discovery session.
-     * @param favoritePrinters The ordered list of printers. The earlier in the list, the more
-     *            preferred.
-     */
     private void computeAndDeliverResult(Map<PrinterId, PrinterInfo> discoveredPrinters,
-            List<Pair<PrinterInfo, Location>> favoritePrinters) {
+            List<PrinterInfo> favoritePrinters) {
         List<PrinterInfo> printers = new ArrayList<>();
 
-        // Store the printerIds that have already been added. We cannot compare the printerInfos in
-        // "printers" as they might have been taken from discoveredPrinters and the printerInfo does
-        // not equals() anymore
-        HashSet<PrinterId> alreadyAddedPrinter = new HashSet<>(MAX_FAVORITE_PRINTER_COUNT);
-
-        Location location = getCurrentLocation();
-
-        // Add the favorite printers that have last been used close to the current location
+        // Add the updated favorite printers.
         final int favoritePrinterCount = favoritePrinters.size();
-        if (location != null) {
-            for (int i = 0; i < favoritePrinterCount; i++) {
-                // Only add a certain amount of favorite printers
-                if (printers.size() == MAX_FAVORITE_PRINTER_COUNT) {
-                    break;
-                }
-
-                PrinterInfo favoritePrinter = favoritePrinters.get(i).first;
-                Location printerLocation = favoritePrinters.get(i).second;
-
-                if (printerLocation != null
-                        && !alreadyAddedPrinter.contains(favoritePrinter.getId())) {
-                    if (printerLocation.distanceTo(location) <= MAX_PRINTER_DISTANCE) {
-                        updateAndAddPrinter(printers, favoritePrinter, discoveredPrinters);
-                        alreadyAddedPrinter.add(favoritePrinter.getId());
-                    }
-                }
-            }
-        }
-
-        // Add the other favorite printers
         for (int i = 0; i < favoritePrinterCount; i++) {
-            // Only add a certain amount of favorite printers
-            if (printers.size() == MAX_FAVORITE_PRINTER_COUNT) {
-                break;
-            }
-
-            PrinterInfo favoritePrinter = favoritePrinters.get(i).first;
-            if (!alreadyAddedPrinter.contains(favoritePrinter.getId())) {
-                updateAndAddPrinter(printers, favoritePrinter, discoveredPrinters);
-                alreadyAddedPrinter.add(favoritePrinter.getId());
+            PrinterInfo favoritePrinter = favoritePrinters.get(i);
+            PrinterInfo updatedPrinter = discoveredPrinters.remove(
+                    favoritePrinter.getId());
+            if (updatedPrinter != null) {
+                printers.add(updatedPrinter);
+            } else {
+                printers.add(favoritePrinter);
             }
         }
 
-        // Add other updated printers. Printers that have already been added have been removed from
-        // discoveredPrinters in the calls to updateAndAddPrinter
+        // Add other updated printers.
         final int printerCount = mPrinters.size();
         for (int i = 0; i < printerCount; i++) {
             PrinterInfo printer = mPrinters.get(i);
@@ -250,29 +142,11 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
         if (DEBUG) {
             Log.i(LOG_TAG, "onStartLoading() " + FusedPrintersProvider.this.hashCode());
         }
-
-        mLocationManager.requestLocationUpdates(LocationRequest.create()
-                .setQuality(LocationRequest.POWER_LOW).setInterval(LOCATION_UPDATE_MS), this,
-                Looper.getMainLooper());
-
-        Location lastLocation = mLocationManager.getLastLocation();
-        if (lastLocation != null) {
-            onLocationChanged(lastLocation);
-        }
-
-        // Jumpstart location with a single forced update
-        Criteria oneTimeCriteria = new Criteria();
-        oneTimeCriteria.setAccuracy(Criteria.ACCURACY_FINE);
-        mLocationManager.requestSingleUpdate(oneTimeCriteria, this, Looper.getMainLooper());
-
         // The contract is that if we already have a valid,
         // result the we have to deliver it immediately.
-        (new Handler(Looper.getMainLooper())).post(new Runnable() {
-            @Override public void run() {
-                deliverResult(new ArrayList<>(mPrinters));
-            }
-        });
-
+        if (!mPrinters.isEmpty()) {
+            deliverResult(new ArrayList<>(mPrinters));
+        }
         // Always load the data to ensure discovery period is
         // started and to make sure obsolete printers are updated.
         onForceLoad();
@@ -284,8 +158,6 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             Log.i(LOG_TAG, "onStopLoading() " + FusedPrintersProvider.this.hashCode());
         }
         onCancelLoad();
-
-        mLocationManager.removeUpdates(this);
     }
 
     @Override
@@ -316,38 +188,34 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                                 + " " + FusedPrintersProvider.this.hashCode());
                     }
 
-                    updatePrinters(mDiscoverySession.getPrinters(), mFavoritePrinters,
-                            getCurrentLocation());
+                    updatePrinters(mDiscoverySession.getPrinters(), mFavoritePrinters);
                 }
             });
             final int favoriteCount = mFavoritePrinters.size();
             List<PrinterId> printerIds = new ArrayList<>(favoriteCount);
             for (int i = 0; i < favoriteCount; i++) {
-                printerIds.add(mFavoritePrinters.get(i).first.getId());
+                printerIds.add(mFavoritePrinters.get(i).getId());
             }
             mDiscoverySession.startPrinterDiscovery(printerIds);
             List<PrinterInfo> printers = mDiscoverySession.getPrinters();
-
-            updatePrinters(printers, mFavoritePrinters, getCurrentLocation());
+            if (!printers.isEmpty()) {
+                updatePrinters(printers, mFavoritePrinters);
+            }
         }
     }
 
-    private void updatePrinters(List<PrinterInfo> printers,
-            List<Pair<PrinterInfo, Location>> favoritePrinters,
-            Location location) {
+    private void updatePrinters(List<PrinterInfo> printers, List<PrinterInfo> favoritePrinters) {
         if (mPrintersUpdatedBefore && mPrinters.equals(printers)
-                && mFavoritePrinters.equals(favoritePrinters)
-                && Objects.equals(mLocationOfLastPrinterUpdate, location)) {
+                && mFavoritePrinters.equals(favoritePrinters)) {
             return;
         }
 
-        mLocationOfLastPrinterUpdate = location;
         mPrintersUpdatedBefore = true;
 
         // Some of the found printers may have be a printer that is in the
-        // history but with its properties changed. Hence, we try to update the
-        // printer to use its current properties instead of the historical one.
-        mPersistenceManager.updateHistoricalPrintersIfNeeded(printers);
+        // history but with its name changed. Hence, we try to update the
+        // printer to use its current name instead of the historical one.
+        mPersistenceManager.updatePrintersHistoricalNamesIfNeeded(printers);
 
         Map<PrinterId, PrinterInfo> printersMap = new LinkedHashMap<>();
         final int printerCount = printers.size();
@@ -391,6 +259,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
         mPrinters.clear();
         if (mDiscoverySession != null) {
             mDiscoverySession.destroy();
+            mDiscoverySession = null;
         }
     }
 
@@ -402,65 +271,11 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
         onStopLoading();
     }
 
-    /**
-     * Check if the location is acceptable. This is to filter out excessively old or inaccurate
-     * location updates.
-     *
-     * @param location the location to check
-     * @return true iff the location is usable.
-     */
-    private boolean isLocationAcceptable(Location location) {
-        return location != null
-                && location.getElapsedRealtimeNanos() > SystemClock.elapsedRealtimeNanos()
-                        - MAX_LOCATION_AGE_MS * 1000_000L
-                && location.hasAccuracy()
-                && location.getAccuracy() < MIN_LOCATION_ACCURACY;
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-        synchronized(mLocationLock) {
-            // We expect the user to not move too fast while printing. Hence prefer more accurate
-            // updates over more recent ones for LOCATION_UPDATE_MS. We add a 10% fudge factor here
-            // as the location provider might send an update slightly too early.
-            if (isLocationAcceptable(location)
-                    && !location.equals(mLocation)
-                    && (mLocation == null
-                            || location
-                                    .getElapsedRealtimeNanos() > mLocation.getElapsedRealtimeNanos()
-                                            + LOCATION_UPDATE_MS * 0.9 * 1000_000L
-                            || (!mLocation.hasAccuracy()
-                                    || location.getAccuracy() < mLocation.getAccuracy()))) {
-                // Other callers of updatePrinters might want to know the location, hence cache it
-                mLocation = location;
-
-                if (areHistoricalPrintersLoaded()) {
-                    updatePrinters(mDiscoverySession.getPrinters(), mFavoritePrinters, mLocation);
-                }
-            }
-        }
-    }
-
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-        // nothing to do
-    }
-
-    @Override
-    public void onProviderEnabled(String provider) {
-        // nothing to do
-    }
-
-    @Override
-    public void onProviderDisabled(String provider) {
-        // nothing to do
-    }
-
     public boolean areHistoricalPrintersLoaded() {
         return mPersistenceManager.mReadHistoryCompleted;
     }
 
-    public void setTrackedPrinter(@Nullable PrinterId printerId) {
+    public void setTrackedPrinter(PrinterId printerId) {
         if (isStarted() && mDiscoverySession != null
                 && mDiscoverySession.isPrinterDiscoveryStarted()) {
             if (mTrackedPrinter != null) {
@@ -479,7 +294,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
     public boolean isFavoritePrinter(PrinterId printerId) {
         final int printerCount = mFavoritePrinters.size();
         for (int i = 0; i < printerCount; i++) {
-            PrinterInfo favoritePritner = mFavoritePrinters.get(i).first;
+            PrinterInfo favoritePritner = mFavoritePrinters.get(i);
             if (favoritePritner.getId().equals(printerId)) {
                 return true;
             }
@@ -488,56 +303,48 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
     }
 
     public void forgetFavoritePrinter(PrinterId printerId) {
-        final int favoritePrinterCount = mFavoritePrinters.size();
-        List<Pair<PrinterInfo, Location>> newFavoritePrinters = new ArrayList<>(
-                favoritePrinterCount - 1);
+        List<PrinterInfo> newFavoritePrinters = null;
 
         // Remove the printer from the favorites.
+        final int favoritePrinterCount = mFavoritePrinters.size();
         for (int i = 0; i < favoritePrinterCount; i++) {
-            if (!mFavoritePrinters.get(i).first.getId().equals(printerId)) {
-                newFavoritePrinters.add(mFavoritePrinters.get(i));
+            PrinterInfo favoritePrinter = mFavoritePrinters.get(i);
+            if (favoritePrinter.getId().equals(printerId)) {
+                newFavoritePrinters = new ArrayList<>();
+                newFavoritePrinters.addAll(mPrinters);
+                newFavoritePrinters.remove(i);
+                break;
             }
         }
 
-        // Remove the printer from history and persist the latter.
-        mPersistenceManager.removeHistoricalPrinterAndWritePrinterHistory(printerId);
+        // If we removed a favorite printer, we have work to do.
+        if (newFavoritePrinters != null) {
+            // Remove the printer from history and persist the latter.
+            mPersistenceManager.removeHistoricalPrinterAndWritePrinterHistory(printerId);
 
-        // Recompute and deliver the printers.
-        updatePrinters(mDiscoverySession.getPrinters(), newFavoritePrinters, getCurrentLocation());
+            // Recompute and deliver the printers.
+            updatePrinters(mDiscoverySession.getPrinters(), newFavoritePrinters);
+        }
     }
 
-    private final class PersistenceManager implements
-            LoaderManager.LoaderCallbacks<List<PrintServiceInfo>> {
+    private final class PersistenceManager {
         private static final String PERSIST_FILE_NAME = "printer_history.xml";
 
         private static final String TAG_PRINTERS = "printers";
 
         private static final String TAG_PRINTER = "printer";
-        private static final String TAG_LOCATION = "location";
         private static final String TAG_PRINTER_ID = "printerId";
 
         private static final String ATTR_LOCAL_ID = "localId";
         private static final String ATTR_SERVICE_NAME = "serviceName";
 
-        private static final String ATTR_LONGITUDE = "longitude";
-        private static final String ATTR_LATITUDE = "latitude";
-        private static final String ATTR_ACCURACY = "accuracy";
-
         private static final String ATTR_NAME = "name";
         private static final String ATTR_DESCRIPTION = "description";
+        private static final String ATTR_STATUS = "status";
 
         private final AtomicFile mStatePersistFile;
 
-        /**
-         * Whether the enabled print services have been updated since last time the history was
-         * read.
-         */
-        private boolean mAreEnabledServicesUpdated;
-
-        /** The enabled services read when they were last updated */
-        private @NonNull List<PrintServiceInfo> mEnabledServices;
-
-        private List<Pair<PrinterInfo, Location>> mHistoricalPrinters = new ArrayList<>();
+        private List<PrinterInfo> mHistoricalPrinters = new ArrayList<>();
 
         private boolean mReadHistoryCompleted;
 
@@ -545,52 +352,9 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
         private volatile long mLastReadHistoryTimestamp;
 
-        private PersistenceManager(final Activity activity, final int internalLoaderId) {
-            mStatePersistFile = new AtomicFile(new File(activity.getFilesDir(),
-                    PERSIST_FILE_NAME), "printer-history");
-
-            // Initialize enabled services to make sure they are set are the read task might be done
-            // before the loader updated the services the first time.
-            mEnabledServices = ((PrintManager) activity
-                    .getSystemService(Context.PRINT_SERVICE))
-                    .getPrintServices(PrintManager.ENABLED_SERVICES);
-
-            mAreEnabledServicesUpdated = true;
-
-            // Cannot start a loader while starting another, hence delay this loader
-            (new Handler(activity.getMainLooper())).post(new Runnable() {
-                @Override
-                public void run() {
-                    activity.getLoaderManager().initLoader(internalLoaderId, null,
-                            PersistenceManager.this);
-                }
-            });
-        }
-
-
-        @Override
-        public Loader<List<PrintServiceInfo>> onCreateLoader(int id, Bundle args) {
-            return new PrintServicesLoader(
-                    (PrintManager) getContext().getSystemService(Context.PRINT_SERVICE),
-                    getContext(), PrintManager.ENABLED_SERVICES);
-        }
-
-        @Override
-        public void onLoadFinished(Loader<List<PrintServiceInfo>> loader,
-                List<PrintServiceInfo> services) {
-            mAreEnabledServicesUpdated = true;
-            mEnabledServices = services;
-
-            // Ask the fused printer provider to reload which will cause the persistence manager to
-            // reload the history and reconsider the enabled services.
-            if (isStarted()) {
-                forceLoad();
-            }
-        }
-
-        @Override
-        public void onLoaderReset(Loader<List<PrintServiceInfo>> loader) {
-            // no data is cached
+        private PersistenceManager(Context context) {
+            mStatePersistFile = new AtomicFile(new File(context.getFilesDir(),
+                    PERSIST_FILE_NAME));
         }
 
         public boolean isReadHistoryInProgress() {
@@ -614,13 +378,13 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             mReadTask.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, (Void[]) null);
         }
 
-        public void updateHistoricalPrintersIfNeeded(List<PrinterInfo> printers) {
+        public void updatePrintersHistoricalNamesIfNeeded(List<PrinterInfo> printers) {
             boolean writeHistory = false;
 
             final int printerCount = printers.size();
             for (int i = 0; i < printerCount; i++) {
                 PrinterInfo printer = printers.get(i);
-                writeHistory |= updateHistoricalPrinterIfNeeded(printer);
+                writeHistory |= renamePrinterIfNeeded(printer);
             }
 
             if (writeHistory) {
@@ -628,57 +392,25 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             }
         }
 
-        /**
-         * Updates the historical printer state with the given printer.
-         *
-         * @param printer the printer to update
-         *
-         * @return true iff the historical printer list needs to be updated
-         */
-        public boolean updateHistoricalPrinterIfNeeded(PrinterInfo printer) {
-            boolean writeHistory = false;
+        public boolean renamePrinterIfNeeded(PrinterInfo printer) {
+            boolean renamed = false;
             final int printerCount = mHistoricalPrinters.size();
             for (int i = 0; i < printerCount; i++) {
-                PrinterInfo historicalPrinter = mHistoricalPrinters.get(i).first;
-
-                if (!historicalPrinter.getId().equals(printer.getId())) {
-                    continue;
-                }
-
-                // Overwrite the historical printer with the updated printer as some properties
-                // changed. We ignore the status as this is a volatile state.
-                if (historicalPrinter.equalsIgnoringStatus(printer)) {
-                    continue;
-                }
-
-                mHistoricalPrinters.set(i, new Pair<PrinterInfo, Location>(printer,
-                                mHistoricalPrinters.get(i).second));
-
-                // We only persist limited information in the printer history, hence check if
-                // we need to persist the update.
-                // @see PersistenceManager.WriteTask#doWritePrinterHistory
-                if (!historicalPrinter.getName().equals(printer.getName())) {
-                    if (Objects.equals(historicalPrinter.getDescription(),
-                            printer.getDescription())) {
-                        writeHistory = true;
-                    }
+                PrinterInfo historicalPrinter = mHistoricalPrinters.get(i);
+                if (historicalPrinter.getId().equals(printer.getId())
+                        && !TextUtils.equals(historicalPrinter.getName(), printer.getName())) {
+                    mHistoricalPrinters.set(i, printer);
+                    renamed = true;
                 }
             }
-            return writeHistory;
+            return renamed;
         }
 
         public void addPrinterAndWritePrinterHistory(PrinterInfo printer) {
             if (mHistoricalPrinters.size() >= MAX_HISTORY_LENGTH) {
                 mHistoricalPrinters.remove(0);
             }
-
-            Location location = getCurrentLocation();
-            if (!isLocationAcceptable(location)) {
-                location = null;
-            }
-
-            mHistoricalPrinters.add(new Pair<PrinterInfo, Location>(printer, location));
-
+            mHistoricalPrinters.add(printer);
             writePrinterHistory();
         }
 
@@ -686,7 +418,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             boolean writeHistory = false;
             final int printerCount = mHistoricalPrinters.size();
             for (int i = printerCount - 1; i >= 0; i--) {
-                PrinterInfo historicalPrinter = mHistoricalPrinters.get(i).first;
+                PrinterInfo historicalPrinter = mHistoricalPrinters.get(i);
                 if (historicalPrinter.getId().equals(printerId)) {
                     mHistoricalPrinters.remove(i);
                     writeHistory = true;
@@ -704,115 +436,89 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
         }
 
         public boolean isHistoryChanged() {
-            return mAreEnabledServicesUpdated ||
-                    mLastReadHistoryTimestamp != mStatePersistFile.getBaseFile().lastModified();
+            return mLastReadHistoryTimestamp != mStatePersistFile.getBaseFile().lastModified();
         }
 
-        /**
-         * Sort the favorite printers by weight. If a printer is in the list multiple times for
-         * different locations, all instances are considered to have the accumulative weight. The
-         * actual favorite printers to display are computed in {@link #computeAndDeliverResult} as
-         * only at this time we know the location to use to determine if a printer is close enough
-         * to be preferred.
-         *
-         * @param printers The printers to sort.
-         * @return The sorted printers.
-         */
-        private List<Pair<PrinterInfo, Location>> sortFavoritePrinters(
-                List<Pair<PrinterInfo, Location>> printers) {
+        private List<PrinterInfo> computeFavoritePrinters(List<PrinterInfo> printers) {
             Map<PrinterId, PrinterRecord> recordMap = new ArrayMap<>();
 
-            // Compute the weights.
+            // Recompute the weights.
             float currentWeight = 1.0f;
             final int printerCount = printers.size();
             for (int i = printerCount - 1; i >= 0; i--) {
-                PrinterId printerId = printers.get(i).first.getId();
-                PrinterRecord record = recordMap.get(printerId);
-                if (record == null) {
-                    record = new PrinterRecord();
-                    recordMap.put(printerId, record);
-                }
-
-                record.printers.add(printers.get(i));
-
+                PrinterInfo printer = printers.get(i);
                 // Aggregate weight for the same printer
+                PrinterRecord record = recordMap.get(printer.getId());
+                if (record == null) {
+                    record = new PrinterRecord(printer);
+                    recordMap.put(printer.getId(), record);
+                }
                 record.weight += currentWeight;
                 currentWeight *= WEIGHT_DECAY_COEFFICIENT;
             }
 
-            // Sort the favorite printers.
+            // Soft the favorite printers.
             List<PrinterRecord> favoriteRecords = new ArrayList<>(
                     recordMap.values());
             Collections.sort(favoriteRecords);
 
             // Write the favorites to the output.
-            final int recordCount = favoriteRecords.size();
-            List<Pair<PrinterInfo, Location>> favoritePrinters = new ArrayList<>(printerCount);
-            for (int i = 0; i < recordCount; i++) {
-                favoritePrinters.addAll(favoriteRecords.get(i).printers);
+            final int favoriteCount = Math.min(favoriteRecords.size(),
+                    MAX_FAVORITE_PRINTER_COUNT);
+            List<PrinterInfo> favoritePrinters = new ArrayList<>(favoriteCount);
+            for (int i = 0; i < favoriteCount; i++) {
+                PrinterInfo printer = favoriteRecords.get(i).printer;
+                favoritePrinters.add(printer);
             }
 
             return favoritePrinters;
         }
 
-        /**
-         * A set of printers with the same ID and the weight associated with them during
-         * {@link #sortFavoritePrinters}.
-         */
         private final class PrinterRecord implements Comparable<PrinterRecord> {
-            /**
-             * The printers, all with the same ID, but potentially different properties or locations
-             */
-            public final List<Pair<PrinterInfo, Location>> printers;
-
-            /** The weight associated with the printers */
+            public final PrinterInfo printer;
             public float weight;
 
-            /**
-             * Create a new record.
-             */
-            public PrinterRecord() {
-                printers = new ArrayList<>();
+            public PrinterRecord(PrinterInfo printer) {
+                this.printer = printer;
             }
 
-            /**
-             * Compare two records by weight.
-             */
             @Override
             public int compareTo(PrinterRecord another) {
                 return Float.floatToIntBits(another.weight) - Float.floatToIntBits(weight);
             }
         }
 
-        private final class ReadTask
-                extends AsyncTask<Void, Void, List<Pair<PrinterInfo, Location>>> {
+        private final class ReadTask extends AsyncTask<Void, Void, List<PrinterInfo>> {
             @Override
-            protected List<Pair<PrinterInfo, Location>> doInBackground(Void... args) {
+            protected List<PrinterInfo> doInBackground(Void... args) {
                return doReadPrinterHistory();
             }
 
             @Override
-            protected void onPostExecute(List<Pair<PrinterInfo, Location>> printers) {
+            protected void onPostExecute(List<PrinterInfo> printers) {
                 if (DEBUG) {
                     Log.i(LOG_TAG, "read history completed "
                             + FusedPrintersProvider.this.hashCode());
                 }
 
                 // Ignore printer records whose target services are not enabled.
+                PrintManager printManager = (PrintManager) getContext()
+                        .getSystemService(Context.PRINT_SERVICE);
+                List<PrintServiceInfo> services = printManager
+                        .getEnabledPrintServices();
+
                 Set<ComponentName> enabledComponents = new ArraySet<>();
-                final int installedServiceCount = mEnabledServices.size();
+                final int installedServiceCount = services.size();
                 for (int i = 0; i < installedServiceCount; i++) {
-                    ServiceInfo serviceInfo = mEnabledServices.get(i).getResolveInfo().serviceInfo;
+                    ServiceInfo serviceInfo = services.get(i).getResolveInfo().serviceInfo;
                     ComponentName componentName = new ComponentName(
                             serviceInfo.packageName, serviceInfo.name);
                     enabledComponents.add(componentName);
                 }
-                mAreEnabledServicesUpdated = false;
 
                 final int printerCount = printers.size();
                 for (int i = printerCount - 1; i >= 0; i--) {
-                    ComponentName printerServiceName = printers.get(i).first.getId()
-                            .getServiceName();
+                    ComponentName printerServiceName = printers.get(i).getId().getServiceName();
                     if (!enabledComponents.contains(printerServiceName)) {
                         printers.remove(i);
                     }
@@ -823,13 +529,12 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
                 // Compute the favorite printers.
                 mFavoritePrinters.clear();
-                mFavoritePrinters.addAll(sortFavoritePrinters(mHistoricalPrinters));
+                mFavoritePrinters.addAll(computeFavoritePrinters(mHistoricalPrinters));
 
                 mReadHistoryCompleted = true;
 
                 // Deliver the printers.
-                updatePrinters(mDiscoverySession.getPrinters(), mFavoritePrinters,
-                        getCurrentLocation());
+                updatePrinters(mDiscoverySession.getPrinters(), mFavoritePrinters);
 
                 // We are done.
                 mReadTask = null;
@@ -839,12 +544,12 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             }
 
             @Override
-            protected void onCancelled(List<Pair<PrinterInfo, Location>> printerInfos) {
+            protected void onCancelled(List<PrinterInfo> printerInfos) {
                 // We are done.
                 mReadTask = null;
             }
 
-            private List<Pair<PrinterInfo, Location>> doReadPrinterHistory() {
+            private List<PrinterInfo> doReadPrinterHistory() {
                 final FileInputStream in;
                 try {
                     in = mStatePersistFile.openRead();
@@ -856,7 +561,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                     return new ArrayList<>();
                 }
                 try {
-                    List<Pair<PrinterInfo, Location>> printers = new ArrayList<>();
+                    List<PrinterInfo> printers = new ArrayList<>();
                     XmlPullParser parser = Xml.newPullParser();
                     parser.setInput(in, StandardCharsets.UTF_8.name());
                     parseState(parser, printers);
@@ -877,9 +582,8 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                 return Collections.emptyList();
             }
 
-            private void parseState(XmlPullParser parser,
-                    List<Pair<PrinterInfo, Location>> outPrinters)
-                            throws IOException, XmlPullParserException {
+            private void parseState(XmlPullParser parser, List<PrinterInfo> outPrinters)
+                    throws IOException, XmlPullParserException {
                 parser.next();
                 skipEmptyTextTags(parser);
                 expect(parser, XmlPullParser.START_TAG, TAG_PRINTERS);
@@ -897,9 +601,8 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                 expect(parser, XmlPullParser.END_TAG, TAG_PRINTERS);
             }
 
-            private boolean parsePrinter(XmlPullParser parser,
-                    List<Pair<PrinterInfo, Location>> outPrinters)
-                            throws IOException, XmlPullParserException {
+            private boolean parsePrinter(XmlPullParser parser, List<PrinterInfo> outPrinters)
+                    throws IOException, XmlPullParserException {
                 skipEmptyTextTags(parser);
                 if (!accept(parser, XmlPullParser.START_TAG, TAG_PRINTER)) {
                     return false;
@@ -907,6 +610,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
                 String name = parser.getAttributeValue(null, ATTR_NAME);
                 String description = parser.getAttributeValue(null, ATTR_DESCRIPTION);
+                final int status = Integer.parseInt(parser.getAttributeValue(null, ATTR_STATUS));
 
                 parser.next();
 
@@ -921,34 +625,11 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                 expect(parser, XmlPullParser.END_TAG, TAG_PRINTER_ID);
                 parser.next();
 
-                skipEmptyTextTags(parser);
-                Location location;
-                if (accept(parser, XmlPullParser.START_TAG, TAG_LOCATION)) {
-                    location = new Location("");
-                    location.setLongitude(
-                            Double.parseDouble(parser.getAttributeValue(null, ATTR_LONGITUDE)));
-                    location.setLatitude(
-                            Double.parseDouble(parser.getAttributeValue(null, ATTR_LATITUDE)));
-                    location.setAccuracy(
-                            Float.parseFloat(parser.getAttributeValue(null, ATTR_ACCURACY)));
-                    parser.next();
-
-                    skipEmptyTextTags(parser);
-                    expect(parser, XmlPullParser.END_TAG, TAG_LOCATION);
-                    parser.next();
-                } else {
-                    location = null;
-                }
-
-                // If the printer is available the printer will be replaced by the one read from the
-                // discovery session, hence the only time when this object is used is when the
-                // printer is unavailable.
-                PrinterInfo.Builder builder = new PrinterInfo.Builder(printerId, name,
-                        PrinterInfo.STATUS_UNAVAILABLE);
+                PrinterInfo.Builder builder = new PrinterInfo.Builder(printerId, name, status);
                 builder.setDescription(description);
                 PrinterInfo printer = builder.build();
 
-                outPrinters.add(new Pair<PrinterInfo, Location>(printer, location));
+                outPrinters.add(printer);
 
                 if (DEBUG) {
                     Log.i(LOG_TAG, "[RESTORED] " + printer);
@@ -961,7 +642,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             }
 
             private void expect(XmlPullParser parser, int type, String tag)
-                    throws XmlPullParserException {
+                    throws IOException, XmlPullParserException {
                 if (!accept(parser, type, tag)) {
                     throw new XmlPullParserException("Exepected event: " + type
                             + " and tag: " + tag + " but got event: " + parser.getEventType()
@@ -978,7 +659,7 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             }
 
             private boolean accept(XmlPullParser parser, int type, String tag)
-                    throws XmlPullParserException {
+                    throws IOException, XmlPullParserException {
                 if (parser.getEventType() != type) {
                     return false;
                 }
@@ -993,16 +674,14 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
             }
         }
 
-        private final class WriteTask
-                extends AsyncTask<List<Pair<PrinterInfo, Location>>, Void, Void> {
+        private final class WriteTask extends AsyncTask<List<PrinterInfo>, Void, Void> {
             @Override
-            protected Void doInBackground(
-                    @SuppressWarnings("unchecked") List<Pair<PrinterInfo, Location>>... printers) {
+            protected Void doInBackground(List<PrinterInfo>... printers) {
                 doWritePrinterHistory(printers[0]);
                 return null;
             }
 
-            private void doWritePrinterHistory(List<Pair<PrinterInfo, Location>> printers) {
+            private void doWritePrinterHistory(List<PrinterInfo> printers) {
                 FileOutputStream out = null;
                 try {
                     out = mStatePersistFile.startWrite();
@@ -1014,11 +693,14 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
 
                     final int printerCount = printers.size();
                     for (int i = 0; i < printerCount; i++) {
-                        PrinterInfo printer = printers.get(i).first;
+                        PrinterInfo printer = printers.get(i);
 
                         serializer.startTag(null, TAG_PRINTER);
 
                         serializer.attribute(null, ATTR_NAME, printer.getName());
+                        // Historical printers are always stored as unavailable.
+                        serializer.attribute(null, ATTR_STATUS, String.valueOf(
+                                PrinterInfo.STATUS_UNAVAILABLE));
                         String description = printer.getDescription();
                         if (description != null) {
                             serializer.attribute(null, ATTR_DESCRIPTION, description);
@@ -1030,18 +712,6 @@ public final class FusedPrintersProvider extends Loader<List<PrinterInfo>>
                         serializer.attribute(null, ATTR_SERVICE_NAME, printerId.getServiceName()
                                 .flattenToString());
                         serializer.endTag(null, TAG_PRINTER_ID);
-
-                        Location location = printers.get(i).second;
-                        if (location != null) {
-                            serializer.startTag(null, TAG_LOCATION);
-                            serializer.attribute(null, ATTR_LONGITUDE,
-                                    String.valueOf(location.getLongitude()));
-                            serializer.attribute(null, ATTR_LATITUDE,
-                                    String.valueOf(location.getLatitude()));
-                            serializer.attribute(null, ATTR_ACCURACY,
-                                    String.valueOf(location.getAccuracy()));
-                            serializer.endTag(null, TAG_LOCATION);
-                        }
 
                         serializer.endTag(null, TAG_PRINTER);
 

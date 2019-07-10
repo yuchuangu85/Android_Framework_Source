@@ -212,14 +212,6 @@ public class BlockingSessionCallback extends CameraCaptureSession.StateCallback 
         }
     }
 
-    @Override
-    public void onCaptureQueueEmpty(CameraCaptureSession session) {
-        mSessionFuture.setSession(session);
-        if (mProxy != null) {
-            mProxy.onCaptureQueueEmpty(session);
-        }
-    }
-
     /**
      * Wait until the designated surface is prepared by the camera capture session.
      *

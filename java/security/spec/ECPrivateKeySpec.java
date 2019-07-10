@@ -1,81 +1,69 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
+
 package java.security.spec;
 
 import java.math.BigInteger;
 
 /**
- * This immutable class specifies an elliptic curve private key with
- * its associated parameters.
- *
- * @see KeySpec
- * @see ECParameterSpec
- *
- * @author Valerie Peng
- *
- * @since 1.5
+ * The parameters specifying an Elliptic Curve (EC) private key.
  */
 public class ECPrivateKeySpec implements KeySpec {
-
-    private BigInteger s;
-    private ECParameterSpec params;
+    // Private value associated with this key
+    private final BigInteger s;
+    // Elliptic Curve domain parameters associated with this key
+    private final ECParameterSpec params;
 
     /**
-     * Creates a new ECPrivateKeySpec with the specified
-     * parameter values.
-     * @param s the private value.
-     * @param params the associated elliptic curve domain
-     * parameters.
-     * @exception NullPointerException if {@code s}
-     * or {@code params} is null.
+     * Creates a new {@code ECPrivateKeySpec} with the specified private value
+     * {@code S} and parameter specification.
+     *
+     * @param s
+     *            the private value {@code S}.
+     * @param params
+     *            the domain parameter specification.
      */
     public ECPrivateKeySpec(BigInteger s, ECParameterSpec params) {
-        if (s == null) {
-            throw new NullPointerException("s is null");
-        }
-        if (params == null) {
-            throw new NullPointerException("params is null");
-        }
         this.s = s;
         this.params = params;
+        // throw NullPointerException if s or params is null
+        if (this.s == null) {
+            throw new NullPointerException("s == null");
+        }
+        if (this.params == null) {
+            throw new NullPointerException("params == null");
+        }
     }
 
     /**
-     * Returns the private value S.
-     * @return the private value S.
-     */
-    public BigInteger getS() {
-        return s;
-    }
-
-    /**
-     * Returns the associated elliptic curve domain
-     * parameters.
-     * @return the EC domain parameters.
+     * Returns the domain parameter specification.
+     *
+     * @return the domain parameter specification.
      */
     public ECParameterSpec getParams() {
         return params;
+    }
+
+    /**
+     * Returns the private value {@code S}.
+     *
+     * @return the private value {@code S}.
+     */
+    public BigInteger getS() {
+        return s;
     }
 }

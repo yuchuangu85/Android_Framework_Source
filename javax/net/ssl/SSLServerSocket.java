@@ -1,543 +1,231 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
-
 
 package javax.net.ssl;
 
-import java.io.*;
-import java.net.*;
-
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 
 /**
- * This class extends <code>ServerSocket</code>s and
- * provides secure server sockets using protocols such as the Secure
- * Sockets Layer (SSL) or Transport Layer Security (TLS) protocols.
- * <P>
- * Instances of this class are generally created using a
- * <code>SSLServerSocketFactory</code>.  The primary function
- * of <code>SSLServerSocket</code>s
- * is to create <code>SSLSocket</code>s by <code>accept</code>ing
- * connections.
- * <P>
- * <code>SSLServerSocket</code>s contain several pieces of state data
- * which are inherited by the <code>SSLSocket</code> at
- * socket creation.  These include the enabled cipher
- * suites and protocols, whether client
- * authentication is necessary, and whether created sockets should
- * begin handshaking in client or server mode.  The state
- * inherited by the created <code>SSLSocket</code> can be
- * overriden by calling the appropriate methods.
- *
- * @see java.net.ServerSocket
- * @see SSLSocket
- *
- * @since 1.4
- * @author David Brownell
+ * The extension of {@code ServerSocket} which provides secure server sockets
+ * based on protocols like SSL, TLS, or others.
  */
 public abstract class SSLServerSocket extends ServerSocket {
 
     /**
-     * Used only by subclasses.
-     * <P>
-     * Create an unbound TCP server socket using the default authentication
-     * context.
-     *
-     * @throws IOException if an I/O error occurs when creating the socket
-     */
-    protected SSLServerSocket()
-    throws IOException
-        { super(); }
-
-
-    /**
-     * Used only by subclasses.
-     * <P>
-     * Create a TCP server socket on a port, using the default
-     * authentication context.  The connection backlog defaults to
-     * fifty connections queued up before the system starts to
-     * reject new connection requests.
-     * <P>
-     * A port number of <code>0</code> creates a socket on any free port.
-     * <P>
-     * If there is a security manager, its <code>checkListen</code>
-     * method is called with the <code>port</code> argument as its
-     * argument to ensure the operation is allowed. This could result
-     * in a SecurityException.
-     *
-     * @param port the port on which to listen
-     * @throws IOException if an I/O error occurs when creating the socket
-     * @throws SecurityException if a security manager exists and its
-     *         <code>checkListen</code> method doesn't allow the operation.
-     * @throws IllegalArgumentException if the port parameter is outside the
-     *         specified range of valid port values, which is between 0 and
-     *         65535, inclusive.
-     * @see    SecurityManager#checkListen
-     */
-    protected SSLServerSocket(int port)
-    throws IOException
-        { super(port); }
-
-
-    /**
-     * Used only by subclasses.
-     * <P>
-     * Create a TCP server socket on a port, using the default
-     * authentication context and a specified backlog of connections.
-     * <P>
-     * A port number of <code>0</code> creates a socket on any free port.
-     * <P>
-     * The <code>backlog</code> argument is the requested maximum number of
-     * pending connections on the socket. Its exact semantics are implementation
-     * specific. In particular, an implementation may impose a maximum length
-     * or may choose to ignore the parameter altogther. The value provided
-     * should be greater than <code>0</code>. If it is less than or equal to
-     * <code>0</code>, then an implementation specific default will be used.
-     * <P>
-     * If there is a security manager, its <code>checkListen</code>
-     * method is called with the <code>port</code> argument as its
-     * argument to ensure the operation is allowed. This could result
-     * in a SecurityException.
-     *
-     * @param port the port on which to listen
-     * @param backlog  requested maximum length of the queue of incoming
-     *                  connections.
-     * @throws IOException if an I/O error occurs when creating the socket
-     * @throws SecurityException if a security manager exists and its
-     *         <code>checkListen</code> method doesn't allow the operation.
-     * @throws IllegalArgumentException if the port parameter is outside the
-     *         specified range of valid port values, which is between 0 and
-     *         65535, inclusive.
-     * @see    SecurityManager#checkListen
-     */
-    protected SSLServerSocket(int port, int backlog)
-    throws IOException
-        { super(port, backlog); }
-
-
-    /**
-     * Used only by subclasses.
-     * <P>
-     * Create a TCP server socket on a port, using the default
-     * authentication context and a specified backlog of connections
-     * as well as a particular specified network interface.  This
-     * constructor is used on multihomed hosts, such as those used
-     * for firewalls or as routers, to control through which interface
-     * a network service is provided.
-     * <P>
-     * If there is a security manager, its <code>checkListen</code>
-     * method is called with the <code>port</code> argument as its
-     * argument to ensure the operation is allowed. This could result
-     * in a SecurityException.
-     * <P>
-     * A port number of <code>0</code> creates a socket on any free port.
-     * <P>
-     * The <code>backlog</code> argument is the requested maximum number of
-     * pending connections on the socket. Its exact semantics are implementation
-     * specific. In particular, an implementation may impose a maximum length
-     * or may choose to ignore the parameter altogther. The value provided
-     * should be greater than <code>0</code>. If it is less than or equal to
-     * <code>0</code>, then an implementation specific default will be used.
-     * <P>
-     * If <i>address</i> is null, it will default accepting connections
-     * on any/all local addresses.
-     *
-     * @param port the port on which to listen
-     * @param backlog  requested maximum length of the queue of incoming
-     *                  connections.
-     * @param address the address of the network interface through
-     *          which connections will be accepted
-     * @throws IOException if an I/O error occurs when creating the socket
-     * @throws SecurityException if a security manager exists and its
-     *         <code>checkListen</code> method doesn't allow the operation.
-     * @throws IllegalArgumentException if the port parameter is outside the
-     *         specified range of valid port values, which is between 0 and
-     *         65535, inclusive.
-     * @see    SecurityManager#checkListen
-     */
-    protected SSLServerSocket(int port, int backlog, InetAddress address)
-    throws IOException
-        { super(port, backlog, address); }
-
-
-
-    /**
-     * Returns the list of cipher suites which are currently enabled
-     * for use by newly accepted connections.
-     * <P>
-     * If this list has not been explicitly modified, a system-provided
-     * default guarantees a minimum quality of service in all enabled
-     * cipher suites.
-     * <P>
-     * There are several reasons why an enabled cipher suite might
-     * not actually be used.  For example:  the server socket might
-     * not have appropriate private keys available to it or the cipher
-     * suite might be anonymous, precluding the use of client authentication,
-     * while the server socket has been told to require that sort of
-     * authentication.
-     *
-     * @return an array of cipher suites enabled
-     * @see #getSupportedCipherSuites()
-     * @see #setEnabledCipherSuites(String [])
-     */
-    public abstract String [] getEnabledCipherSuites();
-
-
-    /**
-     * Sets the cipher suites enabled for use by accepted connections.
-     * <P>
-     * The cipher suites must have been listed by getSupportedCipherSuites()
-     * as being supported.  Following a successful call to this method,
-     * only suites listed in the <code>suites</code> parameter are enabled
-     * for use.
-     * <P>
-     * Suites that require authentication information which is not available
-     * in this ServerSocket's authentication context will not be used
-     * in any case, even if they are enabled.
-     * <P>
-     * <code>SSLSocket</code>s returned from <code>accept()</code>
-     * inherit this setting.
-     *
-     * @param suites Names of all the cipher suites to enable
-     * @exception IllegalArgumentException when one or more of ciphers
-     *          named by the parameter is not supported, or when
-     *          the parameter is null.
-     * @see #getSupportedCipherSuites()
-     * @see #getEnabledCipherSuites()
-     */
-    public abstract void setEnabledCipherSuites(String suites []);
-
-
-    /**
-     * Returns the names of the cipher suites which could be enabled for use
-     * on an SSL connection.
-     * <P>
-     * Normally, only a subset of these will actually
-     * be enabled by default, since this list may include cipher suites which
-     * do not meet quality of service requirements for those defaults.  Such
-     * cipher suites are useful in specialized applications.
-     *
-     * @return an array of cipher suite names
-     * @see #getEnabledCipherSuites()
-     * @see #setEnabledCipherSuites(String [])
-     */
-    public abstract String [] getSupportedCipherSuites();
-
-
-    /**
-     * Returns the names of the protocols which could be enabled for use.
-     *
-     * @return an array of protocol names supported
-     * @see #getEnabledProtocols()
-     * @see #setEnabledProtocols(String [])
-     */
-    public abstract String [] getSupportedProtocols();
-
-
-    /**
-     * Returns the names of the protocols which are currently
-     * enabled for use by the newly accepted connections.
-     *
-     * @return an array of protocol names
-     * @see #getSupportedProtocols()
-     * @see #setEnabledProtocols(String [])
-     */
-    public abstract String [] getEnabledProtocols();
-
-
-    // Android-added: Added paragraph about contiguous protocols.
-    /**
-     * Controls which particular protocols are enabled for use by
-     * accepted connections.
-     * <P>
-     * The protocols must have been listed by
-     * getSupportedProtocols() as being supported.
-     * Following a successful call to this method, only protocols listed
-     * in the <code>protocols</code> parameter are enabled for use.
+     * Only to be used by subclasses.
      * <p>
-     * Because of the way the protocol version is negotiated, connections
-     * will only be able to use a member of the lowest set of contiguous
-     * enabled protocol versions.  For example, enabling TLSv1.2 and TLSv1
-     * will result in connections only being able to use TLSv1.
-     * <P>
-     * <code>SSLSocket</code>s returned from <code>accept()</code>
-     * inherit this setting.
+     * Creates a TCP server socket with the default authentication context.
      *
-     * @param protocols Names of all the protocols to enable.
-     * @exception IllegalArgumentException when one or more of
-     *            the protocols named by the parameter is not supported or
-     *            when the protocols parameter is null.
-     * @see #getEnabledProtocols()
-     * @see #getSupportedProtocols()
+     * @throws IOException
+     *             if creating the socket fails.
      */
-    public abstract void setEnabledProtocols(String protocols[]);
-
+    protected SSLServerSocket() throws IOException {
+    }
 
     /**
-     * Controls whether <code>accept</code>ed server-mode
-     * <code>SSLSockets</code> will be initially configured to
-     * <i>require</i> client authentication.
-     * <P>
-     * A socket's client authentication setting is one of the following:
-     * <ul>
-     * <li> client authentication required
-     * <li> client authentication requested
-     * <li> no client authentication desired
-     * </ul>
-     * <P>
-     * Unlike {@link #setWantClientAuth(boolean)}, if the accepted
-     * socket's option is set and the client chooses not to provide
-     * authentication information about itself, <i>the negotiations
-     * will stop and the connection will be dropped</i>.
-     * <P>
-     * Calling this method overrides any previous setting made by
-     * this method or {@link #setWantClientAuth(boolean)}.
-     * <P>
-     * The initial inherited setting may be overridden by calling
-     * {@link SSLSocket#setNeedClientAuth(boolean)} or
-     * {@link SSLSocket#setWantClientAuth(boolean)}.
+     * Only to be used by subclasses.
+     * <p>
+     * Creates a TCP server socket on the specified port with the default
+     * authentication context. The connection's default backlog size is 50
+     * connections.
+     * @param port
+     *            the port to listen on.
+     * @throws IOException
+     *             if creating the socket fails.
+     */
+    protected SSLServerSocket(int port) throws IOException {
+        super(port);
+    }
+
+    /**
+     * Only to be used by subclasses.
+     * <p>
+     * Creates a TCP server socket on the specified port using the specified
+     * backlog and the default authentication context.
      *
-     * @param   need set to true if client authentication is required,
-     *          or false if no client authentication is desired.
-     * @see #getNeedClientAuth()
-     * @see #setWantClientAuth(boolean)
-     * @see #getWantClientAuth()
-     * @see #setUseClientMode(boolean)
+     * @param port
+     *            the port to listen on.
+     * @param backlog
+     *            the number of pending connections to queue.
+     * @throws IOException
+     *             if creating the socket fails.
+     */
+    protected SSLServerSocket(int port, int backlog) throws IOException {
+        super(port, backlog);
+    }
+
+    /**
+     * Only to be used by subclasses.
+     * <p>
+     * Creates a TCP server socket on the specified port, using the specified
+     * backlog, listening on the specified interface, and using the default
+     * authentication context.
+     *
+     * @param port
+     *            the port the listen on.
+     * @param backlog
+     *            the number of pending connections to queue.
+     * @param address
+     *            the address of the interface to accept connections on.
+     * @throws IOException
+     *             if creating the socket fails.
+     */
+    protected SSLServerSocket(int port, int backlog, InetAddress address) throws IOException {
+        super(port, backlog, address);
+    }
+
+    /**
+     * Returns the names of the enabled cipher suites to be used for new
+     * connections.
+     *
+     * @return the names of the enabled cipher suites to be used for new
+     *         connections.
+     */
+    public abstract String[] getEnabledCipherSuites();
+
+    /**
+     * Sets the names of the cipher suites to be enabled for new connections.
+     * Only cipher suites returned by {@link #getSupportedCipherSuites()} are
+     * allowed.
+     *
+     * @param suites
+     *            the names of the to be enabled cipher suites.
+     * @throws IllegalArgumentException
+     *             if one of the cipher suite names is not supported.
+     */
+    public abstract void setEnabledCipherSuites(String[] suites);
+
+    /**
+     * Returns the names of the supported cipher suites.
+     *
+     * @return the names of the supported cipher suites.
+     */
+    public abstract String[] getSupportedCipherSuites();
+
+    /**
+     * Returns the names of the supported protocols.
+     *
+     * @return the names of the supported protocols.
+     */
+    public abstract String[] getSupportedProtocols();
+
+    /**
+     * Returns the names of the enabled protocols to be used for new
+     * connections.
+     *
+     * @return the names of the enabled protocols to be used for new
+     *         connections.
+     */
+    public abstract String[] getEnabledProtocols();
+
+    /**
+     * Sets the names of the protocols to be enabled for new connections. Only
+     * protocols returned by {@link #getSupportedProtocols()} are allowed.
+     *
+     * @param protocols
+     *            the names of the to be enabled protocols.
+     * @throws IllegalArgumentException
+     *             if one of the protocols is not supported.
+     */
+    public abstract void setEnabledProtocols(String[] protocols);
+
+    /**
+     * Sets whether server-mode connections will be configured to require client
+     * authentication. The client authentication is one of the following:
+     * <ul>
+     * <li>authentication required</li>
+     * <li>authentication requested</li>
+     * <li>no authentication needed</li>
+     * </ul>
+     * This method overrides the setting of {@link #setWantClientAuth(boolean)}.
+     *
+     * @param need
+     *            {@code true} if client authentication is required,
+     *            {@code false} if no authentication is needed.
      */
     public abstract void setNeedClientAuth(boolean need);
 
-
     /**
-     * Returns true if client authentication will be <i>required</i> on
-     * newly <code>accept</code>ed server-mode <code>SSLSocket</code>s.
-     * <P>
-     * The initial inherited setting may be overridden by calling
-     * {@link SSLSocket#setNeedClientAuth(boolean)} or
-     * {@link SSLSocket#setWantClientAuth(boolean)}.
+     * Returns whether server-mode connections will be configured to require
+     * client authentication.
      *
-     * @return  true if client authentication is required,
-     *          or false if no client authentication is desired.
-     * @see #setNeedClientAuth(boolean)
-     * @see #setWantClientAuth(boolean)
-     * @see #getWantClientAuth()
-     * @see #setUseClientMode(boolean)
+     * @return {@code true} if client authentication is required, {@code false}
+     *         if no client authentication is needed.
      */
     public abstract boolean getNeedClientAuth();
 
-
     /**
-     * Controls whether <code>accept</code>ed server-mode
-     * <code>SSLSockets</code> will be initially configured to
-     * <i>request</i> client authentication.
-     * <P>
-     * A socket's client authentication setting is one of the following:
+     * Sets whether server-mode connections will be configured to request client
+     * authentication. The client authentication is one of the following:
      * <ul>
-     * <li> client authentication required
-     * <li> client authentication requested
-     * <li> no client authentication desired
+     * <li>authentication required</li>
+     * <li>authentication requested</li>
+     * <li>no authentication needed</li>
      * </ul>
-     * <P>
-     * Unlike {@link #setNeedClientAuth(boolean)}, if the accepted
-     * socket's option is set and the client chooses not to provide
-     * authentication information about itself, <i>the negotiations
-     * will continue</i>.
-     * <P>
-     * Calling this method overrides any previous setting made by
-     * this method or {@link #setNeedClientAuth(boolean)}.
-     * <P>
-     * The initial inherited setting may be overridden by calling
-     * {@link SSLSocket#setNeedClientAuth(boolean)} or
-     * {@link SSLSocket#setWantClientAuth(boolean)}.
+     * This method overrides the setting of {@link #setNeedClientAuth(boolean)}.
      *
-     * @param   want set to true if client authentication is requested,
-     *          or false if no client authentication is desired.
-     * @see #getWantClientAuth()
-     * @see #setNeedClientAuth(boolean)
-     * @see #getNeedClientAuth()
-     * @see #setUseClientMode(boolean)
+     * @param want
+     *            {@code true} if client authentication should be requested,
+     *            {@code false} if no authentication is needed.
      */
     public abstract void setWantClientAuth(boolean want);
 
-
     /**
-     * Returns true if client authentication will be <i>requested</i> on
-     * newly accepted server-mode connections.
-     * <P>
-     * The initial inherited setting may be overridden by calling
-     * {@link SSLSocket#setNeedClientAuth(boolean)} or
-     * {@link SSLSocket#setWantClientAuth(boolean)}.
+     * Returns whether server-mode connections will be configured to request
+     * client authentication.
      *
-     * @return  true if client authentication is requested,
-     *          or false if no client authentication is desired.
-     * @see #setWantClientAuth(boolean)
-     * @see #setNeedClientAuth(boolean)
-     * @see #getNeedClientAuth()
-     * @see #setUseClientMode(boolean)
+     * @return {@code true} is client authentication will be requested,
+     *         {@code false} if no client authentication is needed.
      */
     public abstract boolean getWantClientAuth();
 
-
     /**
-     * Controls whether accepted connections are in the (default) SSL
-     * server mode, or the SSL client mode.
-     * <P>
-     * Servers normally authenticate themselves, and clients are not
-     * required to do so.
-     * <P>
-     * In rare cases, TCP servers
-     * need to act in the SSL client mode on newly accepted
-     * connections. For example, FTP clients acquire server sockets
-     * and listen there for reverse connections from the server. An
-     * FTP client would use an SSLServerSocket in "client" mode to
-     * accept the reverse connection while the FTP server uses an
-     * SSLSocket with "client" mode disabled to initiate the
-     * connection. During the resulting handshake, existing SSL
-     * sessions may be reused.
-     * <P>
-     * <code>SSLSocket</code>s returned from <code>accept()</code>
-     * inherit this setting.
+     * Sets whether new connections should act in client mode when handshaking.
      *
-     * @param mode true if newly accepted connections should use SSL
-     *          client mode.
-     * @see #getUseClientMode()
+     * @param mode
+     *            {@code true} if new connections should act in client mode,
+     *            {@code false} if not.
      */
     public abstract void setUseClientMode(boolean mode);
 
-
     /**
-     * Returns true if accepted connections will be in SSL client mode.
+     * Returns whether new connection will act in client mode when handshaking.
      *
-     * @see #setUseClientMode(boolean)
-     * @return true if the connection should use SSL client mode.
+     * @return {@code true} if new connections will act in client mode when
+     *         handshaking, {@code false} if not.
      */
     public abstract boolean getUseClientMode();
 
-
     /**
-     * Controls whether new SSL sessions may be established by the
-     * sockets which are created from this server socket.
-     * <P>
-     * <code>SSLSocket</code>s returned from <code>accept()</code>
-     * inherit this setting.
+     * Sets whether new SSL sessions may be established for new connections.
      *
-     * @param flag true indicates that sessions may be created; this
-     *          is the default. false indicates that an existing session
-     *          must be resumed.
-     * @see #getEnableSessionCreation()
+     * @param flag
+     *            {@code true} if new SSL sessions may be established,
+     *            {@code false} if existing SSL sessions must be reused.
      */
     public abstract void setEnableSessionCreation(boolean flag);
 
-
     /**
-     * Returns true if new SSL sessions may be established by the
-     * sockets which are created from this server socket.
+     * Returns whether new SSL sessions may be established for new connections.
      *
-     * @return true indicates that sessions may be created; this
-     *          is the default.  false indicates that an existing
-     *          session must be resumed
-     * @see #setEnableSessionCreation(boolean)
+     * @return {@code true} if new SSL sessions may be established,
+     *         {@code false} if existing SSL sessions must be reused.
      */
     public abstract boolean getEnableSessionCreation();
-
-    /**
-     * Returns the SSLParameters in effect for newly accepted connections.
-     * The ciphersuites and protocols of the returned SSLParameters
-     * are always non-null.
-     *
-     * @return the SSLParameters in effect for newly accepted connections
-     *
-     * @see #setSSLParameters(SSLParameters)
-     *
-     * @since 1.7
-     */
-    public SSLParameters getSSLParameters() {
-        SSLParameters parameters = new SSLParameters();
-
-        parameters.setCipherSuites(getEnabledCipherSuites());
-        parameters.setProtocols(getEnabledProtocols());
-        if (getNeedClientAuth()) {
-            parameters.setNeedClientAuth(true);
-        } else if (getWantClientAuth()) {
-            parameters.setWantClientAuth(true);
-        }
-
-        return parameters;
-    }
-
-    /**
-     * Applies SSLParameters to newly accepted connections.
-     *
-     * <p>This means:
-     * <ul>
-     * <li>If {@code params.getCipherSuites()} is non-null,
-     *   {@code setEnabledCipherSuites()} is called with that value.</li>
-     * <li>If {@code params.getProtocols()} is non-null,
-     *   {@code setEnabledProtocols()} is called with that value.</li>
-     * <li>If {@code params.getNeedClientAuth()} or
-     *   {@code params.getWantClientAuth()} return {@code true},
-     *   {@code setNeedClientAuth(true)} and
-     *   {@code setWantClientAuth(true)} are called, respectively;
-     *   otherwise {@code setWantClientAuth(false)} is called.</li>
-     * <li>If {@code params.getServerNames()} is non-null, the socket will
-     *   configure its server names with that value.</li>
-     * <li>If {@code params.getSNIMatchers()} is non-null, the socket will
-     *   configure its SNI matchers with that value.</li>
-     * </ul>
-     *
-     * @param params the parameters
-     * @throws IllegalArgumentException if the setEnabledCipherSuites() or
-     *    the setEnabledProtocols() call fails
-     *
-     * @see #getSSLParameters()
-     *
-     * @since 1.7
-     */
-    public void setSSLParameters(SSLParameters params) {
-        String[] s;
-        s = params.getCipherSuites();
-        if (s != null) {
-            setEnabledCipherSuites(s);
-        }
-
-        s = params.getProtocols();
-        if (s != null) {
-            setEnabledProtocols(s);
-        }
-
-        if (params.getNeedClientAuth()) {
-            setNeedClientAuth(true);
-        } else if (params.getWantClientAuth()) {
-            setWantClientAuth(true);
-        } else {
-            setWantClientAuth(false);
-        }
-    }
-
-    // Android-added: Make toString explicit that this is an SSLServerSocket (http://b/6602228)
-    @Override
-    public String toString() {
-        return "SSL" + super.toString();
-    }
-
 }

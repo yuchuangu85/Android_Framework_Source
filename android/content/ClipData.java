@@ -17,10 +17,6 @@
 package android.content;
 
 import static android.content.ContentProvider.maybeAddUserId;
-import static android.content.ContentResolver.SCHEME_ANDROID_RESOURCE;
-import static android.content.ContentResolver.SCHEME_CONTENT;
-import static android.content.ContentResolver.SCHEME_FILE;
-
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -34,25 +30,19 @@ import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.URLSpan;
 import android.util.Log;
-import android.util.proto.ProtoOutputStream;
-
-import com.android.internal.util.ArrayUtils;
-
-import libcore.io.IoUtils;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Representation of a clipped data on the clipboard.
  *
- * <p>ClipData is a complex type containing one or more Item instances,
+ * <p>ClippedData is a complex type containing one or Item instances,
  * each of which can hold one or more representations of an item of data.
- * For display to the user, it also has a label.</p>
+ * For display to the user, it also has a label and iconic representation.</p>
  *
  * <p>A ClipData contains a {@link ClipDescription}, which describes
  * important meta-data about the clip.  In particular, its
@@ -77,7 +67,7 @@ import java.util.List;
  * <a name="ImplementingPaste"></a>
  * <h3>Implementing Paste or Drop</h3>
  *
- * <p>To implement a paste or drop of a ClipData object into an application,
+ * <p>To implement a paste or drop of a ClippedData object into an application,
  * the application must correctly interpret the data for its use.  If the {@link Item}
  * it contains is simple text or an Intent, there is little to be done: text
  * can only be interpreted as text, and an Intent will typically be used for
@@ -91,7 +81,7 @@ import java.util.List;
  * since any clip item can always be converted to a string.
  *
  * <p>More complicated exchanges will be done through URIs, in particular
- * "content:" URIs.  A content URI allows the recipient of a ClipData item
+ * "content:" URIs.  A content URI allows the recipient of a ClippedData item
  * to interact closely with the ContentProvider holding the data in order to
  * negotiate the transfer of that data.  The clip must also be filled in with
  * the available MIME types; {@link #newUri(ContentResolver, CharSequence, Uri)}
@@ -122,7 +112,7 @@ import java.util.List;
  * <a name="ImplementingCopy"></a>
  * <h3>Implementing Copy or Drag</h3>
  *
- * <p>To be the source of a clip, the application must construct a ClipData
+ * <p>To be the source of a clip, the application must construct a ClippedData
  * object that any recipient can interpret best for their context.  If the clip
  * is to contain a simple text, Intent, or URI, this is easy: an {@link Item}
  * containing the appropriate data type can be constructed and used.
@@ -169,13 +159,13 @@ public class ClipData implements Parcelable {
         ClipDescription.MIMETYPE_TEXT_INTENT };
 
     final ClipDescription mClipDescription;
-
+    
     final Bitmap mIcon;
 
     final ArrayList<Item> mItems;
 
     /**
-     * Description of a single item in a ClipData.
+     * Description of a single item in a ClippedData.
      *
      * <p>The types than an individual item can currently contain are:</p>
      *
@@ -198,14 +188,6 @@ public class ClipData implements Parcelable {
         final String mHtmlText;
         final Intent mIntent;
         Uri mUri;
-
-        /** @hide */
-        public Item(Item other) {
-            mText = other.mText;
-            mHtmlText = other.mHtmlText;
-            mIntent = other.mIntent;
-            mUri = other.mUri;
-        }
 
         /**
          * Create an Item consisting of a single block of (possibly styled) text.
@@ -338,56 +320,47 @@ public class ClipData implements Parcelable {
             // If this Item has a URI value, try using that.
             Uri uri = getUri();
             if (uri != null) {
+
                 // First see if the URI can be opened as a plain text stream
                 // (of any sub-type).  If so, this is the best textual
                 // representation for it.
-                final ContentResolver resolver = context.getContentResolver();
-                AssetFileDescriptor descr = null;
                 FileInputStream stream = null;
-                InputStreamReader reader = null;
                 try {
-                    try {
-                        // Ask for a stream of the desired type.
-                        descr = resolver.openTypedAssetFileDescriptor(uri, "text/*", null);
-                    } catch (SecurityException e) {
-                        Log.w("ClipData", "Failure opening stream", e);
-                    } catch (FileNotFoundException|RuntimeException e) {
-                        // Unable to open content URI as text...  not really an
-                        // error, just something to ignore.
-                    }
-                    if (descr != null) {
-                        try {
-                            stream = descr.createInputStream();
-                            reader = new InputStreamReader(stream, "UTF-8");
+                    // Ask for a stream of the desired type.
+                    AssetFileDescriptor descr = context.getContentResolver()
+                            .openTypedAssetFileDescriptor(uri, "text/*", null);
+                    stream = descr.createInputStream();
+                    InputStreamReader reader = new InputStreamReader(stream, "UTF-8");
 
-                            // Got it...  copy the stream into a local string and return it.
-                            final StringBuilder builder = new StringBuilder(128);
-                            char[] buffer = new char[8192];
-                            int len;
-                            while ((len=reader.read(buffer)) > 0) {
-                                builder.append(buffer, 0, len);
-                            }
-                            return builder.toString();
+                    // Got it...  copy the stream into a local string and return it.
+                    StringBuilder builder = new StringBuilder(128);
+                    char[] buffer = new char[8192];
+                    int len;
+                    while ((len=reader.read(buffer)) > 0) {
+                        builder.append(buffer, 0, len);
+                    }
+                    return builder.toString();
+
+                } catch (FileNotFoundException e) {
+                    // Unable to open content URI as text...  not really an
+                    // error, just something to ignore.
+
+                } catch (IOException e) {
+                    // Something bad has happened.
+                    Log.w("ClippedData", "Failure loading text", e);
+                    return e.toString();
+
+                } finally {
+                    if (stream != null) {
+                        try {
+                            stream.close();
                         } catch (IOException e) {
-                            // Something bad has happened.
-                            Log.w("ClipData", "Failure loading text", e);
-                            return e.toString();
                         }
                     }
-                } finally {
-                    IoUtils.closeQuietly(descr);
-                    IoUtils.closeQuietly(stream);
-                    IoUtils.closeQuietly(reader);
                 }
 
-                // If we couldn't open the URI as a stream, use the URI itself as a textual
-                // representation (but not for "content", "android.resource" or "file" schemes).
-                final String scheme = uri.getScheme();
-                if (SCHEME_CONTENT.equals(scheme)
-                        || SCHEME_ANDROID_RESOURCE.equals(scheme)
-                        || SCHEME_FILE.equals(scheme)) {
-                    return "";
-                }
+                // If we couldn't open the URI as a stream, then the URI itself
+                // probably serves fairly well as a textual representation.
                 return uri.toString();
             }
 
@@ -488,12 +461,7 @@ public class ClipData implements Parcelable {
                 // Check to see what data representations the content
                 // provider supports.  We would like HTML text, but if that
                 // is not possible we'll live with plan text.
-                String[] types = null;
-                try {
-                    types = context.getContentResolver().getStreamTypes(mUri, "text/*");
-                } catch (SecurityException e) {
-                    // No read permission for mUri, assume empty stream types list.
-                }
+                String[] types = context.getContentResolver().getStreamTypes(mUri, "text/*");
                 boolean hasHtml = false;
                 boolean hasText = false;
                 if (types != null) {
@@ -551,16 +519,13 @@ public class ClipData implements Parcelable {
                             return Html.escapeHtml(text);
                         }
 
-                    } catch (SecurityException e) {
-                        Log.w("ClipData", "Failure opening stream", e);
-
                     } catch (FileNotFoundException e) {
                         // Unable to open content URI as text...  not really an
                         // error, just something to ignore.
 
                     } catch (IOException e) {
                         // Something bad has happened.
-                        Log.w("ClipData", "Failure loading text", e);
+                        Log.w("ClippedData", "Failure loading text", e);
                         return Html.escapeHtml(e.toString());
 
                     } finally {
@@ -573,15 +538,9 @@ public class ClipData implements Parcelable {
                     }
                 }
 
-                // If we couldn't open the URI as a stream, use the URI itself as a textual
-                // representation (but not for "content", "android.resource" or "file" schemes).
-                final String scheme = mUri.getScheme();
-                if (SCHEME_CONTENT.equals(scheme)
-                        || SCHEME_ANDROID_RESOURCE.equals(scheme)
-                        || SCHEME_FILE.equals(scheme)) {
-                    return "";
-                }
-
+                // If we couldn't open the URI as a stream, then we can build
+                // some HTML text with the URI itself.
+                // probably serves fairly well as a textual representation.
                 if (styled) {
                     return uriToStyledText(mUri.toString());
                 } else {
@@ -650,42 +609,6 @@ public class ClipData implements Parcelable {
                 b.append("NULL");
             }
         }
-
-        /** @hide */
-        public void toShortSummaryString(StringBuilder b) {
-            if (mHtmlText != null) {
-                b.append("HTML");
-            } else if (mText != null) {
-                b.append("TEXT");
-            } else if (mUri != null) {
-                b.append("U:");
-                b.append(mUri);
-            } else if (mIntent != null) {
-                b.append("I:");
-                mIntent.toShortString(b, true, true, true, true);
-            } else {
-                b.append("NULL");
-            }
-        }
-
-        /** @hide */
-        public void writeToProto(ProtoOutputStream proto, long fieldId) {
-            final long token = proto.start(fieldId);
-
-            if (mHtmlText != null) {
-                proto.write(ClipDataProto.Item.HTML_TEXT, mHtmlText);
-            } else if (mText != null) {
-                proto.write(ClipDataProto.Item.TEXT, mText.toString());
-            } else if (mUri != null) {
-                proto.write(ClipDataProto.Item.URI, mUri.toString());
-            } else if (mIntent != null) {
-                mIntent.writeToProto(proto, ClipDataProto.Item.INTENT, true, true, true, true);
-            } else {
-                proto.write(ClipDataProto.Item.NOTHING, true);
-            }
-
-            proto.end(token);
-        }
     }
 
     /**
@@ -719,24 +642,6 @@ public class ClipData implements Parcelable {
         mIcon = null;
         mItems = new ArrayList<Item>();
         mItems.add(item);
-    }
-
-    /**
-     * Create a new clip.
-     *
-     * @param description The ClipDescription describing the clip contents.
-     * @param items The items in the clip. Not that a defensive copy of this
-     *     list is not made, so caution should be taken to ensure the
-     *     list is not available for further modification.
-     * @hide
-     */
-    public ClipData(ClipDescription description, ArrayList<Item> items) {
-        mClipDescription = description;
-        if (items == null) {
-            throw new NullPointerException("item is null");
-        }
-        mIcon = null;
-        mItems = items;
     }
 
     /**
@@ -807,37 +712,30 @@ public class ClipData implements Parcelable {
     static public ClipData newUri(ContentResolver resolver, CharSequence label,
             Uri uri) {
         Item item = new Item(uri);
-        String[] mimeTypes = getMimeTypes(resolver, uri);
-        return new ClipData(label, mimeTypes, item);
-    }
-
-    /**
-     * Finds all applicable MIME types for a given URI.
-     *
-     * @param resolver ContentResolver used to get information about the URI.
-     * @param uri The URI.
-     * @return Returns an array of MIME types.
-     */
-    private static String[] getMimeTypes(ContentResolver resolver, Uri uri) {
         String[] mimeTypes = null;
-        if (SCHEME_CONTENT.equals(uri.getScheme())) {
+        if ("content".equals(uri.getScheme())) {
             String realType = resolver.getType(uri);
             mimeTypes = resolver.getStreamTypes(uri, "*/*");
-            if (realType != null) {
-                if (mimeTypes == null) {
-                    mimeTypes = new String[] { realType };
-                } else if (!ArrayUtils.contains(mimeTypes, realType)) {
-                    String[] tmp = new String[mimeTypes.length + 1];
-                    tmp[0] = realType;
-                    System.arraycopy(mimeTypes, 0, tmp, 1, mimeTypes.length);
-                    mimeTypes = tmp;
+            if (mimeTypes == null) {
+                if (realType != null) {
+                    mimeTypes = new String[] { realType, ClipDescription.MIMETYPE_TEXT_URILIST };
                 }
+            } else {
+                String[] tmp = new String[mimeTypes.length + (realType != null ? 2 : 1)];
+                int i = 0;
+                if (realType != null) {
+                    tmp[0] = realType;
+                    i++;
+                }
+                System.arraycopy(mimeTypes, 0, tmp, i, mimeTypes.length);
+                tmp[i + mimeTypes.length] = ClipDescription.MIMETYPE_TEXT_URILIST;
+                mimeTypes = tmp;
             }
         }
         if (mimeTypes == null) {
             mimeTypes = MIMETYPES_TEXT_URILIST;
         }
-        return mimeTypes;
+        return new ClipData(label, mimeTypes, item);
     }
 
     /**
@@ -863,52 +761,15 @@ public class ClipData implements Parcelable {
     public ClipDescription getDescription() {
         return mClipDescription;
     }
-
+    
     /**
      * Add a new Item to the overall ClipData container.
-     * <p> This method will <em>not</em> update the list of available MIME types in the
-     * {@link ClipDescription}. It should be used only when adding items which do not add new
-     * MIME types to this clip. If this is not the case, use {@link #addItem(ContentResolver, Item)}
-     * or call {@link #ClipData(CharSequence, String[], Item)} with a complete list of MIME types.
-     * @param item Item to be added.
      */
     public void addItem(Item item) {
         if (item == null) {
             throw new NullPointerException("item is null");
         }
         mItems.add(item);
-    }
-
-    /** @removed use #addItem(ContentResolver, Item) instead */
-    @Deprecated
-    public void addItem(Item item, ContentResolver resolver) {
-        addItem(resolver, item);
-    }
-
-    /**
-     * Add a new Item to the overall ClipData container.
-     * <p> Unlike {@link #addItem(Item)}, this method will update the list of available MIME types
-     * in the {@link ClipDescription}.
-     * @param resolver ContentResolver used to get information about the URI possibly contained in
-     * the item.
-     * @param item Item to be added.
-     */
-    public void addItem(ContentResolver resolver, Item item) {
-        addItem(item);
-
-        if (item.getHtmlText() != null) {
-            mClipDescription.addMimeTypes(MIMETYPES_TEXT_HTML);
-        } else if (item.getText() != null) {
-            mClipDescription.addMimeTypes(MIMETYPES_TEXT_PLAIN);
-        }
-
-        if (item.getIntent() != null) {
-            mClipDescription.addMimeTypes(MIMETYPES_TEXT_INTENT);
-        }
-
-        if (item.getUri() != null) {
-            mClipDescription.addMimeTypes(getMimeTypes(resolver, item.getUri()));
-        }
     }
 
     /** @hide */
@@ -931,52 +792,20 @@ public class ClipData implements Parcelable {
         return mItems.get(index);
     }
 
-    /** @hide */
-    public void setItemAt(int index, Item item) {
-        mItems.set(index, item);
-    }
-
     /**
      * Prepare this {@link ClipData} to leave an app process.
      *
      * @hide
      */
-    public void prepareToLeaveProcess(boolean leavingPackage) {
-        // Assume that callers are going to be granting permissions
-        prepareToLeaveProcess(leavingPackage, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-    }
-
-    /**
-     * Prepare this {@link ClipData} to leave an app process.
-     *
-     * @hide
-     */
-    public void prepareToLeaveProcess(boolean leavingPackage, int intentFlags) {
+    public void prepareToLeaveProcess() {
         final int size = mItems.size();
         for (int i = 0; i < size; i++) {
             final Item item = mItems.get(i);
             if (item.mIntent != null) {
-                item.mIntent.prepareToLeaveProcess(leavingPackage);
+                item.mIntent.prepareToLeaveProcess();
             }
-            if (item.mUri != null && leavingPackage) {
-                if (StrictMode.vmFileUriExposureEnabled()) {
-                    item.mUri.checkFileUriExposed("ClipData.Item.getUri()");
-                }
-                if (StrictMode.vmContentUriWithoutPermissionEnabled()) {
-                    item.mUri.checkContentUriWithoutPermission("ClipData.Item.getUri()",
-                            intentFlags);
-                }
-            }
-        }
-    }
-
-    /** {@hide} */
-    public void prepareToEnterProcess() {
-        final int size = mItems.size();
-        for (int i = 0; i < size; i++) {
-            final Item item = mItems.get(i);
-            if (item.mIntent != null) {
-                item.mIntent.prepareToEnterProcess();
+            if (item.mUri != null && StrictMode.vmFileUriExposureEnabled()) {
+                item.mUri.checkFileUriExposed("ClipData.Item.getUri()");
             }
         }
     }
@@ -1055,60 +884,6 @@ public class ClipData implements Parcelable {
         }
     }
 
-    /** @hide */
-    public void toShortStringShortItems(StringBuilder b, boolean first) {
-        if (mItems.size() > 0) {
-            if (!first) {
-                b.append(' ');
-            }
-            mItems.get(0).toShortString(b);
-            if (mItems.size() > 1) {
-                b.append(" ...");
-            }
-        }
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long token = proto.start(fieldId);
-
-        if (mClipDescription != null) {
-            mClipDescription.writeToProto(proto, ClipDataProto.DESCRIPTION);
-        }
-        if (mIcon != null) {
-            final long iToken = proto.start(ClipDataProto.ICON);
-            proto.write(ClipDataProto.Icon.WIDTH, mIcon.getWidth());
-            proto.write(ClipDataProto.Icon.HEIGHT, mIcon.getHeight());
-            proto.end(iToken);
-        }
-        for (int i = 0; i < mItems.size(); i++) {
-            mItems.get(i).writeToProto(proto, ClipDataProto.ITEMS);
-        }
-
-        proto.end(token);
-    }
-
-    /** @hide */
-    public void collectUris(List<Uri> out) {
-        for (int i = 0; i < mItems.size(); ++i) {
-            ClipData.Item item = getItemAt(i);
-
-            if (item.getUri() != null) {
-                out.add(item.getUri());
-            }
-
-            Intent intent = item.getIntent();
-            if (intent != null) {
-                if (intent.getData() != null) {
-                    out.add(intent.getData());
-                }
-                if (intent.getClipData() != null) {
-                    intent.getClipData().collectUris(out);
-                }
-            }
-        }
-    }
-
     @Override
     public int describeContents() {
         return 0;
@@ -1165,12 +940,10 @@ public class ClipData implements Parcelable {
     public static final Parcelable.Creator<ClipData> CREATOR =
         new Parcelable.Creator<ClipData>() {
 
-            @Override
             public ClipData createFromParcel(Parcel source) {
                 return new ClipData(source);
             }
 
-            @Override
             public ClipData[] newArray(int size) {
                 return new ClipData[size];
             }

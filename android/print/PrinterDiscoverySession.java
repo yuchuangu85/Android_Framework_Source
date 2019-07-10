@@ -16,8 +16,6 @@
 
 package android.print;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.Context;
 import android.content.pm.ParceledListSlice;
 import android.os.Handler;
@@ -74,7 +72,7 @@ public final class PrinterDiscoverySession {
         }
     }
 
-    public final void startPrinterDiscovery(@Nullable List<PrinterId> priorityList) {
+    public final void startPrinterDiscovery(List<PrinterId> priorityList) {
         if (isDestroyed()) {
             Log.w(LOG_TAG, "Ignoring start printers discovery - session destroyed");
             return;
@@ -104,7 +102,7 @@ public final class PrinterDiscoverySession {
         }
     }
 
-    public final void startPrinterStateTracking(@NonNull PrinterId printerId) {
+    public final void startPrinterStateTracking(PrinterId printerId) {
         if (isDestroyed()) {
             Log.w(LOG_TAG, "Ignoring start printer state tracking - session destroyed");
             return;
@@ -116,7 +114,7 @@ public final class PrinterDiscoverySession {
         }
     }
 
-    public final void stopPrinterStateTracking(@NonNull PrinterId printerId) {
+    public final void stopPrinterStateTracking(PrinterId printerId) {
         if (isDestroyed()) {
             Log.w(LOG_TAG, "Ignoring stop printer state tracking - session destroyed");
             return;
@@ -287,7 +285,7 @@ public final class PrinterDiscoverySession {
         }
     }
 
-    public static final class PrinterDiscoveryObserver extends IPrinterDiscoveryObserver.Stub {
+    private static final class PrinterDiscoveryObserver extends IPrinterDiscoveryObserver.Stub {
 
         private final WeakReference<PrinterDiscoverySession> mWeakSession;
 

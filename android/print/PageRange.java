@@ -16,8 +16,6 @@
 
 package android.print;
 
-import android.annotation.IntRange;
-import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -32,9 +30,6 @@ public final class PageRange implements Parcelable {
      */
     public static final PageRange ALL_PAGES = new PageRange(0, Integer.MAX_VALUE);
 
-    /** @hide */
-    public static final PageRange[] ALL_PAGES_ARRAY = new PageRange[]{PageRange.ALL_PAGES};
-
     private final int mStart;
     private final int mEnd;
 
@@ -47,7 +42,7 @@ public final class PageRange implements Parcelable {
      * @throws IllegalArgumentException If start is less than zero or end
      * is less than zero or start greater than end.
      */
-    public PageRange(@IntRange(from = 0) int start, @IntRange(from = 0) int end) {
+    public PageRange(int start, int end) {
         if (start < 0) {
             throw new IllegalArgumentException("start cannot be less than zero.");
         }
@@ -61,7 +56,7 @@ public final class PageRange implements Parcelable {
         mEnd = end;
     }
 
-    private PageRange(@NonNull Parcel parcel) {
+    private PageRange (Parcel parcel) {
         this(parcel.readInt(), parcel.readInt());
     }
 
@@ -70,7 +65,7 @@ public final class PageRange implements Parcelable {
      *
      * @return The start page index.
      */
-    public @IntRange(from = 0) int getStart() {
+    public int getStart() {
         return mStart;
     }
 
@@ -79,7 +74,7 @@ public final class PageRange implements Parcelable {
      *
      * @return The end page index.
      */
-    public @IntRange(from = 0) int getEnd() {
+    public int getEnd() {
         return mEnd;
     }
 

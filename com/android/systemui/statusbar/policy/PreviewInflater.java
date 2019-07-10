@@ -119,16 +119,13 @@ public class PreviewInflater {
 
     private WidgetInfo getWidgetInfo(Intent intent) {
         PackageManager packageManager = mContext.getPackageManager();
-        int flags = PackageManager.MATCH_DEFAULT_ONLY
-                | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
         final List<ResolveInfo> appList = packageManager.queryIntentActivitiesAsUser(
-                intent, flags, KeyguardUpdateMonitor.getCurrentUser());
+                intent, PackageManager.MATCH_DEFAULT_ONLY, KeyguardUpdateMonitor.getCurrentUser());
         if (appList.size() == 0) {
             return null;
         }
         ResolveInfo resolved = packageManager.resolveActivityAsUser(intent,
-                flags | PackageManager.GET_META_DATA,
+                PackageManager.MATCH_DEFAULT_ONLY | PackageManager.GET_META_DATA,
                 KeyguardUpdateMonitor.getCurrentUser());
         if (wouldLaunchResolverActivity(resolved, appList)) {
             return null;
@@ -142,32 +139,23 @@ public class PreviewInflater {
 
     public static boolean wouldLaunchResolverActivity(Context ctx, Intent intent,
             int currentUserId) {
-        return getTargetActivityInfo(ctx, intent, currentUserId, false /* onlyDirectBootAware */)
-                == null;
+        return getTargetActivityInfo(ctx, intent, currentUserId) == null;
     }
 
     /**
-     * @param onlyDirectBootAware a boolean indicating whether the matched activity packages must
-     *                            be direct boot aware when in direct boot mode if false, all
-     *                            packages are considered a match even if they are not aware.
      * @return the target activity info of the intent it resolves to a specific package or
      *         {@code null} if it resolved to the resolver activity
      */
     public static ActivityInfo getTargetActivityInfo(Context ctx, Intent intent,
-            int currentUserId, boolean onlyDirectBootAware) {
+            int currentUserId) {
         PackageManager packageManager = ctx.getPackageManager();
-        int flags = PackageManager.MATCH_DEFAULT_ONLY;
-        if (!onlyDirectBootAware) {
-            flags |=  PackageManager.MATCH_DIRECT_BOOT_AWARE
-                    | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
-        }
         final List<ResolveInfo> appList = packageManager.queryIntentActivitiesAsUser(
-                intent, flags, currentUserId);
+                intent, PackageManager.MATCH_DEFAULT_ONLY, currentUserId);
         if (appList.size() == 0) {
             return null;
         }
         ResolveInfo resolved = packageManager.resolveActivityAsUser(intent,
-                flags | PackageManager.GET_META_DATA, currentUserId);
+                PackageManager.MATCH_DEFAULT_ONLY | PackageManager.GET_META_DATA, currentUserId);
         if (resolved == null || wouldLaunchResolverActivity(resolved, appList)) {
             return null;
         } else {

@@ -37,6 +37,5 @@ public class ViewWithTagTest extends BaseDataBinderTest<ViewWithTagBinding> {
         assertTrue(view2 instanceof TextView);
         assertEquals("i don't have tag", ((TextView) view2).getText().toString());
         assertEquals("i have a tag", view1.getTag().toString());
-        assertEquals("Hello", view2.getTag(R.id.customTag));
     }
 }

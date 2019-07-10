@@ -17,14 +17,13 @@ package com.android.keyguard;
 
 import android.app.admin.DevicePolicyManager;
 import android.graphics.Bitmap;
-import android.hardware.fingerprint.FingerprintManager;
 import android.media.AudioManager;
 import android.os.SystemClock;
+import android.hardware.fingerprint.FingerprintManager;
 import android.telephony.TelephonyManager;
-import android.view.WindowManagerPolicyConstants;
+import android.view.WindowManagerPolicy;
 
 import com.android.internal.telephony.IccCardConstants;
-import com.android.systemui.statusbar.KeyguardIndicationController;
 
 /**
  * Callback for general information relevant to lock screen.
@@ -129,11 +128,6 @@ public class KeyguardUpdateMonitorCallback {
     public void onUserInfoChanged(int userId) { }
 
     /**
-     * Called when a user got unlocked.
-     */
-    public void onUserUnlocked() { }
-
-    /**
      * Called when boot completed.
      *
      * Note, this callback will only be received if boot complete occurs after registering with
@@ -155,47 +149,16 @@ public class KeyguardUpdateMonitorCallback {
 
     /**
      * Called when the device has started waking up.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.WakefulnessLifecycle}.
      */
-    @Deprecated
     public void onStartedWakingUp() { }
 
     /**
-     * Called when the device has started going to sleep.
-     * @param why see {@link #onFinishedGoingToSleep(int)}
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.WakefulnessLifecycle}.
-     */
-    @Deprecated
-    public void onStartedGoingToSleep(int why) { }
-
-    /**
      * Called when the device has finished going to sleep.
-     * @param why either {@link WindowManagerPolicyConstants#OFF_BECAUSE_OF_ADMIN},
-     * {@link WindowManagerPolicyConstants#OFF_BECAUSE_OF_USER}, or
-     * {@link WindowManagerPolicyConstants#OFF_BECAUSE_OF_TIMEOUT}.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.WakefulnessLifecycle}.
+     * @param why either {@link WindowManagerPolicy#OFF_BECAUSE_OF_ADMIN},
+     * {@link WindowManagerPolicy#OFF_BECAUSE_OF_USER}, or
+     * {@link WindowManagerPolicy#OFF_BECAUSE_OF_TIMEOUT}.
      */
-    @Deprecated
     public void onFinishedGoingToSleep(int why) { }
-
-    /**
-     * Called when the screen has been turned on.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.ScreenLifecycle}.
-     */
-    @Deprecated
-    public void onScreenTurnedOn() { }
-
-    /**
-     * Called when the screen has been turned off.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.ScreenLifecycle}.
-     */
-    @Deprecated
-    public void onScreenTurnedOff() { }
 
     /**
      * Called when trust changes for a user.
@@ -213,23 +176,12 @@ public class KeyguardUpdateMonitorCallback {
     public void onTrustGrantedWithFlags(int flags, int userId) { }
 
     /**
-     * Called when a finger has been acquired.
-     * <p>
-     * It is guaranteed that either {@link #onFingerprintAuthenticated} or
-     * {@link #onFingerprintAuthFailed()} is called after this method eventually.
-     */
-    public void onFingerprintAcquired() { }
-
-    /**
-     * Called when a fingerprint couldn't be authenticated.
-     */
-    public void onFingerprintAuthFailed() { }
-
-    /**
      * Called when a fingerprint is recognized.
      * @param userId the user id for which the fingerprint was authenticated
+     * @param wakeAndUnlocking whether the authentication woke the device up and thus we'd like to
+     *                         dismiss the lockscreen before turning on the screen
      */
-    public void onFingerprintAuthenticated(int userId) { }
+    public void onFingerprintAuthenticated(int userId, boolean wakeAndUnlocking) { }
 
     /**
      * Called when fingerprint provides help string (e.g. "Try again")
@@ -255,39 +207,4 @@ public class KeyguardUpdateMonitorCallback {
      * Called when the fingerprint running state changed.
      */
     public void onFingerprintRunningStateChanged(boolean running) { }
-
-    /**
-     * Called when the state that the user hasn't used strong authentication since quite some time
-     * has changed.
-     */
-    public void onStrongAuthStateChanged(int userId) { }
-
-    /**
-     * Called when the state whether we have a lockscreen wallpaper has changed.
-     */
-    public void onHasLockscreenWallpaperChanged(boolean hasLockscreenWallpaper) { }
-
-    /**
-     * Called when the dream's window state is changed.
-     * @param dreaming true if the dream's window has been created and is visible
-     */
-    public void onDreamingStateChanged(boolean dreaming) { }
-
-    /**
-     * Called when an error message needs to be presented on the keyguard.
-     * Message will be visible briefly, and might be overridden by other keyguard events,
-     * like fingerprint authentication errors.
-     *
-     * @param message Message that indicates an error.
-     * @see KeyguardIndicationController.BaseKeyguardCallback#HIDE_DELAY_MS
-     * @see KeyguardIndicationController#showTransientIndication(CharSequence)
-     */
-    public void onTrustAgentErrorMessage(CharSequence message) { }
-
-
-    /**
-     * Called when a value of logout enabled is change.
-     */
-    public void onLogoutEnabledChanged() { }
-
 }

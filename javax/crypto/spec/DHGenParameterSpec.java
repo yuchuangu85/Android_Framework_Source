@@ -1,64 +1,41 @@
 /*
- * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto.spec;
 
-import java.math.BigInteger;
 import java.security.spec.AlgorithmParameterSpec;
 
 /**
- * This class specifies the set of parameters used for generating
- * Diffie-Hellman (system) parameters for use in Diffie-Hellman key
- * agreement. This is typically done by a central
- * authority.
- *
- * <p> The central authority, after computing the parameters, must send this
- * information to the parties looking to agree on a secret key.
- *
- * @author Jan Luehe
- *
- * @see DHParameterSpec
- * @since 1.4
+ * The algorithm parameter specification for generating Diffie-Hellman
+ * parameters used in Diffie-Hellman key agreement.
  */
 public class DHGenParameterSpec implements AlgorithmParameterSpec {
 
-    // The size in bits of the prime modulus
-    private int primeSize;
-
-    // The size in bits of the random exponent (private value)
-    private int exponentSize;
+    private final int primeSize;
+    private final int exponentSize;
 
     /**
-     * Constructs a parameter set for the generation of Diffie-Hellman
-     * (system) parameters. The constructed parameter set can be used to
-     * initialize an
-     * {@link java.security.AlgorithmParameterGenerator AlgorithmParameterGenerator}
-     * object for the generation of Diffie-Hellman parameters.
+     * Creates a new <code>DHGenParameterSpec</code> instance with the specified
+     * parameters.
      *
-     * @param primeSize the size (in bits) of the prime modulus.
-     * @param exponentSize the size (in bits) of the random exponent.
+     * @param primeSize
+     *            the size of the <i>prime modulus</i> in bits.
+     * @param exponentSize
+     *            the size of the <i>random exponent</i> in bits.
      */
     public DHGenParameterSpec(int primeSize, int exponentSize) {
         this.primeSize = primeSize;
@@ -66,20 +43,21 @@ public class DHGenParameterSpec implements AlgorithmParameterSpec {
     }
 
     /**
-     * Returns the size in bits of the prime modulus.
+     * Returns the size of the <i>prime modulus</i> in bits.
      *
-     * @return the size in bits of the prime modulus
+     * @return the size of the prime modulus in bits.
      */
     public int getPrimeSize() {
-        return this.primeSize;
+        return primeSize;
     }
 
     /**
-     * Returns the size in bits of the random exponent (private value).
+     * Returns the size of the <i>random exponent</i> in bits.
      *
-     * @return the size in bits of the random exponent (private value)
+     * @return the size of the random exponent in bits.
      */
     public int getExponentSize() {
-        return this.exponentSize;
+        return exponentSize;
     }
 }
+

@@ -16,31 +16,23 @@
 
 package android.databinding;
 
+import com.android.databinding.library.R;
+
 import android.annotation.TargetApi;
-import android.content.res.ColorStateList;
 import android.databinding.CallbackRegistry.NotifierCallback;
-import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.LongSparseArray;
-import android.util.SparseArray;
-import android.util.SparseBooleanArray;
 import android.util.SparseIntArray;
-import android.util.SparseLongArray;
 import android.view.Choreographer;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.ViewGroup;
 
-import com.android.databinding.library.R;
-
 import java.lang.ref.WeakReference;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Base class for generated data binding classes. If possible, the generated binding should
@@ -48,7 +40,7 @@ import java.util.Map;
  * binding is unknown, {@link DataBindingUtil#bind(View)} or
  * {@link DataBindingUtil#inflate(LayoutInflater, int, ViewGroup, boolean)} should be used.
  */
-public abstract class ViewDataBinding extends BaseObservable {
+public abstract class ViewDataBinding {
 
     /**
      * Instead of directly accessing Build.VERSION.SDK_INT, generated code uses this value so that
@@ -300,8 +292,8 @@ public abstract class ViewDataBinding extends BaseObservable {
      * @param variableId the BR id of the variable to be set. For example, if the variable is
      *                   <code>x</code>, then variableId will be <code>BR.x</code>.
      * @param value The new value of the variable to be set.
-     * @return <code>true</code> if the variable is declared or used in the binding or
-     * <code>false</code> otherwise.
+     * @return <code>true</code> if the variable exists in the binding or <code>false</code>
+     * otherwise.
      */
     public abstract boolean setVariable(int variableId, Object value);
 
@@ -569,394 +561,6 @@ public abstract class ViewDataBinding extends BaseObservable {
         return bindings;
     }
 
-    /** @hide */
-    protected static boolean parse(String str, boolean fallback) {
-        if (str == null) {
-            return fallback;
-        }
-        return Boolean.parseBoolean(str);
-    }
-
-    /** @hide */
-    protected static byte parse(String str, byte fallback) {
-        try {
-            return Byte.parseByte(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static short parse(String str, short fallback) {
-        try {
-            return Short.parseShort(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static int parse(String str, int fallback) {
-        try {
-            return Integer.parseInt(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static long parse(String str, long fallback) {
-        try {
-            return Long.parseLong(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static float parse(String str, float fallback) {
-        try {
-            return Float.parseFloat(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static double parse(String str, double fallback) {
-        try {
-            return Double.parseDouble(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static char parse(String str, char fallback) {
-        if (str == null || str.isEmpty()) {
-            return fallback;
-        }
-        return str.charAt(0);
-    }
-
-    /** @hide */
-    protected static int getColorFromResource(View view, int resourceId) {
-        if (VERSION.SDK_INT >= VERSION_CODES.M) {
-            return view.getContext().getColor(resourceId);
-        } else {
-            return view.getResources().getColor(resourceId);
-        }
-    }
-
-    /** @hide */
-    protected static ColorStateList getColorStateListFromResource(View view, int resourceId) {
-        if (VERSION.SDK_INT >= VERSION_CODES.M) {
-            return view.getContext().getColorStateList(resourceId);
-        } else {
-            return view.getResources().getColorStateList(resourceId);
-        }
-    }
-
-    /** @hide */
-    protected static Drawable getDrawableFromResource(View view, int resourceId) {
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            return view.getContext().getDrawable(resourceId);
-        } else {
-            return view.getResources().getDrawable(resourceId);
-        }
-    }
-
-    /** @hide */
-    protected static <T> T getFromArray(T[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return null;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static <T> void setTo(T[] arr, int index, T value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static boolean getFromArray(boolean[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return false;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(boolean[] arr, int index, boolean value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static byte getFromArray(byte[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(byte[] arr, int index, byte value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static short getFromArray(short[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(short[] arr, int index, short value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static char getFromArray(char[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(char[] arr, int index, char value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static int getFromArray(int[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(int[] arr, int index, int value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static long getFromArray(long[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(long[] arr, int index, long value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static float getFromArray(float[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(float[] arr, int index, float value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static double getFromArray(double[] arr, int index) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return 0;
-        }
-        return arr[index];
-    }
-
-    /** @hide */
-    protected static void setTo(double[] arr, int index, double value) {
-        if (arr == null || index < 0 || index >= arr.length) {
-            return;
-        }
-        arr[index] = value;
-    }
-
-    /** @hide */
-    protected static <T> T getFromList(List<T> list, int index) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return null;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    protected static <T> void setTo(List<T> list, int index, T value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.set(index, value);
-    }
-
-    /** @hide */
-    protected static <T> T getFromList(SparseArray<T> list, int index) {
-        if (list == null || index < 0) {
-            return null;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    protected static <T> void setTo(SparseArray<T> list, int index, T value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    @TargetApi(VERSION_CODES.JELLY_BEAN)
-    protected static <T> T getFromList(LongSparseArray<T> list, int index) {
-        if (list == null || index < 0) {
-            return null;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    @TargetApi(VERSION_CODES.JELLY_BEAN)
-    protected static <T> void setTo(LongSparseArray<T> list, int index, T value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    protected static <T> T getFromList(android.support.v4.util.LongSparseArray<T> list, int index) {
-        if (list == null || index < 0) {
-            return null;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    protected static <T> void setTo(android.support.v4.util.LongSparseArray<T> list, int index,
-            T value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    protected static boolean getFromList(SparseBooleanArray list, int index) {
-        if (list == null || index < 0) {
-            return false;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    protected static void setTo(SparseBooleanArray list, int index, boolean value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    protected static int getFromList(SparseIntArray list, int index) {
-        if (list == null || index < 0) {
-            return 0;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    protected static void setTo(SparseIntArray list, int index, int value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    @TargetApi(VERSION_CODES.JELLY_BEAN_MR2)
-    protected static long getFromList(SparseLongArray list, int index) {
-        if (list == null || index < 0) {
-            return 0;
-        }
-        return list.get(index);
-    }
-
-    /** @hide */
-    @TargetApi(VERSION_CODES.JELLY_BEAN_MR2)
-    protected static void setTo(SparseLongArray list, int index, long value) {
-        if (list == null || index < 0 || index >= list.size()) {
-            return;
-        }
-        list.put(index, value);
-    }
-
-    /** @hide */
-    protected static <K, T> T getFrom(Map<K, T> map, K key) {
-        if (map == null) {
-            return null;
-        }
-        return map.get(key);
-    }
-
-    /** @hide */
-    protected static <K, T> void setTo(Map<K, T> map, K key, T value) {
-        if (map == null) {
-            return;
-        }
-        map.put(key, value);
-    }
-
-    /** @hide */
-    protected static void setBindingInverseListener(ViewDataBinding binder,
-            InverseBindingListener oldListener, PropertyChangedInverseListener listener) {
-        if (oldListener != listener) {
-            if (oldListener != null) {
-                binder.removeOnPropertyChangedCallback(
-                        (PropertyChangedInverseListener) oldListener);
-            }
-            if (listener != null) {
-                binder.addOnPropertyChangedCallback(listener);
-            }
-        }
-    }
-
     /**
      * Walks the view hierarchy under roots and pulls out tagged Views, includes, and views with
      * IDs into an Object[] that is returned. This is used to walk the view hierarchy once to find
@@ -989,8 +593,7 @@ public abstract class ViewDataBinding extends BaseObservable {
         if (existingBinding != null) {
             return;
         }
-        Object objTag = view.getTag();
-        final String tag = (objTag instanceof String) ? (String) objTag : null;
+        final String tag = (String) view.getTag();
         boolean isBound = false;
         if (isRoot && tag != null && tag.startsWith("layout")) {
             final int underscoreIndex = tag.lastIndexOf('_');
@@ -1033,9 +636,9 @@ public abstract class ViewDataBinding extends BaseObservable {
             for (int i = 0; i < count; i++) {
                 final View child = viewGroup.getChildAt(i);
                 boolean isInclude = false;
-                if (indexInIncludes >= 0 && child.getTag() instanceof String) {
+                if (indexInIncludes >= 0) {
                     String childTag = (String) child.getTag();
-                    if (childTag.endsWith("_0") &&
+                    if (childTag != null && childTag.endsWith("_0") &&
                             childTag.startsWith("layout") && childTag.indexOf('/') > 0) {
                         // This *could* be an include. Test against the expected includes.
                         int includeIndex = findIncludeIndex(childTag, minInclude,
@@ -1095,8 +698,7 @@ public abstract class ViewDataBinding extends BaseObservable {
         int max = firstIncludedIndex;
         for (int i = firstIncludedIndex + 1; i < count; i++) {
             final View view = viewGroup.getChildAt(i);
-            final Object objTag = view.getTag();
-            final String tag = objTag instanceof String ? (String) view.getTag() : null;
+            final String tag = (String) view.getTag();
             if (tag != null && tag.startsWith(tagBase)) {
                 if (tag.length() == firstViewTag.length() && tag.charAt(tag.length() - 1) == '0') {
                     return max; // Found another instance of the include
@@ -1341,28 +943,6 @@ public abstract class ViewDataBinding extends BaseObservable {
             this.layouts[index] = layouts;
             this.indexes[index] = indexes;
             this.layoutIds[index] = layoutIds;
-        }
-    }
-
-    /**
-     * This class is used by generated subclasses of {@link ViewDataBinding} to listen for
-     * changes on variables of Bindings. This is important for two-way data binding on variables
-     * in included Bindings.
-     * @hide
-     */
-    protected static abstract class PropertyChangedInverseListener
-            extends Observable.OnPropertyChangedCallback implements InverseBindingListener {
-        final int mPropertyId;
-
-        public PropertyChangedInverseListener(int propertyId) {
-            mPropertyId = propertyId;
-        }
-
-        @Override
-        public void onPropertyChanged(Observable sender, int propertyId) {
-            if (propertyId == mPropertyId || propertyId == 0) {
-                onChange();
-            }
         }
     }
 }

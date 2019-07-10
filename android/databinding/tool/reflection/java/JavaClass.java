@@ -125,11 +125,6 @@ public class JavaClass extends ModelClass {
     }
 
     @Override
-    public boolean isWildcard() {
-        return false;
-    }
-
-    @Override
     public boolean isInterface() {
         return mClass.isInterface();
     }

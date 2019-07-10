@@ -27,57 +27,57 @@ import libcore.io.Libcore;
  * @hide
  */
 public final class GaiException extends RuntimeException {
-    private final String functionName;
+  private final String functionName;
 
-    /**
-     * The native error value, for comparison with the {@code GAI_} constants in {@link OsConstants}.
-     */
-    public final int error;
+  /**
+   * The native error value, for comparison with the {@code GAI_} constants in {@link OsConstants}.
+   */
+  public final int error;
 
-    /**
-     * Constructs an instance with the given function name and error value.
-     */
-    public GaiException(String functionName, int error) {
-        this.functionName = functionName;
-        this.error = error;
+  /**
+   * Constructs an instance with the given function name and error value.
+   */
+  public GaiException(String functionName, int error) {
+    this.functionName = functionName;
+    this.error = error;
+  }
+
+  /**
+   * Constructs an instance with the given function name, error value, and cause.
+   */
+  public GaiException(String functionName, int error, Throwable cause) {
+    super(cause);
+    this.functionName = functionName;
+    this.error = error;
+  }
+
+  /**
+   * Converts the stashed function name and error value to a human-readable string.
+   * We do this here rather than in the constructor so that callers only pay for
+   * this if they need it.
+   */
+  @Override public String getMessage() {
+    String gaiName = OsConstants.gaiName(error);
+    if (gaiName == null) {
+      gaiName = "GAI_ error " + error;
     }
+    String description = Libcore.os.gai_strerror(error);
+    return functionName + " failed: " + gaiName + " (" + description + ")";
+  }
 
-    /**
-     * Constructs an instance with the given function name, error value, and cause.
-     */
-    public GaiException(String functionName, int error, Throwable cause) {
-        super(cause);
-        this.functionName = functionName;
-        this.error = error;
-    }
+  /**
+   * @hide - internal use only.
+   */
+  public UnknownHostException rethrowAsUnknownHostException(String detailMessage) throws UnknownHostException {
+    UnknownHostException newException = new UnknownHostException(detailMessage);
+    newException.initCause(this);
+    throw newException;
+  }
 
-    /**
-     * Converts the stashed function name and error value to a human-readable string.
-     * We do this here rather than in the constructor so that callers only pay for
-     * this if they need it.
-     */
-    @Override public String getMessage() {
-        String gaiName = OsConstants.gaiName(error);
-        if (gaiName == null) {
-            gaiName = "GAI_ error " + error;
-        }
-        String description = Libcore.os.gai_strerror(error);
-        return functionName + " failed: " + gaiName + " (" + description + ")";
-    }
-
-    /**
-     * @hide - internal use only.
-     */
-    public UnknownHostException rethrowAsUnknownHostException(String detailMessage) throws UnknownHostException {
-        UnknownHostException newException = new UnknownHostException(detailMessage);
-        newException.initCause(this);
-        throw newException;
-    }
-
-    /**
-     * @hide - internal use only.
-     */
-    public UnknownHostException rethrowAsUnknownHostException() throws UnknownHostException {
-        throw rethrowAsUnknownHostException(getMessage());
-    }
+  /**
+   * @hide - internal use only.
+   */
+  public UnknownHostException rethrowAsUnknownHostException() throws UnknownHostException {
+    throw rethrowAsUnknownHostException(getMessage());
+  }
 }

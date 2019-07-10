@@ -25,6 +25,7 @@ import android.os.Parcelable;
  * the {@link BluetoothHealth} class. This class represents an application configuration
  * that the Bluetooth Health third party application will register to communicate with the
  * remote Bluetooth health device.
+ *
  */
 public final class BluetoothHealthAppConfiguration implements Parcelable {
     private final String mName;
@@ -51,11 +52,12 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
      *
      * @param name Friendly name associated with the application configuration
      * @param dataType Data Type of the remote Bluetooth Health device
-     * @param role {@link BluetoothHealth#SOURCE_ROLE} or {@link BluetoothHealth#SINK_ROLE}
+     * @param role {@link BluetoothHealth#SOURCE_ROLE} or
+     *                     {@link BluetoothHealth#SINK_ROLE}
      * @hide
      */
     BluetoothHealthAppConfiguration(String name, int dataType, int role, int
-            channelType) {
+        channelType) {
         mName = name;
         mDataType = dataType;
         mRole = role;
@@ -66,11 +68,11 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
     public boolean equals(Object o) {
         if (o instanceof BluetoothHealthAppConfiguration) {
             BluetoothHealthAppConfiguration config = (BluetoothHealthAppConfiguration) o;
-
-            if (mName == null) return false;
-
-            return mName.equals(config.getName()) && mDataType == config.getDataType()
-                    && mRole == config.getRole() && mChannelType == config.getChannelType();
+            // config.getName() can never be NULL
+            return mName.equals(config.getName()) &&
+                    mDataType == config.getDataType() &&
+                    mRole == config.getRole() &&
+                    mChannelType == config.getChannelType();
         }
         return false;
     }
@@ -87,11 +89,11 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
 
     @Override
     public String toString() {
-        return "BluetoothHealthAppConfiguration [mName = " + mName + ",mDataType = " + mDataType
-                + ", mRole = " + mRole + ",mChannelType = " + mChannelType + "]";
+        return "BluetoothHealthAppConfiguration [mName = " + mName +
+            ",mDataType = " + mDataType + ", mRole = " + mRole + ",mChannelType = " +
+            mChannelType + "]";
     }
 
-    @Override
     public int describeContents() {
         return 0;
     }
@@ -117,7 +119,8 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
     /**
      * Return the role associated with this application configuration.
      *
-     * @return One of {@link BluetoothHealth#SOURCE_ROLE} or {@link BluetoothHealth#SINK_ROLE}
+     * @return One of {@link BluetoothHealth#SOURCE_ROLE} or
+     *                         {@link BluetoothHealth#SINK_ROLE}
      */
     public int getRole() {
         return mRole;
@@ -126,8 +129,9 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
     /**
      * Return the channel type associated with this application configuration.
      *
-     * @return One of {@link BluetoothHealth#CHANNEL_TYPE_RELIABLE} or {@link
-     * BluetoothHealth#CHANNEL_TYPE_STREAMING} or {@link BluetoothHealth#CHANNEL_TYPE_ANY}.
+     * @return One of {@link BluetoothHealth#CHANNEL_TYPE_RELIABLE} or
+     *                         {@link BluetoothHealth#CHANNEL_TYPE_STREAMING} or
+     *                         {@link BluetoothHealth#CHANNEL_TYPE_ANY}.
      * @hide
      */
     public int getChannelType() {
@@ -135,24 +139,23 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
     }
 
     public static final Parcelable.Creator<BluetoothHealthAppConfiguration> CREATOR =
-            new Parcelable.Creator<BluetoothHealthAppConfiguration>() {
-                @Override
-                public BluetoothHealthAppConfiguration createFromParcel(Parcel in) {
-                    String name = in.readString();
-                    int type = in.readInt();
-                    int role = in.readInt();
-                    int channelType = in.readInt();
-                    return new BluetoothHealthAppConfiguration(name, type, role,
-                            channelType);
-                }
+        new Parcelable.Creator<BluetoothHealthAppConfiguration>() {
+        @Override
+        public BluetoothHealthAppConfiguration createFromParcel(Parcel in) {
+            String name = in.readString();
+            int type = in.readInt();
+            int role = in.readInt();
+            int channelType = in.readInt();
+            return new BluetoothHealthAppConfiguration(name, type, role,
+                channelType);
+        }
 
-                @Override
-                public BluetoothHealthAppConfiguration[] newArray(int size) {
-                    return new BluetoothHealthAppConfiguration[size];
-                }
-            };
+        @Override
+        public BluetoothHealthAppConfiguration[] newArray(int size) {
+            return new BluetoothHealthAppConfiguration[size];
+        }
+    };
 
-    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(mName);
         out.writeInt(mDataType);

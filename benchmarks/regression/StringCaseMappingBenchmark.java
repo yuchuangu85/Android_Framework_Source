@@ -16,10 +16,11 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.Param;
 import java.util.Locale;
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class StringCaseMappingBenchmark {
+public class StringCaseMappingBenchmark extends SimpleBenchmark {
     enum Inputs {
         EMPTY(""),
 
@@ -87,7 +88,7 @@ public class StringCaseMappingBenchmark {
 
     public void timeToLowerCase_US(int reps) {
         for (int i = 0; i < reps; ++i) {
-            s.value.toLowerCase(Locale.US);
+            s.value.toUpperCase(Locale.US);
         }
     }
 
@@ -99,7 +100,7 @@ public class StringCaseMappingBenchmark {
 
     public void timeToLowerCase_Ascii(int reps) {
         for (int i = 0; i < reps; ++i) {
-            toLowerCaseAscii(s.value);
+            toUpperCaseAscii(s.value);
         }
     }
 

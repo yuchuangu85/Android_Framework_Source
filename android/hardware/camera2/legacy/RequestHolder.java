@@ -40,9 +40,6 @@ public class RequestHolder {
     private final int mNumJpegTargets;
     private final int mNumPreviewTargets;
     private volatile boolean mFailed = false;
-    private boolean mOutputAbandoned = false;
-
-    private final Collection<Long> mJpegSurfaceIds;
 
     /**
      * A builder class for {@link RequestHolder} objects.
@@ -153,13 +150,13 @@ public class RequestHolder {
          */
         public RequestHolder build(long frameNumber) {
             return new RequestHolder(mRequestId, mSubsequenceId, mRequest, mRepeating, frameNumber,
-                    mNumJpegTargets, mNumPreviewTargets, mJpegSurfaceIds);
+                    mNumJpegTargets, mNumPreviewTargets);
         }
     }
 
     private RequestHolder(int requestId, int subsequenceId, CaptureRequest request,
                           boolean repeating, long frameNumber, int numJpegTargets,
-                          int numPreviewTargets, Collection<Long> jpegSurfaceIds) {
+                          int numPreviewTargets) {
         mRepeating = repeating;
         mRequest = request;
         mRequestId = requestId;
@@ -167,7 +164,6 @@ public class RequestHolder {
         mFrameNumber = frameNumber;
         mNumJpegTargets = numJpegTargets;
         mNumPreviewTargets = numPreviewTargets;
-        mJpegSurfaceIds = jpegSurfaceIds;
     }
 
     /**
@@ -242,17 +238,6 @@ public class RequestHolder {
     }
 
     /**
-     * Returns true if the given surface requires jpeg buffers.
-     *
-     * @param s a {@link android.view.Surface} to check.
-     * @return true if the surface requires a jpeg buffer.
-     */
-    public boolean jpegType(Surface s)
-            throws LegacyExceptionUtils.BufferQueueAbandonedException {
-        return LegacyCameraDevice.containsSurfaceId(s, mJpegSurfaceIds);
-    }
-
-    /**
      * Mark this request as failed.
      */
     public void failRequest() {
@@ -267,17 +252,4 @@ public class RequestHolder {
         return mFailed;
     }
 
-    /**
-     * Mark at least one of this request's output surfaces is abandoned.
-     */
-    public void setOutputAbandoned() {
-        mOutputAbandoned = true;
-    }
-
-    /**
-     * Return if any of this request's output surface is abandoned.
-     */
-    public boolean isOutputAbandoned() {
-        return mOutputAbandoned;
-    }
 }

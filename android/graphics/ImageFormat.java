@@ -361,17 +361,6 @@ public class ImageFormat {
     public static final int RAW_SENSOR = 0x20;
 
     /**
-     * <p>Private raw camera sensor image format, a single channel image with
-     * implementation depedent pixel layout.</p>
-     *
-     * <p>RAW_PRIVATE is a format for unprocessed raw image buffers coming from an
-     * image sensor. The actual structure of buffers of this format is
-     * implementation-dependent.</p>
-     *
-     */
-    public static final int RAW_PRIVATE = 0x24;
-
-    /**
      * <p>
      * Android 10-bit raw format
      * </p>
@@ -658,25 +647,8 @@ public class ImageFormat {
      *    float confidence = floatDepthBuffer.get();
      * </pre>
      *
-     * For camera devices that support the
-     * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT DEPTH_OUTPUT}
-     * capability, DEPTH_POINT_CLOUD coordinates have units of meters, and the coordinate system is
-     * defined by the camera's pose transforms:
-     * {@link android.hardware.camera2.CameraCharacteristics#LENS_POSE_TRANSLATION} and
-     * {@link android.hardware.camera2.CameraCharacteristics#LENS_POSE_ROTATION}. That means the origin is
-     * the optical center of the camera device, and the positive Z axis points along the camera's optical axis,
-     * toward the scene.
      */
     public static final int DEPTH_POINT_CLOUD = 0x101;
-
-    /**
-     * Unprocessed implementation-dependent raw
-     * depth measurements, opaque with 16 bit
-     * samples.
-     *
-     * @hide
-     */
-    public static final int RAW_DEPTH = 0x1002;
 
     /**
      * Android private opaque image format.
@@ -740,7 +712,6 @@ public class ImageFormat {
                 return 24;
             case FLEX_RGBA_8888:
                 return 32;
-            case RAW_DEPTH:
             case RAW_SENSOR:
                 return 16;
             case RAW10:
@@ -777,13 +748,11 @@ public class ImageFormat {
             case FLEX_RGB_888:
             case FLEX_RGBA_8888:
             case RAW_SENSOR:
-            case RAW_PRIVATE:
             case RAW10:
             case RAW12:
             case DEPTH16:
             case DEPTH_POINT_CLOUD:
             case PRIVATE:
-            case RAW_DEPTH:
                 return true;
         }
 

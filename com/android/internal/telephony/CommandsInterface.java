@@ -16,22 +16,15 @@
 
 package com.android.internal.telephony;
 
-import android.net.KeepalivePacketData;
-import android.net.LinkProperties;
-import android.os.Handler;
-import android.os.Message;
-import android.os.WorkSource;
-import android.service.carrier.CarrierIdentifier;
-import android.telephony.ClientRequestStats;
-import android.telephony.ImsiEncryptionInfo;
-import android.telephony.NetworkScanRequest;
-import android.telephony.data.DataProfile;
-
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
+import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.uicc.IccCardStatus;
 
-import java.util.List;
+import android.os.Message;
+import android.os.Handler;
+
 
 /**
  * {@hide}
@@ -191,21 +184,13 @@ public interface CommandsInterface {
      */
     void registerForIccStatusChanged(Handler h, int what, Object obj);
     void unregisterForIccStatusChanged(Handler h);
-    /** Register for ICC slot status changed event */
-    void registerForIccSlotStatusChanged(Handler h, int what, Object obj);
-    /** Unregister for ICC slot status changed event */
-    void unregisterForIccSlotStatusChanged(Handler h);
 
     void registerForCallStateChanged(Handler h, int what, Object obj);
     void unregisterForCallStateChanged(Handler h);
-    /** Register for network state changed event */
-    void registerForNetworkStateChanged(Handler h, int what, Object obj);
-    /** Unregister from network state changed event */
-    void unregisterForNetworkStateChanged(Handler h);
-    /** Register for data call list changed event */
-    void registerForDataCallListChanged(Handler h, int what, Object obj);
-    /** Unregister from data call list changed event */
-    void unregisterForDataCallListChanged(Handler h);
+    void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj);
+    void unregisterForVoiceNetworkStateChanged(Handler h);
+    void registerForDataNetworkStateChanged(Handler h, int what, Object obj);
+    void unregisterForDataNetworkStateChanged(Handler h);
 
     /** InCall voice privacy notifications */
     void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj);
@@ -1291,29 +1276,12 @@ public interface CommandsInterface {
     /**
      * Queries the currently available networks
      *
-     * ((AsyncResult)response.obj).result is a List of NetworkInfo objects
+     * ((AsyncResult)response.obj).result  is a List of NetworkInfo objects
      */
     void getAvailableNetworks(Message response);
 
-    /**
-     * Starts a radio network scan
-     *
-     * ((AsyncResult)response.obj).result is a NetworkScanResult object
-     */
-    void startNetworkScan(NetworkScanRequest nsr, Message response);
+    void getBasebandVersion (Message response);
 
-    /**
-     * Stops the ongoing network scan
-     *
-     * ((AsyncResult)response.obj).result is a NetworkScanResult object
-     *
-     */
-    void stopNetworkScan(Message response);
-
-    /**
-     * Gets the baseband version
-     */
-    void getBasebandVersion(Message response);
 
     /**
      * (AsyncResult)response.obj).result will be an Integer representing
@@ -1413,9 +1381,8 @@ public interface CommandsInterface {
      * Query neighboring cell ids
      *
      * @param response s callback message to cell ids
-     * @param workSource calling WorkSource
      */
-    default void getNeighboringCids(Message response, WorkSource workSource){}
+    void getNeighboringCids(Message response);
 
     /**
      * Request to enable/disable network state change notifications when
@@ -1457,18 +1424,6 @@ public interface CommandsInterface {
     void reportStkServiceIsRunning(Message result);
 
     void invokeOemRilRequestRaw(byte[] data, Message response);
-
-    /**
-     * Sends carrier specific information to the vendor ril that can be used to
-     * encrypt the IMSI and IMPI.
-     *
-     * @param publicKey the public key of the carrier used to encrypt IMSI/IMPI.
-     * @param keyIdentifier the key identifier is optional information that is carrier
-     *        specific.
-     * @param response callback message
-     */
-    void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
-                                         Message response);
 
     void invokeOemRilRequestStrings(String[] strings, Message response);
 
@@ -1636,27 +1591,32 @@ public interface CommandsInterface {
 
     /**
      * Setup a packet data connection On successful completion, the result
-     * message will return a SetupDataResult object containing the connection information.
+     * message will return a {@link com.android.internal.telephony.dataconnection.DataCallResponse}
+     * object containing the connection information.
      *
-     * @param accessNetworkType
-     *            Access network to use. Values is one of AccessNetworkConstants.AccessNetworkType.
-     * @param dataProfile
-     *            Data profile for data call setup
-     * @param isRoaming
-     *            Device is roaming or not
-     * @param allowRoaming
-     *            Flag indicating data roaming is enabled or not
-     * @param reason
-     *            The reason for data setup
-     * @param linkProperties
-     *            If the reason is for handover, this indicates the link properties of the existing
-     *            data connection
+     * @param radioTechnology
+     *            indicates whether to setup connection on radio technology CDMA
+     *            (0) or GSM/UMTS (1)
+     * @param profile
+     *            Profile Number or NULL to indicate default profile
+     * @param apn
+     *            the APN to connect to if radio technology is GSM/UMTS.
+     *            Otherwise null for CDMA.
+     * @param user
+     *            the username for APN, or NULL
+     * @param password
+     *            the password for APN, or NULL
+     * @param authType
+     *            the PAP / CHAP auth type. Values is one of SETUP_DATA_AUTH_*
+     * @param protocol
+     *            one of the PDP_type values in TS 27.007 section 10.1.1.
+     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
      * @param result
      *            Callback message
      */
-    void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
-                       boolean allowRoaming, int reason, LinkProperties linkProperties,
-                       Message result);
+    public void setupDataCall(String radioTechnology, String profile,
+            String apn, String user, String password, String authType,
+            String protocol, Message result);
 
     /**
      * Deactivate packet data connection
@@ -1698,7 +1658,7 @@ public interface CommandsInterface {
 
     /**
      *  Requests the radio's system selection module to exit emergency callback mode.
-     *  This function should only be called from for CDMA.
+     *  This function should only be called from CDMAPHone.java.
      *
      * @param response callback message
      */
@@ -1713,22 +1673,6 @@ public interface CommandsInterface {
     public void getIccCardStatus(Message result);
 
     /**
-     * Request the status of all the physical UICC slots.
-     *
-     * @param result Callback message containing a {@link java.util.ArrayList} of
-     * {@link com.android.internal.telephony.uicc.IccSlotStatus} instances for all the slots.
-     */
-    void getIccSlotsStatus(Message result);
-
-    /**
-     * Set the mapping from logical slots to physical slots.
-     *
-     * @param physicalSlots Mapping from logical slots to physical slots.
-     * @param result Callback message is empty on completion.
-     */
-    void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result);
-
-    /**
      * Return if the current radio is LTE on CDMA. This
      * is a tri-state return value as for a period of time
      * the mode may be unknown.
@@ -1737,6 +1681,18 @@ public interface CommandsInterface {
      * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
      */
     public int getLteOnCdmaMode();
+
+    /**
+     * Request the ISIM application on the UICC to perform the AKA
+     * challenge/response algorithm for IMS authentication. The nonce string
+     * and challenge response are Base64 encoded Strings.
+     *
+     * @param nonce the nonce string to pass with the ISIM authentication request
+     * @param response a callback message with the String response in the obj field
+     * @deprecated
+     * @see requestIccSimAuthentication
+     */
+    public void requestIsimAuthentication(String nonce, Message response);
 
     /**
      * Request the SIM application on the UICC to perform authentication
@@ -1769,9 +1725,8 @@ public interface CommandsInterface {
      * AsyncResult.result is a of Collection<CellInfo>
      *
      * @param result is sent back to handler and result.obj is a AsyncResult
-     * @param workSource calling WorkSource
      */
-    default void getCellInfoList(Message result, WorkSource workSource) {}
+    void getCellInfoList(Message result);
 
     /**
      * Sets the minimum time in milli-seconds between when RIL_UNSOL_CELL_INFO_LIST
@@ -1787,9 +1742,8 @@ public interface CommandsInterface {
      * @param response.obj is AsyncResult ar when sent to associated handler
      *                        ar.exception carries exception on failure or null on success
      *                        otherwise the error.
-     * @param workSource calling WorkSource
      */
-    default void setCellInfoListRate(int rateInMillis, Message response, WorkSource workSource){}
+    void setCellInfoListRate(int rateInMillis, Message response);
 
     /**
      * Fires when RIL_UNSOL_CELL_INFO_LIST is received from the RIL.
@@ -1798,39 +1752,35 @@ public interface CommandsInterface {
     void unregisterForCellInfoList(Handler h);
 
     /**
-     * Fires when a new {@link android.telephony.PhysicalChannelConfig} list is received from the
-     * RIL.
-     */
-    void registerForPhysicalChannelConfiguration(Handler h, int what, Object obj);
-
-    /**
-     * Unregisters the handler for {@link android.telephony.PhysicalChannelConfig} updates.
-     */
-    void unregisterForPhysicalChannelConfiguration(Handler h);
-
-    /**
      * Set Initial Attach Apn
      *
-     * @param dataProfile
-     *            data profile for initial APN attach
-     * @param isRoaming
-     *            indicating the device is roaming or not
+     * @param apn
+     *            the APN to connect to if radio technology is GSM/UMTS.
+     * @param protocol
+     *            one of the PDP_type values in TS 27.007 section 10.1.1.
+     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
+     * @param authType
+     *            authentication protocol used for this PDP context
+     *            (None: 0, PAP: 1, CHAP: 2, PAP&CHAP: 3)
+     * @param username
+     *            the username for APN, or NULL
+     * @param password
+     *            the password for APN, or NULL
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result);
+    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
+            String password, Message result);
 
     /**
      * Set data profiles in modem
      *
      * @param dps
      *            Array of the data profiles set to modem
-     * @param isRoaming
-     *            Indicating if the device is roaming or not
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result);
+    public void setDataProfile(DataProfile[] dps, Message result);
 
     /**
      * Notifiy that we are testing an emergency call
@@ -1843,11 +1793,10 @@ public interface CommandsInterface {
      * Input parameters equivalent to TS 27.007 AT+CCHO command.
      *
      * @param AID Application id. See ETSI 102.221 and 101.220.
-     * @param p2 P2 parameter (described in ISO 7816-4).
      * @param response Callback message. response.obj will be an int [1] with
      *            element [0] set to the id of the logical channel.
      */
-    public void iccOpenLogicalChannel(String AID, int p2, Message response);
+    public void iccOpenLogicalChannel(String AID, Message response);
 
     /**
      * Close a previously opened logical channel to the SIM.
@@ -2069,183 +2018,4 @@ public interface CommandsInterface {
      * @param result Callback message contains the modem activity information
      */
     public void getModemActivityInfo(Message result);
-
-    /**
-     * Set allowed carriers
-     *
-     * @param carriers Allowed carriers
-     * @param result Callback message contains the number of carriers set successfully
-     */
-    public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result);
-
-    /**
-     * Get allowed carriers
-     *
-     * @param result Callback message contains the allowed carriers
-     */
-    public void getAllowedCarriers(Message result);
-
-    /**
-     * Register for unsolicited PCO data.  This information is carrier-specific,
-     * opaque binary blobs destined for carrier apps for interpretation.
-     *
-     * @param h Handler for notification message.
-     * @param what User-defined message code.
-     * @param obj User object.
-     */
-    public void registerForPcoData(Handler h, int what, Object obj);
-
-    /**
-     * Unregister for PCO data.
-     *
-     * @param h handler to be removed
-     */
-    public void unregisterForPcoData(Handler h);
-
-    /**
-     * Register for modem reset indication.
-     *
-     * @param h  Handler for the notification message
-     * @param what User-defined message code
-     * @param obj User object
-     */
-    void registerForModemReset(Handler h, int what, Object obj);
-
-    /**
-     * Unregister for modem reset
-     *
-     * @param h handler to be removed
-     */
-    void unregisterForModemReset(Handler h);
-
-    /**
-     * Send the updated device state
-     *
-     * @param stateType Device state type
-     * @param state True if enabled, otherwise disabled
-     * @param result callback message contains the information of SUCCESS/FAILURE
-     */
-    void sendDeviceState(int stateType, boolean state, Message result);
-
-    /**
-     * Send the device state to the modem
-     *
-     * @param filter unsolicited response filter. See DeviceStateMonitor.UnsolicitedResponseFilter
-     * @param result callback message contains the information of SUCCESS/FAILURE
-     */
-    void setUnsolResponseFilter(int filter, Message result);
-
-    /**
-     * Send the signal strength reporting criteria to the modem.
-     *
-     * @param hysteresisMs A hysteresis time in milliseconds. A value of 0 disables hysteresis.
-     * @param hysteresisDb An interval in dB defining the required magnitude change between reports.
-     *     A value of 0 disables hysteresis.
-     * @param thresholdsDbm An array of trigger thresholds in dBm. A size of 0 disables thresholds.
-     * @param ran RadioAccessNetwork for which to apply criteria.
-     * @param result callback message contains the information of SUCCESS/FAILURE
-     */
-    void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb, int[] thresholdsDbm,
-            int ran, Message result);
-
-    /**
-     * Send the link capacity reporting criteria to the modem
-     *
-     * @param hysteresisMs A hysteresis time in milliseconds. A value of 0 disables hysteresis.
-     * @param hysteresisDlKbps An interval in kbps defining the required magnitude change between DL
-     *     reports. A value of 0 disables hysteresis.
-     * @param hysteresisUlKbps An interval in kbps defining the required magnitude change between UL
-     *     reports. A value of 0 disables hysteresis.
-     * @param thresholdsDlKbps An array of trigger thresholds in kbps for downlink reports. A size
-     *     of 0 disables thresholds.
-     * @param thresholdsUlKbps An array of trigger thresholds in kbps for uplink reports. A size
-     *     of 0 disables thresholds.
-     * @param ran RadioAccessNetwork for which to apply criteria.
-     * @param result callback message contains the information of SUCCESS/FAILURE
-     */
-    void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
-            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
-            Message result);
-
-    /**
-     * Set SIM card power up or down
-     *
-     * @param state  State of SIM (power down, power up, pass through)
-     * - {@link android.telephony.TelephonyManager#CARD_POWER_DOWN}
-     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP}
-     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP_PASS_THROUGH}
-     * @param result callback message contains the information of SUCCESS/FAILURE
-     */
-    void setSimCardPower(int state, Message result);
-
-    /**
-     * Register for unsolicited Carrier Public Key.
-     *
-     * @param h Handler for notification message.
-     * @param what User-defined message code.
-     * @param obj User object.
-     */
-    void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj);
-
-    /**
-     * DeRegister for unsolicited Carrier Public Key.
-     *
-     * @param h Handler for notification message.
-     */
-    void unregisterForCarrierInfoForImsiEncryption(Handler h);
-
-    /**
-     * Register for unsolicited Network Scan result.
-     *
-     * @param h Handler for notification message.
-     * @param what User-defined message code.
-     * @param obj User object.
-     */
-    void registerForNetworkScanResult(Handler h, int what, Object obj);
-
-    /**
-     * DeRegister for unsolicited Network Scan result.
-     *
-     * @param h Handler for notification message.
-     */
-    void unregisterForNetworkScanResult(Handler h);
-
-    /**
-     * Register for unsolicited NATT Keepalive Status Indications
-     *
-     * @param h Handler for notification message.
-     * @param what User-defined message code.
-     * @param obj User object.
-     */
-    void registerForNattKeepaliveStatus(Handler h, int what, Object obj);
-
-    /**
-     * Deregister for unsolicited NATT Keepalive Status Indications.
-     *
-     * @param h Handler for notification message.
-     */
-    void unregisterForNattKeepaliveStatus(Handler h);
-
-    /**
-     * Start sending NATT Keepalive packets on a specified data connection
-     *
-     * @param contextId cid that identifies the data connection for this keepalive
-     * @param packetData the keepalive packet data description
-     * @param intervalMillis a time interval in ms between keepalive packet transmissions
-     * @param result a Message to return to the requester
-     */
-    void startNattKeepalive(
-            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result);
-
-    /**
-     * Stop sending NATT Keepalive packets on a specified data connection
-     *
-     * @param sessionHandle the keepalive session handle (from the modem) to stop
-     * @param result a Message to return to the requester
-     */
-    void stopNattKeepalive(int sessionHandle, Message result);
-
-    default public List<ClientRequestStats> getClientRequestStats() {
-        return null;
-    }
 }

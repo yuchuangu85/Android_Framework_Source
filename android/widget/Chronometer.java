@@ -17,23 +17,17 @@
 package android.widget;
 
 import android.content.Context;
-import android.content.Intent;
+import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.icu.text.MeasureFormat;
-import android.icu.text.MeasureFormat.FormatWidth;
-import android.icu.util.Measure;
-import android.icu.util.MeasureUnit;
-import android.net.Uri;
+import android.os.Handler;
+import android.os.Message;
 import android.os.SystemClock;
 import android.text.format.DateUtils;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.View;
+import android.view.accessibility.AccessibilityEvent;
 import android.widget.RemoteViews.RemoteView;
 
-import com.android.internal.R;
-
-import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.IllegalFormatException;
 import java.util.Locale;
@@ -43,17 +37,11 @@ import java.util.Locale;
  * <p>
  * You can give it a start time in the {@link SystemClock#elapsedRealtime} timebase,
  * and it counts up from that, or if you don't give it a base time, it will use the
- * time at which you call {@link #start}.
- *
- * <p>The timer can also count downward towards the base time by
- * setting {@link #setCountDown(boolean)} to true.
- *
- *  <p>By default it will display the current
+ * time at which you call {@link #start}.  By default it will display the current
  * timer value in the form "MM:SS" or "H:MM:SS", or you can use {@link #setFormat}
  * to format the timer value into an arbitrary string.
  *
  * @attr ref android.R.styleable#Chronometer_format
- * @attr ref android.R.styleable#Chronometer_countDown
  */
 @RemoteView
 public class Chronometer extends TextView {
@@ -84,8 +72,9 @@ public class Chronometer extends TextView {
     private StringBuilder mFormatBuilder;
     private OnChronometerTickListener mOnChronometerTickListener;
     private StringBuilder mRecycle = new StringBuilder(8);
-    private boolean mCountDown;
-
+    
+    private static final int TICK_WHAT = 2;
+    
     /**
      * Initialize this Chronometer object.
      * Sets the base to the current time.
@@ -115,8 +104,7 @@ public class Chronometer extends TextView {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.Chronometer, defStyleAttr, defStyleRes);
-        setFormat(a.getString(R.styleable.Chronometer_format));
-        setCountDown(a.getBoolean(R.styleable.Chronometer_countDown, false));
+        setFormat(a.getString(com.android.internal.R.styleable.Chronometer_format));
         a.recycle();
 
         init();
@@ -125,44 +113,6 @@ public class Chronometer extends TextView {
     private void init() {
         mBase = SystemClock.elapsedRealtime();
         updateText(mBase);
-    }
-
-    /**
-     * Set this view to count down to the base instead of counting up from it.
-     *
-     * @param countDown whether this view should count down
-     *
-     * @see #setBase(long)
-     */
-    @android.view.RemotableViewMethod
-    public void setCountDown(boolean countDown) {
-        mCountDown = countDown;
-        updateText(SystemClock.elapsedRealtime());
-    }
-
-    /**
-     * @return whether this view counts down
-     *
-     * @see #setCountDown(boolean)
-     */
-    public boolean isCountDown() {
-        return mCountDown;
-    }
-
-    /**
-     * @return whether this is the final countdown
-     */
-    public boolean isTheFinalCountDown() {
-        try {
-            getContext().startActivity(
-                    new Intent(Intent.ACTION_VIEW, Uri.parse("https://youtu.be/9jK-NcRmVcw"))
-                            .addCategory(Intent.CATEGORY_BROWSABLE)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
-                                    | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT));
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     /**
@@ -212,7 +162,7 @@ public class Chronometer extends TextView {
 
     /**
      * Sets the listener to be called when the chronometer changes.
-     *
+     * 
      * @param listener The listener.
      */
     public void setOnChronometerTickListener(OnChronometerTickListener listener) {
@@ -230,10 +180,10 @@ public class Chronometer extends TextView {
     /**
      * Start counting up.  This does not affect the base as set from {@link #setBase}, just
      * the view display.
-     *
-     * Chronometer works by regularly scheduling messages to the handler, even when the
-     * Widget is not visible.  To make sure resource leaks do not occur, the user should
-     * make sure that each start() call has a reciprocal call to {@link #stop}.
+     * 
+     * Chronometer works by regularly scheduling messages to the handler, even when the 
+     * Widget is not visible.  To make sure resource leaks do not occur, the user should 
+     * make sure that each start() call has a reciprocal call to {@link #stop}. 
      */
     public void start() {
         mStarted = true;
@@ -243,9 +193,9 @@ public class Chronometer extends TextView {
     /**
      * Stop counting up.  This does not affect the base as set from {@link #setBase}, just
      * the view display.
-     *
+     * 
      * This stops the messages to the handler, effectively releasing resources that would
-     * be held as the chronometer is running, via {@link #start}.
+     * be held as the chronometer is running, via {@link #start}. 
      */
     public void stop() {
         mStarted = false;
@@ -276,25 +226,11 @@ public class Chronometer extends TextView {
         updateRunning();
     }
 
-    @Override
-    protected void onVisibilityChanged(View changedView, int visibility) {
-        super.onVisibilityChanged(changedView, visibility);
-        updateRunning();
-    }
-
     private synchronized void updateText(long now) {
         mNow = now;
-        long seconds = mCountDown ? mBase - now : now - mBase;
+        long seconds = now - mBase;
         seconds /= 1000;
-        boolean negative = false;
-        if (seconds < 0) {
-            seconds = -seconds;
-            negative = true;
-        }
         String text = DateUtils.formatElapsedTime(mRecycle, seconds);
-        if (negative) {
-            text = getResources().getString(R.string.negative_duration, text);
-        }
 
         if (mFormat != null) {
             Locale loc = Locale.getDefault();
@@ -318,26 +254,25 @@ public class Chronometer extends TextView {
     }
 
     private void updateRunning() {
-        boolean running = mVisible && mStarted && isShown();
+        boolean running = mVisible && mStarted;
         if (running != mRunning) {
             if (running) {
                 updateText(SystemClock.elapsedRealtime());
                 dispatchChronometerTick();
-                postDelayed(mTickRunnable, 1000);
+                mHandler.sendMessageDelayed(Message.obtain(mHandler, TICK_WHAT), 1000);
             } else {
-                removeCallbacks(mTickRunnable);
+                mHandler.removeMessages(TICK_WHAT);
             }
             mRunning = running;
         }
     }
-
-    private final Runnable mTickRunnable = new Runnable() {
-        @Override
-        public void run() {
+    
+    private Handler mHandler = new Handler() {
+        public void handleMessage(Message m) {
             if (mRunning) {
                 updateText(SystemClock.elapsedRealtime());
                 dispatchChronometerTick();
-                postDelayed(mTickRunnable, 1000);
+                sendMessageDelayed(Message.obtain(this, TICK_WHAT), 1000);
             }
         }
     };
@@ -351,6 +286,9 @@ public class Chronometer extends TextView {
     private static final int MIN_IN_SEC = 60;
     private static final int HOUR_IN_SEC = MIN_IN_SEC*60;
     private static String formatDuration(long ms) {
+        final Resources res = Resources.getSystem();
+        final StringBuilder text = new StringBuilder();
+
         int duration = (int) (ms / DateUtils.SECOND_IN_MILLIS);
         if (duration < 0) {
             duration = -duration;
@@ -367,19 +305,31 @@ public class Chronometer extends TextView {
             m = duration / MIN_IN_SEC;
             duration -= m * MIN_IN_SEC;
         }
-        final int s = duration;
+        int s = duration;
 
-        final ArrayList<Measure> measures = new ArrayList<Measure>();
-        if (h > 0) {
-            measures.add(new Measure(h, MeasureUnit.HOUR));
-        }
-        if (m > 0) {
-            measures.add(new Measure(m, MeasureUnit.MINUTE));
-        }
-        measures.add(new Measure(s, MeasureUnit.SECOND));
+        try {
+            if (h > 0) {
+                text.append(res.getQuantityString(
+                        com.android.internal.R.plurals.duration_hours, h, h));
+            }
+            if (m > 0) {
+                if (text.length() > 0) {
+                    text.append(' ');
+                }
+                text.append(res.getQuantityString(
+                        com.android.internal.R.plurals.duration_minutes, m, m));
+            }
 
-        return MeasureFormat.getInstance(Locale.getDefault(), FormatWidth.WIDE)
-                    .formatMeasures(measures.toArray(new Measure[measures.size()]));
+            if (text.length() > 0) {
+                text.append(' ');
+            }
+            text.append(res.getQuantityString(
+                    com.android.internal.R.plurals.duration_seconds, s, s));
+        } catch (Resources.NotFoundException e) {
+            // Ignore; plurals throws an exception for an untranslated quantity for a given locale.
+            return null;
+        }
+        return text.toString();
     }
 
     @Override

@@ -16,7 +16,7 @@
 
 package com.android.internal.telephony;
 
-import android.telecom.Log;
+import android.telephony.PhoneNumberUtils;
 
 /**
  * See also RIL_CallForwardInfo in include/telephony/ril.h
@@ -24,20 +24,20 @@ import android.telecom.Log;
  * {@hide}
  */
 public class CallForwardInfo {
-    private static final String TAG = "CallForwardInfo";
-
     public int             status;      /*1 = active, 0 = not active */
     public int             reason;      /* from TS 27.007 7.11 "reason" */
-    public int             serviceClass; /* Saum of CommandsInterface.SERVICE_CLASS */
+    public int             serviceClass; /* Sum of CommandsInterface.SERVICE_CLASS */
     public int             toa;         /* "type" from TS 27.007 7.11 */
     public String          number;      /* "number" from TS 27.007 7.11 */
     public int             timeSeconds; /* for CF no reply only */
 
     @Override
     public String toString() {
-        return "[CallForwardInfo: status=" + (status == 0 ? " not active " : " active ")
-                + ", reason= " + reason
-                + ", serviceClass= " + serviceClass + ", timeSec= " + timeSeconds + " seconds"
-                + ", number=" + Log.pii(number) + "]";
+        return super.toString() + (status == 0 ? " not active " : " active ")
+            + " reason: " + reason
+            + " serviceClass: " + serviceClass
+            + " \"" + PhoneNumberUtils.stringFromStringAndTOA(number, toa) + "\" "
+            + timeSeconds + " seconds";
+
     }
 }

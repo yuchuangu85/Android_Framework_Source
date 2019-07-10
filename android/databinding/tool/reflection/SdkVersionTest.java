@@ -56,12 +56,4 @@ public class SdkVersionTest {
         ModelMethod setElevation = view.getMethods("testCustomCode", 0)[0];
         assertEquals(1, SdkUtil.getMinApi(setElevation));
     }
-
-    @Test
-    public void testSetForeground() {
-        ModelClass view = ModelAnalyzer.getInstance()
-                .findClass("android.widget.FrameLayout", null);
-        ModelMethod setForeground = view.getMethods("setForeground", 1)[0];
-        assertEquals(1, SdkUtil.getMinApi(setForeground));
-    }
 }

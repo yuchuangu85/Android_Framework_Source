@@ -89,7 +89,7 @@ public final class hc_attrgetvalue2 extends DOMTestCase {
       firstChild = titleAttr.getFirstChild();
       retval = titleAttr.insertBefore(alphaRef, firstChild);
       value = titleAttr.getValue();
-      assertEquals("attrValue1", "\u03b1Y\u03b1", value); // Android-changed: GREEK LOWER CASE ALPHA
+      assertEquals("attrValue1", "\u03b1Y\u03b1", value); // android-changed: GREEK LOWER CASE ALPHA
       }
         
     }

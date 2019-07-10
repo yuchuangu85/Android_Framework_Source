@@ -16,28 +16,28 @@
 
 package com.android.internal.telephony;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+
 import android.content.Context;
+import android.os.SystemProperties;
+import android.os.Build;
+import android.text.TextUtils;
+import android.content.ContentResolver;
 import android.database.Cursor;
 import android.database.SQLException;
-import android.os.Binder;
-import android.os.Build;
-import android.os.PersistableBundle;
-import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
-
+import android.telephony.Rlog;
 import com.android.internal.telephony.HbpcdLookup.MccIdd;
 import com.android.internal.telephony.HbpcdLookup.MccLookup;
-
-import java.util.ArrayList;
-import java.util.HashMap;
 
 
  /**
  * This class implements handle the MO SMS target address before sending.
- * This is special for VZW requirement. Follow the specifications of assisted dialing
+ * This is special for VZW requirement. Follow the specificaitons of assisted dialing
  * of MO SMS while traveling on VZW CDMA, international CDMA or GSM markets.
  * {@hide}
  */
@@ -113,13 +113,13 @@ public class SmsNumberUtils {
     }
 
     /* Breaks the given number down and formats it according to the rules
-     * for different number plans and different network.
+     * for different number plans and differnt network.
      *
-     * @param number destination number which need to be format
+     * @param number destionation number which need to be format
      * @param activeMcc current network's mcc
      * @param networkType current network type
      *
-     * @return the number after formatting.
+     * @return the number after fromatting.
      */
     private static String formatNumber(Context context, String number,
                                String activeMcc,
@@ -435,7 +435,7 @@ public class SmsNumberUtils {
 
             int[] ccArray = new int[MAX_COUNTRY_CODES_LENGTH];
             for (int i = 0; i < MAX_COUNTRY_CODES_LENGTH; i ++) {
-                ccArray[i] = Integer.parseInt(number.substring(0, i+1));
+                ccArray[i] = Integer.valueOf(number.substring(0, i+1));
             }
 
             for (int i = 0; i < allCCs.length; i ++) {
@@ -512,13 +512,13 @@ public class SmsNumberUtils {
         } else if (state == NP_NANP_NBPCD_HOMEIDD_CC_AREA_LOCAL) {
             numberPlanType = "NP_NANP_NBPCD_HOMEIDD_CC_AREA_LOCAL";
         } else if (state == NP_NBPCD_HOMEIDD_CC_AREA_LOCAL) {
-            numberPlanType = "NP_NBPCD_HOMEIDD_CC_AREA_LOCAL";
+            numberPlanType = "NP_NBPCD_IDD_CC_AREA_LOCAL";
         } else if (state == NP_HOMEIDD_CC_AREA_LOCAL) {
-            numberPlanType = "NP_HOMEIDD_CC_AREA_LOCAL";
+            numberPlanType = "NP_IDD_CC_AREA_LOCAL";
         } else if (state == NP_NBPCD_CC_AREA_LOCAL) {
             numberPlanType = "NP_NBPCD_CC_AREA_LOCAL";
         } else if (state == NP_LOCALIDD_CC_AREA_LOCAL) {
-            numberPlanType = "NP_LOCALIDD_CC_AREA_LOCAL";
+            numberPlanType = "NP_IDD_CC_AREA_LOCAL";
         } else if (state == NP_CC_AREA_LOCAL) {
             numberPlanType = "NP_CC_AREA_LOCAL";
         } else {
@@ -530,33 +530,30 @@ public class SmsNumberUtils {
     /**
      *  Filter the destination number if using VZW sim card.
      */
-    public static String filterDestAddr(Phone phone, String destAddr) {
-        if (DBG) Rlog.d(TAG, "enter filterDestAddr. destAddr=\"" + Rlog.pii(TAG, destAddr) + "\"" );
+    public static String filterDestAddr(PhoneBase phoneBase, String destAddr) {
+        if (DBG) Rlog.d(TAG, "enter filterDestAddr. destAddr=\"" + destAddr + "\"" );
 
         if (destAddr == null || !PhoneNumberUtils.isGlobalPhoneNumber(destAddr)) {
-            Rlog.w(TAG, "destAddr" + Rlog.pii(TAG, destAddr) +
-                    " is not a global phone number! Nothing changed.");
+            Rlog.w(TAG, "destAddr" + destAddr + " is not a global phone number! Nothing changed.");
             return destAddr;
         }
 
-        final String networkOperator = TelephonyManager.from(phone.getContext()).
-                getNetworkOperator(phone.getSubId());
+        final String networkOperator = TelephonyManager.getDefault().getNetworkOperator();
         String result = null;
 
-        if (needToConvert(phone)) {
-            final int networkType = getNetworkType(phone);
+        if (needToConvert(phoneBase)) {
+            final int networkType = getNetworkType(phoneBase);
             if (networkType != -1 && !TextUtils.isEmpty(networkOperator)) {
                 String networkMcc = networkOperator.substring(0, 3);
                 if (networkMcc != null && networkMcc.trim().length() > 0) {
-                    result = formatNumber(phone.getContext(), destAddr, networkMcc, networkType);
+                    result = formatNumber(phoneBase.getContext(), destAddr, networkMcc, networkType);
                 }
             }
         }
 
         if (DBG) {
             Rlog.d(TAG, "destAddr is " + ((result != null)?"formatted.":"not formatted."));
-            Rlog.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? Rlog.pii(TAG,
-                    result) : Rlog.pii(TAG, destAddr)) + "\"");
+            Rlog.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? result : destAddr) + "\"" );
         }
         return result != null ? result : destAddr;
     }
@@ -564,14 +561,14 @@ public class SmsNumberUtils {
     /**
      * Returns the current network type
      */
-    private static int getNetworkType(Phone phone) {
+    private static int getNetworkType(PhoneBase phoneBase) {
         int networkType = -1;
-        int phoneType = phone.getPhoneType();
+        int phoneType = TelephonyManager.getDefault().getPhoneType();
 
-        if (phoneType == PhoneConstants.PHONE_TYPE_GSM) {
+        if (phoneType == TelephonyManager.PHONE_TYPE_GSM) {
             networkType = GSM_UMTS_NETWORK;
-        } else if (phoneType == PhoneConstants.PHONE_TYPE_CDMA) {
-            if (isInternationalRoaming(phone)) {
+        } else if (phoneType == TelephonyManager.PHONE_TYPE_CDMA) {
+            if (isInternationalRoaming(phoneBase)) {
                 networkType = CDMA_ROAMING_NETWORK;
             } else {
                 networkType = CDMA_HOME_NETWORK;
@@ -583,11 +580,11 @@ public class SmsNumberUtils {
         return networkType;
     }
 
-    private static boolean isInternationalRoaming(Phone phone) {
-        String operatorIsoCountry = TelephonyManager.from(phone.getContext()).
-                getNetworkCountryIsoForPhone(phone.getPhoneId());
-        String simIsoCountry = TelephonyManager.from(phone.getContext()).getSimCountryIsoForPhone(
-                phone.getPhoneId());
+    private static boolean isInternationalRoaming(PhoneBase phoneBase) {
+        String operatorIsoCountry = TelephonyManager.getDefault().getNetworkCountryIsoForPhone(
+                phoneBase.getPhoneId());
+        String simIsoCountry = TelephonyManager.getDefault().getSimCountryIsoForPhone(
+                phoneBase.getPhoneId());
         boolean internationalRoaming = !TextUtils.isEmpty(operatorIsoCountry)
                 && !TextUtils.isEmpty(simIsoCountry)
                 && !simIsoCountry.equals(operatorIsoCountry);
@@ -601,29 +598,33 @@ public class SmsNumberUtils {
         return internationalRoaming;
     }
 
-    private static boolean needToConvert(Phone phone) {
-        // Calling package may not have READ_PHONE_STATE which is required for getConfig().
-        // Clear the calling identity so that it is called as self.
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            CarrierConfigManager configManager = (CarrierConfigManager)
-                    phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-            if (configManager != null) {
-                PersistableBundle bundle = configManager.getConfig();
-                if (bundle != null) {
-                    return bundle.getBoolean(CarrierConfigManager
-                            .KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);
+    private static boolean needToConvert(PhoneBase phoneBase) {
+        boolean bNeedToConvert  = false;
+        String[] listArray = phoneBase.getContext().getResources()
+                .getStringArray(com.android.internal.R.array
+                .config_sms_convert_destination_number_support);
+        if (listArray != null && listArray.length > 0) {
+            for (int i=0; i<listArray.length; i++) {
+                if (!TextUtils.isEmpty(listArray[i])) {
+                    String[] needToConvertArray = listArray[i].split(";");
+                    if (needToConvertArray != null && needToConvertArray.length > 0) {
+                        if (needToConvertArray.length == 1) {
+                            bNeedToConvert = "true".equalsIgnoreCase(needToConvertArray[0]);
+                        } else if (needToConvertArray.length == 2 &&
+                                !TextUtils.isEmpty(needToConvertArray[1]) &&
+                                compareGid1(phoneBase, needToConvertArray[1])) {
+                            bNeedToConvert = "true".equalsIgnoreCase(needToConvertArray[0]);
+                            break;
+                        }
+                    }
                 }
             }
-        } finally {
-            Binder.restoreCallingIdentity(identity);
         }
-        // by default this value is false
-        return false;
+        return bNeedToConvert;
     }
 
-    private static boolean compareGid1(Phone phone, String serviceGid1) {
-        String gid1 = phone.getGroupIdLevel1();
+    private static boolean compareGid1(PhoneBase phoneBase, String serviceGid1) {
+        String gid1 = phoneBase.getGroupIdLevel1();
         boolean ret = true;
 
         if (TextUtils.isEmpty(serviceGid1)) {

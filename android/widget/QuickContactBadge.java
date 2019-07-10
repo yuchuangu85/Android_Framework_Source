@@ -16,6 +16,8 @@
 
 package android.widget;
 
+import com.android.internal.R;
+
 import android.content.AsyncQueryHandler;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -35,8 +37,6 @@ import android.provider.ContactsContract.RawContacts;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.View.OnClickListener;
-
-import com.android.internal.R;
 
 /**
  * Widget used to show an image with the standard QuickContact badge
@@ -96,26 +96,18 @@ public class QuickContactBadge extends ImageView implements OnClickListener {
                 com.android.internal.R.styleable.Theme_quickContactBadgeOverlay);
         styledAttributes.recycle();
 
-        setOnClickListener(this);
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-
         if (!isInEditMode()) {
             mQueryHandler = new QueryHandler(mContext.getContentResolver());
         }
+        setOnClickListener(this);
     }
 
     @Override
     protected void drawableStateChanged() {
         super.drawableStateChanged();
-
-        final Drawable overlay = mOverlay;
-        if (overlay != null && overlay.isStateful()
-                && overlay.setState(getDrawableState())) {
-            invalidateDrawable(overlay);
+        if (mOverlay != null && mOverlay.isStateful()) {
+            mOverlay.setState(getDrawableState());
+            invalidate();
         }
     }
 

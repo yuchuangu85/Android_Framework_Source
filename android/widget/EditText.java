@@ -17,6 +17,7 @@
 package android.widget;
 
 import android.content.Context;
+import android.os.Bundle;
 import android.text.Editable;
 import android.text.Selection;
 import android.text.Spannable;
@@ -26,6 +27,7 @@ import android.text.method.MovementMethod;
 import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityNodeInfo;
 
+
 /*
  * This is supposed to be a *very* thin veneer over TextView.
  * Do not make any changes here that do anything that a TextView
@@ -33,37 +35,11 @@ import android.view.accessibility.AccessibilityNodeInfo;
  */
 
 /**
- * A user interface element for entering and modifying text.
- * When you define an edit text widget, you must specify the
- * {@link android.R.styleable#TextView_inputType}
- * attribute. For example, for plain text input set inputType to "text":
- * <p>
- * <pre>
- * &lt;EditText
- *     android:id="@+id/plain_text_input"
- *     android:layout_height="wrap_content"
- *     android:layout_width="match_parent"
- *     android:inputType="text"/&gt;</pre>
+ * EditText is a thin veneer over TextView that configures itself
+ * to be editable.
  *
- * Choosing the input type configures the keyboard type that is shown, acceptable characters,
- * and appearance of the edit text.
- * For example, if you want to accept a secret number, like a unique pin or serial number,
- * you can set inputType to "numericPassword".
- * An inputType of "numericPassword" results in an edit text that accepts numbers only,
- * shows a numeric keyboard when focused, and masks the text that is entered for privacy.
- * <p>
- * See the <a href="{@docRoot}guide/topics/ui/controls/text.html">Text Fields</a>
- * guide for examples of other
- * {@link android.R.styleable#TextView_inputType} settings.
- * </p>
- * <p>You also can receive callbacks as a user changes text by
- * adding a {@link android.text.TextWatcher} to the edit text.
- * This is useful when you want to add auto-save functionality as changes are made,
- * or validate the format of user input, for example.
- * You add a text watcher using the {@link TextView#addTextChangedListener} method.
- * </p>
- * <p>
- * This widget does not support auto-sizing text.
+ * <p>See the <a href="{@docRoot}guide/topics/ui/controls/text.html">Text Fields</a>
+ * guide.</p>
  * <p>
  * <b>XML attributes</b>
  * <p>
@@ -89,11 +65,6 @@ public class EditText extends TextView {
     }
 
     @Override
-    public boolean getFreezesText() {
-        return true;
-    }
-
-    @Override
     protected boolean getDefaultEditable() {
         return true;
     }
@@ -105,15 +76,6 @@ public class EditText extends TextView {
 
     @Override
     public Editable getText() {
-        CharSequence text = super.getText();
-        // This can only happen during construction.
-        if (text == null) {
-            return null;
-        }
-        if (text instanceof Editable) {
-            return (Editable) super.getText();
-        }
-        super.setText(text, BufferType.EDITABLE);
         return (Editable) super.getText();
     }
 
@@ -150,16 +112,6 @@ public class EditText extends TextView {
         Selection.extendSelection(getText(), index);
     }
 
-    /**
-     * Causes words in the text that are longer than the view's width to be ellipsized instead of
-     * broken in the middle. {@link TextUtils.TruncateAt#MARQUEE
-     * TextUtils.TruncateAt#MARQUEE} is not supported.
-     *
-     * @param ellipsis Type of ellipsis to be applied.
-     * @throws IllegalArgumentException When the value of <code>ellipsis</code> parameter is
-     *      {@link TextUtils.TruncateAt#MARQUEE}.
-     * @see TextView#setEllipsize(TextUtils.TruncateAt)
-     */
     @Override
     public void setEllipsize(TextUtils.TruncateAt ellipsis) {
         if (ellipsis == TextUtils.TruncateAt.MARQUEE) {
@@ -176,16 +128,20 @@ public class EditText extends TextView {
 
     /** @hide */
     @Override
-    protected boolean supportsAutoSizeText() {
-        return false;
-    }
-
-    /** @hide */
-    @Override
-    public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfoInternal(info);
-        if (isEnabled()) {
-            info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_TEXT);
+    public boolean performAccessibilityActionInternal(int action, Bundle arguments) {
+        switch (action) {
+            case AccessibilityNodeInfo.ACTION_SET_TEXT: {
+                CharSequence text = (arguments != null) ? arguments.getCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE) : null;
+                setText(text);
+                if (text != null && text.length() > 0) {
+                    setSelection(text.length());
+                }
+                return true;
+            }
+            default: {
+                return super.performAccessibilityActionInternal(action, arguments);
+            }
         }
     }
 }

@@ -1,431 +1,274 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
 
-import java.security.AccessController;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
-import java.security.PrivilegedAction;
 import java.security.Provider;
 import java.security.Security;
 import java.util.Collection;
-
-import sun.security.jca.*;
-import sun.security.jca.GetInstance.Instance;
+import org.apache.harmony.security.fortress.Engine;
 
 /**
- * A class for retrieving {@code Certificate}s and {@code CRL}s
- * from a repository.
- * <p>
- * This class uses a provider-based architecture.
- * To create a {@code CertStore}, call one of the static
- * {@code getInstance} methods, passing in the type of
- * {@code CertStore} desired, any applicable initialization parameters
- * and optionally the name of the provider desired.
- * <p>
- * Once the {@code CertStore} has been created, it can be used to
- * retrieve {@code Certificate}s and {@code CRL}s by calling its
- * {@link #getCertificates(CertSelector selector) getCertificates} and
- * {@link #getCRLs(CRLSelector selector) getCRLs} methods.
- * <p>
- * Unlike a {@link java.security.KeyStore KeyStore}, which provides access
- * to a cache of private keys and trusted certificates, a
- * {@code CertStore} is designed to provide access to a potentially
- * vast repository of untrusted certificates and CRLs. For example, an LDAP
- * implementation of {@code CertStore} provides access to certificates
- * and CRLs stored in one or more directories using the LDAP protocol and the
- * schema as defined in the RFC service attribute.
- *
- * <p> Android provides the following <code>CertStore</code> types:
- * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>Collection</td>
- *       <td>1+</td>
- *     </tr>
- *   </tbody>
- * </table>
- *
- * This type is described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#CertStore">
- * CertStore section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
- * <p>
- * <b>Concurrent Access</b>
- * <p>
- * All public methods of {@code CertStore} objects must be thread-safe.
- * That is, multiple threads may concurrently invoke these methods on a
- * single {@code CertStore} object (or more than one) with no
- * ill effects. This allows a {@code CertPathBuilder} to search for a
- * CRL while simultaneously searching for further certificates, for instance.
- * <p>
- * The static methods of this class are also guaranteed to be thread-safe.
- * Multiple threads may concurrently invoke the static methods defined in
- * this class with no ill effects.
- *
- * @since       1.4
- * @author      Sean Mullan, Steve Hanna
+ * This class provides the functionality to retrieve {@code Certificate}s and
+ * {@code CRL}s from a read-only repository. This repository may be very large
+ * and may store trusted as well as untrusted certificates.
  */
 public class CertStore {
-    /*
-     * Constant to lookup in the Security properties file to determine
-     * the default certstore type. In the Security properties file, the
-     * default certstore type is given as:
-     * <pre>
-     * certstore.type=LDAP
-     * </pre>
-     */
-    private static final String CERTSTORE_TYPE = "certstore.type";
-    private CertStoreSpi storeSpi;
-    private Provider provider;
-    private String type;
-    private CertStoreParameters params;
+
+    // Store spi implementation service name
+    private static final String SERVICE = "CertStore";
+
+    // Used to access common engine functionality
+    private static final Engine ENGINE = new Engine(SERVICE);
+
+    // Store default property name
+    private static final String PROPERTY_NAME = "certstore.type";
+
+    // Default value of CertStore type. It returns if certpathbuild.type
+    // property is not defined in java.security file
+    private static final String DEFAULT_PROPERTY = "LDAP";
+
+    // Store used provider
+    private final Provider provider;
+
+    // Store CertStoreSpi implementation
+    private final CertStoreSpi spiImpl;
+
+    // Store used type
+    private final String type;
+
+    // Store used parameters
+    private final CertStoreParameters certStoreParams;
 
     /**
-     * Creates a {@code CertStore} object of the given type, and
-     * encapsulates the given provider implementation (SPI object) in it.
+     * Creates a new {@code CertStore} instance.
      *
-     * @param storeSpi the provider implementation
-     * @param provider the provider
-     * @param type the type
-     * @param params the initialization parameters (may be {@code null})
+     * @param storeSpi
+     *            the implementation delegate.
+     * @param provider
+     *            the security provider.
+     * @param type
+     *            the certificate store type.
+     * @param params
+     *            the certificate store parameters (may be {@code null}.
      */
-    protected CertStore(CertStoreSpi storeSpi, Provider provider,
-                        String type, CertStoreParameters params) {
-        this.storeSpi = storeSpi;
+    protected CertStore(CertStoreSpi storeSpi, Provider provider, String type,
+            CertStoreParameters params) {
         this.provider = provider;
         this.type = type;
-        if (params != null)
-            this.params = (CertStoreParameters) params.clone();
+        this.spiImpl = storeSpi;
+        this.certStoreParams = params;
     }
 
     /**
-     * Returns a {@code Collection} of {@code Certificate}s that
-     * match the specified selector. If no {@code Certificate}s
-     * match the selector, an empty {@code Collection} will be returned.
-     * <p>
-     * For some {@code CertStore} types, the resulting
-     * {@code Collection} may not contain <b>all</b> of the
-     * {@code Certificate}s that match the selector. For instance,
-     * an LDAP {@code CertStore} may not search all entries in the
-     * directory. Instead, it may just search entries that are likely to
-     * contain the {@code Certificate}s it is looking for.
-     * <p>
-     * Some {@code CertStore} implementations (especially LDAP
-     * {@code CertStore}s) may throw a {@code CertStoreException}
-     * unless a non-null {@code CertSelector} is provided that
-     * includes specific criteria that can be used to find the certificates.
-     * Issuer and/or subject names are especially useful criteria.
+     * Creates a new {@code CertStore} instance with the specified type and
+     * initialized with the specified parameters.
      *
-     * @param selector A {@code CertSelector} used to select which
-     *  {@code Certificate}s should be returned. Specify {@code null}
-     *  to return all {@code Certificate}s (if supported).
-     * @return A {@code Collection} of {@code Certificate}s that
-     *         match the specified selector (never {@code null})
-     * @throws CertStoreException if an exception occurs
-     */
-    public final Collection<? extends Certificate> getCertificates
-            (CertSelector selector) throws CertStoreException {
-        return storeSpi.engineGetCertificates(selector);
-    }
-
-    /**
-     * Returns a {@code Collection} of {@code CRL}s that
-     * match the specified selector. If no {@code CRL}s
-     * match the selector, an empty {@code Collection} will be returned.
-     * <p>
-     * For some {@code CertStore} types, the resulting
-     * {@code Collection} may not contain <b>all</b> of the
-     * {@code CRL}s that match the selector. For instance,
-     * an LDAP {@code CertStore} may not search all entries in the
-     * directory. Instead, it may just search entries that are likely to
-     * contain the {@code CRL}s it is looking for.
-     * <p>
-     * Some {@code CertStore} implementations (especially LDAP
-     * {@code CertStore}s) may throw a {@code CertStoreException}
-     * unless a non-null {@code CRLSelector} is provided that
-     * includes specific criteria that can be used to find the CRLs.
-     * Issuer names and/or the certificate to be checked are especially useful.
-     *
-     * @param selector A {@code CRLSelector} used to select which
-     *  {@code CRL}s should be returned. Specify {@code null}
-     *  to return all {@code CRL}s (if supported).
-     * @return A {@code Collection} of {@code CRL}s that
-     *         match the specified selector (never {@code null})
-     * @throws CertStoreException if an exception occurs
-     */
-    public final Collection<? extends CRL> getCRLs(CRLSelector selector)
-            throws CertStoreException {
-        return storeSpi.engineGetCRLs(selector);
-    }
-
-    /**
-     * Returns a {@code CertStore} object that implements the specified
-     * {@code CertStore} type and is initialized with the specified
-     * parameters.
-     *
-     * <p> This method traverses the list of registered security Providers,
-     * starting with the most preferred Provider.
-     * A new CertStore object encapsulating the
-     * CertStoreSpi implementation from the first
-     * Provider that supports the specified type is returned.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * <p>The {@code CertStore} that is returned is initialized with the
-     * specified {@code CertStoreParameters}. The type of parameters
-     * needed may vary between different types of {@code CertStore}s.
-     * Note that the specified {@code CertStoreParameters} object is
-     * cloned.
-     *
-     * @param type the name of the requested {@code CertStore} type.
-     * See the CertStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#CertStore">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard types.
-     *
-     * @param params the initialization parameters (may be {@code null}).
-     *
-     * @return a {@code CertStore} object that implements the specified
-     *          {@code CertStore} type.
-     *
-     * @throws NoSuchAlgorithmException if no Provider supports a
-     *          CertStoreSpi implementation for the specified type.
-     *
-     * @throws InvalidAlgorithmParameterException if the specified
-     *          initialization parameters are inappropriate for this
-     *          {@code CertStore}.
-     *
-     * @see java.security.Provider
+     * @param type
+     *            the certificate store type.
+     * @param params
+     *            the certificate store parameters (may be {@code null}).
+     * @return the new certificate store instance.
+     * @throws NoSuchAlgorithmException
+     *             if no provider can provide the specified certificate store
+     *             type.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters cannot be used to initialize this
+     *             certificate store instance.
+     * @throws NullPointerException if {@code type == null}
      */
     public static CertStore getInstance(String type, CertStoreParameters params)
-            throws InvalidAlgorithmParameterException,
-            NoSuchAlgorithmException {
+            throws InvalidAlgorithmParameterException, NoSuchAlgorithmException {
+        if (type == null) {
+            throw new NullPointerException("type == null");
+        }
         try {
-            Instance instance = GetInstance.getInstance("CertStore",
-                CertStoreSpi.class, type, params);
-            return new CertStore((CertStoreSpi)instance.impl,
-                instance.provider, type, params);
+            Engine.SpiAndProvider sap = ENGINE.getInstance(type, params);
+            return new CertStore((CertStoreSpi) sap.spi, sap.provider, type, params);
         } catch (NoSuchAlgorithmException e) {
-            return handleException(e);
+            Throwable th = e.getCause();
+            if (th == null) {
+                throw e;
+            } else {
+                throw new InvalidAlgorithmParameterException(e.getMessage(), th);
+            }
         }
-    }
-
-    private static CertStore handleException(NoSuchAlgorithmException e)
-            throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
-        Throwable cause = e.getCause();
-        if (cause instanceof InvalidAlgorithmParameterException) {
-            throw (InvalidAlgorithmParameterException)cause;
-        }
-        throw e;
     }
 
     /**
-     * Returns a {@code CertStore} object that implements the specified
-     * {@code CertStore} type.
+     * Creates a new {@code CertStore} instance from the specified provider with
+     * the specified type and initialized with the specified parameters.
      *
-     * <p> A new CertStore object encapsulating the
-     * CertStoreSpi implementation from the specified provider
-     * is returned.  The specified provider must be registered
-     * in the security provider list.
-     *
-     * <p> Note that the list of registered providers may be retrieved via
-     * the {@link Security#getProviders() Security.getProviders()} method.
-     *
-     * <p>The {@code CertStore} that is returned is initialized with the
-     * specified {@code CertStoreParameters}. The type of parameters
-     * needed may vary between different types of {@code CertStore}s.
-     * Note that the specified {@code CertStoreParameters} object is
-     * cloned.
-     *
-     * @param type the requested {@code CertStore} type.
-     * See the CertStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#CertStore">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard types.
-     *
-     * @param params the initialization parameters (may be {@code null}).
-     *
-     * @param provider the name of the provider.
-     *
-     * @return a {@code CertStore} object that implements the
-     *          specified type.
-     *
-     * @throws NoSuchAlgorithmException if a CertStoreSpi
-     *          implementation for the specified type is not
-     *          available from the specified provider.
-     *
-     * @throws InvalidAlgorithmParameterException if the specified
-     *          initialization parameters are inappropriate for this
-     *          {@code CertStore}.
-     *
-     * @throws NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
-     *
-     * @exception IllegalArgumentException if the {@code provider} is
-     *          null or empty.
-     *
-     * @see java.security.Provider
+     * @param type
+     *            the certificate store type.
+     * @param params
+     *            the certificate store parameters (may be {@code null}).
+     * @param provider
+     *            the name of the provider.
+     * @return the new certificate store instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             certificate store type.
+     * @throws NoSuchProviderException
+     *             if no provider with the specified name can be found.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters cannot be used to initialize this
+     *             certificate store instance.
+     * @throws IllegalArgumentException if {@code provider == null || provider.isEmpty()}
+     * @throws NullPointerException
+     *             if {@code type} is {@code null}.
      */
     public static CertStore getInstance(String type,
             CertStoreParameters params, String provider)
             throws InvalidAlgorithmParameterException,
             NoSuchAlgorithmException, NoSuchProviderException {
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("provider == null || provider.isEmpty()");
+        }
+        Provider impProvider = Security.getProvider(provider);
+        if (impProvider == null) {
+            throw new NoSuchProviderException(provider);
+        }
+        return getInstance(type, params, impProvider);
+    }
+
+    /**
+     * Creates a new {@code CertStore} instance from the specified provider with
+     * the specified type and initialized with the specified parameters. The
+     * {@code provider} supplied does not have to be registered.
+     *
+     * @param type
+     *            the certificate store type.
+     * @param params
+     *            the certificate store parameters (may be {@code null}).
+     * @param provider
+     *            the name of the provider.
+     * @return the new certificate store instance.
+     * @throws NoSuchAlgorithmException
+     *             if the specified provider cannot provide the requested
+     *             certificate store type.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters cannot be used to initialize this
+     *             certificate store instance.
+     * @throws IllegalArgumentException if {@code provider == null}
+     * @throws NullPointerException if {@code type == null}
+     */
+    public static CertStore getInstance(String type,
+            CertStoreParameters params, Provider provider)
+            throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
+        if (provider == null) {
+            throw new IllegalArgumentException("provider == null");
+        }
+        if (type == null) {
+            throw new NullPointerException("type == null");
+        }
         try {
-            Instance instance = GetInstance.getInstance("CertStore",
-                CertStoreSpi.class, type, params, provider);
-            return new CertStore((CertStoreSpi)instance.impl,
-                instance.provider, type, params);
+            Object spi = ENGINE.getInstance(type, provider, params);
+            return new CertStore((CertStoreSpi) spi, provider, type, params);
         } catch (NoSuchAlgorithmException e) {
-            return handleException(e);
+            Throwable th = e.getCause();
+            if (th == null) {
+                throw e;
+            } else {
+                throw new InvalidAlgorithmParameterException(e.getMessage(), th);
+            }
         }
     }
 
     /**
-     * Returns a {@code CertStore} object that implements the specified
-     * {@code CertStore} type.
+     * Returns the certificate store type.
      *
-     * <p> A new CertStore object encapsulating the
-     * CertStoreSpi implementation from the specified Provider
-     * object is returned.  Note that the specified Provider object
-     * does not have to be registered in the provider list.
-     *
-     * <p>The {@code CertStore} that is returned is initialized with the
-     * specified {@code CertStoreParameters}. The type of parameters
-     * needed may vary between different types of {@code CertStore}s.
-     * Note that the specified {@code CertStoreParameters} object is
-     * cloned.
-     *
-     * @param type the requested {@code CertStore} type.
-     * See the CertStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#CertStore">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard types.
-     *
-     * @param params the initialization parameters (may be {@code null}).
-     *
-     * @param provider the provider.
-     *
-     * @return a {@code CertStore} object that implements the
-     *          specified type.
-     *
-     * @exception NoSuchAlgorithmException if a CertStoreSpi
-     *          implementation for the specified type is not available
-     *          from the specified Provider object.
-     *
-     * @throws InvalidAlgorithmParameterException if the specified
-     *          initialization parameters are inappropriate for this
-     *          {@code CertStore}
-     *
-     * @exception IllegalArgumentException if the {@code provider} is
-     *          null.
-     *
-     * @see java.security.Provider
-     */
-    public static CertStore getInstance(String type, CertStoreParameters params,
-            Provider provider) throws NoSuchAlgorithmException,
-            InvalidAlgorithmParameterException {
-        try {
-            Instance instance = GetInstance.getInstance("CertStore",
-                CertStoreSpi.class, type, params, provider);
-            return new CertStore((CertStoreSpi)instance.impl,
-                instance.provider, type, params);
-        } catch (NoSuchAlgorithmException e) {
-            return handleException(e);
-        }
-    }
-
-    /**
-     * Returns the parameters used to initialize this {@code CertStore}.
-     * Note that the {@code CertStoreParameters} object is cloned before
-     * it is returned.
-     *
-     * @return the parameters used to initialize this {@code CertStore}
-     * (may be {@code null})
-     */
-    public final CertStoreParameters getCertStoreParameters() {
-        return (params == null ? null : (CertStoreParameters) params.clone());
-    }
-
-    /**
-     * Returns the type of this {@code CertStore}.
-     *
-     * @return the type of this {@code CertStore}
+     * @return the certificate store type.
      */
     public final String getType() {
-        return this.type;
+        return type;
     }
 
     /**
-     * Returns the provider of this {@code CertStore}.
+     * Returns the security provider.
      *
-     * @return the provider of this {@code CertStore}
+     * @return the security provider.
      */
     public final Provider getProvider() {
-        return this.provider;
+        return provider;
     }
 
     /**
-     * Returns the default {@code CertStore} type as specified by the
-     * {@code certstore.type} security property, or the string
-     * {@literal "LDAP"} if no such property exists.
+     * Returns a copy of the certificate store parameters that were used to
+     * initialize this instance.
      *
-     * <p>The default {@code CertStore} type can be used by applications
-     * that do not want to use a hard-coded type when calling one of the
-     * {@code getInstance} methods, and want to provide a default
-     * {@code CertStore} type in case a user does not specify its own.
-     *
-     * <p>The default {@code CertStore} type can be changed by setting
-     * the value of the {@code certstore.type} security property to the
-     * desired type.
-     *
-     * @see java.security.Security security properties
-     * @return the default {@code CertStore} type as specified by the
-     * {@code certstore.type} security property, or the string
-     * {@literal "LDAP"} if no such property exists.
+     * @return a copy of the certificate store parameters or {@code null} if
+     *         none were specified.
      */
-    public final static String getDefaultType() {
-        String cstype;
-        cstype = AccessController.doPrivileged(new PrivilegedAction<String>() {
-            public String run() {
-                return Security.getProperty(CERTSTORE_TYPE);
-            }
-        });
-        if (cstype == null) {
-            cstype = "LDAP";
+    public final CertStoreParameters getCertStoreParameters() {
+        if (certStoreParams == null) {
+            return null;
+        } else {
+            return (CertStoreParameters) certStoreParams.clone();
         }
-        return cstype;
+    }
+
+    /**
+     * Returns the list of {@code Certificate}s for the specified {@code
+     * CertSelector} from this certificate store.
+     *
+     * @param selector
+     *            the selector containing the criteria to search for
+     *            certificates in this certificate store.
+     * @return the list of {@code Certificate}s that match the criteria of the
+     *         specified selector.
+     * @throws CertStoreException
+     *             if error(s) occur.
+     */
+    public final Collection<? extends Certificate> getCertificates(CertSelector selector)
+            throws CertStoreException {
+        return spiImpl.engineGetCertificates(selector);
+    }
+
+    /**
+     * Returns the list of {@code CRL}s for the specified {@code CRLSelector}
+     * from this certificate store.
+     *
+     * @param selector
+     *            the selector containing the criteria to search for certificate
+     *            revocation lists in this store.
+     * @return the list of {@code CRL}s that match the criteria of the specified
+     *         selector
+     * @throws CertStoreException
+     *             if error(s) occur.
+     */
+    public final Collection<? extends CRL> getCRLs(CRLSelector selector)
+            throws CertStoreException {
+        return spiImpl.engineGetCRLs(selector);
+    }
+
+    /**
+     * Returns the default {@code CertStore} type from the <i>Security
+     * Properties</i>.
+     *
+     * @return the default {@code CertStore} type from the <i>Security
+     *         Properties</i>, or the string {@code "LDAP"} if it cannot be
+     *         determined.
+     */
+    public static final String getDefaultType() {
+        String defaultType = Security.getProperty(PROPERTY_NAME);
+        return (defaultType == null ? DEFAULT_PROPERTY : defaultType);
     }
 }

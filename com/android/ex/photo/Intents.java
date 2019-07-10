@@ -37,10 +37,8 @@ public class Intents {
     public static final String EXTRA_RESOLVED_PHOTO_URI = "resolved_photo_uri";
     public static final String EXTRA_PROJECTION = "projection";
     public static final String EXTRA_THUMBNAIL_URI = "thumbnail_uri";
-    public static final String EXTRA_CONTENT_DESCRIPTION = "content_description";
     public static final String EXTRA_MAX_INITIAL_SCALE = "max_scale";
     public static final String EXTRA_WATCH_NETWORK = "watch_network";
-    public static final String EXTRA_ENABLE_TIMER_LIGHTS_OUT = "enable_timer_lights_out";
 
 
     // Parameters affecting the intro/exit animation
@@ -117,12 +115,8 @@ public class Intents {
         private String[] mProjection;
         /** The URI of a thumbnail of the photo to display */
         private String mThumbnailUri;
-        /** The content Description for the photo to show */
-        private String mContentDescription;
         /** The maximum scale to display images at before  */
         private Float mMaxInitialScale;
-        /** True if lights out should automatically be invoked on a timer basis */
-        private boolean mEnableTimerLightsOut;
         /**
          * True if the PhotoViewFragments should watch for network changes to restart their loaders
          */
@@ -157,13 +151,6 @@ public class Intents {
             mScaleAnimation = false;
             mActionBarHiddenInitially = false;
             mDisplayFullScreenThumbs = false;
-            mEnableTimerLightsOut = true;
-        }
-
-        /** Sets auto lights out */
-        public PhotoViewIntentBuilder setEnableTimerLightsOut(boolean enable) {
-            mEnableTimerLightsOut = enable;
-            return this;
         }
 
         /** Sets the photo index */
@@ -205,14 +192,6 @@ public class Intents {
          */
         public PhotoViewIntentBuilder setThumbnailUri(String thumbnailUri) {
             mThumbnailUri = thumbnailUri;
-            return this;
-        }
-
-        /**
-         * Sets the content Description for the photo
-         */
-        public PhotoViewIntentBuilder setContentDescription(String contentDescription) {
-            mContentDescription = contentDescription;
             return this;
         }
 
@@ -324,10 +303,6 @@ public class Intents {
                 mIntent.putExtra(EXTRA_THUMBNAIL_URI, mThumbnailUri);
             }
 
-            if (mContentDescription != null) {
-                mIntent.putExtra(EXTRA_CONTENT_DESCRIPTION, mContentDescription);
-            }
-
             if (mMaxInitialScale != null) {
                 mIntent.putExtra(EXTRA_MAX_INITIAL_SCALE, mMaxInitialScale);
             }
@@ -344,7 +319,7 @@ public class Intents {
 
             mIntent.putExtra(EXTRA_ACTION_BAR_HIDDEN_INITIALLY, mActionBarHiddenInitially);
             mIntent.putExtra(EXTRA_DISPLAY_THUMBS_FULLSCREEN, mDisplayFullScreenThumbs);
-            mIntent.putExtra(EXTRA_ENABLE_TIMER_LIGHTS_OUT, mEnableTimerLightsOut);
+
             return mIntent;
         }
     }

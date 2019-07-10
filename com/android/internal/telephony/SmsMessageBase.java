@@ -24,7 +24,6 @@ import java.util.Arrays;
 
 import android.provider.Telephony;
 import android.telephony.SmsMessage;
-import android.text.Emoji;
 
 /**
  * Base class declaring the specific methods and members for SmsMessage.
@@ -52,7 +51,7 @@ public abstract class SmsMessageBase {
     /** {@hide} */
     protected boolean mIsEmail;
 
-    /** {@hide} Time when SC (service centre) received the message */
+    /** {@hide} */
     protected long mScTimeMillis;
 
     /** {@hide} The raw PDU of the message */
@@ -368,21 +367,7 @@ public abstract class SmsMessageBase {
             BreakIterator breakIterator = BreakIterator.getCharacterInstance();
             breakIterator.setText(msgBody.toString());
             if (!breakIterator.isBoundary(nextPos)) {
-                int breakPos = breakIterator.preceding(nextPos);
-                while (breakPos + 4 <= nextPos
-                        && Emoji.isRegionalIndicatorSymbol(
-                            Character.codePointAt(msgBody, breakPos))
-                        && Emoji.isRegionalIndicatorSymbol(
-                            Character.codePointAt(msgBody, breakPos + 2))) {
-                    // skip forward over flags (pairs of Regional Indicator Symbol)
-                    breakPos += 4;
-                }
-                if (breakPos > currentPosition) {
-                    nextPos = breakPos;
-                } else if (Character.isHighSurrogate(msgBody.charAt(nextPos - 1))) {
-                    // no character boundary in this fragment, try to at least land on a code point
-                    nextPos -= 1;
-                }
+                nextPos = breakIterator.preceding(nextPos);
             }
         }
         return nextPos;

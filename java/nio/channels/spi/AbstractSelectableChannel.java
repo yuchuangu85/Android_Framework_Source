@@ -1,318 +1,282 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.nio.channels.spi;
 
 import java.io.IOException;
-import java.nio.channels.*;
-
+import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.IllegalBlockingModeException;
+import java.nio.channels.IllegalSelectorException;
+import java.nio.channels.SelectableChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Base implementation class for selectable channels.
- *
- * <p> This class defines methods that handle the mechanics of channel
- * registration, deregistration, and closing.  It maintains the current
- * blocking mode of this channel as well as its current set of selection keys.
- * It performs all of the synchronization required to implement the {@link
- * java.nio.channels.SelectableChannel} specification.  Implementations of the
- * abstract protected methods defined in this class need not synchronize
- * against other threads that might be engaged in the same operations.  </p>
- *
- *
- * @author Mark Reinhold
- * @author Mike McCloskey
- * @author JSR-51 Expert Group
- * @since 1.4
+ * {@code AbstractSelectableChannel} is the base implementation class for
+ * selectable channels. It declares methods for registering, unregistering and
+ * closing selectable channels. It is thread-safe.
  */
+public abstract class AbstractSelectableChannel extends SelectableChannel {
 
-public abstract class AbstractSelectableChannel
-    extends SelectableChannel
-{
-
-    // The provider that created this channel
     private final SelectorProvider provider;
 
-    // Keys that have been created by registering this channel with selectors.
-    // They are saved because if this channel is closed the keys must be
-    // deregistered.  Protected by keyLock.
-    //
-    private SelectionKey[] keys = null;
-    private int keyCount = 0;
+    /*
+     * The collection of key.
+     */
+    private List<SelectionKey> keyList = new ArrayList<SelectionKey>();
 
-    // Lock for key set and count
-    private final Object keyLock = new Object();
+    private final Object blockingLock = new Object();
 
-    // Lock for registration and configureBlocking operations
-    private final Object regLock = new Object();
-
-    // Blocking mode, protected by regLock
-    boolean blocking = true;
+    boolean isBlocking = true;
 
     /**
-     * Initializes a new instance of this class.
+     * Constructs a new {@code AbstractSelectableChannel}.
      *
-     * @param  provider
-     *         The provider that created this channel
+     * @param selectorProvider
+     *            the selector provider that creates this channel.
      */
-    protected AbstractSelectableChannel(SelectorProvider provider) {
-        this.provider = provider;
+    protected AbstractSelectableChannel(SelectorProvider selectorProvider) {
+        provider = selectorProvider;
     }
 
     /**
-     * Returns the provider that created this channel.
+     * Returns the selector provider that has created this channel.
      *
-     * @return  The provider that created this channel
+     * @see java.nio.channels.SelectableChannel#provider()
+     * @return this channel's selector provider.
      */
+    @Override
     public final SelectorProvider provider() {
         return provider;
     }
 
-
-    // -- Utility methods for the key set --
-
-    private void addKey(SelectionKey k) {
-        assert Thread.holdsLock(keyLock);
-        int i = 0;
-        if ((keys != null) && (keyCount < keys.length)) {
-            // Find empty element of key array
-            for (i = 0; i < keys.length; i++)
-                if (keys[i] == null)
-                    break;
-        } else if (keys == null) {
-            keys =  new SelectionKey[3];
-        } else {
-            // Grow key array
-            int n = keys.length * 2;
-            SelectionKey[] ks =  new SelectionKey[n];
-            for (i = 0; i < keys.length; i++)
-                ks[i] = keys[i];
-            keys = ks;
-            i = keyCount;
-        }
-        keys[i] = k;
-        keyCount++;
-    }
-
-    private SelectionKey findKey(Selector sel) {
-        synchronized (keyLock) {
-            if (keys == null)
-                return null;
-            for (int i = 0; i < keys.length; i++)
-                if ((keys[i] != null) && (keys[i].selector() == sel))
-                    return keys[i];
-            return null;
-        }
-    }
-
-    void removeKey(SelectionKey k) {                    // package-private
-        synchronized (keyLock) {
-            for (int i = 0; i < keys.length; i++)
-                if (keys[i] == k) {
-                    keys[i] = null;
-                    keyCount--;
-                }
-            ((AbstractSelectionKey)k).invalidate();
-        }
-    }
-
-    private boolean haveValidKeys() {
-        synchronized (keyLock) {
-            if (keyCount == 0)
-                return false;
-            for (int i = 0; i < keys.length; i++) {
-                if ((keys[i] != null) && keys[i].isValid())
-                    return true;
-            }
-            return false;
-        }
-    }
-
-
-    // -- Registration --
-
-    public final boolean isRegistered() {
-        synchronized (keyLock) {
-            return keyCount != 0;
-        }
-    }
-
-    public final SelectionKey keyFor(Selector sel) {
-        return findKey(sel);
+    /**
+     * Indicates whether this channel is registered with one or more selectors.
+     *
+     * @return {@code true} if this channel is registered with a selector,
+     *         {@code false} otherwise.
+     */
+    @Override
+    synchronized public final boolean isRegistered() {
+        return !keyList.isEmpty();
     }
 
     /**
-     * Registers this channel with the given selector, returning a selection key.
+     * Gets this channel's selection key for the specified selector.
      *
-     * <p>  This method first verifies that this channel is open and that the
-     * given initial interest set is valid.
-     *
-     * <p> If this channel is already registered with the given selector then
-     * the selection key representing that registration is returned after
-     * setting its interest set to the given value.
-     *
-     * <p> Otherwise this channel has not yet been registered with the given
-     * selector, so the {@link AbstractSelector#register register} method of
-     * the selector is invoked while holding the appropriate locks.  The
-     * resulting key is added to this channel's key set before being returned.
-     * </p>
-     *
-     * @throws  ClosedSelectorException {@inheritDoc}
-     *
-     * @throws  IllegalBlockingModeException {@inheritDoc}
-     *
-     * @throws  IllegalSelectorException {@inheritDoc}
-     *
-     * @throws  CancelledKeyException {@inheritDoc}
-     *
-     * @throws  IllegalArgumentException {@inheritDoc}
+     * @param selector
+     *            the selector with which this channel has been registered.
+     * @return the selection key for the channel or {@code null} if this channel
+     *         has not been registered with {@code selector}.
      */
-    public final SelectionKey register(Selector sel, int ops,
-                                       Object att)
-        throws ClosedChannelException
-    {
-        synchronized (regLock) {
-            if (!isOpen())
-                throw new ClosedChannelException();
-            if ((ops & ~validOps()) != 0)
-                throw new IllegalArgumentException();
-            if (blocking)
+    @Override
+    synchronized public final SelectionKey keyFor(Selector selector) {
+        for (SelectionKey key : keyList) {
+            if (key != null && key.selector() == selector) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Registers this channel with the specified selector for the specified
+     * interest set. If the channel is already registered with the selector, the
+     * {@link SelectionKey interest set} is updated to {@code interestSet} and
+     * the corresponding selection key is returned. If the channel is not yet
+     * registered, this method calls the {@code register} method of
+     * {@code selector} and adds the selection key to this channel's key set.
+     *
+     * @param selector
+     *            the selector with which to register this channel.
+     * @param interestSet
+     *            this channel's {@link SelectionKey interest set}.
+     * @param attachment
+     *            the object to attach, can be {@code null}.
+     * @return the selection key for this registration.
+     * @throws CancelledKeyException
+     *             if this channel is registered but its key has been canceled.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IllegalArgumentException
+     *             if {@code interestSet} is not supported by this channel.
+     * @throws IllegalBlockingModeException
+     *             if this channel is in blocking mode.
+     * @throws IllegalSelectorException
+     *             if this channel does not have the same provider as the given
+     *             selector.
+     */
+    @Override
+    public final SelectionKey register(Selector selector, int interestSet,
+            Object attachment) throws ClosedChannelException {
+        if (!isOpen()) {
+            throw new ClosedChannelException();
+        }
+        if (!((interestSet & ~validOps()) == 0)) {
+            throw new IllegalArgumentException("no valid ops in interest set: " + interestSet);
+        }
+
+        synchronized (blockingLock) {
+            if (isBlocking) {
                 throw new IllegalBlockingModeException();
-            SelectionKey k = findKey(sel);
-            if (k != null) {
-                k.interestOps(ops);
-                k.attach(att);
             }
-            if (k == null) {
-                // New registration
-                synchronized (keyLock) {
-                    if (!isOpen())
-                        throw new ClosedChannelException();
-                    k = ((AbstractSelector)sel).register(this, ops, att);
-                    addKey(k);
+            if (!selector.isOpen()) {
+                if (interestSet == 0) {
+                    // throw ISE exactly to keep consistency
+                    throw new IllegalSelectorException();
                 }
+                // throw NPE exactly to keep consistency
+                throw new NullPointerException("selector not open");
             }
-            return k;
+            SelectionKey key = keyFor(selector);
+            if (key == null) {
+                key = ((AbstractSelector) selector).register(this, interestSet, attachment);
+                keyList.add(key);
+            } else {
+                if (!key.isValid()) {
+                    throw new CancelledKeyException();
+                }
+                key.interestOps(interestSet);
+                key.attach(attachment);
+            }
+            return key;
         }
     }
 
-
-    // -- Closing --
-
     /**
-     * Closes this channel.
+     * Implements the channel closing behavior. Calls
+     * {@code implCloseSelectableChannel()} first, then loops through the list
+     * of selection keys and cancels them, which unregisters this channel from
+     * all selectors it is registered with.
      *
-     * <p> This method, which is specified in the {@link
-     * AbstractInterruptibleChannel} class and is invoked by the {@link
-     * java.nio.channels.Channel#close close} method, in turn invokes the
-     * {@link #implCloseSelectableChannel implCloseSelectableChannel} method in
-     * order to perform the actual work of closing this channel.  It then
-     * cancels all of this channel's keys.  </p>
+     * @throws IOException
+     *             if a problem occurs while closing the channel.
      */
-    protected final void implCloseChannel() throws IOException {
+    @Override
+    synchronized protected final void implCloseChannel() throws IOException {
         implCloseSelectableChannel();
-        synchronized (keyLock) {
-            int count = (keys == null) ? 0 : keys.length;
-            for (int i = 0; i < count; i++) {
-                SelectionKey k = keys[i];
-                if (k != null)
-                    k.cancel();
+        for (SelectionKey key : keyList) {
+            if (key != null) {
+                key.cancel();
             }
         }
     }
 
     /**
-     * Closes this selectable channel.
+     * Implements the closing function of the SelectableChannel. This method is
+     * called from {@code implCloseChannel()}.
      *
-     * <p> This method is invoked by the {@link java.nio.channels.Channel#close
-     * close} method in order to perform the actual work of closing the
-     * channel.  This method is only invoked if the channel has not yet been
-     * closed, and it is never invoked more than once.
-     *
-     * <p> An implementation of this method must arrange for any other thread
-     * that is blocked in an I/O operation upon this channel to return
-     * immediately, either by throwing an exception or by returning normally.
-     * </p>
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @throws IOException
+     *             if an I/O exception occurs.
      */
     protected abstract void implCloseSelectableChannel() throws IOException;
 
-
-    // -- Blocking --
-
+    /**
+     * Indicates whether this channel is in blocking mode.
+     *
+     * @return {@code true} if this channel is blocking, {@code false}
+     *         otherwise.
+     */
+    @Override
     public final boolean isBlocking() {
-        synchronized (regLock) {
-            return blocking;
+        synchronized (blockingLock) {
+            return isBlocking;
         }
     }
 
+    /**
+     * Gets the object used for the synchronization of {@code register} and
+     * {@code configureBlocking}.
+     *
+     * @return the synchronization object.
+     */
+    @Override
     public final Object blockingLock() {
-        return regLock;
+        return blockingLock;
     }
 
     /**
-     * Adjusts this channel's blocking mode.
+     * Sets the blocking mode of this channel. A call to this method blocks if
+     * other calls to this method or to {@code register} are executing. The
+     * actual setting of the mode is done by calling
+     * {@code implConfigureBlocking(boolean)}.
      *
-     * <p> If the given blocking mode is different from the current blocking
-     * mode then this method invokes the {@link #implConfigureBlocking
-     * implConfigureBlocking} method, while holding the appropriate locks, in
-     * order to change the mode.  </p>
+     * @see java.nio.channels.SelectableChannel#configureBlocking(boolean)
+     * @param blockingMode
+     *            {@code true} for setting this channel's mode to blocking,
+     *            {@code false} to set it to non-blocking.
+     * @return this channel.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IllegalBlockingModeException
+     *             if {@code block} is {@code true} and this channel has been
+     *             registered with at least one selector.
+     * @throws IOException
+     *             if an I/O error occurs.
      */
-    public final SelectableChannel configureBlocking(boolean block)
-        throws IOException
-    {
-        synchronized (regLock) {
-            if (!isOpen())
-                throw new ClosedChannelException();
-            if (blocking == block)
+    @Override
+    public final SelectableChannel configureBlocking(boolean blockingMode) throws IOException {
+        if (!isOpen()) {
+            throw new ClosedChannelException();
+        }
+        synchronized (blockingLock) {
+            if (isBlocking == blockingMode) {
                 return this;
-            if (block && haveValidKeys())
+            }
+            if (blockingMode && containsValidKeys()) {
                 throw new IllegalBlockingModeException();
-            implConfigureBlocking(block);
-            blocking = block;
+            }
+            implConfigureBlocking(blockingMode);
+            isBlocking = blockingMode;
         }
         return this;
     }
 
     /**
-     * Adjusts this channel's blocking mode.
+     * Implements the configuration of blocking/non-blocking mode.
      *
-     * <p> This method is invoked by the {@link #configureBlocking
-     * configureBlocking} method in order to perform the actual work of
-     * changing the blocking mode.  This method is only invoked if the new mode
-     * is different from the current mode.  </p>
-     *
-     * @param  block  If <tt>true</tt> then this channel will be placed in
-     *                blocking mode; if <tt>false</tt> then it will be placed
-     *                non-blocking mode
-     *
+     * @param blocking true for blocking, false for non-blocking.
      * @throws IOException
-     *         If an I/O error occurs
+     *             if an I/O error occurs.
      */
-    protected abstract void implConfigureBlocking(boolean block)
-        throws IOException;
+    protected abstract void implConfigureBlocking(boolean blocking) throws IOException;
 
+    /*
+     * package private for deregister method in AbstractSelector.
+     */
+    synchronized void deregister(SelectionKey k) {
+        if (keyList != null) {
+            keyList.remove(k);
+        }
+    }
+
+    /**
+     * Returns true if the keyList contains at least 1 valid key and false
+     * otherwise.
+     */
+    private synchronized boolean containsValidKeys() {
+        for (SelectionKey key : keyList) {
+            if (key != null && key.isValid()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

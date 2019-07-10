@@ -22,7 +22,6 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.SoundEffectConstants;
@@ -32,7 +31,7 @@ import android.widget.TextView;
 import android.text.Layout;
 
 /**
- * The item view for each item in the {@link IconMenuView}.
+ * The item view for each item in the {@link IconMenuView}.  
  */
 public final class IconMenuItemView extends TextView implements MenuView.ItemView {
     
@@ -105,23 +104,13 @@ public final class IconMenuItemView extends TextView implements MenuView.ItemVie
 
         setTitle(title);
         setIcon(icon);
-
-        if (mItemData != null) {
-            final CharSequence contentDescription = mItemData.getContentDescription();
-            if (TextUtils.isEmpty(contentDescription)) {
-                setContentDescription(title);
-            } else {
-                setContentDescription(contentDescription);
-            }
-            setTooltipText(mItemData.getTooltipText());
-        }
     }
-
+    
     public void initialize(MenuItemImpl itemData, int menuType) {
         mItemData = itemData;
 
         initialize(itemData.getTitleForItemView(this), itemData.getIcon());
-
+        
         setVisibility(itemData.isVisible() ? View.VISIBLE : View.GONE);
         setEnabled(itemData.isEnabled());
     }
@@ -276,8 +265,7 @@ public final class IconMenuItemView extends TextView implements MenuView.ItemVie
         }
 
         // Set the desired width of item
-        lp.desiredWidth = (int) Layout.getDesiredWidth(getText(), 0, getText().length(),
-                getPaint(), getTextDirectionHeuristic());
+        lp.desiredWidth = (int) Layout.getDesiredWidth(getText(), getPaint());
 
         return lp;
     }

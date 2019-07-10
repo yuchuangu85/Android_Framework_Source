@@ -14,17 +14,16 @@
 package android.databinding.tool;
 
 
+import org.junit.Before;
+import org.junit.Test;
+
 import android.databinding.tool.expr.Expr;
 import android.databinding.tool.expr.ExprModel;
 import android.databinding.tool.expr.FieldAccessExpr;
 import android.databinding.tool.expr.IdentifierExpr;
 import android.databinding.tool.expr.StaticIdentifierExpr;
 import android.databinding.tool.reflection.Callable;
-import android.databinding.tool.reflection.java.JavaAnalyzer;
 import android.databinding.tool.reflection.java.JavaClass;
-
-import org.junit.Before;
-import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -35,13 +34,12 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class LayoutBinderTest {
-    MockLayoutBinder mLayoutBinder;
+    LayoutBinder mLayoutBinder;
     ExprModel mExprModel;
     @Before
     public void setUp() throws Exception {
         mLayoutBinder = new MockLayoutBinder();
         mExprModel = mLayoutBinder.getModel();
-        JavaAnalyzer.initForTests();
     }
 
     @Test
@@ -77,8 +75,8 @@ public class LayoutBinderTest {
         int originalSize = mExprModel.size();
         mLayoutBinder.addVariable("user", "android.databinding.tool2.LayoutBinderTest.TestUser",
                 null);
-        mLayoutBinder.parse("user.name", null, null);
-        mLayoutBinder.parse("user.lastName", null, null);
+        mLayoutBinder.parse("user.name", null);
+        mLayoutBinder.parse("user.lastName", null);
         assertEquals(originalSize + 3, mExprModel.size());
         final List<Expr> bindingExprs = mExprModel.getBindingExpressions();
         assertEquals(2, bindingExprs.size());
@@ -94,7 +92,7 @@ public class LayoutBinderTest {
     public void testParseWithMethods() {
         mLayoutBinder.addVariable("user", "android.databinding.tool.LayoutBinderTest.TestUser",
                 null);
-        mLayoutBinder.parse("user.fullName", null, null);
+        mLayoutBinder.parse("user.fullName", null);
         Expr item = mExprModel.getBindingExpressions().get(0);
         assertTrue(item instanceof FieldAccessExpr);
         IdentifierExpr id = mExprModel.identifier("user");
@@ -102,7 +100,7 @@ public class LayoutBinderTest {
         fa.getResolvedType();
         final Callable getter = fa.getGetter();
         assertTrue(getter.type == Callable.Type.METHOD);
-        assertSame(id, fa.getTarget());
+        assertSame(id, fa.getChild());
         assertTrue(fa.isDynamic());
     }
 

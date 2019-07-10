@@ -17,6 +17,9 @@
 package android.view;
 
 import android.graphics.Rect;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewConfiguration;
 
 /**
  * Helper class to handle situations where you want a view to have a larger touch area than its
@@ -30,24 +33,24 @@ import android.graphics.Rect;
  * </p>
  */
 public class TouchDelegate {
-
+    
     /**
-     * View that should receive forwarded touch events
+     * View that should receive forwarded touch events 
      */
     private View mDelegateView;
-
+    
     /**
      * Bounds in local coordinates of the containing view that should be mapped to the delegate
      * view. This rect is used for initial hit testing.
      */
     private Rect mBounds;
-
+    
     /**
      * mBounds inflated to include some slop. This rect is to track whether the motion events
-     * should be considered to be within the delegate view.
+     * should be considered to be be within the delegate view.
      */
     private Rect mSlopBounds;
-
+    
     /**
      * True if the delegate had been targeted on a down event (intersected mBounds).
      */
@@ -64,12 +67,14 @@ public class TouchDelegate {
     public static final int BELOW = 2;
 
     /**
-     * The touchable region of the View extends to the left of its actual extent.
+     * The touchable region of the View extends to the left of its
+     * actual extent.
      */
     public static final int TO_LEFT = 4;
 
     /**
-     * The touchable region of the View extends to the right of its actual extent.
+     * The touchable region of the View extends to the right of its
+     * actual extent.
      */
     public static final int TO_RIGHT = 8;
 
@@ -77,7 +82,7 @@ public class TouchDelegate {
 
     /**
      * Constructor
-     *
+     * 
      * @param bounds Bounds in local coordinates of the containing view that should be mapped to
      *        the delegate view
      * @param delegateView The view that should receive motion events
@@ -94,7 +99,7 @@ public class TouchDelegate {
     /**
      * Will forward touch events to the delegate view if the event is within the bounds
      * specified in the constructor.
-     *
+     * 
      * @param event The touch event to forward
      * @return True if the event was forwarded to the delegate, false otherwise.
      */
@@ -105,31 +110,33 @@ public class TouchDelegate {
         boolean hit = true;
         boolean handled = false;
 
-        switch (event.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                mDelegateTargeted = mBounds.contains(x, y);
-                sendToDelegate = mDelegateTargeted;
-                break;
-            case MotionEvent.ACTION_POINTER_DOWN:
-            case MotionEvent.ACTION_POINTER_UP:
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_MOVE:
-                sendToDelegate = mDelegateTargeted;
-                if (sendToDelegate) {
-                    Rect slopBounds = mSlopBounds;
-                    if (!slopBounds.contains(x, y)) {
-                        hit = false;
-                    }
+        switch (event.getAction()) {
+        case MotionEvent.ACTION_DOWN:
+            Rect bounds = mBounds;
+
+            if (bounds.contains(x, y)) {
+                mDelegateTargeted = true;
+                sendToDelegate = true;
+            }
+            break;
+        case MotionEvent.ACTION_UP:
+        case MotionEvent.ACTION_MOVE:
+            sendToDelegate = mDelegateTargeted;
+            if (sendToDelegate) {
+                Rect slopBounds = mSlopBounds;
+                if (!slopBounds.contains(x, y)) {
+                    hit = false;
                 }
-                break;
-            case MotionEvent.ACTION_CANCEL:
-                sendToDelegate = mDelegateTargeted;
-                mDelegateTargeted = false;
-                break;
+            }
+            break;
+        case MotionEvent.ACTION_CANCEL:
+            sendToDelegate = mDelegateTargeted;
+            mDelegateTargeted = false;
+            break;
         }
         if (sendToDelegate) {
             final View delegateView = mDelegateView;
-
+            
             if (hit) {
                 // Offset event coordinates to be inside the target view
                 event.setLocation(delegateView.getWidth() / 2, delegateView.getHeight() / 2);

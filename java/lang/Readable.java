@@ -1,53 +1,40 @@
-/*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.lang;
 
 import java.io.IOException;
+import java.nio.CharBuffer;
 
 /**
- * A <tt>Readable</tt> is a source of characters. Characters from
- * a <tt>Readable</tt> are made available to callers of the read
- * method via a {@link java.nio.CharBuffer CharBuffer}.
- *
- * @since 1.5
+ * Represents a sequence of characters that can be incrementally read (copied)
+ * into a {@link CharBuffer}.
  */
 public interface Readable {
 
     /**
-     * Attempts to read characters into the specified character buffer.
-     * The buffer is used as a repository of characters as-is: the only
-     * changes made are the results of a put operation. No flipping or
-     * rewinding of the buffer is performed.
+     * Reads characters into the specified {@code CharBuffer}. The maximum
+     * number of characters read is {@code CharBuffer.remaining()}.
      *
-     * @param cb the buffer to read characters into
-     * @return The number of {@code char} values added to the buffer,
-     *                 or -1 if this source of characters is at its end
-     * @throws IOException if an I/O error occurs
-     * @throws NullPointerException if cb is null
-     * @throws java.nio.ReadOnlyBufferException if cb is a read only buffer
+     * @param cb
+     *            the buffer to be filled with characters read.
+     * @return the number of characters actually read, or -1 if this
+     *         {@code Readable} reaches its end
+     * @throws IOException
+     *             if an I/O error occurs.
      */
-    public int read(java.nio.CharBuffer cb) throws IOException;
+    int read(CharBuffer cb) throws IOException;
 }

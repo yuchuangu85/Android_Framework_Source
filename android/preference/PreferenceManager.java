@@ -16,8 +16,6 @@
 
 package android.preference;
 
-import android.annotation.Nullable;
-import android.annotation.SystemApi;
 import android.annotation.XmlRes;
 import android.app.Activity;
 import android.content.Context;
@@ -26,8 +24,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.XmlResourceParser;
 import android.os.Bundle;
 import android.util.Log;
@@ -43,39 +41,37 @@ import java.util.List;
  * In most cases, clients should use
  * {@link PreferenceActivity#addPreferencesFromIntent} or
  * {@link PreferenceActivity#addPreferencesFromResource(int)}.
- *
+ * 
  * @see PreferenceActivity
  */
 public class PreferenceManager {
-
+    
     private static final String TAG = "PreferenceManager";
 
     /**
      * The Activity meta-data key for its XML preference hierarchy.
      */
     public static final String METADATA_KEY_PREFERENCES = "android.preference";
-
+    
     public static final String KEY_HAS_SET_DEFAULT_VALUES = "_has_set_default_values";
-
+    
     /**
      * @see #getActivity()
      */
-    @Nullable
     private Activity mActivity;
 
     /**
      * Fragment that owns this instance.
      */
-    @Nullable
     private PreferenceFragment mFragment;
 
     /**
      * The context to use. This should always be set.
-     *
+     * 
      * @see #mActivity
      */
     private Context mContext;
-
+    
     /**
      * The counter for unique IDs.
      */
@@ -89,87 +85,67 @@ public class PreferenceManager {
     /**
      * Cached shared preferences.
      */
-    @Nullable
     private SharedPreferences mSharedPreferences;
-
-    /**
-     * Data store to be used by the Preferences or {@code null} if
-     * {@link android.content.SharedPreferences} should be used.
-     */
-    @Nullable
-    private PreferenceDataStore mPreferenceDataStore;
-
+    
     /**
      * If in no-commit mode, the shared editor to give out (which will be
      * committed when exiting no-commit mode).
      */
-    @Nullable
     private SharedPreferences.Editor mEditor;
-
+    
     /**
      * Blocks commits from happening on the shared editor. This is used when
      * inflating the hierarchy. Do not set this directly, use {@link #setNoCommit(boolean)}
      */
     private boolean mNoCommit;
-
+    
     /**
      * The SharedPreferences name that will be used for all {@link Preference}s
      * managed by this instance.
      */
     private String mSharedPreferencesName;
-
+    
     /**
      * The SharedPreferences mode that will be used for all {@link Preference}s
      * managed by this instance.
      */
     private int mSharedPreferencesMode;
-
-    private static final int STORAGE_DEFAULT = 0;
-    private static final int STORAGE_DEVICE_PROTECTED = 1;
-    private static final int STORAGE_CREDENTIAL_PROTECTED = 2;
-
-    private int mStorage = STORAGE_DEFAULT;
-
+    
     /**
      * The {@link PreferenceScreen} at the root of the preference hierarchy.
      */
-    @Nullable
     private PreferenceScreen mPreferenceScreen;
 
     /**
      * List of activity result listeners.
      */
-    @Nullable
     private List<OnActivityResultListener> mActivityResultListeners;
 
     /**
      * List of activity stop listeners.
      */
-    @Nullable
     private List<OnActivityStopListener> mActivityStopListeners;
 
     /**
      * List of activity destroy listeners.
      */
-    @Nullable
     private List<OnActivityDestroyListener> mActivityDestroyListeners;
 
     /**
      * List of dialogs that should be dismissed when we receive onNewIntent in
      * our PreferenceActivity.
      */
-    @Nullable
     private List<DialogInterface> mPreferencesScreens;
-
+    
     private OnPreferenceTreeClickListener mOnPreferenceTreeClickListener;
-
+    
     /**
      * @hide
      */
     public PreferenceManager(Activity activity, int firstRequestCode) {
         mActivity = activity;
         mNextRequestCode = firstRequestCode;
-
+        
         init(activity);
     }
 
@@ -187,7 +163,7 @@ public class PreferenceManager {
 
     private void init(Context context) {
         mContext = context;
-
+        
         setSharedPreferencesName(getDefaultSharedPreferencesName(context));
     }
 
@@ -201,41 +177,14 @@ public class PreferenceManager {
     /**
      * Returns the owning preference fragment, if any.
      */
-    @Nullable
     PreferenceFragment getFragment() {
         return mFragment;
     }
 
     /**
-     * Sets a {@link PreferenceDataStore} to be used by all Preferences associated with this manager
-     * that don't have a custom {@link PreferenceDataStore} assigned via
-     * {@link Preference#setPreferenceDataStore(PreferenceDataStore)}. Also if the data store is
-     * set, the child preferences won't use {@link android.content.SharedPreferences} as long as
-     * they are assigned to this manager.
-     *
-     * @param dataStore The {@link PreferenceDataStore} to be used by this manager.
-     * @see Preference#setPreferenceDataStore(PreferenceDataStore)
-     */
-    public void setPreferenceDataStore(PreferenceDataStore dataStore) {
-        mPreferenceDataStore = dataStore;
-    }
-
-    /**
-     * Returns the {@link PreferenceDataStore} associated with this manager or {@code null} if
-     * the default {@link android.content.SharedPreferences} are used instead.
-     *
-     * @return The {@link PreferenceDataStore} associated with this manager or {@code null} if none.
-     * @see #setPreferenceDataStore(PreferenceDataStore)
-     */
-    @Nullable
-    public PreferenceDataStore getPreferenceDataStore() {
-        return mPreferenceDataStore;
-    }
-
-    /**
      * Returns a list of {@link Activity} (indirectly) that match a given
      * {@link Intent}.
-     *
+     * 
      * @param queryIntent The Intent to match.
      * @return The list of {@link ResolveInfo} that point to the matched
      *         activities.
@@ -244,7 +193,7 @@ public class PreferenceManager {
         return mContext.getPackageManager().queryIntentActivities(queryIntent,
                 PackageManager.GET_META_DATA);
     }
-
+    
     /**
      * Inflates a preference hierarchy from the preference hierarchies of
      * {@link Activity Activities} that match the given {@link Intent}. An
@@ -253,7 +202,7 @@ public class PreferenceManager {
      * <p>
      * If a preference hierarchy is given, the new preference hierarchies will
      * be merged in.
-     *
+     * 
      * @param queryIntent The intent to match activities.
      * @param rootPreferences Optional existing hierarchy to merge the new
      *            hierarchies into.
@@ -276,7 +225,7 @@ public class PreferenceManager {
             // can be re-used across contexts
             final String uniqueResId = activityInfo.packageName + ":"
                     + activityInfo.metaData.getInt(METADATA_KEY_PREFERENCES);
-
+            
             if (!inflatedRes.contains(uniqueResId)) {
                 inflatedRes.add(uniqueResId);
 
@@ -285,10 +234,10 @@ public class PreferenceManager {
                     context = mContext.createPackageContext(activityInfo.packageName, 0);
                 } catch (NameNotFoundException e) {
                     Log.w(TAG, "Could not create context for " + activityInfo.packageName + ": "
-                            + Log.getStackTraceString(e));
+                        + Log.getStackTraceString(e));
                     continue;
                 }
-
+                
                 final PreferenceInflater inflater = new PreferenceInflater(context, this);
                 final XmlResourceParser parser = activityInfo.loadXmlMetaData(context
                         .getPackageManager(), METADATA_KEY_PREFERENCES);
@@ -299,14 +248,14 @@ public class PreferenceManager {
         }
 
         rootPreferences.onAttachedToHierarchy(this);
-
+        
         return rootPreferences;
     }
 
     /**
      * Inflates a preference hierarchy from XML. If a preference hierarchy is
      * given, the new preference hierarchies will be merged in.
-     *
+     * 
      * @param context The context of the resource.
      * @param resId The resource ID of the XML to inflate.
      * @param rootPreferences Optional existing hierarchy to merge the new
@@ -329,16 +278,16 @@ public class PreferenceManager {
 
         return rootPreferences;
     }
-
+    
     public PreferenceScreen createPreferenceScreen(Context context) {
         final PreferenceScreen preferenceScreen = new PreferenceScreen(context, null);
         preferenceScreen.onAttachedToHierarchy(this);
         return preferenceScreen;
     }
-
+    
     /**
      * Called by a preference to get a unique ID in its hierarchy.
-     *
+     * 
      * @return A unique ID.
      */
     long getNextId() {
@@ -346,11 +295,11 @@ public class PreferenceManager {
             return mNextId++;
         }
     }
-
+    
     /**
      * Returns the current name of the SharedPreferences file that preferences managed by
      * this will use.
-     *
+     * 
      * @return The name that can be passed to {@link Context#getSharedPreferences(String, int)}.
      * @see Context#getSharedPreferences(String, int)
      */
@@ -361,12 +310,9 @@ public class PreferenceManager {
     /**
      * Sets the name of the SharedPreferences file that preferences managed by this
      * will use.
-     *
-     * <p>If custom {@link PreferenceDataStore} is set, this won't override its usage.
-     *
+     * 
      * @param sharedPreferencesName The name of the SharedPreferences file.
      * @see Context#getSharedPreferences(String, int)
-     * @see #setPreferenceDataStore(PreferenceDataStore)
      */
     public void setSharedPreferencesName(String sharedPreferencesName) {
         mSharedPreferencesName = sharedPreferencesName;
@@ -376,7 +322,7 @@ public class PreferenceManager {
     /**
      * Returns the current mode of the SharedPreferences file that preferences managed by
      * this will use.
-     *
+     * 
      * @return The mode that can be passed to {@link Context#getSharedPreferences(String, int)}.
      * @see Context#getSharedPreferences(String, int)
      */
@@ -387,7 +333,7 @@ public class PreferenceManager {
     /**
      * Sets the mode of the SharedPreferences file that preferences managed by this
      * will use.
-     *
+     * 
      * @param sharedPreferencesMode The mode of the SharedPreferences file.
      * @see Context#getSharedPreferences(String, int)
      */
@@ -397,143 +343,35 @@ public class PreferenceManager {
     }
 
     /**
-     * Sets the storage location used internally by this class to be the default
-     * provided by the hosting {@link Context}.
-     */
-    public void setStorageDefault() {
-        mStorage = STORAGE_DEFAULT;
-        mSharedPreferences = null;
-    }
-
-    /**
-     * Explicitly set the storage location used internally by this class to be
-     * device-protected storage.
-     * <p>
-     * On devices with direct boot, data stored in this location is encrypted
-     * with a key tied to the physical device, and it can be accessed
-     * immediately after the device has booted successfully, both
-     * <em>before and after</em> the user has authenticated with their
-     * credentials (such as a lock pattern or PIN).
-     * <p>
-     * Because device-protected data is available without user authentication,
-     * you should carefully limit the data you store using this Context. For
-     * example, storing sensitive authentication tokens or passwords in the
-     * device-protected area is strongly discouraged.
-     *
-     * @see Context#createDeviceProtectedStorageContext()
-     */
-    public void setStorageDeviceProtected() {
-        mStorage = STORAGE_DEVICE_PROTECTED;
-        mSharedPreferences = null;
-    }
-
-    /**
-     * Explicitly set the storage location used internally by this class to be
-     * credential-protected storage. This is the default storage area for apps
-     * unless {@code forceDeviceProtectedStorage} was requested.
-     * <p>
-     * On devices with direct boot, data stored in this location is encrypted
-     * with a key tied to user credentials, which can be accessed
-     * <em>only after</em> the user has entered their credentials (such as a
-     * lock pattern or PIN).
-     *
-     * @see Context#createCredentialProtectedStorageContext()
-     * @hide
-     */
-    @SystemApi
-    public void setStorageCredentialProtected() {
-        mStorage = STORAGE_CREDENTIAL_PROTECTED;
-        mSharedPreferences = null;
-    }
-
-    /**
-     * Indicates if the storage location used internally by this class is the
-     * default provided by the hosting {@link Context}.
-     *
-     * @see #setStorageDefault()
-     * @see #setStorageDeviceProtected()
-     */
-    public boolean isStorageDefault() {
-        return mStorage == STORAGE_DEFAULT;
-    }
-
-    /**
-     * Indicates if the storage location used internally by this class is backed
-     * by device-protected storage.
-     *
-     * @see #setStorageDefault()
-     * @see #setStorageDeviceProtected()
-     */
-    public boolean isStorageDeviceProtected() {
-        return mStorage == STORAGE_DEVICE_PROTECTED;
-    }
-
-    /**
-     * Indicates if the storage location used internally by this class is backed
-     * by credential-protected storage.
-     *
-     * @see #setStorageDefault()
-     * @see #setStorageDeviceProtected()
-     * @hide
-     */
-    @SystemApi
-    public boolean isStorageCredentialProtected() {
-        return mStorage == STORAGE_CREDENTIAL_PROTECTED;
-    }
-
-    /**
-     * Gets a {@link SharedPreferences} instance that preferences managed by this will use.
-     *
-     * @return a {@link SharedPreferences} instance pointing to the file that contains the values of
-     *         preferences that are managed by this PreferenceManager. If a
-     *         {@link PreferenceDataStore} has been set, this method returns {@code null}.
+     * Gets a SharedPreferences instance that preferences managed by this will
+     * use.
+     * 
+     * @return A SharedPreferences instance pointing to the file that contains
+     *         the values of preferences that are managed by this.
      */
     public SharedPreferences getSharedPreferences() {
-        if (mPreferenceDataStore != null) {
-            return null;
-        }
-
         if (mSharedPreferences == null) {
-            final Context storageContext;
-            switch (mStorage) {
-                case STORAGE_DEVICE_PROTECTED:
-                    storageContext = mContext.createDeviceProtectedStorageContext();
-                    break;
-                case STORAGE_CREDENTIAL_PROTECTED:
-                    storageContext = mContext.createCredentialProtectedStorageContext();
-                    break;
-                default:
-                    storageContext = mContext;
-                    break;
-            }
-
-            mSharedPreferences = storageContext.getSharedPreferences(mSharedPreferencesName,
+            mSharedPreferences = mContext.getSharedPreferences(mSharedPreferencesName,
                     mSharedPreferencesMode);
         }
-
+        
         return mSharedPreferences;
     }
-
+    
     /**
-     * Gets a {@link SharedPreferences} instance that points to the default file that is used by
-     * the preference framework in the given context.
-     *
+     * Gets a SharedPreferences instance that points to the default file that is
+     * used by the preference framework in the given context.
+     * 
      * @param context The context of the preferences whose values are wanted.
-     * @return A {@link SharedPreferences} instance that can be used to retrieve and listen
-     *         to values of the preferences.
+     * @return A SharedPreferences instance that can be used to retrieve and
+     *         listen to values of the preferences.
      */
     public static SharedPreferences getDefaultSharedPreferences(Context context) {
         return context.getSharedPreferences(getDefaultSharedPreferencesName(context),
                 getDefaultSharedPreferencesMode());
     }
 
-    /**
-     * Returns the name used for storing default shared preferences.
-     *
-     * @see #getDefaultSharedPreferences(Context)
-     * @see Context#getSharedPreferencesPath(String)
-     */
-    public static String getDefaultSharedPreferencesName(Context context) {
+    private static String getDefaultSharedPreferencesName(Context context) {
         return context.getPackageName() + "_preferences";
     }
 
@@ -543,51 +381,49 @@ public class PreferenceManager {
 
     /**
      * Returns the root of the preference hierarchy managed by this class.
-     *
+     *  
      * @return The {@link PreferenceScreen} object that is at the root of the hierarchy.
      */
-    @Nullable
     PreferenceScreen getPreferenceScreen() {
         return mPreferenceScreen;
     }
-
+    
     /**
      * Sets the root of the preference hierarchy.
-     *
+     * 
      * @param preferenceScreen The root {@link PreferenceScreen} of the preference hierarchy.
-     * @return Whether the {@link PreferenceScreen} given is different than the previous.
+     * @return Whether the {@link PreferenceScreen} given is different than the previous. 
      */
     boolean setPreferences(PreferenceScreen preferenceScreen) {
         if (preferenceScreen != mPreferenceScreen) {
             mPreferenceScreen = preferenceScreen;
             return true;
         }
-
+        
         return false;
     }
-
+    
     /**
      * Finds a {@link Preference} based on its key.
-     *
-     * @param key the key of the preference to retrieve
-     * @return the {@link Preference} with the key, or {@code null}
+     * 
+     * @param key The key of the preference to retrieve.
+     * @return The {@link Preference} with the key, or null.
      * @see PreferenceGroup#findPreference(CharSequence)
      */
-    @Nullable
     public Preference findPreference(CharSequence key) {
         if (mPreferenceScreen == null) {
             return null;
         }
-
+        
         return mPreferenceScreen.findPreference(key);
     }
-
+    
     /**
      * Sets the default values from an XML preference file by reading the values defined
      * by each {@link Preference} item's {@code android:defaultValue} attribute. This should
      * be called by the application's main activity.
      * <p>
-     *
+     * 
      * @param context The context of the shared preferences.
      * @param resId The resource ID of the preference XML file.
      * @param readAgain Whether to re-read the default values.
@@ -604,12 +440,12 @@ public class PreferenceManager {
      *            parameter set to true.
      */
     public static void setDefaultValues(Context context, @XmlRes int resId, boolean readAgain) {
-
+        
         // Use the default shared preferences name and mode
         setDefaultValues(context, getDefaultSharedPreferencesName(context),
                 getDefaultSharedPreferencesMode(), resId, readAgain);
     }
-
+    
     /**
      * Similar to {@link #setDefaultValues(Context, int, boolean)} but allows
      * the client to provide the filename and mode of the shared preferences
@@ -633,7 +469,7 @@ public class PreferenceManager {
      *            {@link PreferenceManager#getDefaultSharedPreferences(Context)}
      *            and clear it followed by a call to this method with this
      *            parameter set to true.
-     *
+     * 
      * @see #setDefaultValues(Context, int, boolean)
      * @see #setSharedPreferencesName(String)
      * @see #setSharedPreferencesMode(int)
@@ -642,7 +478,7 @@ public class PreferenceManager {
             int sharedPreferencesMode, int resId, boolean readAgain) {
         final SharedPreferences defaultValueSp = context.getSharedPreferences(
                 KEY_HAS_SET_DEFAULT_VALUES, Context.MODE_PRIVATE);
-
+        
         if (readAgain || !defaultValueSp.getBoolean(KEY_HAS_SET_DEFAULT_VALUES, false)) {
             final PreferenceManager pm = new PreferenceManager(context);
             pm.setSharedPreferencesName(sharedPreferencesName);
@@ -661,39 +497,33 @@ public class PreferenceManager {
             }
         }
     }
-
+    
     /**
      * Returns an editor to use when modifying the shared preferences.
-     *
-     * <p>Do NOT commit unless {@link #shouldCommit()} returns true.
-     *
-     * @return an editor to use to write to shared preferences. If a {@link PreferenceDataStore}
-     *         has been set, this method returns {@code null}.
+     * <p>
+     * Do NOT commit unless {@link #shouldCommit()} returns true.
+     * 
+     * @return An editor to use to write to shared preferences.
      * @see #shouldCommit()
      */
     SharedPreferences.Editor getEditor() {
-        if (mPreferenceDataStore != null) {
-            return null;
-        }
-
+        
         if (mNoCommit) {
             if (mEditor == null) {
                 mEditor = getSharedPreferences().edit();
             }
-
+            
             return mEditor;
         } else {
             return getSharedPreferences().edit();
         }
     }
-
+    
     /**
      * Whether it is the client's responsibility to commit on the
      * {@link #getEditor()}. This will return false in cases where the writes
      * should be batched, for example when inflating preferences from XML.
-     *
-     * <p>If preferences are using {@link PreferenceDataStore} this value is irrelevant.
-     *
+     * 
      * @return Whether the client should commit.
      */
     boolean shouldCommit() {
@@ -718,22 +548,21 @@ public class PreferenceManager {
      * Returns the activity that shows the preferences. This is useful for doing
      * managed queries, but in most cases the use of {@link #getContext()} is
      * preferred.
-     *
-     * <p>This will return {@code null} if this class was instantiated with a Context
+     * <p>
+     * This will return null if this class was instantiated with a Context
      * instead of Activity. For example, when setting the default values.
-     *
+     * 
      * @return The activity that shows the preferences.
      * @see #mContext
      */
-    @Nullable
     Activity getActivity() {
         return mActivity;
     }
-
+    
     /**
      * Returns the context. This is preferred over {@link #getActivity()} when
      * possible.
-     *
+     * 
      * @return The context.
      */
     Context getContext() {
@@ -742,7 +571,7 @@ public class PreferenceManager {
 
     /**
      * Registers a listener.
-     *
+     * 
      * @see OnActivityResultListener
      */
     void registerOnActivityResultListener(OnActivityResultListener listener) {
@@ -750,7 +579,7 @@ public class PreferenceManager {
             if (mActivityResultListeners == null) {
                 mActivityResultListeners = new ArrayList<OnActivityResultListener>();
             }
-
+            
             if (!mActivityResultListeners.contains(listener)) {
                 mActivityResultListeners.add(listener);
             }
@@ -759,7 +588,7 @@ public class PreferenceManager {
 
     /**
      * Unregisters a listener.
-     *
+     * 
      * @see OnActivityResultListener
      */
     void unregisterOnActivityResultListener(OnActivityResultListener listener) {
@@ -775,7 +604,7 @@ public class PreferenceManager {
      */
     void dispatchActivityResult(int requestCode, int resultCode, Intent data) {
         List<OnActivityResultListener> list;
-
+        
         synchronized (this) {
             if (mActivityResultListeners == null) return;
             list = new ArrayList<OnActivityResultListener>(mActivityResultListeners);
@@ -791,7 +620,7 @@ public class PreferenceManager {
 
     /**
      * Registers a listener.
-     *
+     * 
      * @see OnActivityStopListener
      * @hide
      */
@@ -800,16 +629,16 @@ public class PreferenceManager {
             if (mActivityStopListeners == null) {
                 mActivityStopListeners = new ArrayList<OnActivityStopListener>();
             }
-
+            
             if (!mActivityStopListeners.contains(listener)) {
                 mActivityStopListeners.add(listener);
             }
         }
     }
-
+    
     /**
      * Unregisters a listener.
-     *
+     * 
      * @see OnActivityStopListener
      * @hide
      */
@@ -820,14 +649,14 @@ public class PreferenceManager {
             }
         }
     }
-
+    
     /**
      * Called by the {@link PreferenceManager} to dispatch the activity stop
      * event.
      */
     void dispatchActivityStop() {
         List<OnActivityStopListener> list;
-
+        
         synchronized (this) {
             if (mActivityStopListeners == null) return;
             list = new ArrayList<OnActivityStopListener>(mActivityStopListeners);
@@ -841,7 +670,7 @@ public class PreferenceManager {
 
     /**
      * Registers a listener.
-     *
+     * 
      * @see OnActivityDestroyListener
      */
     void registerOnActivityDestroyListener(OnActivityDestroyListener listener) {
@@ -855,10 +684,10 @@ public class PreferenceManager {
             }
         }
     }
-
+    
     /**
      * Unregisters a listener.
-     *
+     * 
      * @see OnActivityDestroyListener
      */
     void unregisterOnActivityDestroyListener(OnActivityDestroyListener listener) {
@@ -868,14 +697,14 @@ public class PreferenceManager {
             }
         }
     }
-
+    
     /**
      * Called by the {@link PreferenceManager} to dispatch the activity destroy
      * event.
      */
     void dispatchActivityDestroy() {
         List<OnActivityDestroyListener> list = null;
-
+        
         synchronized (this) {
             if (mActivityDestroyListeners != null) {
                 list = new ArrayList<OnActivityDestroyListener>(mActivityDestroyListeners);
@@ -892,11 +721,11 @@ public class PreferenceManager {
         // Dismiss any PreferenceScreens still showing
         dismissAllScreens();
     }
-
+    
     /**
      * Returns a request code that is unique for the activity. Each subsequent
      * call to this method should return another unique request code.
-     *
+     * 
      * @return A unique request code that will never be used by anyone other
      *         than the caller of this method.
      */
@@ -905,32 +734,32 @@ public class PreferenceManager {
             return mNextRequestCode++;
         }
     }
-
+    
     void addPreferencesScreen(DialogInterface screen) {
         synchronized (this) {
-
+            
             if (mPreferencesScreens == null) {
                 mPreferencesScreens = new ArrayList<DialogInterface>();
             }
-
+            
             mPreferencesScreens.add(screen);
         }
     }
-
+    
     void removePreferencesScreen(DialogInterface screen) {
         synchronized (this) {
-
+            
             if (mPreferencesScreens == null) {
                 return;
             }
-
+            
             mPreferencesScreens.remove(screen);
         }
     }
-
+    
     /**
      * Called by {@link PreferenceActivity} to dispatch the new Intent event.
-     *
+     * 
      * @param intent The new Intent.
      */
     void dispatchNewIntent(Intent intent) {
@@ -942,35 +771,34 @@ public class PreferenceManager {
         ArrayList<DialogInterface> screensToDismiss;
 
         synchronized (this) {
-
+            
             if (mPreferencesScreens == null) {
                 return;
             }
-
+            
             screensToDismiss = new ArrayList<DialogInterface>(mPreferencesScreens);
             mPreferencesScreens.clear();
         }
-
+        
         for (int i = screensToDismiss.size() - 1; i >= 0; i--) {
             screensToDismiss.get(i).dismiss();
         }
     }
-
+    
     /**
      * Sets the callback to be invoked when a {@link Preference} in the
      * hierarchy rooted at this {@link PreferenceManager} is clicked.
-     *
+     * 
      * @param listener The callback to be invoked.
      */
     void setOnPreferenceTreeClickListener(OnPreferenceTreeClickListener listener) {
         mOnPreferenceTreeClickListener = listener;
     }
 
-    @Nullable
     OnPreferenceTreeClickListener getOnPreferenceTreeClickListener() {
         return mOnPreferenceTreeClickListener;
     }
-
+    
     /**
      * Interface definition for a callback to be invoked when a
      * {@link Preference} in the hierarchy rooted at this {@link PreferenceScreen} is
@@ -982,7 +810,7 @@ public class PreferenceManager {
         /**
          * Called when a preference in the tree rooted at this
          * {@link PreferenceScreen} has been clicked.
-         *
+         * 
          * @param preferenceScreen The {@link PreferenceScreen} that the
          *        preference is located in.
          * @param preference The preference that was clicked.
@@ -996,22 +824,22 @@ public class PreferenceManager {
      * receives an activity result.
      */
     public interface OnActivityResultListener {
-
+        
         /**
          * See Activity's onActivityResult.
-         *
+         * 
          * @return Whether the request code was handled (in which case
          *         subsequent listeners will not be called.
          */
         boolean onActivityResult(int requestCode, int resultCode, Intent data);
     }
-
+    
     /**
      * Interface definition for a class that will be called when the container's activity
      * is stopped.
      */
     public interface OnActivityStopListener {
-
+        
         /**
          * See Activity's onStop.
          */
@@ -1023,7 +851,7 @@ public class PreferenceManager {
      * is destroyed.
      */
     public interface OnActivityDestroyListener {
-
+        
         /**
          * See Activity's onDestroy.
          */

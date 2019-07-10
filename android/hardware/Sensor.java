@@ -17,14 +17,12 @@
 
 package android.hardware;
 
-import android.annotation.SystemApi;
 import android.os.Build;
+import android.annotation.SystemApi;
 
 /**
  * Class representing a sensor. Use {@link SensorManager#getSensorList} to get
- * the list of available sensors. For more information about Android sensors,
- * read the
- * <a href="/guide/topics/sensors/sensors_motion.html">Motion Sensors guide</a>.</p>
+ * the list of available Sensors.
  *
  * @see SensorManager
  * @see SensorEventListener
@@ -186,7 +184,7 @@ public final class Sensor {
      * @see #TYPE_LINEAR_ACCELERATION
      */
     public static final String STRING_TYPE_LINEAR_ACCELERATION =
-            "android.sensor.linear_acceleration";
+        "android.sensor.linear_acceleration";
 
     /**
      * A constant describing a rotation vector sensor type.
@@ -229,7 +227,7 @@ public final class Sensor {
      * @see #TYPE_AMBIENT_TEMPERATURE
      */
     public static final String STRING_TYPE_AMBIENT_TEMPERATURE =
-            "android.sensor.ambient_temperature";
+        "android.sensor.ambient_temperature";
 
     /**
      * A constant describing an uncalibrated magnetic field sensor type.
@@ -254,7 +252,7 @@ public final class Sensor {
      * @see #TYPE_MAGNETIC_FIELD_UNCALIBRATED
      */
     public static final String STRING_TYPE_MAGNETIC_FIELD_UNCALIBRATED =
-            "android.sensor.magnetic_field_uncalibrated";
+        "android.sensor.magnetic_field_uncalibrated";
 
     /**
      * A constant describing an uncalibrated rotation vector sensor type.
@@ -280,7 +278,7 @@ public final class Sensor {
      * @see #TYPE_GAME_ROTATION_VECTOR
      */
     public static final String STRING_TYPE_GAME_ROTATION_VECTOR =
-            "android.sensor.game_rotation_vector";
+        "android.sensor.game_rotation_vector";
 
     /**
      * A constant describing an uncalibrated gyroscope sensor type.
@@ -302,7 +300,7 @@ public final class Sensor {
      * @see #TYPE_GYROSCOPE_UNCALIBRATED
      */
     public static final String STRING_TYPE_GYROSCOPE_UNCALIBRATED =
-            "android.sensor.gyroscope_uncalibrated";
+        "android.sensor.gyroscope_uncalibrated";
 
     /**
      * A constant describing a significant motion trigger sensor.
@@ -324,7 +322,7 @@ public final class Sensor {
      * @see #TYPE_SIGNIFICANT_MOTION
      */
     public static final String STRING_TYPE_SIGNIFICANT_MOTION =
-            "android.sensor.significant_motion";
+        "android.sensor.significant_motion";
 
     /**
      * A constant describing a step detector sensor.
@@ -391,7 +389,7 @@ public final class Sensor {
      * @see #TYPE_GEOMAGNETIC_ROTATION_VECTOR
      */
     public static final String STRING_TYPE_GEOMAGNETIC_ROTATION_VECTOR =
-            "android.sensor.geomagnetic_rotation_vector";
+        "android.sensor.geomagnetic_rotation_vector";
 
     /**
      * A constant describing a heart rate monitor.
@@ -431,7 +429,7 @@ public final class Sensor {
      * A constant string describing a wake up tilt detector sensor type.
      *
      * @hide
-     * @see #TYPE_TILT_DETECTOR
+     * @see #TYPE_WAKE_UP_TILT_DETECTOR
      */
     public static final String SENSOR_STRING_TYPE_TILT_DETECTOR =
             "android.sensor.tilt_detector";
@@ -495,7 +493,7 @@ public final class Sensor {
      */
     public static final String STRING_TYPE_GLANCE_GESTURE = "android.sensor.glance_gesture";
 
-    /**
+     /**
      * A constant describing a pick up sensor.
      *
      * A sensor of this type triggers when the device is picked up regardless of wherever it was
@@ -514,7 +512,7 @@ public final class Sensor {
      */
     public static final String STRING_TYPE_PICK_UP_GESTURE = "android.sensor.pick_up_gesture";
 
-    /**
+     /**
      * A constant describing a wrist tilt gesture sensor.
      *
      * A sensor of this type triggers when the device face is tilted towards the user.
@@ -536,168 +534,9 @@ public final class Sensor {
     public static final String STRING_TYPE_WRIST_TILT_GESTURE = "android.sensor.wrist_tilt_gesture";
 
     /**
-     * The current orientation of the device.
-     * <p>
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     * @hide Expected to be used internally for auto-rotate and speaker rotation.
-     *
-     */
-    public static final int TYPE_DEVICE_ORIENTATION = 27;
-
-    /**
-     * A constant string describing a device orientation sensor type.
-     *
-     * @hide
-     * @see #TYPE_DEVICE_ORIENTATION
-     */
-    public static final String STRING_TYPE_DEVICE_ORIENTATION = "android.sensor.device_orientation";
-
-    /**
-     * A constant describing a pose sensor with 6 degrees of freedom.
-     *
-     * Similar to {@link #TYPE_ROTATION_VECTOR}, with additional delta
-     * translation from an arbitrary reference point.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     * Can use camera, depth sensor etc to compute output value.
-     *
-     * This is expected to be a high power sensor and expected only to be
-     * used when the screen is on.
-     *
-     * Expected to be more accurate than the rotation vector alone.
-     *
-     */
-    public static final int TYPE_POSE_6DOF = 28;
-
-    /**
-     * A constant string describing a pose sensor with 6 degrees of freedom.
-     *
-     * @see #TYPE_POSE_6DOF
-     */
-    public static final String STRING_TYPE_POSE_6DOF = "android.sensor.pose_6dof";
-
-    /**
-     * A constant describing a stationary detect sensor.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     */
-    public static final int TYPE_STATIONARY_DETECT = 29;
-
-    /**
-     * A constant string describing a stationary detection sensor.
-     *
-     * @see #TYPE_STATIONARY_DETECT
-     */
-    public static final String STRING_TYPE_STATIONARY_DETECT = "android.sensor.stationary_detect";
-
-    /**
-     * A constant describing a motion detect sensor.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     */
-    public static final int TYPE_MOTION_DETECT = 30;
-
-    /**
-     * A constant string describing a motion detection sensor.
-     *
-     * @see #TYPE_MOTION_DETECT
-     */
-    public static final String STRING_TYPE_MOTION_DETECT = "android.sensor.motion_detect";
-
-    /**
-     * A constant describing a motion detect sensor.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     */
-    public static final int TYPE_HEART_BEAT = 31;
-
-    /**
-     * A constant string describing a heart beat sensor.
-     *
-     * @see #TYPE_HEART_BEAT
-     */
-
-    public static final String STRING_TYPE_HEART_BEAT = "android.sensor.heart_beat";
-    /**
-     * A constant describing a dynamic sensor meta event sensor.
-     *
-     * A sensor event of this type is received when a dynamic sensor is added to or removed from
-     * the system. This sensor type should always use special trigger report mode ({@code
-     * SensorManager.REPORTING_MODE_SPECIAL_TRIGGER}).
-     *
-     * @hide This sensor is expected to be used only by system services.
-     */
-    @SystemApi
-    public static final int TYPE_DYNAMIC_SENSOR_META = 32;
-
-    /**
-     * A constant string describing a dynamic sensor meta event sensor.
-     *
-     * @see #TYPE_DYNAMIC_SENSOR_META
-     *
-     * @hide This sensor is expected to only be used by the system service
-     */
-    @SystemApi
-    public static final String STRING_TYPE_DYNAMIC_SENSOR_META =
-            "android.sensor.dynamic_sensor_meta";
-
-    /* TYPE_ADDITIONAL_INFO - defined as type 33 in the HAL is not exposed to
-     * applications. There are parts of the framework that require the sensors
-     * to be in the same order as the HAL. Skipping this sensor
-     */
-
-    /**
-     * A constant describing a low latency off-body detect sensor.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     */
-    public static final int TYPE_LOW_LATENCY_OFFBODY_DETECT = 34;
-
-
-    /**
-     * A constant string describing a low-latency offbody detector sensor.
-     *
-     * @see #TYPE_LOW_LATENCY_OFFBODY_DETECT
-     */
-    public static final String STRING_TYPE_LOW_LATENCY_OFFBODY_DETECT =
-            "android.sensor.low_latency_offbody_detect";
-
-    /**
-     * A constant describing an uncalibrated accelerometer sensor.
-     *
-     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
-     *
-     */
-    public static final int TYPE_ACCELEROMETER_UNCALIBRATED = 35;
-
-    /**
-     * A constant string describing an uncalibrated accelerometer sensor.
-     *
-     * @see #TYPE_ACCELEROMETER_UNCALIBRATED
-     *
-     */
-    public static final String STRING_TYPE_ACCELEROMETER_UNCALIBRATED =
-            "android.sensor.accelerometer_uncalibrated";
-
-    /**
      * A constant describing all sensor types.
      */
-
     public static final int TYPE_ALL = -1;
-
-    /**
-     * The lowest sensor type vendor defined sensors can use.
-     *
-     * All vendor sensor types are greater than or equal to this constant.
-     *
-     */
-    public static final int TYPE_DEVICE_PRIVATE_BASE = 0x10000;
 
     // If this flag is set, the sensor defined as a wake up sensor. This field and REPORTING_MODE_*
     // constants are defined as flags in sensors.h. Modify at both places if needed.
@@ -745,22 +584,6 @@ public final class Sensor {
     private static final int DATA_INJECTION_MASK = 0x10;
     private static final int DATA_INJECTION_SHIFT = 4;
 
-    // MASK for dynamic sensor (sensor that added during runtime), bit 5.
-    private static final int DYNAMIC_SENSOR_MASK = 0x20;
-    private static final int DYNAMIC_SENSOR_SHIFT = 5;
-
-    // MASK for indication bit of sensor additional information support, bit 6.
-    private static final int ADDITIONAL_INFO_MASK = 0x40;
-    private static final int ADDITIONAL_INFO_SHIFT = 6;
-
-    // Mask for direct mode highest rate level, bit 7, 8, 9.
-    private static final int DIRECT_REPORT_MASK = 0x380;
-    private static final int DIRECT_REPORT_SHIFT = 7;
-
-    // Mask for supported direct channel, bit 10, 11
-    private static final int DIRECT_CHANNEL_MASK = 0xC00;
-    private static final int DIRECT_CHANNEL_SHIFT = 10;
-
     // TODO(): The following arrays are fragile and error-prone. This needs to be refactored.
 
     // Note: This needs to be updated, whenever a new sensor is added.
@@ -773,15 +596,15 @@ public final class Sensor {
             3, // SENSOR_TYPE_GEOMAGNETIC_FIELD
             3, // SENSOR_TYPE_ORIENTATION
             3, // SENSOR_TYPE_GYROSCOPE
-            1, // SENSOR_TYPE_LIGHT
-            1, // SENSOR_TYPE_PRESSURE
-            1, // SENSOR_TYPE_TEMPERATURE
-            1, // SENSOR_TYPE_PROXIMITY
+            3, // SENSOR_TYPE_LIGHT
+            3, // SENSOR_TYPE_PRESSURE
+            3, // SENSOR_TYPE_TEMPERATURE
+            3, // SENSOR_TYPE_PROXIMITY
             3, // SENSOR_TYPE_GRAVITY
             3, // SENSOR_TYPE_LINEAR_ACCELERATION
             5, // SENSOR_TYPE_ROTATION_VECTOR
-            1, // SENSOR_TYPE_RELATIVE_HUMIDITY
-            1, // SENSOR_TYPE_AMBIENT_TEMPERATURE
+            3, // SENSOR_TYPE_RELATIVE_HUMIDITY
+            3, // SENSOR_TYPE_AMBIENT_TEMPERATURE
             6, // SENSOR_TYPE_MAGNETIC_FIELD_UNCALIBRATED
             4, // SENSOR_TYPE_GAME_ROTATION_VECTOR
             6, // SENSOR_TYPE_GYROSCOPE_UNCALIBRATED
@@ -795,15 +618,6 @@ public final class Sensor {
             1, // SENSOR_TYPE_GLANCE_GESTURE
             1, // SENSOR_TYPE_PICK_UP_GESTURE
             1, // SENSOR_TYPE_WRIST_TILT_GESTURE
-            1, // SENSOR_TYPE_DEVICE_ORIENTATION
-            16, // SENSOR_TYPE_POSE_6DOF
-            1, // SENSOR_TYPE_STATIONARY_DETECT
-            1, // SENSOR_TYPE_MOTION_DETECT
-            1, // SENSOR_TYPE_HEART_BEAT
-            2, // SENSOR_TYPE_DYNAMIC_SENSOR_META
-            16, // skip over additional sensor info type
-            1, // SENSOR_TYPE_LOW_LATENCY_OFFBODY_DETECT
-            6, // SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED
     };
 
     /**
@@ -820,55 +634,21 @@ public final class Sensor {
         return ((mFlags & REPORTING_MODE_MASK) >> REPORTING_MODE_SHIFT);
     }
 
-    /**
-     * Get the highest supported direct report mode rate level of the sensor.
-     *
-     * @return Highest direct report rate level of this sensor. If the sensor does not support
-     * direct report mode, this returns {@link SensorDirectChannel#RATE_STOP}.
-     * @see SensorDirectChannel#RATE_STOP
-     * @see SensorDirectChannel#RATE_NORMAL
-     * @see SensorDirectChannel#RATE_FAST
-     * @see SensorDirectChannel#RATE_VERY_FAST
-     */
-    @SensorDirectChannel.RateLevel
-    public int getHighestDirectReportRateLevel() {
-        int rateLevel = ((mFlags & DIRECT_REPORT_MASK) >> DIRECT_REPORT_SHIFT);
-        return rateLevel <= SensorDirectChannel.RATE_VERY_FAST
-                ? rateLevel : SensorDirectChannel.RATE_VERY_FAST;
-    }
-
-    /**
-     * Test if a sensor supports a specified direct channel type.
-     *
-     * @param sharedMemType type of shared memory used by direct channel.
-     * @return <code>true</code> if the specified shared memory type is supported.
-     * @see SensorDirectChannel#TYPE_MEMORY_FILE
-     * @see SensorDirectChannel#TYPE_HARDWARE_BUFFER
-     */
-    public boolean isDirectChannelTypeSupported(@SensorDirectChannel.MemoryType int sharedMemType) {
-        switch (sharedMemType) {
-            case SensorDirectChannel.TYPE_MEMORY_FILE:
-                return (mFlags & (1 << DIRECT_CHANNEL_SHIFT)) > 0;
-            case SensorDirectChannel.TYPE_HARDWARE_BUFFER:
-                return (mFlags & (1 << DIRECT_CHANNEL_SHIFT + 1)) > 0;
-            default:
-                return false;
-        }
-    }
-
     static int getMaxLengthValuesArray(Sensor sensor, int sdkLevel) {
         // RotationVector length has changed to 3 to 5 for API level 18
         // Set it to 3 for backward compatibility.
-        if (sensor.mType == Sensor.TYPE_ROTATION_VECTOR
-                && sdkLevel <= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+        if (sensor.mType == Sensor.TYPE_ROTATION_VECTOR &&
+                sdkLevel <= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             return 3;
         }
         int offset = sensor.mType;
         if (offset >= sSensorReportingModes.length) {
-            // we don't know about this sensor, so this is probably a vendor-defined sensor, in that
-            // case, we don't know how many value it has so we return the maximum and assume the app
-            // will know.
-            // FIXME: sensor HAL should advertise how much data is returned per sensor
+            // we don't know about this sensor, so this is probably a
+            // vendor-defined sensor, in that case, we don't know how many value
+            // it has
+            // so we return the maximum and assume the app will know.
+            // FIXME: sensor HAL should advertise how much data is returned per
+            // sensor
             return 16;
         }
         return sSensorReportingModes[offset];
@@ -892,7 +672,6 @@ public final class Sensor {
     private String  mRequiredPermission;
     private int     mMaxDelay;
     private int     mFlags;
-    private int     mId;
 
     Sensor() {
     }
@@ -981,31 +760,6 @@ public final class Sensor {
     }
 
     /**
-     * Do not use.
-     *
-     * This method throws an UnsupportedOperationException.
-     *
-     * Use getId() if you want a unique ID.
-     *
-     * @see getId
-     *
-     * @hide
-     */
-    @SystemApi
-    public java.util.UUID getUuid() {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * @return The sensor id that will be unique for the same app unless the device is factory
-     * reset. Return value of 0 means this sensor does not support this function; return value of -1
-     * means this sensor can be uniquely identified in system by combination of its type and name.
-     */
-    public int getId() {
-        return mId;
-    }
-
-    /**
      * @hide
      * @return The permission required to access this sensor. If empty, no permission is required.
      */
@@ -1035,9 +789,9 @@ public final class Sensor {
      * Returns true if the sensor is a wake-up sensor.
      * <p>
      * <b>Application Processor Power modes</b> <p>
-     * Application Processor(AP), is the processor on which applications run.  When no wake lock is
-     * held and the user is not interacting with the device, this processor can enter a “Suspend”
-     * mode, reducing the power consumption by 10 times or more.
+     * Application Processor(AP), is the processor on which applications run.  When no wake lock is held
+     * and the user is not interacting with the device, this processor can enter a “Suspend” mode,
+     * reducing the power consumption by 10 times or more.
      * </p>
      * <p>
      * <b>Non-wake-up sensors</b> <p>
@@ -1070,26 +824,6 @@ public final class Sensor {
      */
     public boolean isWakeUpSensor() {
         return (mFlags & SENSOR_FLAG_WAKE_UP_SENSOR) != 0;
-    }
-
-    /**
-     * Returns true if the sensor is a dynamic sensor.
-     *
-     * @return <code>true</code> if the sensor is a dynamic sensor (sensor added at runtime).
-     * @see SensorManager.DynamicSensorCallback
-     */
-    public boolean isDynamicSensor() {
-        return (mFlags & DYNAMIC_SENSOR_MASK) != 0;
-    }
-
-    /**
-     * Returns true if the sensor supports sensor additional information API
-     *
-     * @return <code>true</code> if the sensor supports sensor additional information API
-     * @see SensorAdditionalInfo
-     */
-    public boolean isAdditionalInfoSupported() {
-        return (mFlags & ADDITIONAL_INFO_MASK) != 0;
     }
 
     /**
@@ -1205,35 +939,8 @@ public final class Sensor {
             case TYPE_TEMPERATURE:
                 mStringType = STRING_TYPE_TEMPERATURE;
                 return true;
-            case TYPE_DEVICE_ORIENTATION:
-                mStringType = STRING_TYPE_DEVICE_ORIENTATION;
-                return true;
-            case TYPE_DYNAMIC_SENSOR_META:
-                mStringType = STRING_TYPE_DYNAMIC_SENSOR_META;
-                return true;
-            case TYPE_LOW_LATENCY_OFFBODY_DETECT:
-                mStringType = STRING_TYPE_LOW_LATENCY_OFFBODY_DETECT;
-                return true;
-            case TYPE_ACCELEROMETER_UNCALIBRATED:
-                mStringType = STRING_TYPE_ACCELEROMETER_UNCALIBRATED;
-                return true;
             default:
                 return false;
         }
-    }
-
-    /**
-     * Sets the ID associated with the sensor.
-     *
-     * The method name is misleading; while this ID is based on the UUID,
-     * we do not pass in the actual UUID.
-     *
-     * NOTE: to be used only by native bindings in SensorManager.
-     *
-     * @see #getId
-     */
-    private void setUuid(long msb, long lsb) {
-        // TODO(b/29547335): Rename this method to setId.
-        mId = (int) msb;
     }
 }

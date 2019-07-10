@@ -15,7 +15,6 @@
  */
 package android.databinding;
 
-import android.databinding.parser.BindingExpressionBaseVisitor;
 import android.databinding.parser.BindingExpressionLexer;
 import android.databinding.parser.BindingExpressionParser;
 import android.databinding.parser.BindingExpressionParser.AndOrOpContext;
@@ -40,7 +39,6 @@ import android.databinding.parser.BindingExpressionParser.UnaryOpContext;
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.Token;
-import org.antlr.v4.runtime.misc.NotNull;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.junit.Test;
 
@@ -140,6 +138,14 @@ public class BindingExpressionParserTest {
         LiteralContext literal = parseLiteral("null");
         String token = literal.getText();
         assertEquals("null", token);
+    }
+
+    @Test
+    public void testVoidExtraction() throws Exception {
+        PrimaryContext primary = parsePrimary("void.class");
+        assertNotNull(primary.classExtraction());
+        assertNull(primary.classExtraction().type());
+        assertEquals("void", primary.classExtraction().getChild(0).getText());
     }
 
     @Test
@@ -249,14 +255,7 @@ public class BindingExpressionParserTest {
     @Test
     public void testDefaults() throws Exception {
         BindingSyntaxContext syntax = parseExpressionString("foo.bar, default = @id/foo_bar");
-        BindingExpressionParser.DefaultsContext defaults = syntax
-                .accept(new BindingExpressionBaseVisitor<DefaultsContext>() {
-                    @Override
-                    public BindingExpressionParser.DefaultsContext visitDefaults(
-                            @NotNull BindingExpressionParser.DefaultsContext ctx) {
-                        return ctx;
-                    }
-                });
+        DefaultsContext defaults = syntax.defaults();
         assertEquals("@id/foo_bar", defaults.constantValue().ResourceReference().getText());
     }
 
@@ -365,13 +364,8 @@ public class BindingExpressionParserTest {
     }
 
     private <T extends ExpressionContext> T parseExpression(String value) throws Exception {
-        return (T) parse(value).accept(new BindingExpressionBaseVisitor<ExpressionContext>() {
-            @Override
-            public ExpressionContext visitRootExpr(
-                    @NotNull BindingExpressionParser.RootExprContext ctx) {
-                return ctx.expression();
-            }
-        });
+        ExpressionContext expressionContext = parse(value).expression();
+        return (T) expressionContext;
     }
 
     private PrimaryContext parsePrimary(String value) throws Exception {

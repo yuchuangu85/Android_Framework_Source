@@ -16,10 +16,6 @@
 
 package android.view;
 
-import static android.view.DisplayEventReceiver.VSYNC_SOURCE_APP;
-import static android.view.DisplayEventReceiver.VSYNC_SOURCE_SURFACE_FLINGER;
-
-import android.annotation.TestApi;
 import android.hardware.display.DisplayManagerGlobal;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,7 +25,6 @@ import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.Log;
 import android.util.TimeUtils;
-import android.view.animation.AnimationUtils;
 
 import java.io.PrintWriter;
 
@@ -106,28 +101,9 @@ public final class Choreographer {
             if (looper == null) {
                 throw new IllegalStateException("The current thread must have a looper!");
             }
-            Choreographer choreographer = new Choreographer(looper, VSYNC_SOURCE_APP);
-            if (looper == Looper.getMainLooper()) {
-                mMainInstance = choreographer;
-            }
-            return choreographer;
+            return new Choreographer(looper);
         }
     };
-
-    private static volatile Choreographer mMainInstance;
-
-    // Thread local storage for the SF choreographer.
-    private static final ThreadLocal<Choreographer> sSfThreadInstance =
-            new ThreadLocal<Choreographer>() {
-                @Override
-                protected Choreographer initialValue() {
-                    Looper looper = Looper.myLooper();
-                    if (looper == null) {
-                        throw new IllegalStateException("The current thread must have a looper!");
-                    }
-                    return new Choreographer(looper, VSYNC_SOURCE_SURFACE_FLINGER);
-                }
-            };
 
     // Enable/disable vsync for animations and drawing.
     private static final boolean USE_VSYNC = SystemProperties.getBoolean(
@@ -170,7 +146,6 @@ public final class Choreographer {
     private long mLastFrameTimeNanos;
     private long mFrameIntervalNanos;
     private boolean mDebugPrintNextFrameTimeDelta;
-    private int mFPSDivisor = 1;
 
     /**
      * Contains information about the current frame for jank-tracking,
@@ -203,7 +178,6 @@ public final class Choreographer {
      * Callback type: Animation callback.  Runs before traversals.
      * @hide
      */
-    @TestApi
     public static final int CALLBACK_ANIMATION = 1;
 
     /**
@@ -227,12 +201,10 @@ public final class Choreographer {
 
     private static final int CALLBACK_LAST = CALLBACK_COMMIT;
 
-    private Choreographer(Looper looper, int vsyncSource) {
+    private Choreographer(Looper looper) {
         mLooper = looper;
         mHandler = new FrameHandler(looper);
-        mDisplayEventReceiver = USE_VSYNC
-                ? new FrameDisplayEventReceiver(looper, vsyncSource)
-                : null;
+        mDisplayEventReceiver = USE_VSYNC ? new FrameDisplayEventReceiver(looper) : null;
         mLastFrameTimeNanos = Long.MIN_VALUE;
 
         mFrameIntervalNanos = (long)(1000000000 / getRefreshRate());
@@ -241,8 +213,6 @@ public final class Choreographer {
         for (int i = 0; i <= CALLBACK_LAST; i++) {
             mCallbackQueues[i] = new CallbackQueue();
         }
-        // b/68769804: For low FPS experiments.
-        setFPSDivisor(SystemProperties.getInt(ThreadedRenderer.DEBUG_FPS_DIVISOR, 1));
     }
 
     private static float getRefreshRate() {
@@ -263,34 +233,6 @@ public final class Choreographer {
     }
 
     /**
-     * @hide
-     */
-    public static Choreographer getSfInstance() {
-        return sSfThreadInstance.get();
-    }
-
-    /**
-     * @return The Choreographer of the main thread, if it exists, or {@code null} otherwise.
-     * @hide
-     */
-    public static Choreographer getMainThreadInstance() {
-        return mMainInstance;
-    }
-
-    /** Destroys the calling thread's choreographer
-     * @hide
-     */
-    public static void releaseInstance() {
-        Choreographer old = sThreadInstance.get();
-        sThreadInstance.remove();
-        old.dispose();
-    }
-
-    private void dispose() {
-        mDisplayEventReceiver.dispose();
-    }
-
-    /**
      * The amount of time, in milliseconds, between each frame of the animation.
      * <p>
      * This is a requested time that the animation will attempt to honor, but the actual delay
@@ -305,7 +247,6 @@ public final class Choreographer {
      * @return the requested time between frames, in milliseconds
      * @hide
      */
-    @TestApi
     public static long getFrameDelay() {
         return sFrameDelay;
     }
@@ -325,7 +266,6 @@ public final class Choreographer {
      * @param frameDelay the requested time between frames, in milliseconds
      * @hide
      */
-    @TestApi
     public static void setFrameDelay(long frameDelay) {
         sFrameDelay = frameDelay;
     }
@@ -387,7 +327,6 @@ public final class Choreographer {
      * @see #removeCallbacks
      * @hide
      */
-    @TestApi
     public void postCallback(int callbackType, Runnable action, Object token) {
         postCallbackDelayed(callbackType, action, token, 0);
     }
@@ -406,7 +345,6 @@ public final class Choreographer {
      * @see #removeCallback
      * @hide
      */
-    @TestApi
     public void postCallbackDelayed(int callbackType,
             Runnable action, Object token, long delayMillis) {
         if (action == null) {
@@ -456,7 +394,6 @@ public final class Choreographer {
      * @see #postCallbackDelayed
      * @hide
      */
-    @TestApi
     public void removeCallbacks(int callbackType, Runnable action, Object token) {
         if (callbackType < 0 || callbackType > CALLBACK_LAST) {
             throw new IllegalArgumentException("callbackType is invalid");
@@ -578,18 +515,6 @@ public final class Choreographer {
         }
     }
 
-    /**
-     * Like {@link #getLastFrameTimeNanos}, but always returns the last frame time, not matter
-     * whether callbacks are currently running.
-     * @return The frame start time of the last frame, in the {@link System#nanoTime()} time base.
-     * @hide
-     */
-    public long getLastFrameTimeNanos() {
-        synchronized (mLock) {
-            return USE_FRAME_TIME ? mLastFrameTimeNanos : System.nanoTime();
-        }
-    }
-
     private void scheduleFrameLocked(long now) {
         if (!mFrameScheduled) {
             mFrameScheduled = true;
@@ -619,12 +544,6 @@ public final class Choreographer {
                 mHandler.sendMessageAtTime(msg, nextFrameTime);
             }
         }
-    }
-
-    void setFPSDivisor(int divisor) {
-        if (divisor <= 0) divisor = 1;
-        mFPSDivisor = divisor;
-        ThreadedRenderer.setFPSDivisor(divisor);
     }
 
     void doFrame(long frameTimeNanos, int frame) {
@@ -669,14 +588,6 @@ public final class Choreographer {
                 return;
             }
 
-            if (mFPSDivisor > 1) {
-                long timeSinceVsync = frameTimeNanos - mLastFrameTimeNanos;
-                if (timeSinceVsync < (mFrameIntervalNanos * mFPSDivisor) && timeSinceVsync > 0) {
-                    scheduleVsyncLocked();
-                    return;
-                }
-            }
-
             mFrameInfo.setVsync(intendedFrameTimeNanos, frameTimeNanos);
             mFrameScheduled = false;
             mLastFrameTimeNanos = frameTimeNanos;
@@ -684,7 +595,6 @@ public final class Choreographer {
 
         try {
             Trace.traceBegin(Trace.TRACE_TAG_VIEW, "Choreographer#doFrame");
-            AnimationUtils.lockAnimationClock(frameTimeNanos / TimeUtils.NANOS_PER_MS);
 
             mFrameInfo.markInputHandlingStart();
             doCallbacks(Choreographer.CALLBACK_INPUT, frameTimeNanos);
@@ -697,7 +607,6 @@ public final class Choreographer {
 
             doCallbacks(Choreographer.CALLBACK_COMMIT, frameTimeNanos);
         } finally {
-            AnimationUtils.unlockAnimationClock();
             Trace.traceEnd(Trace.TRACE_TAG_VIEW);
         }
 
@@ -879,8 +788,8 @@ public final class Choreographer {
         private long mTimestampNanos;
         private int mFrame;
 
-        public FrameDisplayEventReceiver(Looper looper, int vsyncSource) {
-            super(looper, vsyncSource);
+        public FrameDisplayEventReceiver(Looper looper) {
+            super(looper);
         }
 
         @Override

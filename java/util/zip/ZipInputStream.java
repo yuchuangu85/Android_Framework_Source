@@ -1,423 +1,392 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util.zip;
 
-import java.io.InputStream;
 import java.io.IOException;
-import java.io.EOFException;
+import java.io.InputStream;
 import java.io.PushbackInputStream;
-import java.nio.charset.Charset;
+import java.nio.ByteOrder;
+import java.nio.charset.ModifiedUtf8;
 import java.nio.charset.StandardCharsets;
-import static java.util.zip.ZipConstants64.*;
-import static java.util.zip.ZipUtils.*;
+import java.util.Arrays;
+import libcore.io.Memory;
+import libcore.io.Streams;
 
 /**
- * This class implements an input stream filter for reading files in the
- * ZIP file format. Includes support for both compressed and uncompressed
- * entries.
+ * Used to read (decompress) the data from zip files.
  *
- * @author      David Connelly
+ * <p>A zip file (or "archive") is a collection of (possibly) compressed files.
+ * When reading from a {@code ZipInputStream}, you call {@link #getNextEntry}
+ * which returns a {@link ZipEntry} of metadata corresponding to the userdata that follows.
+ * When you appear to have hit the end of this stream (which is really just the end of the current
+ * entry's userdata), call {@code getNextEntry} again. When it returns null,
+ * there are no more entries in the input file.
+ *
+ * <p>Although {@code InflaterInputStream} can only read compressed zip
+ * entries, this class can read non-compressed entries as well.
+ *
+ * <p>Use {@link ZipFile} if you need random access to entries by name, but use this class
+ * if you just want to iterate over all entries.
+ *
+ * <h3>Example</h3>
+ * <p>Using {@code ZipInputStream} is a little more complicated than {@link GZIPInputStream}
+ * because zip files are containers that can contain multiple files. This code pulls all the
+ * files out of a zip file, similar to the {@code unzip(1)} utility.
+ * <pre>
+ * InputStream is = ...
+ * ZipInputStream zis = new ZipInputStream(new BufferedInputStream(is));
+ * try {
+ *     ZipEntry ze;
+ *     while ((ze = zis.getNextEntry()) != null) {
+ *         ByteArrayOutputStream baos = new ByteArrayOutputStream();
+ *         byte[] buffer = new byte[1024];
+ *         int count;
+ *         while ((count = zis.read(buffer)) != -1) {
+ *             baos.write(buffer, 0, count);
+ *         }
+ *         String filename = ze.getName();
+ *         byte[] bytes = baos.toByteArray();
+ *         // do something with 'filename' and 'bytes'...
+ *     }
+ * } finally {
+ *     zis.close();
+ * }
+ * </pre>
  */
-public
-class ZipInputStream extends InflaterInputStream implements ZipConstants {
-    private ZipEntry entry;
-    private int flag;
-    private CRC32 crc = new CRC32();
-    private long remaining;
-    private byte[] tmpbuf = new byte[512];
+public class ZipInputStream extends InflaterInputStream implements ZipConstants {
+    private static final int ZIPLocalHeaderVersionNeeded = 20;
 
-    private static final int STORED = ZipEntry.STORED;
-    private static final int DEFLATED = ZipEntry.DEFLATED;
+    private boolean entriesEnd = false;
 
-    private boolean closed = false;
-    // this flag is set to true after EOF has reached for
-    // one entry
-    private boolean entryEOF = false;
+    private boolean hasDD = false;
 
-    private ZipCoder zc;
+    private int entryIn = 0;
 
-    /**
-     * Check to make sure that this stream has not been closed
-     */
-    private void ensureOpen() throws IOException {
-        if (closed) {
-            throw new IOException("Stream closed");
-        }
-    }
+    private int inRead, lastRead = 0;
+
+    private ZipEntry currentEntry;
+
+    private boolean currentEntryIsZip64;
+
+    private final byte[] hdrBuf = new byte[LOCHDR - LOCVER + 8];
+
+    private final CRC32 crc = new CRC32();
+
+    private byte[] stringBytesBuf = new byte[256];
+
+    private char[] stringCharBuf = new char[256];
 
     /**
-     * Creates a new ZIP input stream.
+     * Constructs a new {@code ZipInputStream} to read zip entries from the given input stream.
      *
-     * <p>The UTF-8 {@link java.nio.charset.Charset charset} is used to
-     * decode the entry names.
+     * <p>UTF-8 is used to decode all strings in the file.
+     */
+    public ZipInputStream(InputStream stream) {
+        super(new PushbackInputStream(stream, BUF_SIZE), new Inflater(true));
+        if (stream == null) {
+            throw new NullPointerException("stream == null");
+        }
+    }
+
+    /**
+     * Closes this {@code ZipInputStream}.
      *
-     * @param in the actual input stream
+     * @throws IOException
+     *             if an {@code IOException} occurs.
      */
-    public ZipInputStream(InputStream in) {
-        this(in, StandardCharsets.UTF_8);
-    }
-
-    /**
-     * Creates a new ZIP input stream.
-     *
-     * @param in the actual input stream
-     *
-     * @param charset
-     *        The {@linkplain java.nio.charset.Charset charset} to be
-     *        used to decode the ZIP entry name (ignored if the
-     *        <a href="package-summary.html#lang_encoding"> language
-     *        encoding bit</a> of the ZIP entry's general purpose bit
-     *        flag is set).
-     *
-     * @since 1.7
-     */
-    public ZipInputStream(InputStream in, Charset charset) {
-        super(new PushbackInputStream(in, 512), new Inflater(true), 512);
-        // Android-changed: Unconditionally close external inflaters (b/26462400)
-        // usesDefaultInflater = true;
-        if(in == null) {
-            throw new NullPointerException("in is null");
-        }
-        if (charset == null)
-            throw new NullPointerException("charset is null");
-        this.zc = ZipCoder.get(charset);
-    }
-
-    /**
-     * Reads the next ZIP file entry and positions the stream at the
-     * beginning of the entry data.
-     * @return the next ZIP file entry, or null if there are no more entries
-     * @exception ZipException if a ZIP file error has occurred
-     * @exception IOException if an I/O error has occurred
-     */
-    public ZipEntry getNextEntry() throws IOException {
-        ensureOpen();
-        if (entry != null) {
-            closeEntry();
-        }
-        crc.reset();
-        inf.reset();
-        if ((entry = readLOC()) == null) {
-            return null;
-        }
-        // BEGIN Android-changed
-        // if (entry.method == STORED) {
-        if (entry.method == STORED || entry.method == DEFLATED) {
-        // END Android-changed
-            remaining = entry.size;
-        }
-        entryEOF = false;
-        return entry;
-    }
-
-    /**
-     * Closes the current ZIP entry and positions the stream for reading the
-     * next entry.
-     * @exception ZipException if a ZIP file error has occurred
-     * @exception IOException if an I/O error has occurred
-     */
-    public void closeEntry() throws IOException {
-        ensureOpen();
-        while (read(tmpbuf, 0, tmpbuf.length) != -1) ;
-        entryEOF = true;
-    }
-
-    /**
-     * Returns 0 after EOF has reached for the current entry data,
-     * otherwise always return 1.
-     * <p>
-     * Programs should not count on this method to return the actual number
-     * of bytes that could be read without blocking.
-     *
-     * @return     1 before EOF and 0 after EOF has reached for current entry.
-     * @exception  IOException  if an I/O error occurs.
-     *
-     */
-    public int available() throws IOException {
-        ensureOpen();
-        // BEGIN Android-changed
-        // if (entryEOF) {
-        if (entryEOF || (entry != null && remaining == 0)) {
-        // END Android-changed
-            return 0;
-        } else {
-            return 1;
-        }
-    }
-
-    /**
-     * Reads from the current ZIP entry into an array of bytes.
-     * If <code>len</code> is not zero, the method
-     * blocks until some input is available; otherwise, no
-     * bytes are read and <code>0</code> is returned.
-     * @param b the buffer into which the data is read
-     * @param off the start offset in the destination array <code>b</code>
-     * @param len the maximum number of bytes read
-     * @return the actual number of bytes read, or -1 if the end of the
-     *         entry is reached
-     * @exception  NullPointerException if <code>b</code> is <code>null</code>.
-     * @exception  IndexOutOfBoundsException if <code>off</code> is negative,
-     * <code>len</code> is negative, or <code>len</code> is greater than
-     * <code>b.length - off</code>
-     * @exception ZipException if a ZIP file error has occurred
-     * @exception IOException if an I/O error has occurred
-     */
-    public int read(byte[] b, int off, int len) throws IOException {
-        ensureOpen();
-        if (off < 0 || len < 0 || off > b.length - len) {
-            throw new IndexOutOfBoundsException();
-        } else if (len == 0) {
-            return 0;
-        }
-
-        if (entry == null) {
-            return -1;
-        }
-        switch (entry.method) {
-        case DEFLATED:
-            len = super.read(b, off, len);
-            if (len == -1) {
-                readEnd(entry);
-                entryEOF = true;
-                entry = null;
-            } else {
-                crc.update(b, off, len);
-                // BEGIN Android-changed
-                remaining -= len;
-                // END Android-changed
-            }
-            return len;
-        case STORED:
-            if (remaining <= 0) {
-                entryEOF = true;
-                entry = null;
-                return -1;
-            }
-            if (len > remaining) {
-                len = (int)remaining;
-            }
-            len = in.read(b, off, len);
-            if (len == -1) {
-                throw new ZipException("unexpected EOF");
-            }
-            crc.update(b, off, len);
-            remaining -= len;
-            if (remaining == 0 && entry.crc != crc.getValue()) {
-                throw new ZipException(
-                    "invalid entry CRC (expected 0x" + Long.toHexString(entry.crc) +
-                    " but got 0x" + Long.toHexString(crc.getValue()) + ")");
-            }
-            return len;
-        default:
-            throw new ZipException("invalid compression method");
-        }
-    }
-
-    /**
-     * Skips specified number of bytes in the current ZIP entry.
-     * @param n the number of bytes to skip
-     * @return the actual number of bytes skipped
-     * @exception ZipException if a ZIP file error has occurred
-     * @exception IOException if an I/O error has occurred
-     * @exception IllegalArgumentException if {@code n < 0}
-     */
-    public long skip(long n) throws IOException {
-        if (n < 0) {
-            throw new IllegalArgumentException("negative skip length");
-        }
-        ensureOpen();
-        int max = (int)Math.min(n, Integer.MAX_VALUE);
-        int total = 0;
-        while (total < max) {
-            int len = max - total;
-            if (len > tmpbuf.length) {
-                len = tmpbuf.length;
-            }
-            len = read(tmpbuf, 0, len);
-            if (len == -1) {
-                entryEOF = true;
-                break;
-            }
-            total += len;
-        }
-        return total;
-    }
-
-    /**
-     * Closes this input stream and releases any system resources associated
-     * with the stream.
-     * @exception IOException if an I/O error has occurred
-     */
+    @Override
     public void close() throws IOException {
         if (!closed) {
+            closeEntry(); // Close the current entry
             super.close();
-            closed = true;
         }
-    }
-
-    private byte[] b = new byte[256];
-
-    /*
-     * Reads local file (LOC) header for next entry.
-     */
-    private ZipEntry readLOC() throws IOException {
-        try {
-            readFully(tmpbuf, 0, LOCHDR);
-        } catch (EOFException e) {
-            return null;
-        }
-        if (get32(tmpbuf, 0) != LOCSIG) {
-            return null;
-        }
-        // get flag first, we need check EFS.
-        flag = get16(tmpbuf, LOCFLG);
-        // get the entry name and create the ZipEntry first
-        int len = get16(tmpbuf, LOCNAM);
-        int blen = b.length;
-        if (len > blen) {
-            do {
-                blen = blen * 2;
-            } while (len > blen);
-            b = new byte[blen];
-        }
-        readFully(b, 0, len);
-        // Force to use UTF-8 if the EFS bit is ON, even the cs is NOT UTF-8
-        ZipEntry e = createZipEntry(((flag & EFS) != 0)
-                                    ? zc.toStringUTF8(b, len)
-                                    : zc.toString(b, len));
-        // now get the remaining fields for the entry
-        if ((flag & 1) == 1) {
-            throw new ZipException("encrypted ZIP entry not supported");
-        }
-        e.method = get16(tmpbuf, LOCHOW);
-        e.xdostime = get32(tmpbuf, LOCTIM);
-        if ((flag & 8) == 8) {
-            /* "Data Descriptor" present */
-            if (e.method != DEFLATED) {
-                throw new ZipException(
-                        "only DEFLATED entries can have EXT descriptor");
-            }
-        } else {
-            e.crc = get32(tmpbuf, LOCCRC);
-            e.csize = get32(tmpbuf, LOCSIZ);
-            e.size = get32(tmpbuf, LOCLEN);
-        }
-        len = get16(tmpbuf, LOCEXT);
-        if (len > 0) {
-            byte[] extra = new byte[len];
-            readFully(extra, 0, len);
-            e.setExtra0(extra,
-                        e.csize == ZIP64_MAGICVAL || e.size == ZIP64_MAGICVAL);
-        }
-        return e;
     }
 
     /**
-     * Creates a new <code>ZipEntry</code> object for the specified
-     * entry name.
+     * Closes the current zip entry and prepares to read the next entry.
      *
-     * @param name the ZIP file entry name
-     * @return the ZipEntry just created
+     * @throws IOException
+     *             if an {@code IOException} occurs.
+     */
+    public void closeEntry() throws IOException {
+        checkClosed();
+        if (currentEntry == null) {
+            return;
+        }
+
+        /*
+         * The following code is careful to leave the ZipInputStream in a
+         * consistent state, even when close() results in an exception. It does
+         * so by:
+         *  - pushing bytes back into the source stream
+         *  - reading a data descriptor footer from the source stream
+         *  - resetting fields that manage the entry being closed
+         */
+
+        // Ensure all entry bytes are read
+        Exception failure = null;
+        try {
+            Streams.skipAll(this);
+        } catch (Exception e) {
+            failure = e;
+        }
+
+        int inB, out;
+        if (currentEntry.compressionMethod == ZipEntry.DEFLATED) {
+            inB = inf.getTotalIn();
+            out = inf.getTotalOut();
+        } else {
+            inB = inRead;
+            out = inRead;
+        }
+        int diff = entryIn - inB;
+        // Pushback any required bytes
+        if (diff != 0) {
+            ((PushbackInputStream) in).unread(buf, len - diff, diff);
+        }
+
+        try {
+            readAndVerifyDataDescriptor(inB, out, currentEntryIsZip64);
+        } catch (Exception e) {
+            if (failure == null) { // otherwise we're already going to throw
+                failure = e;
+            }
+        }
+
+        inf.reset();
+        lastRead = inRead = entryIn = len = 0;
+        crc.reset();
+        currentEntry = null;
+
+        if (failure != null) {
+            if (failure instanceof IOException) {
+                throw (IOException) failure;
+            } else if (failure instanceof RuntimeException) {
+                throw (RuntimeException) failure;
+            }
+            AssertionError error = new AssertionError();
+            error.initCause(failure);
+            throw error;
+        }
+    }
+
+    private void readAndVerifyDataDescriptor(long inB, long out, boolean isZip64) throws IOException {
+        if (hasDD) {
+            if (isZip64) {
+                // 8 additional bytes since the compressed / uncompressed size fields
+                // in the extended header are 8 bytes each, instead of 4 bytes each.
+                Streams.readFully(in, hdrBuf, 0, EXTHDR + 8);
+            } else {
+                Streams.readFully(in, hdrBuf, 0, EXTHDR);
+            }
+
+            int sig = Memory.peekInt(hdrBuf, 0, ByteOrder.LITTLE_ENDIAN);
+            if (sig != (int) EXTSIG) {
+                throw new ZipException(String.format("unknown format (EXTSIG=%x)", sig));
+            }
+            currentEntry.crc = ((long) Memory.peekInt(hdrBuf, EXTCRC, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+
+            if (isZip64) {
+                currentEntry.compressedSize = Memory.peekLong(hdrBuf, EXTSIZ, ByteOrder.LITTLE_ENDIAN);
+                // Note that we apply an adjustment of 4 bytes to the offset of EXTLEN to account
+                // for the 8 byte size for zip64.
+                currentEntry.size = Memory.peekLong(hdrBuf, EXTLEN + 4, ByteOrder.LITTLE_ENDIAN);
+            } else {
+                currentEntry.compressedSize = ((long) Memory.peekInt(hdrBuf, EXTSIZ, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+                currentEntry.size = ((long) Memory.peekInt(hdrBuf, EXTLEN, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+            }
+        }
+        if (currentEntry.crc != crc.getValue()) {
+            throw new ZipException("CRC mismatch");
+        }
+        if (currentEntry.compressedSize != inB || currentEntry.size != out) {
+            throw new ZipException("Size mismatch");
+        }
+    }
+
+    /**
+     * Returns the next entry from this {@code ZipInputStream} or {@code null} if
+     * no more entries are present.
+     *
+     * @throws IOException if an {@code IOException} occurs.
+     */
+    public ZipEntry getNextEntry() throws IOException {
+        closeEntry();
+        if (entriesEnd) {
+            return null;
+        }
+
+        // Read the signature to see whether there's another local file header.
+        Streams.readFully(in, hdrBuf, 0, 4);
+        int hdr = Memory.peekInt(hdrBuf, 0, ByteOrder.LITTLE_ENDIAN);
+        if (hdr == CENSIG) {
+            entriesEnd = true;
+            return null;
+        }
+        if (hdr != LOCSIG) {
+            return null;
+        }
+
+        // Read the local file header.
+        Streams.readFully(in, hdrBuf, 0, (LOCHDR - LOCVER));
+        int version = peekShort(0) & 0xff;
+        if (version > ZIPLocalHeaderVersionNeeded) {
+            throw new ZipException("Cannot read local header version " + version);
+        }
+        int flags = peekShort(LOCFLG - LOCVER);
+        if ((flags & ZipFile.GPBF_UNSUPPORTED_MASK) != 0) {
+            throw new ZipException("Invalid General Purpose Bit Flag: " + flags);
+        }
+
+        hasDD = ((flags & ZipFile.GPBF_DATA_DESCRIPTOR_FLAG) != 0);
+        int ceLastModifiedTime = peekShort(LOCTIM - LOCVER);
+        int ceLastModifiedDate = peekShort(LOCTIM - LOCVER + 2);
+        int ceCompressionMethod = peekShort(LOCHOW - LOCVER);
+        long ceCrc = 0, ceCompressedSize = 0, ceSize = -1;
+        if (!hasDD) {
+            ceCrc = ((long) Memory.peekInt(hdrBuf, LOCCRC - LOCVER, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+            ceCompressedSize = ((long) Memory.peekInt(hdrBuf, LOCSIZ - LOCVER, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+            ceSize = ((long) Memory.peekInt(hdrBuf, LOCLEN - LOCVER, ByteOrder.LITTLE_ENDIAN)) & 0xffffffffL;
+        }
+        int nameLength = peekShort(LOCNAM - LOCVER);
+        if (nameLength == 0) {
+            throw new ZipException("Entry is not named");
+        }
+        int extraLength = peekShort(LOCEXT - LOCVER);
+
+        String name = readString(nameLength);
+        currentEntry = createZipEntry(name);
+        currentEntry.time = ceLastModifiedTime;
+        currentEntry.modDate = ceLastModifiedDate;
+        currentEntry.setMethod(ceCompressionMethod);
+        if (ceSize != -1) {
+            currentEntry.setCrc(ceCrc);
+            currentEntry.setSize(ceSize);
+            currentEntry.setCompressedSize(ceCompressedSize);
+        }
+        if (extraLength > 0) {
+            byte[] extraData = new byte[extraLength];
+            Streams.readFully(in, extraData, 0, extraLength);
+            currentEntry.setExtra(extraData);
+            currentEntryIsZip64 = Zip64.parseZip64ExtendedInfo(currentEntry, false /* from central directory */);
+        } else {
+            currentEntryIsZip64 = false;
+        }
+
+        return currentEntry;
+    }
+
+    /**
+     * Reads bytes from the current stream position returning the string representation.
+     */
+    private String readString(int byteLength) throws IOException {
+        if (byteLength > stringBytesBuf.length) {
+            stringBytesBuf = new byte[byteLength];
+        }
+        Streams.readFully(in, stringBytesBuf, 0, byteLength);
+        // The number of chars will always be less than or equal to the number of bytes. It's
+        // fine if this buffer is too long.
+        if (byteLength > stringCharBuf.length) {
+            stringCharBuf = new char[byteLength];
+        }
+        return ModifiedUtf8.decode(stringBytesBuf, stringCharBuf, 0, byteLength);
+    }
+
+    private int peekShort(int offset) {
+        return Memory.peekShort(hdrBuf, offset, ByteOrder.LITTLE_ENDIAN) & 0xffff;
+    }
+
+    /**
+     * Reads up to {@code byteCount} uncompressed bytes into the buffer
+     * starting at {@code byteOffset}. Returns the number of bytes actually read, or -1.
+     */
+    @Override
+    public int read(byte[] buffer, int byteOffset, int byteCount) throws IOException {
+        checkClosed();
+        Arrays.checkOffsetAndCount(buffer.length, byteOffset, byteCount);
+
+        if (inf.finished() || currentEntry == null) {
+            return -1;
+        }
+
+        if (currentEntry.compressionMethod == ZipEntry.STORED) {
+            int csize = (int) currentEntry.size;
+            if (inRead >= csize) {
+                return -1;
+            }
+            if (lastRead >= len) {
+                lastRead = 0;
+                if ((len = in.read(buf)) == -1) {
+                    eof = true;
+                    return -1;
+                }
+                entryIn += len;
+            }
+            int toRead = byteCount > (len - lastRead) ? len - lastRead : byteCount;
+            if ((csize - inRead) < toRead) {
+                toRead = csize - inRead;
+            }
+            System.arraycopy(buf, lastRead, buffer, byteOffset, toRead);
+            lastRead += toRead;
+            inRead += toRead;
+            crc.update(buffer, byteOffset, toRead);
+            return toRead;
+        }
+        if (inf.needsInput()) {
+            fill();
+            if (len > 0) {
+                entryIn += len;
+            }
+        }
+        int read;
+        try {
+            read = inf.inflate(buffer, byteOffset, byteCount);
+        } catch (DataFormatException e) {
+            throw new ZipException(e.getMessage());
+        }
+        if (read == 0 && inf.finished()) {
+            return -1;
+        }
+        crc.update(buffer, byteOffset, read);
+        return read;
+    }
+
+    @Override
+    public int available() throws IOException {
+        checkClosed();
+        // The InflaterInputStream contract says we must only return 0 or 1.
+        return (currentEntry == null || inRead < currentEntry.size) ? 1 : 0;
+    }
+
+    /**
+     * creates a {@link ZipEntry } with the given name.
+     *
+     * @param name
+     *            the name of the entry.
+     * @return the created {@code ZipEntry}.
      */
     protected ZipEntry createZipEntry(String name) {
         return new ZipEntry(name);
     }
 
-    /*
-     * Reads end of deflated entry as well as EXT descriptor if present.
-     */
-    private void readEnd(ZipEntry e) throws IOException {
-        int n = inf.getRemaining();
-        if (n > 0) {
-            ((PushbackInputStream)in).unread(buf, len - n, n);
-        }
-        if ((flag & 8) == 8) {
-            /* "Data Descriptor" present */
-            if (inf.getBytesWritten() > ZIP64_MAGICVAL ||
-                inf.getBytesRead() > ZIP64_MAGICVAL) {
-                // ZIP64 format
-                readFully(tmpbuf, 0, ZIP64_EXTHDR);
-                long sig = get32(tmpbuf, 0);
-                if (sig != EXTSIG) { // no EXTSIG present
-                    e.crc = sig;
-                    e.csize = get64(tmpbuf, ZIP64_EXTSIZ - ZIP64_EXTCRC);
-                    e.size = get64(tmpbuf, ZIP64_EXTLEN - ZIP64_EXTCRC);
-                    ((PushbackInputStream)in).unread(
-                        tmpbuf, ZIP64_EXTHDR - ZIP64_EXTCRC - 1, ZIP64_EXTCRC);
-                } else {
-                    e.crc = get32(tmpbuf, ZIP64_EXTCRC);
-                    e.csize = get64(tmpbuf, ZIP64_EXTSIZ);
-                    e.size = get64(tmpbuf, ZIP64_EXTLEN);
-                }
-            } else {
-                readFully(tmpbuf, 0, EXTHDR);
-                long sig = get32(tmpbuf, 0);
-                if (sig != EXTSIG) { // no EXTSIG present
-                    e.crc = sig;
-                    e.csize = get32(tmpbuf, EXTSIZ - EXTCRC);
-                    e.size = get32(tmpbuf, EXTLEN - EXTCRC);
-                    ((PushbackInputStream)in).unread(
-                                               tmpbuf, EXTHDR - EXTCRC - 1, EXTCRC);
-                } else {
-                    e.crc = get32(tmpbuf, EXTCRC);
-                    e.csize = get32(tmpbuf, EXTSIZ);
-                    e.size = get32(tmpbuf, EXTLEN);
-                }
-            }
-        }
-        if (e.size != inf.getBytesWritten()) {
-            throw new ZipException(
-                "invalid entry size (expected " + e.size +
-                " but got " + inf.getBytesWritten() + " bytes)");
-        }
-        if (e.csize != inf.getBytesRead()) {
-            throw new ZipException(
-                "invalid entry compressed size (expected " + e.csize +
-                " but got " + inf.getBytesRead() + " bytes)");
-        }
-        if (e.crc != crc.getValue()) {
-            throw new ZipException(
-                "invalid entry CRC (expected 0x" + Long.toHexString(e.crc) +
-                " but got 0x" + Long.toHexString(crc.getValue()) + ")");
+    private void checkClosed() throws IOException {
+        if (closed) {
+            throw new IOException("Stream is closed");
         }
     }
-
-    /*
-     * Reads bytes, blocking until all bytes are read.
-     */
-    private void readFully(byte[] b, int off, int len) throws IOException {
-        while (len > 0) {
-            int n = in.read(b, off, len);
-            if (n == -1) {
-                throw new EOFException();
-            }
-            off += n;
-            len -= n;
-        }
-    }
-
 }

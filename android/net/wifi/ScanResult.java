@@ -16,14 +16,9 @@
 
 package android.net.wifi;
 
-import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import android.util.Log;
 
 /**
  * Describes information about a detected access point. In addition
@@ -46,116 +41,11 @@ public class ScanResult implements Parcelable {
      * The address of the access point.
      */
     public String BSSID;
-
-    /**
-     * The HESSID from the beacon.
-     * @hide
-     */
-    public long hessid;
-
-    /**
-     * The ANQP Domain ID from the Hotspot 2.0 Indication element, if present.
-     * @hide
-     */
-    public int anqpDomainId;
-
-    /*
-     * This field is equivalent to the |flags|, rather than the |capabilities| field
-     * of the per-BSS scan results returned by WPA supplicant. See the definition of
-     * |struct wpa_bss| in wpa_supplicant/bss.h for more details.
-     */
     /**
      * Describes the authentication, key management, and encryption schemes
      * supported by the access point.
      */
     public String capabilities;
-
-    /**
-     * @hide
-     * No security protocol.
-     */
-    public static final int PROTOCOL_NONE = 0;
-    /**
-     * @hide
-     * Security protocol type: WPA version 1.
-     */
-    public static final int PROTOCOL_WPA = 1;
-    /**
-     * @hide
-     * Security protocol type: WPA version 2, also called RSN.
-     */
-    public static final int PROTOCOL_WPA2 = 2;
-    /**
-     * @hide
-     * Security protocol type:
-     * OSU Server-only authenticated layer 2 Encryption Network.
-     * Used for Hotspot 2.0.
-     */
-    public static final int PROTOCOL_OSEN = 3;
-
-    /**
-     * @hide
-     * No security key management scheme.
-     */
-    public static final int KEY_MGMT_NONE = 0;
-    /**
-     * @hide
-     * Security key management scheme: PSK.
-     */
-    public static final int KEY_MGMT_PSK = 1;
-    /**
-     * @hide
-     * Security key management scheme: EAP.
-     */
-    public static final int KEY_MGMT_EAP = 2;
-    /**
-     * @hide
-     * Security key management scheme: FT_PSK.
-     */
-    public static final int KEY_MGMT_FT_PSK = 3;
-    /**
-     * @hide
-     * Security key management scheme: FT_EAP.
-     */
-    public static final int KEY_MGMT_FT_EAP = 4;
-    /**
-     * @hide
-     * Security key management scheme: PSK_SHA256
-     */
-    public static final int KEY_MGMT_PSK_SHA256 = 5;
-    /**
-     * @hide
-     * Security key management scheme: EAP_SHA256.
-     */
-    public static final int KEY_MGMT_EAP_SHA256 = 6;
-    /**
-     * @hide
-     * Security key management scheme: OSEN.
-     * Used for Hotspot 2.0.
-     */
-    public static final int KEY_MGMT_OSEN = 7;
-
-    /**
-     * @hide
-     * No cipher suite.
-     */
-    public static final int CIPHER_NONE = 0;
-    /**
-     * @hide
-     * No group addressed, only used for group data cipher.
-     */
-    public static final int CIPHER_NO_GROUP_ADDRESSED = 1;
-    /**
-     * @hide
-     * Cipher suite: TKIP
-     */
-    public static final int CIPHER_TKIP = 2;
-    /**
-     * @hide
-     * Cipher suite: CCMP
-     */
-    public static final int CIPHER_CCMP = 3;
-
     /**
      * The detected signal level in dBm, also known as the RSSI.
      *
@@ -229,56 +119,82 @@ public class ScanResult implements Parcelable {
     public long seen;
 
     /**
-     * On devices with multiple hardware radio chains, this class provides metadata about
-     * each radio chain that was used to receive this scan result (probe response or beacon).
+     * If the scan result is a valid autojoin candidate
      * {@hide}
      */
-    public static class RadioChainInfo {
-        /** Vendor defined id for a radio chain. */
-        public int id;
-        /** Detected signal level in dBm (also known as the RSSI) on this radio chain. */
-        public int level;
-
-        @Override
-        public String toString() {
-            return "RadioChainInfo: id=" + id + ", level=" + level;
-        }
-
-        @Override
-        public boolean equals(Object otherObj) {
-            if (this == otherObj) {
-                return true;
-            }
-            if (!(otherObj instanceof RadioChainInfo)) {
-                return false;
-            }
-            RadioChainInfo other = (RadioChainInfo) otherObj;
-            return id == other.id && level == other.level;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(id, level);
-        }
-    };
+    public int isAutoJoinCandidate;
 
     /**
-     * Information about the list of the radio chains used to receive this scan result
-     * (probe response or beacon).
-     *
-     * For Example: On devices with 2 hardware radio chains, this list could hold 1 or 2
-     * entries based on whether this scan result was received using one or both the chains.
-     * {@hide}
-     */
-    public RadioChainInfo[] radioChainInfos;
-
-    /**
-     * Status indicating the scan result does not correspond to a user's saved configuration
      * @hide
-     * @removed
+     * Update RSSI of the scan result
+     * @param previousRssi
+     * @param previousSeen
+     * @param maxAge
      */
-    @SystemApi
+    public void averageRssi(int previousRssi, long previousSeen, int maxAge) {
+
+        if (seen == 0) {
+            seen = System.currentTimeMillis();
+        }
+        long age = seen - previousSeen;
+
+        if (previousSeen > 0 && age > 0 && age < maxAge/2) {
+            // Average the RSSI with previously seen instances of this scan result
+            double alpha = 0.5 - (double) age / (double) maxAge;
+            level = (int) ((double) level * (1 - alpha) + (double) previousRssi * alpha);
+        }
+    }
+
+    /** @hide */
+    public static final int ENABLED                                          = 0;
+    /** @hide */
+    public static final int AUTO_ROAM_DISABLED                               = 16;
+    /** @hide */
+    public static final int AUTO_JOIN_DISABLED                               = 32;
+    /** @hide */
+    public static final int AUTHENTICATION_ERROR                              = 128;
+
+    /**
+     * Status: indicating join status
+     * @hide
+     */
+    public int autoJoinStatus;
+
+    /**
+     * num IP configuration failures
+     * @hide
+     */
+    public int numIpConfigFailures;
+
+    /**
+     * @hide
+     * Last time we blacklisted the ScanResult
+     */
+    public long blackListTimestamp;
+
+    /** @hide **/
+    public void setAutoJoinStatus(int status) {
+        if (status < 0) status = 0;
+        if (status == 0) {
+            blackListTimestamp = 0;
+        }  else if (status > autoJoinStatus) {
+            blackListTimestamp = System.currentTimeMillis();
+        }
+        autoJoinStatus = status;
+    }
+
+    /**
+     * Status: indicating the scan result is not a result
+     * that is part of user's saved configurations
+     * @hide
+     */
     public boolean untrusted;
+
+    /**
+     * Number of time we connected to it
+     * @hide
+     */
+    public int numConnection;
 
     /**
      * Number of time autojoin used it
@@ -306,10 +222,6 @@ public class ScanResult implements Parcelable {
     /** {@hide} */
     public static final long FLAG_80211mc_RESPONDER               = 0x0000000000000002;
 
-    /*
-     * These flags are specific to the ScanResult class, and are not related to the |flags|
-     * field of the per-BSS scan results from WPA supplicant.
-     */
     /**
      * Defines flags; such as {@link #FLAG_PASSPOINT_NETWORK}.
      * {@hide}
@@ -344,12 +256,12 @@ public class ScanResult implements Parcelable {
 
     /**
      * Indicates venue name (such as 'San Francisco Airport') published by access point; only
-     * available on Passpoint network and if published by access point.
+     * available on passpoint network and if published by access point.
      */
     public CharSequence venueName;
 
     /**
-     * Indicates Passpoint operator name published by access point.
+     * Indicates passpoint operator name published by access point.
      */
     public CharSequence operatorFriendlyName;
 
@@ -389,30 +301,14 @@ public class ScanResult implements Parcelable {
 
     /**
      *  @hide
-     * anqp lines from supplicant BSS response
-     */
-    public List<String> anqpLines;
+     * storing the raw bytes of full result IEs
+     **/
+    public byte[] bytes;
 
     /** information elements from beacon
      * @hide
      */
     public static class InformationElement {
-        public static final int EID_SSID = 0;
-        public static final int EID_SUPPORTED_RATES = 1;
-        public static final int EID_TIM = 5;
-        public static final int EID_BSS_LOAD = 11;
-        public static final int EID_ERP = 42;
-        public static final int EID_HT_CAPABILITIES = 45;
-        public static final int EID_RSN = 48;
-        public static final int EID_EXTENDED_SUPPORTED_RATES = 50;
-        public static final int EID_HT_OPERATION = 61;
-        public static final int EID_INTERWORKING = 107;
-        public static final int EID_ROAMING_CONSORTIUM = 111;
-        public static final int EID_EXTENDED_CAPS = 127;
-        public static final int EID_VHT_CAPABILITIES = 191;
-        public static final int EID_VHT_OPERATION = 192;
-        public static final int EID_VSA = 221;
-
         public int id;
         public byte[] bytes;
 
@@ -428,49 +324,14 @@ public class ScanResult implements Parcelable {
     /** information elements found in the beacon
      * @hide
      */
-    public InformationElement[] informationElements;
-
-    /** ANQP response elements.
-     * @hide
-     */
-    public AnqpInformationElement[] anqpElements;
-
-    /**
-     * Flag indicating if this AP is a carrier AP. The determination is based
-     * on the AP's SSID and if AP is using EAP security.
-     *
-     * @hide
-     */
-    public boolean isCarrierAp;
-
-    /**
-     * The EAP type {@link WifiEnterpriseConfig.Eap} associated with this AP if it is a carrier AP.
-     *
-     * @hide
-     */
-    public int carrierApEapType;
-
-    /**
-     * The name of the carrier that's associated with this AP if it is a carrier AP.
-     *
-     * @hide
-     */
-    public String carrierName;
+    public InformationElement informationElements[];
 
     /** {@hide} */
-    public ScanResult(WifiSsid wifiSsid, String BSSID, long hessid, int anqpDomainId,
-            byte[] osuProviders, String caps, int level, int frequency, long tsf) {
+    public ScanResult(WifiSsid wifiSsid, String BSSID, String caps, int level, int frequency,
+            long tsf) {
         this.wifiSsid = wifiSsid;
         this.SSID = (wifiSsid != null) ? wifiSsid.toString() : WifiSsid.NONE;
         this.BSSID = BSSID;
-        this.hessid = hessid;
-        this.anqpDomainId = anqpDomainId;
-        if (osuProviders != null) {
-            this.anqpElements = new AnqpInformationElement[1];
-            this.anqpElements[0] =
-                    new AnqpInformationElement(AnqpInformationElement.HOTSPOT20_VENDOR_ID,
-                            AnqpInformationElement.HS_OSU_PROVIDERS, osuProviders);
-        }
         this.capabilities = caps;
         this.level = level;
         this.frequency = frequency;
@@ -481,10 +342,6 @@ public class ScanResult implements Parcelable {
         this.centerFreq0 = UNSPECIFIED;
         this.centerFreq1 = UNSPECIFIED;
         this.flags = 0;
-        this.isCarrierAp = false;
-        this.carrierApEapType = UNSPECIFIED;
-        this.carrierName = null;
-        this.radioChainInfos = null;
     }
 
     /** {@hide} */
@@ -503,21 +360,14 @@ public class ScanResult implements Parcelable {
         this.centerFreq0 = UNSPECIFIED;
         this.centerFreq1 = UNSPECIFIED;
         this.flags = 0;
-        this.isCarrierAp = false;
-        this.carrierApEapType = UNSPECIFIED;
-        this.carrierName = null;
-        this.radioChainInfos = null;
     }
 
     /** {@hide} */
-    public ScanResult(String Ssid, String BSSID, long hessid, int anqpDomainId, String caps,
-            int level, int frequency,
+    public ScanResult(String Ssid, String BSSID, String caps, int level, int frequency,
             long tsf, int distCm, int distSdCm, int channelWidth, int centerFreq0, int centerFreq1,
             boolean is80211McRTTResponder) {
         this.SSID = Ssid;
         this.BSSID = BSSID;
-        this.hessid = hessid;
-        this.anqpDomainId = anqpDomainId;
         this.capabilities = caps;
         this.level = level;
         this.frequency = frequency;
@@ -532,19 +382,14 @@ public class ScanResult implements Parcelable {
         } else {
             this.flags = 0;
         }
-        this.isCarrierAp = false;
-        this.carrierApEapType = UNSPECIFIED;
-        this.carrierName = null;
-        this.radioChainInfos = null;
     }
 
     /** {@hide} */
-    public ScanResult(WifiSsid wifiSsid, String Ssid, String BSSID, long hessid, int anqpDomainId,
-                  String caps, int level,
+    public ScanResult(WifiSsid wifiSsid, String Ssid, String BSSID, String caps, int level,
                   int frequency, long tsf, int distCm, int distSdCm, int channelWidth,
                   int centerFreq0, int centerFreq1, boolean is80211McRTTResponder) {
-        this(Ssid, BSSID, hessid, anqpDomainId, caps, level, frequency, tsf, distCm,
-                distSdCm, channelWidth, centerFreq0, centerFreq1, is80211McRTTResponder);
+        this(Ssid, BSSID, caps,level, frequency, tsf, distCm, distSdCm, channelWidth, centerFreq0,
+                centerFreq1, is80211McRTTResponder);
         this.wifiSsid = wifiSsid;
     }
 
@@ -554,10 +399,6 @@ public class ScanResult implements Parcelable {
             wifiSsid = source.wifiSsid;
             SSID = source.SSID;
             BSSID = source.BSSID;
-            hessid = source.hessid;
-            anqpDomainId = source.anqpDomainId;
-            informationElements = source.informationElements;
-            anqpElements = source.anqpElements;
             capabilities = source.capabilities;
             level = source.level;
             frequency = source.frequency;
@@ -568,15 +409,15 @@ public class ScanResult implements Parcelable {
             distanceCm = source.distanceCm;
             distanceSdCm = source.distanceSdCm;
             seen = source.seen;
+            autoJoinStatus = source.autoJoinStatus;
             untrusted = source.untrusted;
+            numConnection = source.numConnection;
             numUsage = source.numUsage;
+            numIpConfigFailures = source.numIpConfigFailures;
+            isAutoJoinCandidate = source.isAutoJoinCandidate;
             venueName = source.venueName;
             operatorFriendlyName = source.operatorFriendlyName;
             flags = source.flags;
-            isCarrierAp = source.isCarrierAp;
-            carrierApEapType = source.carrierApEapType;
-            carrierName = source.carrierName;
-            radioChainInfos = source.radioChainInfos;
         }
     }
 
@@ -612,15 +453,14 @@ public class ScanResult implements Parcelable {
 
         sb.append(", passpoint: ");
         sb.append(((flags & FLAG_PASSPOINT_NETWORK) != 0) ? "yes" : "no");
+        if (autoJoinStatus != 0) {
+            sb.append(", status: ").append(autoJoinStatus);
+        }
         sb.append(", ChannelBandwidth: ").append(channelWidth);
         sb.append(", centerFreq0: ").append(centerFreq0);
         sb.append(", centerFreq1: ").append(centerFreq1);
         sb.append(", 80211mcResponder: ");
         sb.append(((flags & FLAG_80211mc_RESPONDER) != 0) ? "is supported" : "is not supported");
-        sb.append(", Carrier AP: ").append(isCarrierAp ? "yes" : "no");
-        sb.append(", Carrier AP EAP Type: ").append(carrierApEapType);
-        sb.append(", Carrier name: ").append(carrierName);
-        sb.append(", Radio Chain Infos: ").append(Arrays.toString(radioChainInfos));
         return sb.toString();
     }
 
@@ -639,8 +479,6 @@ public class ScanResult implements Parcelable {
         }
         dest.writeString(SSID);
         dest.writeString(BSSID);
-        dest.writeLong(hessid);
-        dest.writeInt(anqpDomainId);
         dest.writeString(capabilities);
         dest.writeInt(level);
         dest.writeInt(frequency);
@@ -651,8 +489,12 @@ public class ScanResult implements Parcelable {
         dest.writeInt(centerFreq0);
         dest.writeInt(centerFreq1);
         dest.writeLong(seen);
+        dest.writeInt(autoJoinStatus);
         dest.writeInt(untrusted ? 1 : 0);
+        dest.writeInt(numConnection);
         dest.writeInt(numUsage);
+        dest.writeInt(numIpConfigFailures);
+        dest.writeInt(isAutoJoinCandidate);
         dest.writeString((venueName != null) ? venueName.toString() : "");
         dest.writeString((operatorFriendlyName != null) ? operatorFriendlyName.toString() : "");
         dest.writeLong(this.flags);
@@ -663,40 +505,6 @@ public class ScanResult implements Parcelable {
                 dest.writeInt(informationElements[i].id);
                 dest.writeInt(informationElements[i].bytes.length);
                 dest.writeByteArray(informationElements[i].bytes);
-            }
-        } else {
-            dest.writeInt(0);
-        }
-
-        if (anqpLines != null) {
-            dest.writeInt(anqpLines.size());
-            for (int i = 0; i < anqpLines.size(); i++) {
-                dest.writeString(anqpLines.get(i));
-            }
-        }
-        else {
-            dest.writeInt(0);
-        }
-        if (anqpElements != null) {
-            dest.writeInt(anqpElements.length);
-            for (AnqpInformationElement element : anqpElements) {
-                dest.writeInt(element.getVendorId());
-                dest.writeInt(element.getElementId());
-                dest.writeInt(element.getPayload().length);
-                dest.writeByteArray(element.getPayload());
-            }
-        } else {
-            dest.writeInt(0);
-        }
-        dest.writeInt(isCarrierAp ? 1 : 0);
-        dest.writeInt(carrierApEapType);
-        dest.writeString(carrierName);
-
-        if (radioChainInfos != null) {
-            dest.writeInt(radioChainInfos.length);
-            for (int i = 0; i < radioChainInfos.length; i++) {
-                dest.writeInt(radioChainInfos[i].id);
-                dest.writeInt(radioChainInfos[i].level);
             }
         } else {
             dest.writeInt(0);
@@ -712,27 +520,28 @@ public class ScanResult implements Parcelable {
                     wifiSsid = WifiSsid.CREATOR.createFromParcel(in);
                 }
                 ScanResult sr = new ScanResult(
-                        wifiSsid,
-                        in.readString(),                    /* SSID  */
-                        in.readString(),                    /* BSSID */
-                        in.readLong(),                      /* HESSID */
-                        in.readInt(),                       /* ANQP Domain ID */
-                        in.readString(),                    /* capabilities */
-                        in.readInt(),                       /* level */
-                        in.readInt(),                       /* frequency */
-                        in.readLong(),                      /* timestamp */
-                        in.readInt(),                       /* distanceCm */
-                        in.readInt(),                       /* distanceSdCm */
-                        in.readInt(),                       /* channelWidth */
-                        in.readInt(),                       /* centerFreq0 */
-                        in.readInt(),                       /* centerFreq1 */
-                        false                               /* rtt responder,
-                                                               fixed with flags below */
+                    wifiSsid,
+                    in.readString(),                    /* SSID  */
+                    in.readString(),                    /* BSSID */
+                    in.readString(),                    /* capabilities */
+                    in.readInt(),                       /* level */
+                    in.readInt(),                       /* frequency */
+                    in.readLong(),                      /* timestamp */
+                    in.readInt(),                       /* distanceCm */
+                    in.readInt(),                       /* distanceSdCm */
+                    in.readInt(),                       /* channelWidth */
+                    in.readInt(),                       /* centerFreq0 */
+                    in.readInt(),                       /* centerFreq1 */
+                    false                               /* rtt responder, fixed with flags below */
                 );
 
                 sr.seen = in.readLong();
+                sr.autoJoinStatus = in.readInt();
                 sr.untrusted = in.readInt() != 0;
+                sr.numConnection = in.readInt();
                 sr.numUsage = in.readInt();
+                sr.numIpConfigFailures = in.readInt();
+                sr.isAutoJoinCandidate = in.readInt();
                 sr.venueName = in.readString();
                 sr.operatorFriendlyName = in.readString();
                 sr.flags = in.readLong();
@@ -745,39 +554,6 @@ public class ScanResult implements Parcelable {
                         int len = in.readInt();
                         sr.informationElements[i].bytes = new byte[len];
                         in.readByteArray(sr.informationElements[i].bytes);
-                    }
-                }
-
-                n = in.readInt();
-                if (n != 0) {
-                    sr.anqpLines = new ArrayList<String>();
-                    for (int i = 0; i < n; i++) {
-                        sr.anqpLines.add(in.readString());
-                    }
-                }
-                n = in.readInt();
-                if (n != 0) {
-                    sr.anqpElements = new AnqpInformationElement[n];
-                    for (int i = 0; i < n; i++) {
-                        int vendorId = in.readInt();
-                        int elementId = in.readInt();
-                        int len = in.readInt();
-                        byte[] payload = new byte[len];
-                        in.readByteArray(payload);
-                        sr.anqpElements[i] =
-                                new AnqpInformationElement(vendorId, elementId, payload);
-                    }
-                }
-                sr.isCarrierAp = in.readInt() != 0;
-                sr.carrierApEapType = in.readInt();
-                sr.carrierName = in.readString();
-                n = in.readInt();
-                if (n != 0) {
-                    sr.radioChainInfos = new RadioChainInfo[n];
-                    for (int i = 0; i < n; i++) {
-                        sr.radioChainInfos[i] = new RadioChainInfo();
-                        sr.radioChainInfos[i].id = in.readInt();
-                        sr.radioChainInfos[i].level = in.readInt();
                     }
                 }
                 return sr;

@@ -15,8 +15,6 @@
  */
 package android.speech.tts;
 
-import android.annotation.IntDef;
-import android.annotation.Nullable;
 import android.annotation.RawRes;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
@@ -40,8 +38,6 @@ import android.util.Log;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -78,19 +74,6 @@ public class TextToSpeech {
      * client should never expect to see this result code.
      */
     public static final int STOPPED = -2;
-
-    /** @hide */
-    @IntDef(prefix = { "ERROR_" }, value = {
-            ERROR_SYNTHESIS,
-            ERROR_SERVICE,
-            ERROR_OUTPUT,
-            ERROR_NETWORK,
-            ERROR_NETWORK_TIMEOUT,
-            ERROR_INVALID_REQUEST,
-            ERROR_NOT_INSTALLED_YET
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface Error {}
 
     /**
      * Denotes a failure of a TTS engine to synthesize the given input.
@@ -198,7 +181,7 @@ public class TextToSpeech {
          *
          * @param status {@link TextToSpeech#SUCCESS} or {@link TextToSpeech#ERROR}.
          */
-        void onInit(int status);
+        public void onInit(int status);
     }
 
     /**
@@ -215,7 +198,7 @@ public class TextToSpeech {
          *
          * @param utteranceId the identifier of the utterance.
          */
-        void onUtteranceCompleted(String utteranceId);
+        public void onUtteranceCompleted(String utteranceId);
     }
 
     /**
@@ -673,7 +656,7 @@ public class TextToSpeech {
     private OnInitListener mInitListener;
     // Written from an unspecified application thread, read from
     // a binder thread.
-    @Nullable private volatile UtteranceProgressListener mUtteranceProgressListener;
+    private volatile UtteranceProgressListener mUtteranceProgressListener;
     private final Object mStartLock = new Object();
 
     private String mRequestedEngine;
@@ -2110,69 +2093,38 @@ public class TextToSpeech {
 
         private boolean mEstablished;
 
-        private final ITextToSpeechCallback.Stub mCallback =
-                new ITextToSpeechCallback.Stub() {
-                    public void onStop(String utteranceId, boolean isStarted)
-                            throws RemoteException {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onStop(utteranceId, isStarted);
-                        }
-                    };
+        private final ITextToSpeechCallback.Stub mCallback = new ITextToSpeechCallback.Stub() {
+            public void onStop(String utteranceId, boolean isStarted) throws RemoteException {
+                UtteranceProgressListener listener = mUtteranceProgressListener;
+                if (listener != null) {
+                    listener.onStop(utteranceId, isStarted);
+                }
+            };
 
-                    @Override
-                    public void onSuccess(String utteranceId) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onDone(utteranceId);
-                        }
-                    }
+            @Override
+            public void onSuccess(String utteranceId) {
+                UtteranceProgressListener listener = mUtteranceProgressListener;
+                if (listener != null) {
+                    listener.onDone(utteranceId);
+                }
+            }
 
-                    @Override
-                    public void onError(String utteranceId, int errorCode) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onError(utteranceId);
-                        }
-                    }
+            @Override
+            public void onError(String utteranceId, int errorCode) {
+                UtteranceProgressListener listener = mUtteranceProgressListener;
+                if (listener != null) {
+                    listener.onError(utteranceId);
+                }
+            }
 
-                    @Override
-                    public void onStart(String utteranceId) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onStart(utteranceId);
-                        }
-                    }
-
-                    @Override
-                    public void onBeginSynthesis(
-                            String utteranceId,
-                            int sampleRateInHz,
-                            int audioFormat,
-                            int channelCount) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onBeginSynthesis(
-                                    utteranceId, sampleRateInHz, audioFormat, channelCount);
-                        }
-                    }
-
-                    @Override
-                    public void onAudioAvailable(String utteranceId, byte[] audio) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onAudioAvailable(utteranceId, audio);
-                        }
-                    }
-
-                    @Override
-                    public void onRangeStart(String utteranceId, int start, int end, int frame) {
-                        UtteranceProgressListener listener = mUtteranceProgressListener;
-                        if (listener != null) {
-                            listener.onRangeStart(utteranceId, start, end, frame);
-                        }
-                    }
-                };
+            @Override
+            public void onStart(String utteranceId) {
+                UtteranceProgressListener listener = mUtteranceProgressListener;
+                if (listener != null) {
+                    listener.onStart(utteranceId);
+                }
+            }
+        };
 
         private class SetupConnectionAsyncTask extends AsyncTask<Void, Void, Integer> {
             private final ComponentName mName;

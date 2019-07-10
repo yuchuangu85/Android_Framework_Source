@@ -1,233 +1,108 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
-
 
 package javax.net.ssl;
 
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.SocketException;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import javax.net.ServerSocketFactory;
-import java.security.*;
+import org.apache.harmony.security.fortress.Services;
 
 /**
- * <code>SSLServerSocketFactory</code>s create
- * <code>SSLServerSocket</code>s.
- *
- * @since 1.4
- * @see SSLSocket
- * @see SSLServerSocket
- * @author David Brownell
+ * The factory for SSL server sockets.
  */
-public abstract class SSLServerSocketFactory extends ServerSocketFactory
-{
-    // Android-changed: Renamed field.
-    // Some apps rely on changing this field via reflection, so we can't change the name
-    // without introducing app compatibility problems.  See http://b/62248930.
-    private static SSLServerSocketFactory defaultServerSocketFactory;
+public abstract class SSLServerSocketFactory extends ServerSocketFactory {
+    // TODO EXPORT CONTROL
 
-    // Android-changed: Check Security.getVersion() on each update.
-    // If the set of providers or other such things changes, it may change the default
-    // factory, so we track the version returned from Security.getVersion() instead of
-    // only having a flag that says if we've ever initialized the default.
-    // private static boolean propertyChecked;
-    private static int lastVersion = -1;
+    // The default SSL socket factory
+    private static ServerSocketFactory defaultServerSocketFactory;
 
-    private static void log(String msg) {
-        if (SSLSocketFactory.DEBUG) {
-            System.out.println(msg);
-        }
-    }
+    private static String defaultName;
+
+    private static int lastCacheVersion = -1;
 
     /**
-     * Constructor is used only by subclasses.
-     */
-    protected SSLServerSocketFactory() { /* NOTHING */ }
-
-    /**
-     * Returns the default SSL server socket factory.
+     * Returns the default {@code SSLServerSocketFactory} instance. The default
+     * implementation is defined by the security property
+     * "ssl.ServerSocketFactory.provider".
      *
-     * <p>The first time this method is called, the security property
-     * "ssl.ServerSocketFactory.provider" is examined. If it is non-null, a
-     * class by that name is loaded and instantiated. If that is successful and
-     * the object is an instance of SSLServerSocketFactory, it is made the
-     * default SSL server socket factory.
-     *
-     * <p>Otherwise, this method returns
-     * <code>SSLContext.getDefault().getServerSocketFactory()</code>. If that
-     * call fails, an inoperative factory is returned.
-     *
-     * @return the default <code>ServerSocketFactory</code>
-     * @see SSLContext#getDefault
+     * @return the default {@code SSLServerSocketFactory} instance.
      */
     public static synchronized ServerSocketFactory getDefault() {
-        // Android-changed: Check Security.getVersion() on each update.
-        if (defaultServerSocketFactory != null && lastVersion == Security.getVersion()) {
+        int newCacheVersion = Services.getCacheVersion();
+        if (lastCacheVersion != newCacheVersion) {
+            defaultServerSocketFactory = null;
+            defaultName = null;
+            lastCacheVersion = newCacheVersion;
+        }
+        if (defaultServerSocketFactory != null) {
             return defaultServerSocketFactory;
         }
-
-        lastVersion = Security.getVersion();
-        SSLServerSocketFactory previousDefaultServerSocketFactory = defaultServerSocketFactory;
-        defaultServerSocketFactory = null;
-
-        String clsName = SSLSocketFactory.getSecurityProperty
-                                    ("ssl.ServerSocketFactory.provider");
-        if (clsName != null) {
-            // Android-changed: Check if we already have an instance of the default factory class.
-            // The instance for the default socket factory is checked for updates quite
-            // often (for instance, every time a security provider is added). Which leads
-            // to unnecessary overload and excessive error messages in case of class-loading
-            // errors. Avoid creating a new object if the class name is the same as before.
-            if (previousDefaultServerSocketFactory != null
-                    && clsName.equals(previousDefaultServerSocketFactory.getClass().getName())) {
-                defaultServerSocketFactory = previousDefaultServerSocketFactory;
-                return defaultServerSocketFactory;
-            }
-            log("setting up default SSLServerSocketFactory");
-            try {
-                Class<?> cls = null;
-                try {
-                    cls = Class.forName(clsName);
-                } catch (ClassNotFoundException e) {
-                    // Android-changed; Try the contextClassLoader first.
-                    ClassLoader cl = Thread.currentThread().getContextClassLoader();
-                    if (cl == null) {
-                        cl = ClassLoader.getSystemClassLoader();
-                    }
-
-                    if (cl != null) {
-                        // Android-changed: Use Class.forName() so the class gets initialized.
-                        cls = Class.forName(clsName, true, cl);
-                    }
+        if (defaultName == null) {
+            defaultName = Security.getProperty("ssl.ServerSocketFactory.provider");
+            if (defaultName != null) {
+                ClassLoader cl = Thread.currentThread().getContextClassLoader();
+                if (cl == null) {
+                    cl = ClassLoader.getSystemClassLoader();
                 }
-                log("class " + clsName + " is loaded");
-                SSLServerSocketFactory fac = (SSLServerSocketFactory)cls.newInstance();
-                log("instantiated an instance of class " + clsName);
-                defaultServerSocketFactory = fac;
-                return fac;
-            } catch (Exception e) {
-                log("SSLServerSocketFactory instantiation failed: " + e);
-                // Android-changed: Fallback to the default SSLContext on exception.
+                try {
+                    final Class<?> ssfc = Class.forName(defaultName, true, cl);
+                    defaultServerSocketFactory = (ServerSocketFactory) ssfc.newInstance();
+                } catch (Exception e) {
+                }
             }
         }
-
-        try {
-            // Android-changed: Allow for {@code null} SSLContext.getDefault.
-            SSLContext context = SSLContext.getDefault();
+        if (defaultServerSocketFactory == null) {
+            SSLContext context;
+            try {
+                context = SSLContext.getDefault();
+            } catch (NoSuchAlgorithmException e) {
+                context = null;
+            }
             if (context != null) {
                 defaultServerSocketFactory = context.getServerSocketFactory();
-            } else {
-                defaultServerSocketFactory = new DefaultSSLServerSocketFactory(new IllegalStateException("No factory found."));
             }
-            return defaultServerSocketFactory;
-        } catch (NoSuchAlgorithmException e) {
-            return new DefaultSSLServerSocketFactory(e);
         }
+        if (defaultServerSocketFactory == null) {
+            // Use internal dummy implementation
+            defaultServerSocketFactory = new DefaultSSLServerSocketFactory(
+                    "No ServerSocketFactory installed");
+        }
+        return defaultServerSocketFactory;
     }
 
     /**
-     * Returns the list of cipher suites which are enabled by default.
-     * Unless a different list is enabled, handshaking on an SSL connection
-     * will use one of these cipher suites.  The minimum quality of service
-     * for these defaults requires confidentiality protection and server
-     * authentication (that is, no anonymous cipher suites).
-     *
-     * @see #getSupportedCipherSuites()
-     * @return array of the cipher suites enabled by default
+     * Creates a new {@code SSLServerSocketFactory} instance.
      */
-    public abstract String [] getDefaultCipherSuites();
-
+    protected SSLServerSocketFactory() {
+    }
 
     /**
-     * Returns the names of the cipher suites which could be enabled for use
-     * on an SSL connection created by this factory.
-     * Normally, only a subset of these will actually
-     * be enabled by default, since this list may include cipher suites which
-     * do not meet quality of service requirements for those defaults.  Such
-     * cipher suites are useful in specialized applications.
+     * Returns the names of the cipher suites that are enabled by default.
      *
-     * @return an array of cipher suite names
-     * @see #getDefaultCipherSuites()
+     * @return the names of the cipher suites that are enabled by default
      */
-    public abstract String [] getSupportedCipherSuites();
-}
+    public abstract String[] getDefaultCipherSuites();
 
-
-//
-// The default factory does NOTHING.
-//
-class DefaultSSLServerSocketFactory extends SSLServerSocketFactory {
-
-    private final Exception reason;
-
-    DefaultSSLServerSocketFactory(Exception reason) {
-        this.reason = reason;
-    }
-
-    private ServerSocket throwException() throws SocketException {
-        throw (SocketException)
-            new SocketException(reason.toString()).initCause(reason);
-    }
-
-    @Override
-    public ServerSocket createServerSocket() throws IOException {
-        return throwException();
-    }
-
-
-    @Override
-    public ServerSocket createServerSocket(int port)
-    throws IOException
-    {
-        return throwException();
-    }
-
-    @Override
-    public ServerSocket createServerSocket(int port, int backlog)
-    throws IOException
-    {
-        return throwException();
-    }
-
-    @Override
-    public ServerSocket
-    createServerSocket(int port, int backlog, InetAddress ifAddress)
-    throws IOException
-    {
-        return throwException();
-    }
-
-    @Override
-    public String [] getDefaultCipherSuites() {
-        return new String[0];
-    }
-
-    @Override
-    public String [] getSupportedCipherSuites() {
-        return new String[0];
-    }
+    /**
+     * Returns the list of supported cipher suites that could be enabled for an
+     * SSL connection created by this factory.
+     *
+     * @return the list of supported cipher suites
+     */
+    public abstract String[] getSupportedCipherSuites();
 }

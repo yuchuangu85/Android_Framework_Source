@@ -22,7 +22,6 @@ import android.os.FileUtils;
 import android.os.Process;
 import android.os.StrictMode;
 import android.os.SystemClock;
-import android.system.Os;
 import android.system.OsConstants;
 import android.util.Slog;
 
@@ -35,12 +34,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
-import java.util.List;
 import java.util.StringTokenizer;
 
 public class ProcessCpuTracker {
@@ -71,10 +67,10 @@ public class ProcessCpuTracker {
     static final int PROCESS_STAT_UTIME = 2;
     static final int PROCESS_STAT_STIME = 3;
 
-    /** Stores user time and system time in jiffies. */
+    /** Stores user time and system time in 100ths of a second. */
     private final long[] mProcessStatsData = new long[4];
 
-    /** Stores user time and system time in jiffies.  Used for
+    /** Stores user time and system time in 100ths of a second.  Used for
      * public API to retrieve CPU use for a process.  Must lock while in use. */
     private final long[] mSinglePidStatsData = new long[4];
 
@@ -151,9 +147,6 @@ public class ProcessCpuTracker {
     private long mCurrentSampleRealTime;
     private long mLastSampleRealTime;
 
-    private long mCurrentSampleWallTime;
-    private long mLastSampleWallTime;
-
     private long mBaseUserTime;
     private long mBaseSystemTime;
     private long mBaseIoWaitTime;
@@ -178,11 +171,6 @@ public class ProcessCpuTracker {
     private boolean mFirst = true;
 
     private byte[] mBuffer = new byte[4096];
-
-    public interface FilterStats {
-        /** Which stats to pick when filtering */
-        boolean needed(Stats stats);
-    }
 
     public static class Stats {
         public final int pid;
@@ -295,7 +283,7 @@ public class ProcessCpuTracker {
 
     public ProcessCpuTracker(boolean includeThreads) {
         mIncludeThreads = includeThreads;
-        long jiffyHz = Os.sysconf(OsConstants._SC_CLK_TCK);
+        long jiffyHz = Libcore.os.sysconf(OsConstants._SC_CLK_TCK);
         mJiffyMillis = 1000/jiffyHz;
     }
 
@@ -317,7 +305,6 @@ public class ProcessCpuTracker {
 
         final long nowUptime = SystemClock.uptimeMillis();
         final long nowRealtime = SystemClock.elapsedRealtime();
-        final long nowWallTime = System.currentTimeMillis();
 
         final long[] sysCpu = mSystemCpuData;
         if (Process.readProcFile("/proc/stat", SYSTEM_CPU_FORMAT,
@@ -380,8 +367,6 @@ public class ProcessCpuTracker {
         mCurrentSampleTime = nowUptime;
         mLastSampleRealTime = mCurrentSampleRealTime;
         mCurrentSampleRealTime = nowRealtime;
-        mLastSampleWallTime = mCurrentSampleWallTime;
-        mCurrentSampleWallTime = nowWallTime;
 
         final StrictMode.ThreadPolicy savedPolicy = StrictMode.allowThreadDiskReads();
         try {
@@ -702,18 +687,6 @@ public class ProcessCpuTracker {
         return mProcStats.get(index);
     }
 
-    final public List<Stats> getStats(FilterStats filter) {
-        final ArrayList<Stats> statses = new ArrayList<>(mProcStats.size());
-        final int N = mProcStats.size();
-        for (int p = 0; p < N; p++) {
-            Stats stats = mProcStats.get(p);
-            if (filter.needed(stats)) {
-                statses.add(stats);
-            }
-        }
-        return statses;
-    }
-
     final public int countWorkingStats() {
         buildWorkingProcs();
         return mWorkingProcs.size();
@@ -737,8 +710,6 @@ public class ProcessCpuTracker {
     }
 
     final public String printCurrentState(long now) {
-        final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-
         buildWorkingProcs();
 
         StringWriter sw = new StringWriter();
@@ -756,11 +727,6 @@ public class ProcessCpuTracker {
             pw.print(mCurrentSampleTime-now);
             pw.print("ms later");
         }
-        pw.print(" (");
-        pw.print(sdf.format(new Date(mLastSampleWallTime)));
-        pw.print(" to ");
-        pw.print(sdf.format(new Date(mCurrentSampleWallTime)));
-        pw.print(")");
 
         long sampleTime = mCurrentSampleTime - mLastSampleTime;
         long sampleRealTime = mCurrentSampleRealTime - mLastSampleRealTime;

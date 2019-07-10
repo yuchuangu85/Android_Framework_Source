@@ -9,10 +9,7 @@ package jsr166;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -33,7 +30,7 @@ public class ForkJoinTaskTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(ForkJoinTaskTest.class);
+    //     return new TestSuite(...);
     // }
 
     // Runs with "mainPool" use > 1 thread. singletonPool tests use 1
@@ -55,7 +52,7 @@ public class ForkJoinTaskTest extends JSR166TestCase {
     }
 
     private void testInvokeOnPool(ForkJoinPool pool, RecursiveAction a) {
-        try (PoolCleaner cleaner = cleaner(pool)) {
+        try {
             assertFalse(a.isDone());
             assertFalse(a.isCompletedNormally());
             assertFalse(a.isCompletedAbnormally());
@@ -71,6 +68,8 @@ public class ForkJoinTaskTest extends JSR166TestCase {
             assertFalse(a.isCancelled());
             assertNull(a.getException());
             assertNull(a.getRawResult());
+        } finally {
+            joinPool(pool);
         }
     }
 
@@ -103,17 +102,17 @@ public class ForkJoinTaskTest extends JSR166TestCase {
 
         {
             Thread.currentThread().interrupt();
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             assertSame(expected, a.join());
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
             Thread.interrupted();
         }
 
         {
             Thread.currentThread().interrupt();
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
             Thread.interrupted();
         }
 
@@ -146,9 +145,9 @@ public class ForkJoinTaskTest extends JSR166TestCase {
         Thread.interrupted();
 
         {
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
         }
 
         try {
@@ -184,9 +183,9 @@ public class ForkJoinTaskTest extends JSR166TestCase {
         Thread.interrupted();
 
         {
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
         }
 
         try {
@@ -223,9 +222,9 @@ public class ForkJoinTaskTest extends JSR166TestCase {
             AtomicIntegerFieldUpdater.newUpdater(BinaryAsyncAction.class,
                                                  "controlState");
 
-        private volatile BinaryAsyncAction parent;
+        private BinaryAsyncAction parent;
 
-        private volatile BinaryAsyncAction sibling;
+        private BinaryAsyncAction sibling;
 
         protected BinaryAsyncAction() {
         }
@@ -260,14 +259,6 @@ public class ForkJoinTaskTest extends JSR166TestCase {
             super.completeExceptionally(ex);
         }
 
-        public boolean cancel(boolean mayInterruptIfRunning) {
-            if (super.cancel(mayInterruptIfRunning)) {
-                completeExceptionally(new FJException());
-                return true;
-            }
-            return false;
-        }
-
         public final void complete() {
             BinaryAsyncAction a = this;
             for (;;) {
@@ -289,12 +280,13 @@ public class ForkJoinTaskTest extends JSR166TestCase {
         }
 
         public final void completeExceptionally(Throwable ex) {
-            for (BinaryAsyncAction a = this;;) {
+            BinaryAsyncAction a = this;
+            while (!a.isCompletedAbnormally()) {
                 a.completeThisExceptionally(ex);
                 BinaryAsyncAction s = a.sibling;
-                if (s != null && !s.isDone())
-                    s.completeExceptionally(ex);
-                if ((a = a.parent) == null)
+                if (s != null)
+                    s.cancel(false);
+                if (!a.onException() || (a = a.parent) == null)
                     break;
             }
         }
@@ -344,12 +336,15 @@ public class ForkJoinTaskTest extends JSR166TestCase {
         public final boolean exec() {
             AsyncFib f = this;
             int n = f.number;
-            while (n > 1) {
-                AsyncFib p = f;
-                AsyncFib r = new AsyncFib(n - 2);
-                f = new AsyncFib(--n);
-                p.linkSubtasks(r, f);
-                r.fork();
+            if (n > 1) {
+                while (n > 1) {
+                    AsyncFib p = f;
+                    AsyncFib r = new AsyncFib(n - 2);
+                    f = new AsyncFib(--n);
+                    p.linkSubtasks(r, f);
+                    r.fork();
+                }
+                f.number = n;
             }
             f.complete();
             return false;
@@ -369,12 +364,15 @@ public class ForkJoinTaskTest extends JSR166TestCase {
         public final boolean exec() {
             FailingAsyncFib f = this;
             int n = f.number;
-            while (n > 1) {
-                FailingAsyncFib p = f;
-                FailingAsyncFib r = new FailingAsyncFib(n - 2);
-                f = new FailingAsyncFib(--n);
-                p.linkSubtasks(r, f);
-                r.fork();
+            if (n > 1) {
+                while (n > 1) {
+                    FailingAsyncFib p = f;
+                    FailingAsyncFib r = new FailingAsyncFib(n - 2);
+                    f = new FailingAsyncFib(--n);
+                    p.linkSubtasks(r, f);
+                    r.fork();
+                }
+                f.number = n;
             }
             f.complete();
             return false;
@@ -780,27 +778,6 @@ public class ForkJoinTaskTest extends JSR166TestCase {
     }
 
     /**
-     * completeExceptionally(null) surprisingly has the same effect as
-     * completeExceptionally(new RuntimeException())
-     */
-    public void testCompleteExceptionally_null() {
-        RecursiveAction a = new CheckedRecursiveAction() {
-            protected void realCompute() {
-                AsyncFib f = new AsyncFib(8);
-                f.completeExceptionally(null);
-                try {
-                    f.invoke();
-                    shouldThrow();
-                } catch (RuntimeException success) {
-                    assertSame(success.getClass(), RuntimeException.class);
-                    assertNull(success.getCause());
-                    checkCompletedAbnormally(f, success);
-                }
-            }};
-        testInvokeOnPool(mainPool(), a);
-    }
-
-    /**
      * invokeAll(t1, t2) invokes all task arguments
      */
     public void testInvokeAll2() {
@@ -900,10 +877,8 @@ public class ForkJoinTaskTest extends JSR166TestCase {
             protected void realCompute() {
                 AsyncFib f = new AsyncFib(8);
                 FailingAsyncFib g = new FailingAsyncFib(9);
-                ForkJoinTask[] tasks = { f, g };
-                Collections.shuffle(Arrays.asList(tasks));
                 try {
-                    invokeAll(tasks);
+                    invokeAll(f, g);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(g, success);
@@ -938,10 +913,8 @@ public class ForkJoinTaskTest extends JSR166TestCase {
                 AsyncFib f = new AsyncFib(8);
                 FailingAsyncFib g = new FailingAsyncFib(9);
                 AsyncFib h = new AsyncFib(7);
-                ForkJoinTask[] tasks = { f, g, h };
-                Collections.shuffle(Arrays.asList(tasks));
                 try {
-                    invokeAll(tasks);
+                    invokeAll(f, g, h);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(g, success);
@@ -959,11 +932,12 @@ public class ForkJoinTaskTest extends JSR166TestCase {
                 FailingAsyncFib f = new FailingAsyncFib(8);
                 AsyncFib g = new AsyncFib(9);
                 AsyncFib h = new AsyncFib(7);
-                ForkJoinTask[] tasks = { f, g, h };
-                List taskList = Arrays.asList(tasks);
-                Collections.shuffle(taskList);
+                HashSet set = new HashSet();
+                set.add(f);
+                set.add(g);
+                set.add(h);
                 try {
-                    invokeAll(taskList);
+                    invokeAll(set);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(f, success);
@@ -1570,10 +1544,8 @@ public class ForkJoinTaskTest extends JSR166TestCase {
             protected void realCompute() {
                 AsyncFib f = new AsyncFib(8);
                 FailingAsyncFib g = new FailingAsyncFib(9);
-                ForkJoinTask[] tasks = { f, g };
-                Collections.shuffle(Arrays.asList(tasks));
                 try {
-                    invokeAll(tasks);
+                    invokeAll(f, g);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(g, success);
@@ -1608,10 +1580,8 @@ public class ForkJoinTaskTest extends JSR166TestCase {
                 AsyncFib f = new AsyncFib(8);
                 FailingAsyncFib g = new FailingAsyncFib(9);
                 AsyncFib h = new AsyncFib(7);
-                ForkJoinTask[] tasks = { f, g, h };
-                Collections.shuffle(Arrays.asList(tasks));
                 try {
-                    invokeAll(tasks);
+                    invokeAll(f, g, h);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(g, success);
@@ -1629,11 +1599,12 @@ public class ForkJoinTaskTest extends JSR166TestCase {
                 FailingAsyncFib f = new FailingAsyncFib(8);
                 AsyncFib g = new AsyncFib(9);
                 AsyncFib h = new AsyncFib(7);
-                ForkJoinTask[] tasks = { f, g, h };
-                List taskList = Arrays.asList(tasks);
-                Collections.shuffle(taskList);
+                HashSet set = new HashSet();
+                set.add(f);
+                set.add(g);
+                set.add(h);
                 try {
-                    invokeAll(taskList);
+                    invokeAll(set);
                     shouldThrow();
                 } catch (FJException success) {
                     checkCompletedAbnormally(f, success);

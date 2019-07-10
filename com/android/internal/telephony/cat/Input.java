@@ -37,7 +37,6 @@ public class Input implements Parcelable {
     public boolean yesNo;
     public boolean helpAvailable;
     public Duration duration;
-    public boolean iconSelfExplanatory;
 
     Input() {
         text = "";
@@ -52,7 +51,6 @@ public class Input implements Parcelable {
         yesNo = false;
         helpAvailable = false;
         duration = null;
-        iconSelfExplanatory = false;
     }
 
     private Input(Parcel in) {
@@ -68,7 +66,6 @@ public class Input implements Parcelable {
         yesNo = in.readInt() == 1 ? true : false;
         helpAvailable = in.readInt() == 1 ? true : false;
         duration = in.readParcelable(null);
-        iconSelfExplanatory = in.readInt() == 1 ? true : false;
     }
 
     @Override
@@ -90,7 +87,6 @@ public class Input implements Parcelable {
         dest.writeInt(yesNo ? 1 : 0);
         dest.writeInt(helpAvailable ? 1 : 0);
         dest.writeParcelable(duration, 0);
-        dest.writeInt(iconSelfExplanatory ? 1 : 0);
     }
 
     public static final Parcelable.Creator<Input> CREATOR = new Parcelable.Creator<Input>() {

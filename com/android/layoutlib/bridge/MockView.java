@@ -16,103 +16,40 @@
 
 package com.android.layoutlib.bridge;
 
-import com.android.SdkConstants;
-import com.android.layoutlib.bridge.android.BridgeLayoutParamsMapAttributes;
-
 import android.content.Context;
+import android.graphics.Canvas;
 import android.util.AttributeSet;
 import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.FrameLayout;
 import android.widget.TextView;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Base class for mocked views.
- * <p/>
- * FrameLayout with a single TextView. Doesn't allow adding any other views to itself.
+ *
+ * TODO: implement onDraw and draw a rectangle in a random color with the name of the class
+ * (or better the id of the view).
  */
-public class MockView extends FrameLayout {
-
-    private final TextView mView;
-
-    public MockView(Context context) {
-        this(context, null);
-    }
+public class MockView extends TextView {
 
     public MockView(Context context, AttributeSet attrs) {
         this(context, attrs, 0);
     }
 
-    public MockView(Context context, AttributeSet attrs, int defStyleAttr) {
-        this(context, attrs, defStyleAttr, 0);
+    public MockView(Context context, AttributeSet attrs, int defStyle) {
+        this(context, attrs, defStyle, 0);
     }
 
     public MockView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
-        // This inner TextView is only used to show some message on render result and should not
-        // inherit any attributes from parent (MockView). So it only needs layout width and height.
-        Map<String, String> attributes = new HashMap<>();
-        attributes.put(SdkConstants.ATTR_LAYOUT_WIDTH, SdkConstants.VALUE_MATCH_PARENT);
-        attributes.put(SdkConstants.ATTR_LAYOUT_HEIGHT, SdkConstants.VALUE_MATCH_PARENT);
-        mView = new TextView(context, new BridgeLayoutParamsMapAttributes(attributes));
-        mView.setTextColor(0xFF000000);
+
+        setText(this.getClass().getSimpleName());
+        setTextColor(0xFF000000);
         setGravity(Gravity.CENTER);
-        setText(getClass().getSimpleName());
-        addView(mView);
-        setBackgroundColor(0xFF7F7F7F);
-    }
-
-    // Only allow adding one TextView.
-    @Override
-    public void addView(View child) {
-        if (child == mView) {
-            super.addView(child);
-        }
     }
 
     @Override
-    public void addView(View child, int index) {
-        if (child == mView) {
-            super.addView(child, index);
-        }
-    }
+    public void onDraw(Canvas canvas) {
+        canvas.drawARGB(0xFF, 0x7F, 0x7F, 0x7F);
 
-    @Override
-    public void addView(View child, int width, int height) {
-        if (child == mView) {
-            super.addView(child, width, height);
-        }
-    }
-
-    @Override
-    public void addView(View child, ViewGroup.LayoutParams params) {
-        if (child == mView) {
-            super.addView(child, params);
-        }
-    }
-
-    @Override
-    public void addView(View child, int index, ViewGroup.LayoutParams params) {
-        if (child == mView) {
-            super.addView(child, index, params);
-        }
-    }
-
-    // The following methods are called by the IDE via reflection, and should be considered part
-    // of the API.
-    // Historically, MockView used to be a textView and had these methods. Now, we simply delegate
-    // them to the contained textView.
-
-    public void setText(CharSequence text) {
-        mView.setText(text);
-    }
-
-    @SuppressWarnings("WeakerAccess") // This method is used from Studio
-    public void setGravity(int gravity) {
-        mView.setGravity(gravity);
+        super.onDraw(canvas);
     }
 }

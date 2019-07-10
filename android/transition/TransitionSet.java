@@ -16,6 +16,8 @@
 
 package android.transition;
 
+import com.android.internal.R;
+
 import android.animation.TimeInterpolator;
 import android.content.Context;
 import android.content.res.TypedArray;
@@ -23,8 +25,6 @@ import android.util.AndroidRuntimeException;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
-
-import com.android.internal.R;
 
 import java.util.ArrayList;
 
@@ -46,7 +46,7 @@ import java.util.ArrayList;
  * transition on the affected view targets:</p>
  * <pre>
  *     &lt;transitionSet xmlns:android="http://schemas.android.com/apk/res/android"
- *             android:transitionOrdering="sequential"&gt;
+ *             android:ordering="sequential"&gt;
  *         &lt;fade/&gt;
  *         &lt;changeBounds/&gt;
  *     &lt;/transitionSet&gt;
@@ -318,6 +318,15 @@ public class TransitionSet extends Transition {
         }
     }
 
+    /** @hide */
+    @Override
+    public void forceVisibility(int visibility, boolean isStartValue) {
+        int numTransitions = mTransitions.size();
+        for (int i = 0; i < numTransitions; i++) {
+            mTransitions.get(i).forceVisibility(visibility, isStartValue);
+        }
+    }
+
     /**
      * Removes the specified child transition from this set.
      *
@@ -495,16 +504,6 @@ public class TransitionSet extends Transition {
         int numTransitions = mTransitions.size();
         for (int i = 0; i < numTransitions; ++i) {
             mTransitions.get(i).cancel();
-        }
-    }
-
-    /** @hide */
-    @Override
-    void forceToEnd(ViewGroup sceneRoot) {
-        super.forceToEnd(sceneRoot);
-        int numTransitions = mTransitions.size();
-        for (int i = 0; i < numTransitions; ++i) {
-            mTransitions.get(i).forceToEnd(sceneRoot);
         }
     }
 

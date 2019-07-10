@@ -16,119 +16,75 @@
 
 package com.android.systemui.statusbar.phone;
 
-import android.annotation.ColorInt;
-import android.annotation.DrawableRes;
-import android.annotation.LayoutRes;
 import android.app.StatusBarManager;
 import android.content.Context;
-import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
-import android.media.AudioManager;
 import android.media.session.MediaSessionLegacyHelper;
-import android.net.Uri;
-import android.os.Bundle;
 import android.os.IBinder;
-import android.os.SystemClock;
 import android.util.AttributeSet;
-import android.view.ActionMode;
-import android.view.InputDevice;
-import android.view.InputQueue;
 import android.view.KeyEvent;
-import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
-import android.view.Window;
+import android.view.ViewRootImpl;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.widget.FrameLayout;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.view.FloatingActionMode;
-import com.android.internal.widget.FloatingToolbar;
 import com.android.systemui.R;
-import com.android.systemui.classifier.FalsingManager;
+import com.android.systemui.statusbar.BaseStatusBar;
 import com.android.systemui.statusbar.DragDownHelper;
 import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.stack.NotificationStackScrollLayout;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-
 
 public class StatusBarWindowView extends FrameLayout {
     public static final String TAG = "StatusBarWindowView";
-    public static final boolean DEBUG = StatusBar.DEBUG;
+    public static final boolean DEBUG = BaseStatusBar.DEBUG;
 
     private DragDownHelper mDragDownHelper;
-    private DoubleTapHelper mDoubleTapHelper;
     private NotificationStackScrollLayout mStackScrollLayout;
     private NotificationPanelView mNotificationPanel;
     private View mBrightnessMirror;
 
     private int mRightInset = 0;
-    private int mLeftInset = 0;
 
-    private StatusBar mService;
+    private PhoneStatusBar mService;
     private final Paint mTransparentSrcPaint = new Paint();
-    private FalsingManager mFalsingManager;
-
-    // Implements the floating action mode for TextView's Cut/Copy/Past menu. Normally provided by
-    // DecorView, but since this is a special window we have to roll our own.
-    private View mFloatingActionModeOriginatingView;
-    private ActionMode mFloatingActionMode;
-    private FloatingToolbar mFloatingToolbar;
-    private ViewTreeObserver.OnPreDrawListener mFloatingToolbarPreDrawListener;
-    private boolean mTouchCancelled;
-    private boolean mTouchActive;
-    private boolean mExpandAnimationRunning;
-    private boolean mExpandAnimationPending;
 
     public StatusBarWindowView(Context context, AttributeSet attrs) {
         super(context, attrs);
         setMotionEventSplittingEnabled(false);
         mTransparentSrcPaint.setColor(0);
         mTransparentSrcPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));
-        mFalsingManager = FalsingManager.getInstance(context);
-        mDoubleTapHelper = new DoubleTapHelper(this, active -> {}, () -> {
-            mService.wakeUpIfDozing(SystemClock.uptimeMillis(), this);
-            return true;
-        }, null, null);
     }
 
     @Override
     protected boolean fitSystemWindows(Rect insets) {
         if (getFitsSystemWindows()) {
-            boolean paddingChanged = insets.top != getPaddingTop()
+            boolean paddingChanged = insets.left != getPaddingLeft()
+                    || insets.top != getPaddingTop()
                     || insets.bottom != getPaddingBottom();
 
             // Super-special right inset handling, because scrims and backdrop need to ignore it.
-            if (insets.right != mRightInset || insets.left != mLeftInset) {
+            if (insets.right != mRightInset) {
                 mRightInset = insets.right;
-                mLeftInset = insets.left;
                 applyMargins();
             }
-            // Drop top inset, and pass through bottom inset.
+            // Drop top inset, apply left inset and pass through bottom inset.
             if (paddingChanged) {
-                setPadding(0, 0, 0, 0);
+                setPadding(insets.left, 0, 0, 0);
             }
             insets.left = 0;
             insets.top = 0;
             insets.right = 0;
         } else {
-            if (mRightInset != 0 || mLeftInset != 0) {
+            if (mRightInset != 0) {
                 mRightInset = 0;
-                mLeftInset = 0;
                 applyMargins();
             }
             boolean changed = getPaddingLeft() != 0
@@ -149,10 +105,8 @@ public class StatusBarWindowView extends FrameLayout {
             View child = getChildAt(i);
             if (child.getLayoutParams() instanceof LayoutParams) {
                 LayoutParams lp = (LayoutParams) child.getLayoutParams();
-                if (!lp.ignoreRightInset
-                        && (lp.rightMargin != mRightInset || lp.leftMargin != mLeftInset)) {
+                if (!lp.ignoreRightInset && lp.rightMargin != mRightInset) {
                     lp.rightMargin = mRightInset;
-                    lp.leftMargin = mLeftInset;
                     child.requestLayout();
                 }
             }
@@ -178,27 +132,21 @@ public class StatusBarWindowView extends FrameLayout {
         mBrightnessMirror = findViewById(R.id.brightness_mirror);
     }
 
-    @Override
-    public void onViewAdded(View child) {
-        super.onViewAdded(child);
-        if (child.getId() == R.id.brightness_mirror) {
-            mBrightnessMirror = child;
-        }
-    }
-
-    public void setService(StatusBar service) {
+    public void setService(PhoneStatusBar service) {
         mService = service;
-        setDragDownHelper(new DragDownHelper(getContext(), this, mStackScrollLayout, mService));
-    }
-
-    @VisibleForTesting
-    void setDragDownHelper(DragDownHelper dragDownHelper) {
-        mDragDownHelper = dragDownHelper;
+        mDragDownHelper = new DragDownHelper(getContext(), this, mStackScrollLayout, mService);
     }
 
     @Override
     protected void onAttachedToWindow () {
         super.onAttachedToWindow();
+
+        // We really need to be able to animate while window animations are going on
+        // so that activities may be started asynchronously from panel animations
+        final ViewRootImpl root = getViewRootImpl();
+        if (root != null) {
+            root.setDrawDuringWindowsAnimating(true);
+        }
 
         // We need to ensure that our window doesn't suffer from overdraw which would normally
         // occur if our window is translucent. Since we are drawing the whole window anyway with
@@ -217,12 +165,6 @@ public class StatusBarWindowView extends FrameLayout {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (mService.interceptMediaKey(event)) {
-            return true;
-        }
-        if (super.dispatchKeyEvent(event)) {
-            return true;
-        }
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         switch (event.getKeyCode()) {
             case KeyEvent.KEYCODE_BACK:
@@ -242,40 +184,19 @@ public class StatusBarWindowView extends FrameLayout {
             case KeyEvent.KEYCODE_VOLUME_DOWN:
             case KeyEvent.KEYCODE_VOLUME_UP:
                 if (mService.isDozing()) {
-                    MediaSessionLegacyHelper.getHelper(mContext).sendVolumeKeyEvent(
-                            event, AudioManager.USE_DEFAULT_STREAM_TYPE, true);
+                    MediaSessionLegacyHelper.getHelper(mContext).sendVolumeKeyEvent(event, true);
                     return true;
                 }
                 break;
         }
-        return false;
-    }
-
-    public void setTouchActive(boolean touchActive) {
-        mTouchActive = touchActive;
+        if (mService.interceptMediaKey(event)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        boolean isDown = ev.getActionMasked() == MotionEvent.ACTION_DOWN;
-        boolean isCancel = ev.getActionMasked() == MotionEvent.ACTION_CANCEL;
-        if (!isCancel && mService.shouldIgnoreTouch()) {
-            return false;
-        }
-        if (isDown && mNotificationPanel.isFullyCollapsed()) {
-            mNotificationPanel.startExpandLatencyTracking();
-        }
-        if (isDown) {
-            setTouchActive(true);
-            mTouchCancelled = false;
-        } else if (ev.getActionMasked() == MotionEvent.ACTION_UP
-                || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            setTouchActive(false);
-        }
-        if (mTouchCancelled || mExpandAnimationRunning || mExpandAnimationPending) {
-            return false;
-        }
-        mFalsingManager.onTouchEvent(ev, getWidth(), getHeight());
         if (mBrightnessMirror != null && mBrightnessMirror.getVisibility() == VISIBLE) {
             // Disallow new pointers while the brightness mirror is visible. This is so that you
             // can't touch anything other than the brightness slider while the mirror is showing
@@ -284,29 +205,21 @@ public class StatusBarWindowView extends FrameLayout {
                 return false;
             }
         }
-        if (isDown) {
-            mStackScrollLayout.closeControlsIfOutsideTouch(ev);
-        }
-        if (mService.isDozing()) {
-            mService.mDozeScrimController.extendPulse();
-        }
-
         return super.dispatchTouchEvent(ev);
     }
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (mService.isDozing() && !mStackScrollLayout.hasPulsingNotifications()) {
-            // Capture all touch events in always-on.
-            return true;
-        }
         boolean intercept = false;
         if (mNotificationPanel.isFullyExpanded()
                 && mStackScrollLayout.getVisibility() == View.VISIBLE
                 && mService.getBarState() == StatusBarState.KEYGUARD
-                && !mService.isBouncerShowing()
-                && !mService.isDozing()) {
+                && !mService.isBouncerShowing()) {
             intercept = mDragDownHelper.onInterceptTouchEvent(ev);
+            // wake up on a touch down event, if dozing
+            if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                mService.wakeUpIfDozing(ev.getEventTime(), ev);
+            }
         }
         if (!intercept) {
             super.onInterceptTouchEvent(ev);
@@ -324,13 +237,7 @@ public class StatusBarWindowView extends FrameLayout {
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
         boolean handled = false;
-        if (mService.isDozing()) {
-            mDoubleTapHelper.onTouchEvent(ev);
-            handled = true;
-        }
-        if ((mService.getBarState() == StatusBarState.KEYGUARD && !handled)
-                || mDragDownHelper.isDraggingDown()) {
-            // we still want to finish our drag down gesture when locking the screen
+        if (mService.getBarState() == StatusBarState.KEYGUARD) {
             handled = mDragDownHelper.onTouchEvent(ev);
         }
         if (!handled) {
@@ -381,33 +288,6 @@ public class StatusBarWindowView extends FrameLayout {
         }
     }
 
-    public void cancelCurrentTouch() {
-        if (mTouchActive) {
-            final long now = SystemClock.uptimeMillis();
-            MotionEvent event = MotionEvent.obtain(now, now,
-                    MotionEvent.ACTION_CANCEL, 0.0f, 0.0f, 0);
-            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-            dispatchTouchEvent(event);
-            event.recycle();
-            mTouchCancelled = true;
-        }
-    }
-
-    public void setExpandAnimationRunning(boolean expandAnimationRunning) {
-        mExpandAnimationRunning = expandAnimationRunning;
-    }
-
-    public void setExpandAnimationPending(boolean pending) {
-        mExpandAnimationPending = pending;
-    }
-
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.print("  mExpandAnimationPending="); pw.println(mExpandAnimationPending);
-        pw.print("  mExpandAnimationRunning="); pw.println(mExpandAnimationRunning);
-        pw.print("  mTouchCancelled="); pw.println(mTouchCancelled);
-        pw.print("  mTouchActive="); pw.println(mTouchActive);
-    }
-
     public class LayoutParams extends FrameLayout.LayoutParams {
 
         public boolean ignoreRightInset;
@@ -425,344 +305,5 @@ public class StatusBarWindowView extends FrameLayout {
             a.recycle();
         }
     }
-
-    @Override
-    public ActionMode startActionModeForChild(View originalView, ActionMode.Callback callback,
-            int type) {
-        if (type == ActionMode.TYPE_FLOATING) {
-            return startActionMode(originalView, callback, type);
-        }
-        return super.startActionModeForChild(originalView, callback, type);
-    }
-
-    private ActionMode createFloatingActionMode(
-            View originatingView, ActionMode.Callback2 callback) {
-        if (mFloatingActionMode != null) {
-            mFloatingActionMode.finish();
-        }
-        cleanupFloatingActionModeViews();
-        mFloatingToolbar = new FloatingToolbar(mFakeWindow);
-        final FloatingActionMode mode =
-                new FloatingActionMode(mContext, callback, originatingView, mFloatingToolbar);
-        mFloatingActionModeOriginatingView = originatingView;
-        mFloatingToolbarPreDrawListener =
-                new ViewTreeObserver.OnPreDrawListener() {
-                    @Override
-                    public boolean onPreDraw() {
-                        mode.updateViewLocationInWindow();
-                        return true;
-                    }
-                };
-        return mode;
-    }
-
-    private void setHandledFloatingActionMode(ActionMode mode) {
-        mFloatingActionMode = mode;
-        mFloatingActionMode.invalidate();  // Will show the floating toolbar if necessary.
-        mFloatingActionModeOriginatingView.getViewTreeObserver()
-                .addOnPreDrawListener(mFloatingToolbarPreDrawListener);
-    }
-
-    private void cleanupFloatingActionModeViews() {
-        if (mFloatingToolbar != null) {
-            mFloatingToolbar.dismiss();
-            mFloatingToolbar = null;
-        }
-        if (mFloatingActionModeOriginatingView != null) {
-            if (mFloatingToolbarPreDrawListener != null) {
-                mFloatingActionModeOriginatingView.getViewTreeObserver()
-                        .removeOnPreDrawListener(mFloatingToolbarPreDrawListener);
-                mFloatingToolbarPreDrawListener = null;
-            }
-            mFloatingActionModeOriginatingView = null;
-        }
-    }
-
-    private ActionMode startActionMode(
-            View originatingView, ActionMode.Callback callback, int type) {
-        ActionMode.Callback2 wrappedCallback = new ActionModeCallback2Wrapper(callback);
-        ActionMode mode = createFloatingActionMode(originatingView, wrappedCallback);
-        if (mode != null && wrappedCallback.onCreateActionMode(mode, mode.getMenu())) {
-            setHandledFloatingActionMode(mode);
-        } else {
-            mode = null;
-        }
-        return mode;
-    }
-
-    private class ActionModeCallback2Wrapper extends ActionMode.Callback2 {
-        private final ActionMode.Callback mWrapped;
-
-        public ActionModeCallback2Wrapper(ActionMode.Callback wrapped) {
-            mWrapped = wrapped;
-        }
-
-        public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-            return mWrapped.onCreateActionMode(mode, menu);
-        }
-
-        public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-            requestFitSystemWindows();
-            return mWrapped.onPrepareActionMode(mode, menu);
-        }
-
-        public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-            return mWrapped.onActionItemClicked(mode, item);
-        }
-
-        public void onDestroyActionMode(ActionMode mode) {
-            mWrapped.onDestroyActionMode(mode);
-            if (mode == mFloatingActionMode) {
-                cleanupFloatingActionModeViews();
-                mFloatingActionMode = null;
-            }
-            requestFitSystemWindows();
-        }
-
-        @Override
-        public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
-            if (mWrapped instanceof ActionMode.Callback2) {
-                ((ActionMode.Callback2) mWrapped).onGetContentRect(mode, view, outRect);
-            } else {
-                super.onGetContentRect(mode, view, outRect);
-            }
-        }
-    }
-
-    /**
-     * Minimal window to satisfy FloatingToolbar.
-     */
-    private Window mFakeWindow = new Window(mContext) {
-        @Override
-        public void takeSurface(SurfaceHolder.Callback2 callback) {
-        }
-
-        @Override
-        public void takeInputQueue(InputQueue.Callback callback) {
-        }
-
-        @Override
-        public boolean isFloating() {
-            return false;
-        }
-
-        @Override
-        public void alwaysReadCloseOnTouchAttr() {
-        }
-
-        @Override
-        public void setContentView(@LayoutRes int layoutResID) {
-        }
-
-        @Override
-        public void setContentView(View view) {
-        }
-
-        @Override
-        public void setContentView(View view, ViewGroup.LayoutParams params) {
-        }
-
-        @Override
-        public void addContentView(View view, ViewGroup.LayoutParams params) {
-        }
-
-        @Override
-        public void clearContentView() {
-        }
-
-        @Override
-        public View getCurrentFocus() {
-            return null;
-        }
-
-        @Override
-        public LayoutInflater getLayoutInflater() {
-            return null;
-        }
-
-        @Override
-        public void setTitle(CharSequence title) {
-        }
-
-        @Override
-        public void setTitleColor(@ColorInt int textColor) {
-        }
-
-        @Override
-        public void openPanel(int featureId, KeyEvent event) {
-        }
-
-        @Override
-        public void closePanel(int featureId) {
-        }
-
-        @Override
-        public void togglePanel(int featureId, KeyEvent event) {
-        }
-
-        @Override
-        public void invalidatePanelMenu(int featureId) {
-        }
-
-        @Override
-        public boolean performPanelShortcut(int featureId, int keyCode, KeyEvent event, int flags) {
-            return false;
-        }
-
-        @Override
-        public boolean performPanelIdentifierAction(int featureId, int id, int flags) {
-            return false;
-        }
-
-        @Override
-        public void closeAllPanels() {
-        }
-
-        @Override
-        public boolean performContextMenuIdentifierAction(int id, int flags) {
-            return false;
-        }
-
-        @Override
-        public void onConfigurationChanged(Configuration newConfig) {
-        }
-
-        @Override
-        public void setBackgroundDrawable(Drawable drawable) {
-        }
-
-        @Override
-        public void setFeatureDrawableResource(int featureId, @DrawableRes int resId) {
-        }
-
-        @Override
-        public void setFeatureDrawableUri(int featureId, Uri uri) {
-        }
-
-        @Override
-        public void setFeatureDrawable(int featureId, Drawable drawable) {
-        }
-
-        @Override
-        public void setFeatureDrawableAlpha(int featureId, int alpha) {
-        }
-
-        @Override
-        public void setFeatureInt(int featureId, int value) {
-        }
-
-        @Override
-        public void takeKeyEvents(boolean get) {
-        }
-
-        @Override
-        public boolean superDispatchKeyEvent(KeyEvent event) {
-            return false;
-        }
-
-        @Override
-        public boolean superDispatchKeyShortcutEvent(KeyEvent event) {
-            return false;
-        }
-
-        @Override
-        public boolean superDispatchTouchEvent(MotionEvent event) {
-            return false;
-        }
-
-        @Override
-        public boolean superDispatchTrackballEvent(MotionEvent event) {
-            return false;
-        }
-
-        @Override
-        public boolean superDispatchGenericMotionEvent(MotionEvent event) {
-            return false;
-        }
-
-        @Override
-        public View getDecorView() {
-            return StatusBarWindowView.this;
-        }
-
-        @Override
-        public View peekDecorView() {
-            return null;
-        }
-
-        @Override
-        public Bundle saveHierarchyState() {
-            return null;
-        }
-
-        @Override
-        public void restoreHierarchyState(Bundle savedInstanceState) {
-        }
-
-        @Override
-        protected void onActive() {
-        }
-
-        @Override
-        public void setChildDrawable(int featureId, Drawable drawable) {
-        }
-
-        @Override
-        public void setChildInt(int featureId, int value) {
-        }
-
-        @Override
-        public boolean isShortcutKey(int keyCode, KeyEvent event) {
-            return false;
-        }
-
-        @Override
-        public void setVolumeControlStream(int streamType) {
-        }
-
-        @Override
-        public int getVolumeControlStream() {
-            return 0;
-        }
-
-        @Override
-        public int getStatusBarColor() {
-            return 0;
-        }
-
-        @Override
-        public void setStatusBarColor(@ColorInt int color) {
-        }
-
-        @Override
-        public int getNavigationBarColor() {
-            return 0;
-        }
-
-        @Override
-        public void setNavigationBarColor(@ColorInt int color) {
-        }
-
-        @Override
-        public void setDecorCaptionShade(int decorCaptionShade) {
-        }
-
-        @Override
-        public void setResizingCaptionDrawable(Drawable drawable) {
-        }
-
-        @Override
-        public void onMultiWindowModeChanged() {
-        }
-
-        @Override
-        public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
-        }
-
-        @Override
-        public void reportActivityRelaunched() {
-        }
-    };
-
 }
 

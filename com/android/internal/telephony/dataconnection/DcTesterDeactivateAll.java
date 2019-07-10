@@ -24,7 +24,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.telephony.Rlog;
 
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneBase;
 
 /**
  * To bring down all DC's send the following intent:
@@ -32,10 +32,10 @@ import com.android.internal.telephony.Phone;
  * adb shell am broadcast -a com.android.internal.telephony.dataconnection.action_deactivate_all
  */
 public class DcTesterDeactivateAll {
-    private static final String LOG_TAG = "DcTesterDeacativateAll";
+    private static final String LOG_TAG = "DcTesterDeacativeAll";
     private static final boolean DBG = true;
 
-    private Phone mPhone;
+    private PhoneBase mPhone;
     private DcController mDcc;
 
     public static String sActionDcTesterDeactivateAll =
@@ -65,7 +65,7 @@ public class DcTesterDeactivateAll {
         }
     };
 
-    DcTesterDeactivateAll(Phone phone, DcController dcc, Handler handler) {
+    DcTesterDeactivateAll(PhoneBase phone, DcController dcc, Handler handler) {
         mPhone = phone;
         mDcc = dcc;
 

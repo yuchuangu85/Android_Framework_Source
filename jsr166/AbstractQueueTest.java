@@ -24,7 +24,7 @@ public class AbstractQueueTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(AbstractQueueTest.class);
+    //     return new TestSuite(...);
     // }
 
     static class Succeed extends AbstractQueue<Integer> {
@@ -158,7 +158,7 @@ public class AbstractQueueTest extends JSR166TestCase {
     public void testAddAll3() {
         Succeed q = new Succeed();
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         try {
             q.addAll(Arrays.asList(ints));

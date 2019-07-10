@@ -20,6 +20,8 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
+import android.os.Handler;
+import android.os.Message;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -81,6 +83,8 @@ public class MediaController extends FrameLayout {
     private boolean mShowing;
     private boolean mDragging;
     private static final int sDefaultTimeout = 3000;
+    private static final int FADE_OUT = 1;
+    private static final int SHOW_PROGRESS = 2;
     private final boolean mUseFastForward;
     private boolean mFromXml;
     private boolean mListenersSet;
@@ -257,13 +261,13 @@ public class MediaController extends FrameLayout {
                 .getText(com.android.internal.R.string.lockscreen_transport_play_description);
         mPauseDescription = res
                 .getText(com.android.internal.R.string.lockscreen_transport_pause_description);
-        mPauseButton = v.findViewById(com.android.internal.R.id.pause);
+        mPauseButton = (ImageButton) v.findViewById(com.android.internal.R.id.pause);
         if (mPauseButton != null) {
             mPauseButton.requestFocus();
             mPauseButton.setOnClickListener(mPauseListener);
         }
 
-        mFfwdButton = v.findViewById(com.android.internal.R.id.ffwd);
+        mFfwdButton = (ImageButton) v.findViewById(com.android.internal.R.id.ffwd);
         if (mFfwdButton != null) {
             mFfwdButton.setOnClickListener(mFfwdListener);
             if (!mFromXml) {
@@ -271,7 +275,7 @@ public class MediaController extends FrameLayout {
             }
         }
 
-        mRewButton = v.findViewById(com.android.internal.R.id.rew);
+        mRewButton = (ImageButton) v.findViewById(com.android.internal.R.id.rew);
         if (mRewButton != null) {
             mRewButton.setOnClickListener(mRewListener);
             if (!mFromXml) {
@@ -280,16 +284,16 @@ public class MediaController extends FrameLayout {
         }
 
         // By default these are hidden. They will be enabled when setPrevNextListeners() is called
-        mNextButton = v.findViewById(com.android.internal.R.id.next);
+        mNextButton = (ImageButton) v.findViewById(com.android.internal.R.id.next);
         if (mNextButton != null && !mFromXml && !mListenersSet) {
             mNextButton.setVisibility(View.GONE);
         }
-        mPrevButton = v.findViewById(com.android.internal.R.id.prev);
+        mPrevButton = (ImageButton) v.findViewById(com.android.internal.R.id.prev);
         if (mPrevButton != null && !mFromXml && !mListenersSet) {
             mPrevButton.setVisibility(View.GONE);
         }
 
-        mProgress = v.findViewById(com.android.internal.R.id.mediacontroller_progress);
+        mProgress = (ProgressBar) v.findViewById(com.android.internal.R.id.mediacontroller_progress);
         if (mProgress != null) {
             if (mProgress instanceof SeekBar) {
                 SeekBar seeker = (SeekBar) mProgress;
@@ -298,8 +302,8 @@ public class MediaController extends FrameLayout {
             mProgress.setMax(1000);
         }
 
-        mEndTime = v.findViewById(com.android.internal.R.id.time);
-        mCurrentTime = v.findViewById(com.android.internal.R.id.time_current);
+        mEndTime = (TextView) v.findViewById(com.android.internal.R.id.time);
+        mCurrentTime = (TextView) v.findViewById(com.android.internal.R.id.time_current);
         mFormatBuilder = new StringBuilder();
         mFormatter = new Formatter(mFormatBuilder, Locale.getDefault());
 
@@ -369,11 +373,12 @@ public class MediaController extends FrameLayout {
         // cause the progress bar to be updated even if mShowing
         // was already true.  This happens, for example, if we're
         // paused with the progress bar showing the user hits play.
-        post(mShowProgress);
+        mHandler.sendEmptyMessage(SHOW_PROGRESS);
 
         if (timeout != 0 && !mAccessibilityManager.isTouchExplorationEnabled()) {
-            removeCallbacks(mFadeOut);
-            postDelayed(mFadeOut, timeout);
+            mHandler.removeMessages(FADE_OUT);
+            Message msg = mHandler.obtainMessage(FADE_OUT);
+            mHandler.sendMessageDelayed(msg, timeout);
         }
     }
 
@@ -390,7 +395,7 @@ public class MediaController extends FrameLayout {
 
         if (mShowing) {
             try {
-                removeCallbacks(mShowProgress);
+                mHandler.removeMessages(SHOW_PROGRESS);
                 mWindowManager.removeView(mDecor);
             } catch (IllegalArgumentException ex) {
                 Log.w("MediaController", "already removed");
@@ -399,19 +404,21 @@ public class MediaController extends FrameLayout {
         }
     }
 
-    private final Runnable mFadeOut = new Runnable() {
+    private final Handler mHandler = new Handler() {
         @Override
-        public void run() {
-            hide();
-        }
-    };
-
-    private final Runnable mShowProgress = new Runnable() {
-        @Override
-        public void run() {
-            int pos = setProgress();
-            if (!mDragging && mShowing && mPlayer.isPlaying()) {
-                postDelayed(mShowProgress, 1000 - (pos % 1000));
+        public void handleMessage(Message msg) {
+            int pos;
+            switch (msg.what) {
+                case FADE_OUT:
+                    hide();
+                    break;
+                case SHOW_PROGRESS:
+                    pos = setProgress();
+                    if (!mDragging && mShowing && mPlayer.isPlaying()) {
+                        msg = obtainMessage(SHOW_PROGRESS);
+                        sendMessageDelayed(msg, 1000 - (pos % 1000));
+                    }
+                    break;
             }
         }
     };
@@ -580,7 +587,7 @@ public class MediaController extends FrameLayout {
             // the seekbar and b) once the user is done dragging the thumb
             // we will post one of these messages to the queue again and
             // this ensures that there will be exactly one message queued up.
-            removeCallbacks(mShowProgress);
+            mHandler.removeMessages(SHOW_PROGRESS);
         }
 
         @Override
@@ -608,7 +615,7 @@ public class MediaController extends FrameLayout {
             // Ensure that progress is properly updated in the future,
             // the call to show() does not guarantee this because it is a
             // no-op if we are already showing.
-            post(mShowProgress);
+            mHandler.sendEmptyMessage(SHOW_PROGRESS);
         }
     };
 

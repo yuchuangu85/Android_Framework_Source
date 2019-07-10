@@ -1,532 +1,482 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
-import java.util.StringTokenizer;
+import java.text.ParsePosition;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
- * <P>A thin wrapper around <code>java.util.Date</code> that allows
- * the JDBC API to identify this as an SQL <code>TIMESTAMP</code> value.
- * It adds the ability
- * to hold the SQL <code>TIMESTAMP</code> fractional seconds value, by allowing
- * the specification of fractional seconds to a precision of nanoseconds.
- * A Timestamp also provides formatting and
- * parsing operations to support the JDBC escape syntax for timestamp values.
+ * A Java representation of the SQL {@code TIMESTAMP} type. It provides the
+ * capability of representing the SQL {@code TIMESTAMP} nanosecond value, in
+ * addition to the regular date/time value which has millisecond resolution.
+ * <p>
+ * The {@code Timestamp} class consists of a regular date/time value, where only
+ * the integral seconds value is stored, plus a nanoseconds value where the
+ * fractional seconds are stored.
+ * <p>
+ * The addition of the nanosecond value field to the {@code Timestamp} object
+ * makes it significantly different from the {@code java.util.Date} object which
+ * it extends. Users should be aware that {@code Timestamp} objects are not
+ * interchangable with {@code java.util.Date} objects when used outside the
+ * confines of the {@code java.sql} package.
  *
- * <p>The precision of a Timestamp object is calculated to be either:
- * <ul>
- * <li><code>19 </code>, which is the number of characters in yyyy-mm-dd hh:mm:ss
- * <li> <code> 20 + s </code>, which is the number
- * of characters in the yyyy-mm-dd hh:mm:ss.[fff...] and <code>s</code> represents  the scale of the given Timestamp,
- * its fractional seconds precision.
- *</ul>
- *
- * <P><B>Note:</B> This type is a composite of a <code>java.util.Date</code> and a
- * separate nanoseconds value. Only integral seconds are stored in the
- * <code>java.util.Date</code> component. The fractional seconds - the nanos - are
- * separate.  The <code>Timestamp.equals(Object)</code> method never returns
- * <code>true</code> when passed an object
- * that isn't an instance of <code>java.sql.Timestamp</code>,
- * because the nanos component of a date is unknown.
- * As a result, the <code>Timestamp.equals(Object)</code>
- * method is not symmetric with respect to the
- * <code>java.util.Date.equals(Object)</code>
- * method.  Also, the <code>hashCode</code> method uses the underlying
- * <code>java.util.Date</code>
- * implementation and therefore does not include nanos in its computation.
- * <P>
- * Due to the differences between the <code>Timestamp</code> class
- * and the <code>java.util.Date</code>
- * class mentioned above, it is recommended that code not view
- * <code>Timestamp</code> values generically as an instance of
- * <code>java.util.Date</code>.  The
- * inheritance relationship between <code>Timestamp</code>
- * and <code>java.util.Date</code> really
- * denotes implementation inheritance, and not type inheritance.
+ * @see Date
+ * @see Time
+ * @see java.util.Date
  */
-public class Timestamp extends java.util.Date {
+public class Timestamp extends Date {
 
-    /**
-     * Constructs a <code>Timestamp</code> object initialized
-     * with the given values.
-     *
-     * @param year the year minus 1900
-     * @param month 0 to 11
-     * @param date 1 to 31
-     * @param hour 0 to 23
-     * @param minute 0 to 59
-     * @param second 0 to 59
-     * @param nano 0 to 999,999,999
-     * @deprecated instead use the constructor <code>Timestamp(long millis)</code>
-     * @exception IllegalArgumentException if the nano argument is out of bounds
-     */
-    @Deprecated
-    public Timestamp(int year, int month, int date,
-                     int hour, int minute, int second, int nano) {
-        super(year, month, date, hour, minute, second);
-        if (nano > 999999999 || nano < 0) {
-            throw new IllegalArgumentException("nanos > 999999999 or < 0");
-        }
-        nanos = nano;
-    }
+    private static final long serialVersionUID = 2745179027874758501L;
 
-    /**
-     * Constructs a <code>Timestamp</code> object
-     * using a milliseconds time value. The
-     * integral seconds are stored in the underlying date value; the
-     * fractional seconds are stored in the <code>nanos</code> field of
-     * the <code>Timestamp</code> object.
-     *
-     * @param time milliseconds since January 1, 1970, 00:00:00 GMT.
-     *        A negative number is the number of milliseconds before
-     *         January 1, 1970, 00:00:00 GMT.
-     * @see java.util.Calendar
-     */
-    public Timestamp(long time) {
-        super((time/1000)*1000);
-        nanos = (int)((time%1000) * 1000000);
-        if (nanos < 0) {
-            nanos = 1000000000 + nanos;
-            super.setTime(((time/1000)-1)*1000);
-        }
-    }
-
-    /**
-     * Sets this <code>Timestamp</code> object to represent a point in time that is
-     * <tt>time</tt> milliseconds after January 1, 1970 00:00:00 GMT.
-     *
-     * @param time   the number of milliseconds.
-     * @see #getTime
-     * @see #Timestamp(long time)
-     * @see java.util.Calendar
-     */
-    public void setTime(long time) {
-        super.setTime((time/1000)*1000);
-        nanos = (int)((time%1000) * 1000000);
-        if (nanos < 0) {
-            nanos = 1000000000 + nanos;
-            super.setTime(((time/1000)-1)*1000);
-        }
-    }
-
-    /**
-     * Returns the number of milliseconds since January 1, 1970, 00:00:00 GMT
-     * represented by this <code>Timestamp</code> object.
-     *
-     * @return  the number of milliseconds since January 1, 1970, 00:00:00 GMT
-     *          represented by this date.
-     * @see #setTime
-     */
-    public long getTime() {
-        long time = super.getTime();
-        return (time + (nanos / 1000000));
-    }
-
-
-    /**
-     * @serial
-     */
+    // The nanoseconds time value of the Timestamp
     private int nanos;
 
+    // The regex pattern of yyyy-MM-dd HH:mm:ss
+    private static final String TIME_FORMAT_REGEX = "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}.*";
+
     /**
-     * Converts a <code>String</code> object in JDBC timestamp escape format to a
-     * <code>Timestamp</code> value.
+     * Returns a {@code Timestamp} corresponding to the time specified by the
+     * supplied values for <i>Year</i>, <i>Month</i>, <i>Date</i>, <i>Hour</i>,
+     * <i>Minutes</i>, <i>Seconds</i> and <i>Nanoseconds</i>.
      *
-     * @param s timestamp in format <code>yyyy-[m]m-[d]d hh:mm:ss[.f...]</code>.  The
-     * fractional seconds may be omitted. The leading zero for <code>mm</code>
-     * and <code>dd</code> may also be omitted.
-     *
-     * @return corresponding <code>Timestamp</code> value
-     * @exception java.lang.IllegalArgumentException if the given argument
-     * does not have the format <code>yyyy-[m]m-[d]d hh:mm:ss[.f...]</code>
+     * @deprecated Use the constructor {@link #Timestamp(long)} instead.
+     * @param theYear
+     *            specified as the year minus 1900.
+     * @param theMonth
+     *            specified as an integer in the range [0,11].
+     * @param theDate
+     *            specified as an integer in the range [1,31].
+     * @param theHour
+     *            specified as an integer in the range [0,23].
+     * @param theMinute
+     *            specified as an integer in the range [0,59].
+     * @param theSecond
+     *            specified as an integer in the range [0,59].
+     * @param theNano
+     *            which defines the nanosecond value of the timestamp specified
+     *            as an integer in the range [0,999'999'999]
+     * @throws IllegalArgumentException
+     *             if any of the parameters is out of range.
      */
-    public static Timestamp valueOf(String s) {
-        final int YEAR_LENGTH = 4;
-        final int MONTH_LENGTH = 2;
-        final int DAY_LENGTH = 2;
-        final int MAX_MONTH = 12;
-        final int MAX_DAY = 31;
-        String date_s;
-        String time_s;
-        String nanos_s;
-        int year = 0;
-        int month = 0;
-        int day = 0;
-        int hour;
-        int minute;
-        int second;
-        int a_nanos = 0;
-        int firstDash;
-        int secondDash;
-        int dividingSpace;
-        int firstColon = 0;
-        int secondColon = 0;
-        int period = 0;
-        String formatError = "Timestamp format must be yyyy-mm-dd hh:mm:ss[.fffffffff]";
-        String zeros = "000000000";
-        String delimiterDate = "-";
-        String delimiterTime = ":";
-
-        if (s == null) throw new java.lang.IllegalArgumentException("null string");
-
-        // Split the string into date and time components
-        s = s.trim();
-        dividingSpace = s.indexOf(' ');
-        if (dividingSpace > 0) {
-            date_s = s.substring(0,dividingSpace);
-            time_s = s.substring(dividingSpace+1);
-        } else {
-            throw new java.lang.IllegalArgumentException(formatError);
+    @SuppressWarnings("deprecation")
+    @Deprecated
+    public Timestamp(int theYear, int theMonth, int theDate, int theHour,
+            int theMinute, int theSecond, int theNano)
+            throws IllegalArgumentException {
+        super(theYear, theMonth, theDate, theHour, theMinute, theSecond);
+        if (theNano < 0 || theNano > 999999999) {
+            throw new IllegalArgumentException("ns out of range: " + theNano);
         }
-
-        // Parse the date
-        firstDash = date_s.indexOf('-');
-        secondDash = date_s.indexOf('-', firstDash+1);
-
-        // Parse the time
-        if (time_s == null)
-            throw new java.lang.IllegalArgumentException(formatError);
-        firstColon = time_s.indexOf(':');
-        secondColon = time_s.indexOf(':', firstColon+1);
-        period = time_s.indexOf('.', secondColon+1);
-
-        // Convert the date
-        boolean parsedDate = false;
-        if ((firstDash > 0) && (secondDash > 0) && (secondDash < date_s.length() - 1)) {
-            String yyyy = date_s.substring(0, firstDash);
-            String mm = date_s.substring(firstDash + 1, secondDash);
-            String dd = date_s.substring(secondDash + 1);
-            if (yyyy.length() == YEAR_LENGTH &&
-                    (mm.length() >= 1 && mm.length() <= MONTH_LENGTH) &&
-                    (dd.length() >= 1 && dd.length() <= DAY_LENGTH)) {
-                 year = Integer.parseInt(yyyy);
-                 month = Integer.parseInt(mm);
-                 day = Integer.parseInt(dd);
-
-                if ((month >= 1 && month <= MAX_MONTH) && (day >= 1 && day <= MAX_DAY)) {
-                    parsedDate = true;
-                }
-            }
-        }
-        if (! parsedDate) {
-            throw new java.lang.IllegalArgumentException(formatError);
-        }
-
-        // Convert the time; default missing nanos
-        if ((firstColon > 0) & (secondColon > 0) &
-            (secondColon < time_s.length()-1)) {
-            hour = Integer.parseInt(time_s.substring(0, firstColon));
-            minute =
-                Integer.parseInt(time_s.substring(firstColon+1, secondColon));
-            if ((period > 0) & (period < time_s.length()-1)) {
-                second =
-                    Integer.parseInt(time_s.substring(secondColon+1, period));
-                nanos_s = time_s.substring(period+1);
-                if (nanos_s.length() > 9)
-                    throw new java.lang.IllegalArgumentException(formatError);
-                if (!Character.isDigit(nanos_s.charAt(0)))
-                    throw new java.lang.IllegalArgumentException(formatError);
-                nanos_s = nanos_s + zeros.substring(0,9-nanos_s.length());
-                a_nanos = Integer.parseInt(nanos_s);
-            } else if (period > 0) {
-                throw new java.lang.IllegalArgumentException(formatError);
-            } else {
-                second = Integer.parseInt(time_s.substring(secondColon+1));
-            }
-        } else {
-            throw new java.lang.IllegalArgumentException(formatError);
-        }
-
-        return new Timestamp(year - 1900, month - 1, day, hour, minute, second, a_nanos);
+        nanos = theNano;
     }
 
     /**
-     * Formats a timestamp in JDBC timestamp escape format.
-     *         <code>yyyy-mm-dd hh:mm:ss.fffffffff</code>,
-     * where <code>ffffffffff</code> indicates nanoseconds.
-     * <P>
-     * @return a <code>String</code> object in
-     *           <code>yyyy-mm-dd hh:mm:ss.fffffffff</code> format
+     * Returns a {@code Timestamp} object corresponding to the time represented
+     * by a supplied time value.
+     *
+     * @param theTime
+     *            a time value in the format of milliseconds since the Epoch
+     *            (January 1 1970 00:00:00.000 GMT).
      */
-    public String toString () {
-
-        int year = super.getYear() + 1900;
-        int month = super.getMonth() + 1;
-        int day = super.getDate();
-        int hour = super.getHours();
-        int minute = super.getMinutes();
-        int second = super.getSeconds();
-        String yearString;
-        String monthString;
-        String dayString;
-        String hourString;
-        String minuteString;
-        String secondString;
-        String nanosString;
-        String zeros = "000000000";
-        String yearZeros = "0000";
-        StringBuffer timestampBuf;
-
-        if (year < 1000) {
-            // Add leading zeros
-            yearString = "" + year;
-            yearString = yearZeros.substring(0, (4-yearString.length())) +
-                yearString;
-        } else {
-            yearString = "" + year;
-        }
-        if (month < 10) {
-            monthString = "0" + month;
-        } else {
-            monthString = Integer.toString(month);
-        }
-        if (day < 10) {
-            dayString = "0" + day;
-        } else {
-            dayString = Integer.toString(day);
-        }
-        if (hour < 10) {
-            hourString = "0" + hour;
-        } else {
-            hourString = Integer.toString(hour);
-        }
-        if (minute < 10) {
-            minuteString = "0" + minute;
-        } else {
-            minuteString = Integer.toString(minute);
-        }
-        if (second < 10) {
-            secondString = "0" + second;
-        } else {
-            secondString = Integer.toString(second);
-        }
-        if (nanos == 0) {
-            nanosString = "0";
-        } else {
-            nanosString = Integer.toString(nanos);
-
-            // Add leading zeros
-            nanosString = zeros.substring(0, (9-nanosString.length())) +
-                nanosString;
-
-            // Truncate trailing zeros
-            char[] nanosChar = new char[nanosString.length()];
-            nanosString.getChars(0, nanosString.length(), nanosChar, 0);
-            int truncIndex = 8;
-            while (nanosChar[truncIndex] == '0') {
-                truncIndex--;
-            }
-
-            nanosString = new String(nanosChar, 0, truncIndex + 1);
-        }
-
-        // do a string buffer here instead.
-        timestampBuf = new StringBuffer(20+nanosString.length());
-        timestampBuf.append(yearString);
-        timestampBuf.append("-");
-        timestampBuf.append(monthString);
-        timestampBuf.append("-");
-        timestampBuf.append(dayString);
-        timestampBuf.append(" ");
-        timestampBuf.append(hourString);
-        timestampBuf.append(":");
-        timestampBuf.append(minuteString);
-        timestampBuf.append(":");
-        timestampBuf.append(secondString);
-        timestampBuf.append(".");
-        timestampBuf.append(nanosString);
-
-        return (timestampBuf.toString());
+    public Timestamp(long theTime) {
+        super(theTime);
+        /*
+         * Now set the time for this Timestamp object - which deals with the
+         * nanosecond value as well as the base time
+         */
+        setTimeImpl(theTime);
     }
 
     /**
-     * Gets this <code>Timestamp</code> object's <code>nanos</code> value.
+     * Returns {@code true} if this timestamp object is later than the supplied
+     * timestamp, otherwise returns {@code false}.
      *
-     * @return this <code>Timestamp</code> object's fractional seconds component
-     * @see #setNanos
+     * @param theTimestamp
+     *            the timestamp to compare with this timestamp object.
+     * @return {@code true} if this {@code Timestamp} object is later than the
+     *         supplied timestamp, {@code false} otherwise.
      */
-    public int getNanos() {
-        return nanos;
-    }
+    public boolean after(Timestamp theTimestamp) {
+        long thisTime = this.getTime();
+        long compareTime = theTimestamp.getTime();
 
-    /**
-     * Sets this <code>Timestamp</code> object's <code>nanos</code> field
-     * to the given value.
-     *
-     * @param n the new fractional seconds component
-     * @exception java.lang.IllegalArgumentException if the given argument
-     *            is greater than 999999999 or less than 0
-     * @see #getNanos
-     */
-    public void setNanos(int n) {
-        if (n > 999999999 || n < 0) {
-            throw new IllegalArgumentException("nanos > 999999999 or < 0");
+        // If the time value is later, the timestamp is later
+        if (thisTime > compareTime) {
+            return true;
         }
-        nanos = n;
-    }
-
-    /**
-     * Tests to see if this <code>Timestamp</code> object is
-     * equal to the given <code>Timestamp</code> object.
-     *
-     * @param ts the <code>Timestamp</code> value to compare with
-     * @return <code>true</code> if the given <code>Timestamp</code>
-     *         object is equal to this <code>Timestamp</code> object;
-     *         <code>false</code> otherwise
-     */
-    public boolean equals(Timestamp ts) {
-        if (super.equals(ts)) {
-            if  (nanos == ts.nanos) {
-                return true;
-            } else {
-                return false;
-            }
+        // If the time value is earlier, the timestamp is not later
+        else if (thisTime < compareTime) {
+            return false;
+        }
+        /*
+         * Otherwise the time values are equal in which case the nanoseconds
+         * value determines whether this timestamp is later...
+         */
+        else if (this.getNanos() > theTimestamp.getNanos()) {
+            return true;
         } else {
             return false;
         }
     }
 
     /**
-     * Tests to see if this <code>Timestamp</code> object is
-     * equal to the given object.
+     * Returns {@code true} if this {@code Timestamp} object is earlier than the
+     * supplied timestamp, otherwise returns {@code false}.
      *
-     * This version of the method <code>equals</code> has been added
-     * to fix the incorrect
-     * signature of <code>Timestamp.equals(Timestamp)</code> and to preserve backward
-     * compatibility with existing class files.
-     *
-     * Note: This method is not symmetric with respect to the
-     * <code>equals(Object)</code> method in the base class.
-     *
-     * @param ts the <code>Object</code> value to compare with
-     * @return <code>true</code> if the given <code>Object</code> is an instance
-     *         of a <code>Timestamp</code> that
-     *         is equal to this <code>Timestamp</code> object;
-     *         <code>false</code> otherwise
+     * @param theTimestamp
+     *            the timestamp to compare with this {@code Timestamp} object.
+     * @return {@code true} if this {@code Timestamp} object is earlier than the
+     *         supplied timestamp, {@code false} otherwise.
      */
-    public boolean equals(java.lang.Object ts) {
-      if (ts instanceof Timestamp) {
-        return this.equals((Timestamp)ts);
-      } else {
-        return false;
-      }
-    }
-
-    /**
-     * Indicates whether this <code>Timestamp</code> object is
-     * earlier than the given <code>Timestamp</code> object.
-     *
-     * @param ts the <code>Timestamp</code> value to compare with
-     * @return <code>true</code> if this <code>Timestamp</code> object is earlier;
-     *        <code>false</code> otherwise
-     */
-    public boolean before(Timestamp ts) {
-        return compareTo(ts) < 0;
-    }
-
-    /**
-     * Indicates whether this <code>Timestamp</code> object is
-     * later than the given <code>Timestamp</code> object.
-     *
-     * @param ts the <code>Timestamp</code> value to compare with
-     * @return <code>true</code> if this <code>Timestamp</code> object is later;
-     *        <code>false</code> otherwise
-     */
-    public boolean after(Timestamp ts) {
-        return compareTo(ts) > 0;
-    }
-
-    /**
-     * Compares this <code>Timestamp</code> object to the given
-     * <code>Timestamp</code> object.
-     *
-     * @param   ts   the <code>Timestamp</code> object to be compared to
-     *                this <code>Timestamp</code> object
-     * @return  the value <code>0</code> if the two <code>Timestamp</code>
-     *          objects are equal; a value less than <code>0</code> if this
-     *          <code>Timestamp</code> object is before the given argument;
-     *          and a value greater than <code>0</code> if this
-     *          <code>Timestamp</code> object is after the given argument.
-     * @since   1.4
-     */
-    public int compareTo(Timestamp ts) {
+    public boolean before(Timestamp theTimestamp) {
         long thisTime = this.getTime();
-        long anotherTime = ts.getTime();
-        int i = (thisTime<anotherTime ? -1 :(thisTime==anotherTime?0 :1));
-        if (i == 0) {
-            if (nanos > ts.nanos) {
-                    return 1;
-            } else if (nanos < ts.nanos) {
+        long compareTime = theTimestamp.getTime();
+
+        // If the time value is later, the timestamp is later
+        if (thisTime < compareTime) {
+            return true;
+        }
+        // If the time value is earlier, the timestamp is not later
+        else if (thisTime > compareTime) {
+            return false;
+        }
+        /*
+         * Otherwise the time values are equal in which case the nanoseconds
+         * value determines whether this timestamp is later...
+         */
+        else if (this.getNanos() < theTimestamp.getNanos()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Compares this {@code Timestamp} object with a supplied {@code Timestamp}
+     * object.
+     *
+     * @param theObject
+     *            the timestamp to compare with this {@code Timestamp} object,
+     *            passed as an {@code Object}.
+     * @return <dd>
+     *         <dl>
+     *         {@code 0} if the two {@code Timestamp} objects are equal in time
+     *         </dl>
+     *         <dl>
+     *         a value {@code < 0} if this {@code Timestamp} object is before
+     *         the supplied {@code Timestamp} and a value
+     *         </dl>
+     *         <dl>
+     *         {@code > 0} if this {@code Timestamp} object is after the
+     *         supplied {@code Timestamp}
+     *         </dl>
+     *         </dd>
+     * @throws ClassCastException
+     *             if the supplied object is not a {@code Timestamp} object.
+     */
+    @Override
+    public int compareTo(Date theObject) throws ClassCastException {
+        return this.compareTo((Timestamp) theObject);
+    }
+
+    /**
+     * Compares this {@code Timestamp} object with a supplied {@code Timestamp}
+     * object.
+     *
+     * @param theTimestamp
+     *            the timestamp to compare with this {@code Timestamp} object,
+     *            passed in as a {@code Timestamp}.
+     * @return one of the following:
+     *         <ul>
+     *         <li>{@code 0}, if the two {@code Timestamp} objects are
+     *         equal in time</li>
+     *         <li>{@code < 0}, if this {@code Timestamp} object is before the
+     *         supplied {@code Timestamp}</li>
+     *         <li> {@code > 0}, if this {@code Timestamp} object is after the
+     *         supplied {@code Timestamp}</li>
+     *         </ul>
+     */
+    public int compareTo(Timestamp theTimestamp) {
+        int result = super.compareTo(theTimestamp);
+        if (result == 0) {
+            int thisNano = this.getNanos();
+            int thatNano = theTimestamp.getNanos();
+            if (thisNano > thatNano) {
+                return 1;
+            } else if (thisNano == thatNano) {
+                return 0;
+            } else {
                 return -1;
             }
         }
-        return i;
-
+        return result;
     }
 
     /**
-     * Compares this <code>Timestamp</code> object to the given
-     * <code>Date</code> object.
+     * Tests to see if this timestamp is equal to a supplied object.
      *
-     * @param o the <code>Date</code> to be compared to
-     *          this <code>Timestamp</code> object
-     * @return  the value <code>0</code> if this <code>Timestamp</code> object
-     *          and the given object are equal; a value less than <code>0</code>
-     *          if this  <code>Timestamp</code> object is before the given argument;
-     *          and a value greater than <code>0</code> if this
-     *          <code>Timestamp</code> object is after the given argument.
-     *
-     * @since   1.5
-     */
-    public int compareTo(java.util.Date o) {
-       if(o instanceof Timestamp) {
-            // When Timestamp instance compare it with a Timestamp
-            // Hence it is basically calling this.compareTo((Timestamp))o);
-            // Note typecasting is safe because o is instance of Timestamp
-           return compareTo((Timestamp)o);
-      } else {
-            // When Date doing a o.compareTo(this)
-            // will give wrong results.
-          Timestamp ts = new Timestamp(o.getTime());
-          return this.compareTo(ts);
-      }
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * The {@code hashCode} method uses the underlying {@code java.util.Date}
-     * implementation and therefore does not include nanos in its computation.
-     *
+     * @param theObject
+     *            the object to which this timestamp is compared.
+     * @return {@code true} if this {@code Timestamp} object is equal to the
+     *         supplied {@code Timestamp} object<br>{@code false} if the object
+     *         is not a {@code Timestamp} object or if the object is a {@code
+     *         Timestamp} but represents a different instant in time.
      */
     @Override
-    public int hashCode() {
-        return super.hashCode();
+    public boolean equals(Object theObject) {
+        if (theObject instanceof Timestamp) {
+            return equals((Timestamp) theObject);
+        }
+        return false;
     }
 
-    static final long serialVersionUID = 2745179027874758501L;
+    /**
+     * Tests to see if this timestamp is equal to a supplied timestamp.
+     *
+     * @param theTimestamp
+     *            the timestamp to compare with this {@code Timestamp} object,
+     *            passed as an {@code Object}.
+     * @return {@code true} if this {@code Timestamp} object is equal to the
+     *         supplied {@code Timestamp} object, {@code false} otherwise.
+     */
+    public boolean equals(Timestamp theTimestamp) {
+        if (theTimestamp == null) {
+            return false;
+        }
+        return (this.getTime() == theTimestamp.getTime())
+                && (this.getNanos() == theTimestamp.getNanos());
+    }
 
+    /**
+     * Gets this {@code Timestamp}'s nanosecond value
+     *
+     * @return The timestamp's nanosecond value, an integer between 0 and
+     *         999,999,999.
+     */
+    public int getNanos() {
+        return nanos;
+    }
+
+    /**
+     * Returns the time represented by this {@code Timestamp} object, as a long
+     * value containing the number of milliseconds since the Epoch (January 1
+     * 1970, 00:00:00.000 GMT).
+     *
+     * @return the number of milliseconds that have passed since January 1 1970,
+     *         00:00:00.000 GMT.
+     */
+    @Override
+    public long getTime() {
+        long theTime = super.getTime();
+        theTime = theTime + (nanos / 1000000);
+        return theTime;
+    }
+
+    /**
+     * Sets the nanosecond value for this {@code Timestamp}.
+     *
+     * @param n
+     *            number of nanoseconds.
+     * @throws IllegalArgumentException
+     *             if number of nanoseconds smaller than 0 or greater than
+     *             999,999,999.
+     */
+    public void setNanos(int n) throws IllegalArgumentException {
+        if ((n < 0) || (n > 999999999)) {
+            throw new IllegalArgumentException("Value out of range");
+        }
+        nanos = n;
+    }
+
+    /**
+     * Sets the time represented by this {@code Timestamp} object to the
+     * supplied time, defined as the number of milliseconds since the Epoch
+     * (January 1 1970, 00:00:00.000 GMT).
+     *
+     * @param theTime
+     *            number of milliseconds since the Epoch (January 1 1970,
+     *            00:00:00.000 GMT).
+     */
+    @Override
+    public void setTime(long theTime) {
+        setTimeImpl(theTime);
+    }
+
+    private void setTimeImpl(long theTime) {
+        /*
+         * Deal with the nanoseconds value. The supplied time is in milliseconds -
+         * so we must extract the milliseconds value and multiply by 1000000 to
+         * get nanoseconds. Things are more complex if theTime value is
+         * negative, since then the time value is the time before the Epoch but
+         * the nanoseconds value of the Timestamp must be positive - so we must
+         * take the "raw" milliseconds value and subtract it from 1000 to get to
+         * the true nanoseconds value Simultaneously, recalculate the time value
+         * to the exact nearest second and reset the Date time value
+         */
+        int milliseconds = (int) (theTime % 1000);
+        theTime = theTime - milliseconds;
+        if (milliseconds < 0) {
+            theTime = theTime - 1000;
+            milliseconds = 1000 + milliseconds;
+        }
+        super.setTime(theTime);
+        setNanos(milliseconds * 1000000);
+    }
+
+    /**
+     * Returns the timestamp formatted as a String in the JDBC Timestamp Escape
+     * format, which is {@code "yyyy-MM-dd HH:mm:ss.nnnnnnnnn"}.
+     *
+     * @return A string representing the instant defined by the {@code
+     *         Timestamp}, in JDBC Timestamp escape format.
+     */
+    @SuppressWarnings("deprecation")
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(29);
+
+        format((getYear() + 1900), 4, sb);
+        sb.append('-');
+        format((getMonth() + 1), 2, sb);
+        sb.append('-');
+        format(getDate(), 2, sb);
+        sb.append(' ');
+        format(getHours(), 2, sb);
+        sb.append(':');
+        format(getMinutes(), 2, sb);
+        sb.append(':');
+        format(getSeconds(), 2, sb);
+        sb.append('.');
+        if (nanos == 0) {
+            sb.append('0');
+        } else {
+            format(nanos, 9, sb);
+            while (sb.charAt(sb.length() - 1) == '0') {
+                sb.setLength(sb.length() - 1);
+            }
+        }
+
+        return sb.toString();
+    }
+
+    private static final String PADDING = "000000000";
+
+    /*
+    * Private method to format the time
+    */
+    private void format(int date, int digits, StringBuilder sb) {
+        String str = String.valueOf(date);
+        if (digits - str.length() > 0) {
+            sb.append(PADDING.substring(0, digits - str.length()));
+        }
+        sb.append(str);
+    }
+
+    /**
+     * Creates a {@code Timestamp} object with a time value equal to the time
+     * specified by a supplied String holding the time in JDBC timestamp escape
+     * format, which is {@code "yyyy-MM-dd HH:mm:ss.nnnnnnnnn}"
+     *
+     * @param s
+     *            the {@code String} containing a time in JDBC timestamp escape
+     *            format.
+     * @return A {@code Timestamp} object with time value as defined by the
+     *         supplied {@code String}.
+     * @throws IllegalArgumentException
+     *             if the provided string is {@code null}.
+     */
+    public static Timestamp valueOf(String s) throws IllegalArgumentException {
+        if (s == null) {
+            throw new IllegalArgumentException("Argument cannot be null");
+        }
+
+        // Omit trailing whitespace
+        s = s.trim();
+        if (!Pattern.matches(TIME_FORMAT_REGEX, s)) {
+            throw badTimestampString(s);
+        }
+
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+        ParsePosition pp = new ParsePosition(0);
+
+        /*
+         * First parse out the yyyy-MM-dd HH:mm:ss component of the String into
+         * a Date object using the SimpleDateFormat. This should stop after the
+         * seconds value, according to the definition of SimpleDateFormat.parse,
+         * with the ParsePosition indicating the index of the "." which should
+         * precede the nanoseconds value
+         */
+        Date date;
+        try {
+            date = df.parse(s, pp);
+        } catch (Exception e) {
+            throw badTimestampString(s);
+        }
+
+        if (date == null) {
+            throw badTimestampString(s);
+        }
+
+        /*
+         * If we get here, the Date part of the string was OK - now for the
+         * nanoseconds value. Strictly, this requires the remaining part of the
+         * String to look like ".nnnnnnnnn". However, we accept anything with a
+         * '.' followed by 1 to 9 digits - we also accept nothing (no fractions
+         * of a second). Anything else is interpreted as incorrect format which
+         * will generate an IllegalArgumentException
+         */
+        int position = pp.getIndex();
+        int remaining = s.length() - position;
+        int nanos;
+
+        if (remaining == 0) {
+            // First, allow for the case where no fraction of a second is given:
+            nanos = 0;
+        } else {
+            // Validate the string is in the range ".0" to ".999999999"
+            if (remaining < 2 || remaining > 10 || s.charAt(position) != '.') {
+                throw badTimestampString(s);
+            }
+            try {
+                nanos = Integer.parsePositiveInt(s.substring(position + 1));
+            } catch (NumberFormatException e) {
+                throw badTimestampString(s);
+            }
+            // We must adjust for the cases where the nanos String was not 9
+            // characters long (i.e. ".123" means 123000000 nanos)
+            if (nanos != 0) {
+                for (int i = remaining - 1; i < 9; i++) {
+                    nanos *= 10;
+                }
+            }
+        }
+
+        Timestamp timestamp = new Timestamp(date.getTime());
+        timestamp.setNanos(nanos);
+
+        return timestamp;
+    }
+
+    private static IllegalArgumentException badTimestampString(String s) {
+        return new IllegalArgumentException("Timestamp format must be " +
+                "yyyy-MM-dd HH:mm:ss.fffffffff; was '" + s + "'");
+    }
 }

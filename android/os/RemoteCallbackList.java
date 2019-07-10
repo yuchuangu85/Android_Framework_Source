@@ -17,10 +17,6 @@
 package android.os;
 
 import android.util.ArrayMap;
-import android.util.Slog;
-
-import java.io.PrintWriter;
-import java.util.function.Consumer;
 
 /**
  * Takes care of the grunt work of maintaining a list of remote interfaces,
@@ -51,19 +47,16 @@ import java.util.function.Consumer;
  * implements the {@link #onCallbackDied} method.
  */
 public class RemoteCallbackList<E extends IInterface> {
-    private static final String TAG = "RemoteCallbackList";
-
     /*package*/ ArrayMap<IBinder, Callback> mCallbacks
             = new ArrayMap<IBinder, Callback>();
     private Object[] mActiveBroadcast;
     private int mBroadcastCount = -1;
     private boolean mKilled = false;
-    private StringBuilder mRecentCallers;
 
     private final class Callback implements IBinder.DeathRecipient {
         final E mCallback;
         final Object mCookie;
-
+        
         Callback(E callback, Object cookie) {
             mCallback = callback;
             mCookie = cookie;
@@ -84,7 +77,6 @@ public class RemoteCallbackList<E extends IInterface> {
     public boolean register(E callback) {
         return register(callback, null);
     }
-
     /**
      * Add a new callback to the list.  This callback will remain in the list
      * until a corresponding call to {@link #unregister} or its hosting process
@@ -116,8 +108,6 @@ public class RemoteCallbackList<E extends IInterface> {
             if (mKilled) {
                 return false;
             }
-            // Flag unusual case that could be caused by a leak. b/36778087
-            logExcessiveCallbacks();
             IBinder binder = callback.asBinder();
             try {
                 Callback cb = new Callback(callback, cookie);
@@ -298,56 +288,20 @@ public class RemoteCallbackList<E extends IInterface> {
      * @see #beginBroadcast
      */
     public void finishBroadcast() {
-        synchronized (mCallbacks) {
-            if (mBroadcastCount < 0) {
-                throw new IllegalStateException(
-                        "finishBroadcast() called outside of a broadcast");
-            }
-
-            Object[] active = mActiveBroadcast;
-            if (active != null) {
-                final int N = mBroadcastCount;
-                for (int i=0; i<N; i++) {
-                    active[i] = null;
-                }
-            }
-
-            mBroadcastCount = -1;
+        if (mBroadcastCount < 0) {
+            throw new IllegalStateException(
+                    "finishBroadcast() called outside of a broadcast");
         }
-    }
-
-    /**
-     * Performs {@code action} on each callback, calling
-     * {@link #beginBroadcast()}/{@link #finishBroadcast()} before/after looping
-     *
-     * @hide
-     */
-    public void broadcast(Consumer<E> action) {
-        int itemCount = beginBroadcast();
-        try {
-            for (int i = 0; i < itemCount; i++) {
-                action.accept(getBroadcastItem(i));
+        
+        Object[] active = mActiveBroadcast;
+        if (active != null) {
+            final int N = mBroadcastCount;
+            for (int i=0; i<N; i++) {
+                active[i] = null;
             }
-        } finally {
-            finishBroadcast();
         }
-    }
-
-    /**
-     * Performs {@code action} for each cookie associated with a callback, calling
-     * {@link #beginBroadcast()}/{@link #finishBroadcast()} before/after looping
-     *
-     * @hide
-     */
-    public <C> void broadcastForEachCookie(Consumer<C> action) {
-        int itemCount = beginBroadcast();
-        try {
-            for (int i = 0; i < itemCount; i++) {
-                action.accept((C) getBroadcastCookie(i));
-            }
-        } finally {
-            finishBroadcast();
-        }
+        
+        mBroadcastCount = -1;
     }
 
     /**
@@ -368,80 +322,6 @@ public class RemoteCallbackList<E extends IInterface> {
                 return 0;
             }
             return mCallbacks.size();
-        }
-    }
-
-    /**
-     * Return a currently registered callback.  Note that this is
-     * <em>not</em> the same as {@link #getBroadcastItem} and should not be used
-     * interchangeably with it.  This method returns the registered callback at the given
-     * index, not the current broadcast state.  This means that it is not itself thread-safe:
-     * any call to {@link #register} or {@link #unregister} will change these indices, so you
-     * must do your own thread safety between these to protect from such changes.
-     *
-     * @param index Index of which callback registration to return, from 0 to
-     * {@link #getRegisteredCallbackCount()} - 1.
-     *
-     * @return Returns whatever callback is associated with this index, or null if
-     * {@link #kill()} has been called.
-     */
-    public E getRegisteredCallbackItem(int index) {
-        synchronized (mCallbacks) {
-            if (mKilled) {
-                return null;
-            }
-            return mCallbacks.valueAt(index).mCallback;
-        }
-    }
-
-    /**
-     * Return any cookie associated with a currently registered callback.  Note that this is
-     * <em>not</em> the same as {@link #getBroadcastCookie} and should not be used
-     * interchangeably with it.  This method returns the current cookie registered at the given
-     * index, not the current broadcast state.  This means that it is not itself thread-safe:
-     * any call to {@link #register} or {@link #unregister} will change these indices, so you
-     * must do your own thread safety between these to protect from such changes.
-     *
-     * @param index Index of which registration cookie to return, from 0 to
-     * {@link #getRegisteredCallbackCount()} - 1.
-     *
-     * @return Returns whatever cookie object is associated with this index, or null if
-     * {@link #kill()} has been called.
-     */
-    public Object getRegisteredCallbackCookie(int index) {
-        synchronized (mCallbacks) {
-            if (mKilled) {
-                return null;
-            }
-            return mCallbacks.valueAt(index).mCookie;
-        }
-    }
-
-    /** @hide */
-    public void dump(PrintWriter pw, String prefix) {
-        pw.print(prefix); pw.print("callbacks: "); pw.println(mCallbacks.size());
-        pw.print(prefix); pw.print("killed: "); pw.println(mKilled);
-        pw.print(prefix); pw.print("broadcasts count: "); pw.println(mBroadcastCount);
-    }
-
-    private void logExcessiveCallbacks() {
-        final long size = mCallbacks.size();
-        final long TOO_MANY = 3000;
-        final long MAX_CHARS = 1000;
-        if (size >= TOO_MANY) {
-            if (size == TOO_MANY && mRecentCallers == null) {
-                mRecentCallers = new StringBuilder();
-            }
-            if (mRecentCallers != null && mRecentCallers.length() < MAX_CHARS) {
-                mRecentCallers.append(Debug.getCallers(5));
-                mRecentCallers.append('\n');
-                if (mRecentCallers.length() >= MAX_CHARS) {
-                    Slog.wtf(TAG, "More than "
-                            + TOO_MANY + " remote callbacks registered. Recent callers:\n"
-                            + mRecentCallers.toString());
-                    mRecentCallers = null;
-                }
-            }
         }
     }
 }

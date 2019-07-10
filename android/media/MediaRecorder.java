@@ -17,30 +17,19 @@
 package android.media;
 
 import android.annotation.NonNull;
-import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.app.ActivityThread;
 import android.hardware.Camera;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.os.PersistableBundle;
-import android.text.TextUtils;
-import android.util.ArrayMap;
 import android.util.Log;
-import android.util.Pair;
 import android.view.Surface;
 
-import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.List;
-
-import com.android.internal.annotations.GuardedBy;
 
 /**
  * Used to record audio and video. The recording control is based on a
@@ -84,7 +73,7 @@ import com.android.internal.annotations.GuardedBy;
  * <a href="{@docRoot}guide/topics/media/audio-capture.html">Audio Capture</a> developer guide.</p>
  * </div>
  */
-public class MediaRecorder implements AudioRouting
+public class MediaRecorder
 {
     static {
         System.loadLibrary("media_jni");
@@ -101,12 +90,9 @@ public class MediaRecorder implements AudioRouting
 
     private String mPath;
     private FileDescriptor mFd;
-    private File mFile;
     private EventHandler mEventHandler;
     private OnErrorListener mOnErrorListener;
     private OnInfoListener mOnInfoListener;
-
-    private int mChannelCount;
 
     /**
      * Default constructor.
@@ -122,7 +108,6 @@ public class MediaRecorder implements AudioRouting
             mEventHandler = null;
         }
 
-        mChannelCount = 1;
         String packageName = ActivityThread.currentPackageName();
         /* Native setup requires a weak reference to our object.
          * It's easier to create it here than in C++.
@@ -221,46 +206,27 @@ public class MediaRecorder implements AudioRouting
         /** Microphone audio source */
         public static final int MIC = 1;
 
-        /** Voice call uplink (Tx) audio source.
-         * <p>
-         * Capturing from <code>VOICE_UPLINK</code> source requires the
-         * {@link android.Manifest.permission#CAPTURE_AUDIO_OUTPUT} permission.
-         * This permission is reserved for use by system components and is not available to
-         * third-party applications.
-         * </p>
-         */
+        /** Voice call uplink (Tx) audio source */
         public static final int VOICE_UPLINK = 2;
 
-        /** Voice call downlink (Rx) audio source.
-         * <p>
-         * Capturing from <code>VOICE_DOWNLINK</code> source requires the
-         * {@link android.Manifest.permission#CAPTURE_AUDIO_OUTPUT} permission.
-         * This permission is reserved for use by system components and is not available to
-         * third-party applications.
-         * </p>
-         */
+        /** Voice call downlink (Rx) audio source */
         public static final int VOICE_DOWNLINK = 3;
 
-        /** Voice call uplink + downlink audio source
-         * <p>
-         * Capturing from <code>VOICE_CALL</code> source requires the
-         * {@link android.Manifest.permission#CAPTURE_AUDIO_OUTPUT} permission.
-         * This permission is reserved for use by system components and is not available to
-         * third-party applications.
-         * </p>
-         */
+        /** Voice call uplink + downlink audio source */
         public static final int VOICE_CALL = 4;
 
-        /** Microphone audio source tuned for video recording, with the same orientation
-         *  as the camera if available. */
+        /** Microphone audio source with same orientation as camera if available, the main
+         *  device microphone otherwise */
         public static final int CAMCORDER = 5;
 
-        /** Microphone audio source tuned for voice recognition. */
+        /** Microphone audio source tuned for voice recognition if available, behaves like
+         *  {@link #DEFAULT} otherwise. */
         public static final int VOICE_RECOGNITION = 6;
 
         /** Microphone audio source tuned for voice communications such as VoIP. It
          *  will for instance take advantage of echo cancellation or automatic gain control
-         *  if available.
+         *  if available. It otherwise behaves like {@link #DEFAULT} if no voice processing
+         *  is applied.
          */
         public static final int VOICE_COMMUNICATION = 7;
 
@@ -283,12 +249,7 @@ public class MediaRecorder implements AudioRouting
          * third-party applications.
          * </p>
          */
-        @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_OUTPUT)
         public static final int REMOTE_SUBMIX = 8;
-
-        /** Microphone audio source tuned for unprocessed (raw) sound if available, behaves like
-         *  {@link #DEFAULT} otherwise. */
-        public static final int UNPROCESSED = 9;
 
         /**
          * Audio source for capturing broadcast radio tuner output.
@@ -309,66 +270,7 @@ public class MediaRecorder implements AudioRouting
          * @hide
          */
         @SystemApi
-        @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_HOTWORD)
         public static final int HOTWORD = 1999;
-    }
-
-    // TODO make AudioSource static (API change) and move this method inside the AudioSource class
-    /**
-     * @hide
-     * @param source An audio source to test
-     * @return true if the source is only visible to system components
-     */
-    public static boolean isSystemOnlyAudioSource(int source) {
-        switch(source) {
-        case AudioSource.DEFAULT:
-        case AudioSource.MIC:
-        case AudioSource.VOICE_UPLINK:
-        case AudioSource.VOICE_DOWNLINK:
-        case AudioSource.VOICE_CALL:
-        case AudioSource.CAMCORDER:
-        case AudioSource.VOICE_RECOGNITION:
-        case AudioSource.VOICE_COMMUNICATION:
-        //case REMOTE_SUBMIX:  considered "system" as it requires system permissions
-        case AudioSource.UNPROCESSED:
-            return false;
-        default:
-            return true;
-        }
-    }
-
-    /** @hide */
-    public static final String toLogFriendlyAudioSource(int source) {
-        switch(source) {
-        case AudioSource.DEFAULT:
-            return "DEFAULT";
-        case AudioSource.MIC:
-            return "MIC";
-        case AudioSource.VOICE_UPLINK:
-            return "VOICE_UPLINK";
-        case AudioSource.VOICE_DOWNLINK:
-            return "VOICE_DOWNLINK";
-        case AudioSource.VOICE_CALL:
-            return "VOICE_CALL";
-        case AudioSource.CAMCORDER:
-            return "CAMCORDER";
-        case AudioSource.VOICE_RECOGNITION:
-            return "VOICE_RECOGNITION";
-        case AudioSource.VOICE_COMMUNICATION:
-            return "VOICE_COMMUNICATION";
-        case AudioSource.REMOTE_SUBMIX:
-            return "REMOTE_SUBMIX";
-        case AudioSource.UNPROCESSED:
-            return "UNPROCESSED";
-        case AudioSource.RADIO_TUNER:
-            return "RADIO_TUNER";
-        case AudioSource.HOTWORD:
-            return "HOTWORD";
-        case AudioSource.AUDIO_SOURCE_INVALID:
-            return "AUDIO_SOURCE_INVALID";
-        default:
-            return "unknown source " + source;
-        }
     }
 
     /**
@@ -438,8 +340,8 @@ public class MediaRecorder implements AudioRouting
         /** @hide Stream over a socket, limited to a single stream */
         public static final int OUTPUT_FORMAT_RTP_AVP = 7;
 
-        /** H.264/AAC data encapsulated in MPEG2/TS */
-        public static final int MPEG_2_TS = 8;
+        /** @hide H.264/AAC data encapsulated in MPEG2/TS */
+        public static final int OUTPUT_FORMAT_MPEG2TS = 8;
 
         /** VP8/VORBIS data in a WEBM container */
         public static final int WEBM = 9;
@@ -483,7 +385,6 @@ public class MediaRecorder implements AudioRouting
         public static final int H264 = 2;
         public static final int MPEG_4_SP = 3;
         public static final int VP8 = 4;
-        public static final int HEVC = 5;
     }
 
     /**
@@ -504,7 +405,7 @@ public class MediaRecorder implements AudioRouting
      * @see android.media.MediaRecorder.AudioSource
      */
     public static final int getAudioSourceMax() {
-        return AudioSource.UNPROCESSED;
+        return AudioSource.REMOTE_SUBMIX;
     }
 
     /**
@@ -759,7 +660,6 @@ public class MediaRecorder implements AudioRouting
         if (numChannels <= 0) {
             throw new IllegalArgumentException("Number of channels is not positive");
         }
-        mChannelCount = numChannels;
         setParameter("audio-param-number-of-channels=" + numChannels);
     }
 
@@ -796,32 +696,6 @@ public class MediaRecorder implements AudioRouting
     }
 
     /**
-     * Sets the desired video encoding profile and level for recording. The profile and level
-     * must be valid for the video encoder set by {@link #setVideoEncoder}. This method can
-     * called before or after {@link #setVideoEncoder} but it must be called before {@link #prepare}.
-     * {@code prepare()} may perform additional checks on the parameter to make sure that the specified
-     * profile and level are applicable, and sometimes the passed profile or level will be
-     * discarded due to codec capablity or to ensure the video recording can proceed smoothly
-     * based on the capabilities of the platform. <br>Application can also use the
-     * {@link MediaCodecInfo.CodecCapabilities#profileLevels} to query applicable combination of profile
-     * and level for the corresponding format. Note that the requested profile/level may not be supported by
-     * the codec that is actually being used by this MediaRecorder instance.
-     * @param profile declared in {@link MediaCodecInfo.CodecProfileLevel}.
-     * @param level declared in {@link MediaCodecInfo.CodecProfileLevel}.
-     * @throws IllegalArgumentException when an invalid profile or level value is used.
-     */
-    public void setVideoEncodingProfileLevel(int profile, int level) {
-        if (profile <= 0)  {
-            throw new IllegalArgumentException("Video encoding profile is not positive");
-        }
-        if (level <= 0)  {
-            throw new IllegalArgumentException("Video encoding level is not positive");
-        }
-        setParameter("video-param-encoder-profile=" + profile);
-        setParameter("video-param-encoder-level=" + level);
-    }
-
-    /**
      * Currently not implemented. It does nothing.
      * @deprecated Time lapse mode video recording using camera still image capture
      * is not desirable, and will not be supported.
@@ -854,47 +728,7 @@ public class MediaRecorder implements AudioRouting
     public void setOutputFile(FileDescriptor fd) throws IllegalStateException
     {
         mPath = null;
-        mFile = null;
         mFd = fd;
-    }
-
-    /**
-     * Pass in the file object to be written. Call this after setOutputFormat() but before prepare().
-     * File should be seekable. After setting the next output file, application should not use the
-     * file until {@link #stop}. Application is responsible for cleaning up unused files after
-     * {@link #stop} is called.
-     *
-     * @param file the file object to be written into.
-     */
-    public void setOutputFile(File file)
-    {
-        mPath = null;
-        mFd = null;
-        mFile = file;
-    }
-
-    /**
-     * Sets the next output file descriptor to be used when the maximum filesize is reached
-     * on the prior output {@link #setOutputFile} or {@link #setNextOutputFile}). File descriptor
-     * must be seekable and writable. After setting the next output file, application should not
-     * use the file referenced by this file descriptor until {@link #stop}. It is the application's
-     * responsibility to close the file descriptor. It is safe to do so as soon as this call returns.
-     * Application must call this after receiving on the
-     * {@link android.media.MediaRecorder.OnInfoListener} a "what" code of
-     * {@link #MEDIA_RECORDER_INFO_MAX_FILESIZE_APPROACHING} and before receiving a "what" code of
-     * {@link #MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED}. The file is not used until switching to
-     * that output. Application will receive{@link #MEDIA_RECORDER_INFO_NEXT_OUTPUT_FILE_STARTED}
-     * when the next output file is used. Application will not be able to set a new output file if
-     * the previous one has not been used. Application is responsible for cleaning up unused files
-     * after {@link #stop} is called.
-     *
-     * @param fd an open file descriptor to be written into.
-     * @throws IllegalStateException if it is called before prepare().
-     * @throws IOException if setNextOutputFile fails otherwise.
-     */
-    public void setNextOutputFile(FileDescriptor fd) throws IOException
-    {
-        _setNextOutputFile(fd);
     }
 
     /**
@@ -908,40 +742,12 @@ public class MediaRecorder implements AudioRouting
     public void setOutputFile(String path) throws IllegalStateException
     {
         mFd = null;
-        mFile = null;
         mPath = path;
     }
 
-    /**
-     * Sets the next output file to be used when the maximum filesize is reached on the prior
-     * output {@link #setOutputFile} or {@link #setNextOutputFile}). File should be seekable.
-     * After setting the next output file, application should not use the file until {@link #stop}.
-     * Application must call this after receiving on the
-     * {@link android.media.MediaRecorder.OnInfoListener} a "what" code of
-     * {@link #MEDIA_RECORDER_INFO_MAX_FILESIZE_APPROACHING} and before receiving a "what" code of
-     * {@link #MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED}. The file is not used until switching to
-     * that output. Application will receive {@link #MEDIA_RECORDER_INFO_NEXT_OUTPUT_FILE_STARTED}
-     * when the next output file is used. Application will not be able to set a new output file if
-     * the previous one has not been used. Application is responsible for cleaning up unused files
-     * after {@link #stop} is called.
-     *
-     * @param  file The file to use.
-     * @throws IllegalStateException if it is called before prepare().
-     * @throws IOException if setNextOutputFile fails otherwise.
-     */
-    public void setNextOutputFile(File file) throws IOException
-    {
-        RandomAccessFile f = new RandomAccessFile(file, "rw");
-        try {
-            _setNextOutputFile(f.getFD());
-        } finally {
-            f.close();
-        }
-    }
-
     // native implementation
-    private native void _setOutputFile(FileDescriptor fd) throws IllegalStateException, IOException;
-    private native void _setNextOutputFile(FileDescriptor fd) throws IllegalStateException, IOException;
+    private native void _setOutputFile(FileDescriptor fd, long offset, long length)
+        throws IllegalStateException, IOException;
     private native void _prepare() throws IllegalStateException, IOException;
 
     /**
@@ -956,21 +762,14 @@ public class MediaRecorder implements AudioRouting
     public void prepare() throws IllegalStateException, IOException
     {
         if (mPath != null) {
-            RandomAccessFile file = new RandomAccessFile(mPath, "rw");
+            RandomAccessFile file = new RandomAccessFile(mPath, "rws");
             try {
-                _setOutputFile(file.getFD());
+                _setOutputFile(file.getFD(), 0, 0);
             } finally {
                 file.close();
             }
         } else if (mFd != null) {
-            _setOutputFile(mFd);
-        } else if (mFile != null) {
-            RandomAccessFile file = new RandomAccessFile(mFile, "rw");
-            try {
-                _setOutputFile(file.getFD());
-            } finally {
-                file.close();
-            }
+            _setOutputFile(mFd, 0, 0);
         } else {
             throw new IOException("No valid output file");
         }
@@ -989,7 +788,7 @@ public class MediaRecorder implements AudioRouting
      * not start another recording session during recording.
      *
      * @throws IllegalStateException if it is called before
-     * prepare() or when the camera is already in use by another app.
+     * prepare().
      */
     public native void start() throws IllegalStateException;
 
@@ -1006,30 +805,6 @@ public class MediaRecorder implements AudioRouting
      * @throws IllegalStateException if it is called before start()
      */
     public native void stop() throws IllegalStateException;
-
-    /**
-     * Pauses recording. Call this after start(). You may resume recording
-     * with resume() without reconfiguration, as opposed to stop(). It does
-     * nothing if the recording is already paused.
-     *
-     * When the recording is paused and resumed, the resulting output would
-     * be as if nothing happend during paused period, immediately switching
-     * to the resumed scene.
-     *
-     * @throws IllegalStateException if it is called before start() or after
-     * stop()
-     */
-    public native void pause() throws IllegalStateException;
-
-    /**
-     * Resumes recording. Call this after start(). It does nothing if the
-     * recording is not paused.
-     *
-     * @throws IllegalStateException if it is called before start() or after
-     * stop()
-     * @see android.media.MediaRecorder#pause
-     */
-    public native void resume() throws IllegalStateException;
 
     /**
      * Restarts the MediaRecorder to its idle state. After calling
@@ -1103,7 +878,7 @@ public class MediaRecorder implements AudioRouting
     /* Do not change these values without updating their counterparts
      * in include/media/mediarecorder.h!
      */
-    /** Unspecified media recorder info.
+    /** Unspecified media recorder error.
      * @see android.media.MediaRecorder.OnInfoListener
      */
     public static final int MEDIA_RECORDER_INFO_UNKNOWN              = 1;
@@ -1112,26 +887,9 @@ public class MediaRecorder implements AudioRouting
      */
     public static final int MEDIA_RECORDER_INFO_MAX_DURATION_REACHED = 800;
     /** A maximum filesize had been setup and has now been reached.
-     * Note: This event will not be sent if application already set
-     * next output file through {@link #setNextOutputFile}.
      * @see android.media.MediaRecorder.OnInfoListener
      */
     public static final int MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED = 801;
-    /** A maximum filesize had been setup and current recorded file size
-     * has reached 90% of the limit. This is sent once per file upon
-     * reaching/passing the 90% limit. To continue the recording, applicaiton
-     * should use {@link #setNextOutputFile} to set the next output file.
-     * Otherwise, recording will stop when reaching maximum file size.
-     * @see android.media.MediaRecorder.OnInfoListener
-     */
-    public static final int MEDIA_RECORDER_INFO_MAX_FILESIZE_APPROACHING = 802;
-    /** A maximum filesize had been reached and MediaRecorder has switched
-     * output to a new file set by application {@link #setNextOutputFile}.
-     * For best practice, application should use this event to keep track
-     * of whether the file previously set has been used or not.
-     * @see android.media.MediaRecorder.OnInfoListener
-     */
-    public static final int MEDIA_RECORDER_INFO_NEXT_OUTPUT_FILE_STARTED = 803;
 
     /** informational events for individual tracks, for testing purpose.
      * The track informational event usually contains two parts in the ext1
@@ -1203,22 +961,22 @@ public class MediaRecorder implements AudioRouting
 
 
     /**
-     * Interface definition of a callback to be invoked to communicate some
-     * info and/or warning about the recording.
+     * Interface definition for a callback to be invoked when an error
+     * occurs while recording.
      */
     public interface OnInfoListener
     {
         /**
-         * Called to indicate an info or a warning during recording.
+         * Called when an error occurs while recording.
          *
-         * @param mr   the MediaRecorder the info pertains to
-         * @param what the type of info or warning that has occurred
+         * @param mr the MediaRecorder that encountered the error
+         * @param what    the type of error that has occurred:
          * <ul>
          * <li>{@link #MEDIA_RECORDER_INFO_UNKNOWN}
          * <li>{@link #MEDIA_RECORDER_INFO_MAX_DURATION_REACHED}
          * <li>{@link #MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED}
          * </ul>
-         * @param extra   an extra code, specific to the info type
+         * @param extra   an extra code, specific to the error type
          */
         void onInfo(MediaRecorder mr, int what, int extra);
     }
@@ -1257,7 +1015,6 @@ public class MediaRecorder implements AudioRouting
         private static final int MEDIA_RECORDER_TRACK_EVENT_INFO       = 101;
         private static final int MEDIA_RECORDER_TRACK_EVENT_LIST_END   = 1000;
 
-        private static final int MEDIA_RECORDER_AUDIO_ROUTING_CHANGED  = 10000;
 
         @Override
         public void handleMessage(Message msg) {
@@ -1280,184 +1037,12 @@ public class MediaRecorder implements AudioRouting
 
                 return;
 
-            case MEDIA_RECORDER_AUDIO_ROUTING_CHANGED:
-                AudioManager.resetAudioPortGeneration();
-                synchronized (mRoutingChangeListeners) {
-                    for (NativeRoutingEventHandlerDelegate delegate
-                            : mRoutingChangeListeners.values()) {
-                        delegate.notifyClient();
-                    }
-                }
-                return;
-
             default:
                 Log.e(TAG, "Unknown message type " + msg.what);
                 return;
             }
         }
     }
-
-    //--------------------------------------------------------------------------
-    // Explicit Routing
-    //--------------------
-    private AudioDeviceInfo mPreferredDevice = null;
-
-    /**
-     * Specifies an audio device (via an {@link AudioDeviceInfo} object) to route
-     * the input from this MediaRecorder.
-     * @param deviceInfo The {@link AudioDeviceInfo} specifying the audio source.
-     *  If deviceInfo is null, default routing is restored.
-     * @return true if succesful, false if the specified {@link AudioDeviceInfo} is non-null and
-     * does not correspond to a valid audio input device.
-     */
-    @Override
-    public boolean setPreferredDevice(AudioDeviceInfo deviceInfo) {
-        if (deviceInfo != null && !deviceInfo.isSource()) {
-            return false;
-        }
-        int preferredDeviceId = deviceInfo != null ? deviceInfo.getId() : 0;
-        boolean status = native_setInputDevice(preferredDeviceId);
-        if (status == true) {
-            synchronized (this) {
-                mPreferredDevice = deviceInfo;
-            }
-        }
-        return status;
-    }
-
-    /**
-     * Returns the selected input device specified by {@link #setPreferredDevice}. Note that this
-     * is not guaranteed to correspond to the actual device being used for recording.
-     */
-    @Override
-    public AudioDeviceInfo getPreferredDevice() {
-        synchronized (this) {
-            return mPreferredDevice;
-        }
-    }
-
-    /**
-     * Returns an {@link AudioDeviceInfo} identifying the current routing of this MediaRecorder
-     * Note: The query is only valid if the MediaRecorder is currently recording.
-     * If the recorder is not recording, the returned device can be null or correspond to previously
-     * selected device when the recorder was last active.
-     */
-    @Override
-    public AudioDeviceInfo getRoutedDevice() {
-        int deviceId = native_getRoutedDeviceId();
-        if (deviceId == 0) {
-            return null;
-        }
-        AudioDeviceInfo[] devices =
-                AudioManager.getDevicesStatic(AudioManager.GET_DEVICES_INPUTS);
-        for (int i = 0; i < devices.length; i++) {
-            if (devices[i].getId() == deviceId) {
-                return devices[i];
-            }
-        }
-        return null;
-    }
-
-    /*
-     * Call BEFORE adding a routing callback handler or AFTER removing a routing callback handler.
-     */
-    @GuardedBy("mRoutingChangeListeners")
-    private void enableNativeRoutingCallbacksLocked(boolean enabled) {
-        if (mRoutingChangeListeners.size() == 0) {
-            native_enableDeviceCallback(enabled);
-        }
-    }
-
-    /**
-     * The list of AudioRouting.OnRoutingChangedListener interfaces added (with
-     * {@link #addOnRoutingChangedListener(android.media.AudioRouting.OnRoutingChangedListener, Handler)}
-     * by an app to receive (re)routing notifications.
-     */
-    @GuardedBy("mRoutingChangeListeners")
-    private ArrayMap<AudioRouting.OnRoutingChangedListener,
-            NativeRoutingEventHandlerDelegate> mRoutingChangeListeners = new ArrayMap<>();
-
-    /**
-     * Adds an {@link AudioRouting.OnRoutingChangedListener} to receive notifications of routing
-     * changes on this MediaRecorder.
-     * @param listener The {@link AudioRouting.OnRoutingChangedListener} interface to receive
-     * notifications of rerouting events.
-     * @param handler  Specifies the {@link Handler} object for the thread on which to execute
-     * the callback. If <code>null</code>, the handler on the main looper will be used.
-     */
-    @Override
-    public void addOnRoutingChangedListener(AudioRouting.OnRoutingChangedListener listener,
-                                            Handler handler) {
-        synchronized (mRoutingChangeListeners) {
-            if (listener != null && !mRoutingChangeListeners.containsKey(listener)) {
-                enableNativeRoutingCallbacksLocked(true);
-                mRoutingChangeListeners.put(
-                        listener, new NativeRoutingEventHandlerDelegate(this, listener,
-                                handler != null ? handler : mEventHandler));
-            }
-        }
-    }
-
-    /**
-     * Removes an {@link AudioRouting.OnRoutingChangedListener} which has been previously added
-     * to receive rerouting notifications.
-     * @param listener The previously added {@link AudioRouting.OnRoutingChangedListener} interface
-     * to remove.
-     */
-    @Override
-    public void removeOnRoutingChangedListener(AudioRouting.OnRoutingChangedListener listener) {
-        synchronized (mRoutingChangeListeners) {
-            if (mRoutingChangeListeners.containsKey(listener)) {
-                mRoutingChangeListeners.remove(listener);
-                enableNativeRoutingCallbacksLocked(false);
-            }
-        }
-    }
-
-    private native final boolean native_setInputDevice(int deviceId);
-    private native final int native_getRoutedDeviceId();
-    private native final void native_enableDeviceCallback(boolean enabled);
-
-    //--------------------------------------------------------------------------
-    // Microphone information
-    //--------------------
-    /**
-     * Return A lists of {@link MicrophoneInfo} representing the active microphones.
-     * By querying channel mapping for each active microphone, developer can know how
-     * the microphone is used by each channels or a capture stream.
-     *
-     * @return a lists of {@link MicrophoneInfo} representing the active microphones
-     * @throws IOException if an error occurs
-     */
-    public List<MicrophoneInfo> getActiveMicrophones() throws IOException {
-        ArrayList<MicrophoneInfo> activeMicrophones = new ArrayList<>();
-        int status = native_getActiveMicrophones(activeMicrophones);
-        if (status != AudioManager.SUCCESS) {
-            if (status != AudioManager.ERROR_INVALID_OPERATION) {
-                Log.e(TAG, "getActiveMicrophones failed:" + status);
-            }
-            Log.i(TAG, "getActiveMicrophones failed, fallback on routed device info");
-        }
-        AudioManager.setPortIdForMicrophones(activeMicrophones);
-
-        // Use routed device when there is not information returned by hal.
-        if (activeMicrophones.size() == 0) {
-            AudioDeviceInfo device = getRoutedDevice();
-            if (device != null) {
-                MicrophoneInfo microphone = AudioManager.microphoneInfoFromAudioDeviceInfo(device);
-                ArrayList<Pair<Integer, Integer>> channelMapping = new ArrayList<>();
-                for (int i = 0; i < mChannelCount; i++) {
-                    channelMapping.add(new Pair(i, MicrophoneInfo.CHANNEL_MAPPING_DIRECT));
-                }
-                microphone.setChannelMapping(channelMapping);
-                activeMicrophones.add(microphone);
-            }
-        }
-        return activeMicrophones;
-    }
-
-    private native final int native_getActiveMicrophones(
-            ArrayList<MicrophoneInfo> activeMicrophones);
 
     /**
      * Called from native code when an interesting event happens.  This method
@@ -1509,145 +1094,6 @@ public class MediaRecorder implements AudioRouting
 
     private native void setParameter(String nameValuePair);
 
-    /**
-     *  Return Metrics data about the current Mediarecorder instance.
-     *
-     * @return a {@link PersistableBundle} containing the set of attributes and values
-     * available for the media being generated by this instance of
-     * MediaRecorder.
-     * The attributes are descibed in {@link MetricsConstants}.
-     *
-     *  Additional vendor-specific fields may also be present in
-     *  the return value.
-     */
-    public PersistableBundle getMetrics() {
-        PersistableBundle bundle = native_getMetrics();
-        return bundle;
-    }
-
-    private native PersistableBundle native_getMetrics();
-
     @Override
     protected void finalize() { native_finalize(); }
-
-    public final static class MetricsConstants
-    {
-        private MetricsConstants() {}
-
-        /**
-         * Key to extract the audio bitrate
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String AUDIO_BITRATE = "android.media.mediarecorder.audio-bitrate";
-
-        /**
-         * Key to extract the number of audio channels
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String AUDIO_CHANNELS = "android.media.mediarecorder.audio-channels";
-
-        /**
-         * Key to extract the audio samplerate
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String AUDIO_SAMPLERATE = "android.media.mediarecorder.audio-samplerate";
-
-        /**
-         * Key to extract the audio timescale
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String AUDIO_TIMESCALE = "android.media.mediarecorder.audio-timescale";
-
-        /**
-         * Key to extract the video capture frame rate
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is a double.
-         */
-        public static final String CAPTURE_FPS = "android.media.mediarecorder.capture-fps";
-
-        /**
-         * Key to extract the video capture framerate enable value
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String CAPTURE_FPS_ENABLE = "android.media.mediarecorder.capture-fpsenable";
-
-        /**
-         * Key to extract the intended playback frame rate
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String FRAMERATE = "android.media.mediarecorder.frame-rate";
-
-        /**
-         * Key to extract the height (in pixels) of the captured video
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String HEIGHT = "android.media.mediarecorder.height";
-
-        /**
-         * Key to extract the recorded movies time units
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         * A value of 1000 indicates that the movie's timing is in milliseconds.
-         */
-        public static final String MOVIE_TIMESCALE = "android.media.mediarecorder.movie-timescale";
-
-        /**
-         * Key to extract the rotation (in degrees) to properly orient the video
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String ROTATION = "android.media.mediarecorder.rotation";
-
-        /**
-         * Key to extract the video bitrate from being used
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String VIDEO_BITRATE = "android.media.mediarecorder.video-bitrate";
-
-        /**
-         * Key to extract the value for how often video iframes are generated
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String VIDEO_IFRAME_INTERVAL = "android.media.mediarecorder.video-iframe-interval";
-
-        /**
-         * Key to extract the video encoding level
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String VIDEO_LEVEL = "android.media.mediarecorder.video-encoder-level";
-
-        /**
-         * Key to extract the video encoding profile
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String VIDEO_PROFILE = "android.media.mediarecorder.video-encoder-profile";
-
-        /**
-         * Key to extract the recorded video time units
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         * A value of 1000 indicates that the video's timing is in milliseconds.
-         */
-        public static final String VIDEO_TIMESCALE = "android.media.mediarecorder.video-timescale";
-
-        /**
-         * Key to extract the width (in pixels) of the captured video
-         * from the {@link MediaRecorder#getMetrics} return.
-         * The value is an integer.
-         */
-        public static final String WIDTH = "android.media.mediarecorder.width";
-
-    }
 }
-

@@ -16,19 +16,6 @@
 
 package android.media;
 
-import android.annotation.IntDef;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.annotation.StringDef;
-import android.annotation.SystemApi;
-import android.app.ActivityThread;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
-import android.os.Parcel;
-import android.os.PersistableBundle;
-import android.util.Log;
-import dalvik.system.CloseGuard;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
@@ -36,8 +23,16 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
-
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.StringDef;
+import android.annotation.SystemApi;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.os.Parcel;
+import android.util.Log;
 
 /**
  * MediaDrm can be used to obtain keys for decrypting protected media streams, in
@@ -86,7 +81,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Once the app has a sessionId, it can construct a MediaCrypto object from the UUID and
  * sessionId.  The MediaCrypto object is registered with the MediaCodec in the
- * {@link MediaCodec#configure} method to enable the codec to decrypt content.
+ * {@link MediaCodec.#configure} method to enable the codec to decrypt content.
  * <p>
  * When the app has constructed {@link android.media.MediaExtractor},
  * {@link android.media.MediaCodec} and {@link android.media.MediaCrypto} objects,
@@ -95,10 +90,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * are only decrypted when the samples are delivered to the decoder.
  * <p>
  * MediaDrm methods throw {@link android.media.MediaDrm.MediaDrmStateException}
- * when a method is called on a MediaDrm object that has had an unrecoverable failure
- * in the DRM plugin or security hardware.
- * {@link android.media.MediaDrm.MediaDrmStateException} extends
- * {@link java.lang.IllegalStateException} with the addition of a developer-readable
+ * when a method is called on a MediaDrm object that has had an unrecoverable failure 
+ * in the DRM plugin or security hardware. 
+ * {@link android.media.MediaDrm.MediaDrmStateException} extends 
+ * {@link java.lang.IllegalStateException} with the addition of a developer-readable 
  * diagnostic information string associated with the exception.
  * <p>
  * In the event of a mediaserver process crash or restart while a MediaDrm object
@@ -106,9 +101,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * To recover, the app must release the MediaDrm object, then create and initialize
  * a new one.
  * <p>
- * As {@link android.media.MediaDrmResetException} and
- * {@link android.media.MediaDrm.MediaDrmStateException} both extend
- * {@link java.lang.IllegalStateException}, they should be in an earlier catch()
+ * As {@link android.media.MediaDrmResetException} and 
+ * {@link android.media.MediaDrm.MediaDrmStateException} both extend 
+ * {@link java.lang.IllegalStateException}, they should be in an earlier catch() 
  * block than {@link java.lang.IllegalStateException} if handled separately.
  * <p>
  * <a name="Callbacks"></a>
@@ -121,12 +116,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * MediaDrm objects on a thread with its own Looper running (main UI
  * thread by default has a Looper running).
  */
-public final class MediaDrm implements AutoCloseable {
+public final class MediaDrm {
 
     private static final String TAG = "MediaDrm";
-
-    private final AtomicBoolean mClosed = new AtomicBoolean();
-    private final CloseGuard mCloseGuard = CloseGuard.get();
 
     private static final String PERMISSION = android.Manifest.permission.ACCESS_DRM_CERTIFICATES;
 
@@ -172,7 +164,7 @@ public final class MediaDrm implements AutoCloseable {
 
     /**
      * Query if the given scheme identified by its UUID is supported on
-     * this device, and whether the DRM plugin is able to handle the
+     * this device, and whether the drm plugin is able to handle the
      * media container format specified by mimeType.
      * @param uuid The UUID of the crypto scheme.
      * @param mimeType The MIME type of the media container, e.g. "video/mp4"
@@ -221,9 +213,7 @@ public final class MediaDrm implements AutoCloseable {
          * It's easier to create it here than in C++.
          */
         native_setup(new WeakReference<MediaDrm>(this),
-                getByteArrayFromUUID(uuid),  ActivityThread.currentOpPackageName());
-
-        mCloseGuard.open("release");
+                getByteArrayFromUUID(uuid));
     }
 
     /**
@@ -483,9 +473,6 @@ public final class MediaDrm implements AutoCloseable {
     /**
      * This event type indicates that the licensed usage duration for keys in a session
      * has expired.  The keys are no longer valid.
-     * @deprecated Use {@link OnKeyStatusChangeListener#onKeyStatusChange}
-     * and check for {@link MediaDrm.KeyStatus#STATUS_EXPIRED} in the {@link MediaDrm.KeyStatus}
-     * instead.
      */
     public static final int EVENT_KEY_EXPIRED = 3;
 
@@ -628,48 +615,14 @@ public final class MediaDrm implements AutoCloseable {
     }
 
     /**
-     * Open a new session with the MediaDrm object. A session ID is returned.
-     * By default, sessions are opened at the native security level of the device.
+     * Open a new session with the MediaDrm object.  A session ID is returned.
      *
      * @throws NotProvisionedException if provisioning is needed
      * @throws ResourceBusyException if required resources are in use
      */
     @NonNull
-    public byte[] openSession() throws NotProvisionedException,
-            ResourceBusyException {
-        return openSession(getMaxSecurityLevel());
-    }
-
-    /**
-     * Open a new session at a requested security level. The security level
-     * represents the robustness of the device's DRM implementation. By default,
-     * sessions are opened at the native security level of the device.
-     * Overriding the security level is necessary when the decrypted frames need
-     * to be manipulated, such as for image compositing. The security level
-     * parameter must be lower than the native level. Reducing the security
-     * level will typically limit the content to lower resolutions, as
-     * determined by the license policy. If the requested level is not
-     * supported, the next lower supported security level will be set. The level
-     * can be queried using {@link #getSecurityLevel}. A session
-     * ID is returned.
-     *
-     * @param level the new security level, one of
-     * {@link #SECURITY_LEVEL_SW_SECURE_CRYPTO},
-     * {@link #SECURITY_LEVEL_SW_SECURE_DECODE},
-     * {@link #SECURITY_LEVEL_HW_SECURE_CRYPTO},
-     * {@link #SECURITY_LEVEL_HW_SECURE_DECODE} or
-     * {@link #SECURITY_LEVEL_HW_SECURE_ALL}.
-     *
-     * @throws NotProvisionedException if provisioning is needed
-     * @throws ResourceBusyException if required resources are in use
-     * @throws IllegalArgumentException if the requested security level is
-     * higher than the native level or lower than the lowest supported level or
-     * if the device does not support specifying the security level when opening
-     * a session
-     */
-    @NonNull
-    public native byte[] openSession(@SecurityLevel int level) throws
-            NotProvisionedException, ResourceBusyException;
+    public native byte[] openSession() throws NotProvisionedException,
+            ResourceBusyException;
 
     /**
      * Close a session on the MediaDrm object that was previously opened
@@ -705,9 +658,7 @@ public final class MediaDrm implements AutoCloseable {
     public @interface KeyType {}
 
     /**
-     * Contains the opaque data an app uses to request keys from a license server.
-     * These request types may or may not be generated by a given plugin. Refer
-     * to plugin vendor documentation for more information.
+     * Contains the opaque data an app uses to request keys from a license server
      */
     public static final class KeyRequest {
         private byte[] mData;
@@ -715,14 +666,12 @@ public final class MediaDrm implements AutoCloseable {
         private int mRequestType;
 
         /**
-         * Key request type is initial license request. A license request
-         * is necessary to load keys.
+         * Key request type is initial license request
          */
         public static final int REQUEST_TYPE_INITIAL = 0;
 
         /**
-         * Key request type is license renewal. A license request is
-         * necessary to prevent the keys from expiring.
+         * Key request type is license renewal
          */
         public static final int REQUEST_TYPE_RENEWAL = 1;
 
@@ -731,25 +680,11 @@ public final class MediaDrm implements AutoCloseable {
          */
         public static final int REQUEST_TYPE_RELEASE = 2;
 
-        /**
-         * Keys are already loaded and are available for use. No license request is necessary, and
-         * no key request data is returned.
-         */
-        public static final int REQUEST_TYPE_NONE = 3;
-
-        /**
-         * Keys have been loaded but an additional license request is needed
-         * to update their values.
-         */
-        public static final int REQUEST_TYPE_UPDATE = 4;
-
         /** @hide */
         @IntDef({
             REQUEST_TYPE_INITIAL,
             REQUEST_TYPE_RENEWAL,
             REQUEST_TYPE_RELEASE,
-            REQUEST_TYPE_NONE,
-            REQUEST_TYPE_UPDATE,
         })
         @Retention(RetentionPolicy.SOURCE)
         public @interface RequestType {}
@@ -790,8 +725,7 @@ public final class MediaDrm implements AutoCloseable {
         /**
          * Get the type of the request
          * @return one of {@link #REQUEST_TYPE_INITIAL},
-         * {@link #REQUEST_TYPE_RENEWAL}, {@link #REQUEST_TYPE_RELEASE},
-         * {@link #REQUEST_TYPE_NONE} or {@link #REQUEST_TYPE_UPDATE}
+         * {@link #REQUEST_TYPE_RENEWAL} or {@link #REQUEST_TYPE_RELEASE}
          */
         @RequestType
         public int getRequestType() { return mRequestType; }
@@ -807,7 +741,7 @@ public final class MediaDrm implements AutoCloseable {
      * returned in KeyRequest.defaultUrl.
      * <p>
      * After the app has received the key request response from the server,
-     * it should deliver to the response to the MediaDrm instance using the method
+     * it should deliver to the response to the DRM engine plugin using the method
      * {@link #provideKeyResponse}.
      *
      * @param scope may be a sessionId or a keySetId, depending on the specified keyType.
@@ -818,12 +752,9 @@ public final class MediaDrm implements AutoCloseable {
      * @param init container-specific data, its meaning is interpreted based on the
      * mime type provided in the mimeType parameter.  It could contain, for example,
      * the content ID, key ID or other data obtained from the content metadata that is
-     * required in generating the key request. May be null when keyType is
-     * KEY_TYPE_RELEASE or if the request is a renewal, i.e. not the first key
-     * request for the session.
-     * @param mimeType identifies the mime type of the content. May be null if the
-     * keyType is KEY_TYPE_RELEASE or if the request is a renewal, i.e. not the
-     * first key request for the session.
+     * required in generating the key request. init may be null when keyType is
+     * KEY_TYPE_RELEASE.
+     * @param mimeType identifies the mime type of the content
      * @param keyType specifes the type of the request. The request may be to acquire
      * keys for streaming or offline content, or to release previously acquired
      * keys, which are identified by a keySetId.
@@ -843,21 +774,17 @@ public final class MediaDrm implements AutoCloseable {
 
     /**
      * A key response is received from the license server by the app, then it is
-     * provided to the MediaDrm instance using provideKeyResponse.  When the
+     * provided to the DRM engine plugin using provideKeyResponse.  When the
      * response is for an offline key request, a keySetId is returned that can be
      * used to later restore the keys to a new session with the method
      * {@link #restoreKeys}.
-     * When the response is for a streaming or release request, an empty byte array
-     * is returned.
+     * When the response is for a streaming or release request, null is returned.
      *
      * @param scope may be a sessionId or keySetId depending on the type of the
      * response.  Scope should be set to the sessionId when the response is for either
      * streaming or offline key requests.  Scope should be set to the keySetId when
      * the response is for a release request.
      * @param response the byte array response from the server
-     * @return If the response is for an offline request, the keySetId for the offline
-     * keys will be returned. If the response is for a streaming or release request
-     * an empty byte array will be returned.
      *
      * @throws NotProvisionedException if the response indicates that
      * reprovisioning is required
@@ -891,7 +818,7 @@ public final class MediaDrm implements AutoCloseable {
      * in the form of {name, value} pairs.  Since DRM license policies vary by vendor,
      * the specific status field names are determined by each DRM vendor.  Refer to your
      * DRM provider documentation for definitions of the field names for a particular
-     * DRM plugin.
+     * DRM engine plugin.
      *
      * @param sessionId the session ID for the DRM session
      */
@@ -959,11 +886,11 @@ public final class MediaDrm implements AutoCloseable {
            @NonNull String certAuthority);
 
     /**
-     * After a provision response is received by the app, it is provided to the
-     * MediaDrm instance using this method.
+     * After a provision response is received by the app, it is provided to the DRM
+     * engine plugin using this method.
      *
      * @param response the opaque provisioning response byte array to provide to the
-     * MediaDrm instance.
+     * DRM engine plugin.
      *
      * @throws DeniedByServerException if the response indicates that the
      * server rejected the request
@@ -974,277 +901,85 @@ public final class MediaDrm implements AutoCloseable {
     }
 
     @NonNull
+    /* could there be a valid response with 0-sized certificate or key? */
     private native Certificate provideProvisionResponseNative(@NonNull byte[] response)
             throws DeniedByServerException;
 
     /**
-     * Secure stops are a way to enforce limits on the number of concurrent
-     * streams per subscriber across devices. They provide secure monitoring of
-     * the lifetime of content decryption keys in MediaDrm sessions.
+     * Remove provisioning from a device.  Only system apps may unprovision a
+     * device.  Note that removing provisioning will invalidate any keys saved
+     * for offline use (KEY_TYPE_OFFLINE), which may render downloaded content
+     * unplayable until new licenses are acquired.  Since provisioning is global
+     * to the device, license invalidation will apply to all content downloaded
+     * by any app, so appropriate warnings should be given to the user.
+     * @hide
+     */
+    @SystemApi
+    public native void unprovisionDevice();
+
+    /**
+     * A means of enforcing limits on the number of concurrent streams per subscriber
+     * across devices is provided via SecureStop. This is achieved by securely
+     * monitoring the lifetime of sessions.
      * <p>
-     * A secure stop is written to secure persistent memory when keys are loaded
-     * into a MediaDrm session. The secure stop state indicates that the keys
-     * are available for use. When playback completes and the keys are removed
-     * or the session is destroyed, the secure stop state is updated to indicate
-     * that keys are no longer usable.
+     * Information from the server related to the current playback session is written
+     * to persistent storage on the device when each MediaCrypto object is created.
      * <p>
-     * After playback, the app can query the secure stop and send it in a
-     * message to the license server confirming that the keys are no longer
-     * active. The license server returns a secure stop release response
-     * message to the app which then deletes the secure stop from persistent
-     * memory using {@link #releaseSecureStops}.
-     * <p>
-     * Each secure stop has a unique ID that can be used to identify it during
-     * enumeration, access and removal.
-     * @return a list of all secure stops from secure persistent memory
+     * In the normal case, playback will be completed, the session destroyed and the
+     * Secure Stops will be queried. The app queries secure stops and forwards the
+     * secure stop message to the server which verifies the signature and notifies the
+     * server side database that the session destruction has been confirmed. The persisted
+     * record on the client is only removed after positive confirmation that the server
+     * received the message using releaseSecureStops().
      */
     @NonNull
     public native List<byte[]> getSecureStops();
 
     /**
-     * Return a list of all secure stop IDs currently in persistent memory.
-     * The secure stop ID can be used to access or remove the corresponding
-     * secure stop.
+     * Access secure stop by secure stop ID.
      *
-     * @return a list of secure stop IDs
-     */
-    @NonNull
-    public native List<byte[]> getSecureStopIds();
-
-    /**
-     * Access a specific secure stop given its secure stop ID.
-     * Each secure stop has a unique ID.
-     *
-     * @param ssid the ID of the secure stop to return
-     * @return the secure stop identified by ssid
+     * @param ssid - The secure stop ID provided by the license server.
      */
     @NonNull
     public native byte[] getSecureStop(@NonNull byte[] ssid);
 
     /**
-     * Process the secure stop server response message ssRelease.  After
-     * authenticating the message, remove the secure stops identified in the
-     * response.
+     * Process the SecureStop server response message ssRelease.  After authenticating
+     * the message, remove the SecureStops identified in the response.
      *
      * @param ssRelease the server response indicating which secure stops to release
      */
     public native void releaseSecureStops(@NonNull byte[] ssRelease);
 
     /**
-     * Remove a specific secure stop without requiring a secure stop release message
-     * from the license server.
-     * @param ssid the ID of the secure stop to remove
+     * Remove all secure stops without requiring interaction with the server.
      */
-    public native void removeSecureStop(@NonNull byte[] ssid);
+     public native void releaseAllSecureStops();
 
     /**
-     * Remove all secure stops without requiring a secure stop release message from
-     * the license server.
-     *
-     * This method was added in API 28. In API versions 18 through 27,
-     * {@link #releaseAllSecureStops} should be called instead. There is no need to
-     * do anything for API versions prior to 18.
-     */
-    public native void removeAllSecureStops();
-
-    /**
-     * Remove all secure stops without requiring a secure stop release message from
-     * the license server.
-     *
-     * @deprecated Remove all secure stops using {@link #removeAllSecureStops} instead.
-     */
-    public void releaseAllSecureStops() {
-        removeAllSecureStops();;
-    }
-
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({HDCP_LEVEL_UNKNOWN, HDCP_NONE, HDCP_V1, HDCP_V2,
-                        HDCP_V2_1, HDCP_V2_2, HDCP_NO_DIGITAL_OUTPUT})
-    public @interface HdcpLevel {}
-
-
-    /**
-     * The DRM plugin did not report an HDCP level, or an error
-     * occurred accessing it
-     */
-    public static final int HDCP_LEVEL_UNKNOWN = 0;
-
-    /**
-     * HDCP is not supported on this device, content is unprotected
-     */
-    public static final int HDCP_NONE = 1;
-
-    /**
-     * HDCP version 1.0
-     */
-    public static final int HDCP_V1 = 2;
-
-    /**
-     * HDCP version 2.0 Type 1.
-     */
-    public static final int HDCP_V2 = 3;
-
-    /**
-     * HDCP version 2.1 Type 1.
-     */
-    public static final int HDCP_V2_1 = 4;
-
-    /**
-     *  HDCP version 2.2 Type 1.
-     */
-    public static final int HDCP_V2_2 = 5;
-
-    /**
-     * No digital output, implicitly secure
-     */
-    public static final int HDCP_NO_DIGITAL_OUTPUT = Integer.MAX_VALUE;
-
-    /**
-     * Return the HDCP level negotiated with downstream receivers the
-     * device is connected to. If multiple HDCP-capable displays are
-     * simultaneously connected to separate interfaces, this method
-     * returns the lowest negotiated level of all interfaces.
-     * <p>
-     * This method should only be used for informational purposes, not for
-     * enforcing compliance with HDCP requirements. Trusted enforcement of
-     * HDCP policies must be handled by the DRM system.
-     * <p>
-     * @return one of {@link #HDCP_LEVEL_UNKNOWN}, {@link #HDCP_NONE},
-     * {@link #HDCP_V1}, {@link #HDCP_V2}, {@link #HDCP_V2_1}, {@link #HDCP_V2_2}
-     * or {@link #HDCP_NO_DIGITAL_OUTPUT}.
-     */
-    @HdcpLevel
-    public native int getConnectedHdcpLevel();
-
-    /**
-     * Return the maximum supported HDCP level. The maximum HDCP level is a
-     * constant for a given device, it does not depend on downstream receivers
-     * that may be connected. If multiple HDCP-capable interfaces are present,
-     * it indicates the highest of the maximum HDCP levels of all interfaces.
-     * <p>
-     * @return one of {@link #HDCP_LEVEL_UNKNOWN}, {@link #HDCP_NONE},
-     * {@link #HDCP_V1}, {@link #HDCP_V2}, {@link #HDCP_V2_1}, {@link #HDCP_V2_2}
-     * or {@link #HDCP_NO_DIGITAL_OUTPUT}.
-     */
-    @HdcpLevel
-    public native int getMaxHdcpLevel();
-
-    /**
-     * Return the number of MediaDrm sessions that are currently opened
-     * simultaneously among all MediaDrm instances for the active DRM scheme.
-     * @return the number of open sessions.
-     */
-    public native int getOpenSessionCount();
-
-    /**
-     * Return the maximum number of MediaDrm sessions that may be opened
-     * simultaneosly among all MediaDrm instances for the active DRM
-     * scheme. The maximum number of sessions is not affected by any
-     * sessions that may have already been opened.
-     * @return maximum sessions.
-     */
-    public native int getMaxSessionCount();
-
-    /**
-     * Security level indicates the robustness of the device's DRM
-     * implementation.
-     */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({SECURITY_LEVEL_UNKNOWN, SECURITY_LEVEL_SW_SECURE_CRYPTO,
-            SECURITY_LEVEL_SW_SECURE_DECODE, SECURITY_LEVEL_HW_SECURE_CRYPTO,
-            SECURITY_LEVEL_HW_SECURE_DECODE, SECURITY_LEVEL_HW_SECURE_ALL})
-    public @interface SecurityLevel {}
-
-    /**
-     * The DRM plugin did not report a security level, or an error occurred
-     * accessing it
-     */
-    public static final int SECURITY_LEVEL_UNKNOWN = 0;
-
-    /**
-     * DRM key management uses software-based whitebox crypto.
-     */
-    public static final int SECURITY_LEVEL_SW_SECURE_CRYPTO = 1;
-
-    /**
-     * DRM key management and decoding use software-based whitebox crypto.
-     */
-    public static final int SECURITY_LEVEL_SW_SECURE_DECODE = 2;
-
-    /**
-     * DRM key management and crypto operations are performed within a hardware
-     * backed trusted execution environment.
-     */
-    public static final int SECURITY_LEVEL_HW_SECURE_CRYPTO = 3;
-
-    /**
-     * DRM key management, crypto operations and decoding of content are
-     * performed within a hardware backed trusted execution environment.
-     */
-    public static final int SECURITY_LEVEL_HW_SECURE_DECODE = 4;
-
-    /**
-     * DRM key management, crypto operations, decoding of content and all
-     * handling of the media (compressed and uncompressed) is handled within a
-     * hardware backed trusted execution environment.
-     */
-    public static final int SECURITY_LEVEL_HW_SECURE_ALL = 5;
-
-    /**
-     * The maximum security level supported by the device. This is the default
-     * security level when a session is opened.
-     * @hide
-     */
-    public static final int SECURITY_LEVEL_MAX = 6;
-
-    /**
-     * The maximum security level supported by the device. This is the default
-     * security level when a session is opened.
-     */
-    @SecurityLevel
-    public static final int getMaxSecurityLevel() {
-        return SECURITY_LEVEL_MAX;
-    }
-
-    /**
-     * Return the current security level of a session. A session has an initial
-     * security level determined by the robustness of the DRM system's
-     * implementation on the device. The security level may be changed at the
-     * time a session is opened using {@link #openSession}.
-     * @param sessionId the session to query.
-     * <p>
-     * @return one of {@link #SECURITY_LEVEL_UNKNOWN},
-     * {@link #SECURITY_LEVEL_SW_SECURE_CRYPTO}, {@link #SECURITY_LEVEL_SW_SECURE_DECODE},
-     * {@link #SECURITY_LEVEL_HW_SECURE_CRYPTO}, {@link #SECURITY_LEVEL_HW_SECURE_DECODE} or
-     * {@link #SECURITY_LEVEL_HW_SECURE_ALL}.
-     */
-    @SecurityLevel
-    public native int getSecurityLevel(@NonNull byte[] sessionId);
-
-    /**
-     * String property name: identifies the maker of the DRM plugin
+     * String property name: identifies the maker of the DRM engine plugin
      */
     public static final String PROPERTY_VENDOR = "vendor";
 
     /**
-     * String property name: identifies the version of the DRM plugin
+     * String property name: identifies the version of the DRM engine plugin
      */
     public static final String PROPERTY_VERSION = "version";
 
     /**
-     * String property name: describes the DRM plugin
+     * String property name: describes the DRM engine plugin
      */
     public static final String PROPERTY_DESCRIPTION = "description";
 
     /**
      * String property name: a comma-separated list of cipher and mac algorithms
-     * supported by CryptoSession.  The list may be empty if the DRM
+     * supported by CryptoSession.  The list may be empty if the DRM engine
      * plugin does not support CryptoSession operations.
      */
     public static final String PROPERTY_ALGORITHMS = "algorithms";
 
     /** @hide */
-    @StringDef(prefix = { "PROPERTY_" }, value = {
+    @StringDef({
         PROPERTY_VENDOR,
         PROPERTY_VERSION,
         PROPERTY_DESCRIPTION,
@@ -1254,37 +989,32 @@ public final class MediaDrm implements AutoCloseable {
     public @interface StringProperty {}
 
     /**
-     * Read a MediaDrm String property value, given the property name string.
+     * Read a DRM engine plugin String property value, given the property name string.
      * <p>
      * Standard fields names are:
      * {@link #PROPERTY_VENDOR}, {@link #PROPERTY_VERSION},
      * {@link #PROPERTY_DESCRIPTION}, {@link #PROPERTY_ALGORITHMS}
      */
+    /* FIXME this throws IllegalStateException for invalid property names */
     @NonNull
     public native String getPropertyString(@NonNull @StringProperty String propertyName);
-
-    /**
-     * Set a MediaDrm String property value, given the property name string
-     * and new value for the property.
-     */
-    public native void setPropertyString(@NonNull @StringProperty String propertyName,
-            @NonNull String value);
 
     /**
      * Byte array property name: the device unique identifier is established during
      * device provisioning and provides a means of uniquely identifying each device.
      */
+    /* FIXME this throws IllegalStateException for invalid property names */
     public static final String PROPERTY_DEVICE_UNIQUE_ID = "deviceUniqueId";
 
     /** @hide */
-    @StringDef(prefix = { "PROPERTY_" }, value = {
+    @StringDef({
         PROPERTY_DEVICE_UNIQUE_ID,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ArrayProperty {}
 
     /**
-     * Read a MediaDrm byte array property value, given the property name string.
+     * Read a DRM engine plugin byte array property value, given the property name string.
      * <p>
      * Standard fields names are {@link #PROPERTY_DEVICE_UNIQUE_ID}
      */
@@ -1292,11 +1022,16 @@ public final class MediaDrm implements AutoCloseable {
     public native byte[] getPropertyByteArray(@ArrayProperty String propertyName);
 
     /**
-    * Set a MediaDrm byte array property value, given the property name string
-    * and new value for the property.
-    */
-    public native void setPropertyByteArray(@NonNull @ArrayProperty
-            String propertyName, @NonNull byte[] value);
+     * Set a DRM engine plugin String property value.
+     */
+    public native void setPropertyString(
+            @StringProperty String propertyName, @NonNull String value);
+
+    /**
+     * Set a DRM engine plugin byte array property value.
+     */
+    public native void setPropertyByteArray(
+            @ArrayProperty String propertyName, @NonNull byte[] value);
 
     private static final native void setCipherAlgorithmNative(
             @NonNull MediaDrm drm, @NonNull byte[] sessionId, @NonNull String algorithm);
@@ -1324,23 +1059,6 @@ public final class MediaDrm implements AutoCloseable {
             @NonNull byte[] keyId, @NonNull byte[] message, @NonNull byte[] signature);
 
     /**
-     * Return Metrics data about the current MediaDrm instance.
-     *
-     * @return a {@link PersistableBundle} containing the set of attributes and values
-     * available for this instance of MediaDrm.
-     * The attributes are described in {@link MetricsConstants}.
-     *
-     * Additional vendor-specific fields may also be present in
-     * the return value.
-     */
-    public PersistableBundle getMetrics() {
-        PersistableBundle bundle = getMetricsNative();
-        return bundle;
-    }
-
-    private native PersistableBundle getMetricsNative();
-
-    /**
      * In addition to supporting decryption of DASH Common Encrypted Media, the
      * MediaDrm APIs provide the ability to securely deliver session keys from
      * an operator's session key server to a client device, based on the factory-installed
@@ -1364,15 +1082,16 @@ public final class MediaDrm implements AutoCloseable {
      * A CryptoSession is obtained using {@link #getCryptoSession}
      */
     public final class CryptoSession {
+        private MediaDrm mDrm;
         private byte[] mSessionId;
 
-        CryptoSession(@NonNull byte[] sessionId,
-                      @NonNull String cipherAlgorithm,
-                      @NonNull String macAlgorithm)
+        CryptoSession(@NonNull MediaDrm drm, @NonNull byte[] sessionId,
+                @NonNull String cipherAlgorithm, @NonNull String macAlgorithm)
         {
             mSessionId = sessionId;
-            setCipherAlgorithmNative(MediaDrm.this, sessionId, cipherAlgorithm);
-            setMacAlgorithmNative(MediaDrm.this, sessionId, macAlgorithm);
+            mDrm = drm;
+            setCipherAlgorithmNative(drm, sessionId, cipherAlgorithm);
+            setMacAlgorithmNative(drm, sessionId, macAlgorithm);
         }
 
         /**
@@ -1385,7 +1104,7 @@ public final class MediaDrm implements AutoCloseable {
         @NonNull
         public byte[] encrypt(
                 @NonNull byte[] keyid, @NonNull byte[] input, @NonNull byte[] iv) {
-            return encryptNative(MediaDrm.this, mSessionId, keyid, input, iv);
+            return encryptNative(mDrm, mSessionId, keyid, input, iv);
         }
 
         /**
@@ -1398,7 +1117,7 @@ public final class MediaDrm implements AutoCloseable {
         @NonNull
         public byte[] decrypt(
                 @NonNull byte[] keyid, @NonNull byte[] input, @NonNull byte[] iv) {
-            return decryptNative(MediaDrm.this, mSessionId, keyid, input, iv);
+            return decryptNative(mDrm, mSessionId, keyid, input, iv);
         }
 
         /**
@@ -1409,7 +1128,7 @@ public final class MediaDrm implements AutoCloseable {
          */
         @NonNull
         public byte[] sign(@NonNull byte[] keyid, @NonNull byte[] message) {
-            return signNative(MediaDrm.this, mSessionId, keyid, message);
+            return signNative(mDrm, mSessionId, keyid, message);
         }
 
         /**
@@ -1423,7 +1142,7 @@ public final class MediaDrm implements AutoCloseable {
          */
         public boolean verify(
                 @NonNull byte[] keyid, @NonNull byte[] message, @NonNull byte[] signature) {
-            return verifyNative(MediaDrm.this, mSessionId, keyid, message, signature);
+            return verifyNative(mDrm, mSessionId, keyid, message, signature);
         }
     };
 
@@ -1443,7 +1162,7 @@ public final class MediaDrm implements AutoCloseable {
      * The algorithm string conforms to JCA Standard Names for Mac
      * Algorithms and is case insensitive.  For example "HmacSHA256".
      * <p>
-     * The list of supported algorithms for a DRM plugin can be obtained
+     * The list of supported algorithms for a DRM engine plugin can be obtained
      * using the method {@link #getPropertyString} with the property name
      * "algorithms".
      */
@@ -1451,7 +1170,7 @@ public final class MediaDrm implements AutoCloseable {
             @NonNull byte[] sessionId,
             @NonNull String cipherAlgorithm, @NonNull String macAlgorithm)
     {
-        return new CryptoSession(sessionId, cipherAlgorithm, macAlgorithm);
+        return new CryptoSession(this, sessionId, cipherAlgorithm, macAlgorithm);
     }
 
     /**
@@ -1557,7 +1276,7 @@ public final class MediaDrm implements AutoCloseable {
      * storage, and used when invoking the signRSA method.
      *
      * @param response the opaque certificate response byte array to provide to the
-     * MediaDrm instance.
+     * DRM engine plugin.
      *
      * @throws DeniedByServerException if the response indicates that the
      * server rejected the request
@@ -1594,413 +1313,19 @@ public final class MediaDrm implements AutoCloseable {
     }
 
     @Override
-    protected void finalize() throws Throwable {
-        try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-            release();
-        } finally {
-            super.finalize();
-        }
+    protected void finalize() {
+        native_finalize();
     }
 
-    /**
-     * Releases resources associated with the current session of
-     * MediaDrm. It is considered good practice to call this method when
-     * the {@link MediaDrm} object is no longer needed in your
-     * application. After this method is called, {@link MediaDrm} is no
-     * longer usable since it has lost all of its required resource.
-     *
-     * This method was added in API 28. In API versions 18 through 27, release()
-     * should be called instead. There is no need to do anything for API
-     * versions prior to 18.
-     */
-    @Override
-    public void close() {
-        release();
-    }
-
-    /**
-     * @deprecated replaced by {@link #close()}.
-     */
-    @Deprecated
-    public void release() {
-        mCloseGuard.close();
-        if (mClosed.compareAndSet(false, true)) {
-            native_release();
-        }
-    }
-
-    /** @hide */
-    public native final void native_release();
-
+    public native final void release();
     private static native final void native_init();
 
-    private native final void native_setup(Object mediadrm_this, byte[] uuid,
-            String appPackageName);
+    private native final void native_setup(Object mediadrm_this, byte[] uuid);
+
+    private native final void native_finalize();
 
     static {
         System.loadLibrary("media_jni");
         native_init();
-    }
-
-    /**
-     * Definitions for the metrics that are reported via the
-     * {@link #getMetrics} call.
-     */
-    public final static class MetricsConstants
-    {
-        private MetricsConstants() {}
-
-        /**
-         * Key to extract the number of successful {@link #openSession} calls
-         * from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String OPEN_SESSION_OK_COUNT
-            = "drm.mediadrm.open_session.ok.count";
-
-        /**
-         * Key to extract the number of failed {@link #openSession} calls
-         * from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String OPEN_SESSION_ERROR_COUNT
-            = "drm.mediadrm.open_session.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #openSession} calls. The key is used to lookup the list
-         * in the {@link PersistableBundle} returned by a {@link #getMetrics}
-         * call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String OPEN_SESSION_ERROR_LIST
-            = "drm.mediadrm.open_session.error.list";
-
-        /**
-         * Key to extract the number of successful {@link #closeSession} calls
-         * from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String CLOSE_SESSION_OK_COUNT
-            = "drm.mediadrm.close_session.ok.count";
-
-        /**
-         * Key to extract the number of failed {@link #closeSession} calls
-         * from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String CLOSE_SESSION_ERROR_COUNT
-            = "drm.mediadrm.close_session.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #closeSession} calls. The key is used to lookup the list
-         * in the {@link PersistableBundle} returned by a {@link #getMetrics}
-         * call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String CLOSE_SESSION_ERROR_LIST
-            = "drm.mediadrm.close_session.error.list";
-
-        /**
-         * Key to extract the start times of sessions. Times are
-         * represented as milliseconds since epoch (1970-01-01T00:00:00Z).
-         * The start times are returned from the {@link PersistableBundle}
-         * from a {@link #getMetrics} call.
-         * The start times are returned as another {@link PersistableBundle}
-         * containing the session ids as keys and the start times as long
-         * values. Use {@link android.os.BaseBundle#keySet} to get the list of
-         * session ids, and then {@link android.os.BaseBundle#getLong} to get
-         * the start time for each session.
-         */
-        public static final String SESSION_START_TIMES_MS
-            = "drm.mediadrm.session_start_times_ms";
-
-        /**
-         * Key to extract the end times of sessions. Times are
-         * represented as milliseconds since epoch (1970-01-01T00:00:00Z).
-         * The end times are returned from the {@link PersistableBundle}
-         * from a {@link #getMetrics} call.
-         * The end times are returned as another {@link PersistableBundle}
-         * containing the session ids as keys and the end times as long
-         * values. Use {@link android.os.BaseBundle#keySet} to get the list of
-         * session ids, and then {@link android.os.BaseBundle#getLong} to get
-         * the end time for each session.
-         */
-        public static final String SESSION_END_TIMES_MS
-            = "drm.mediadrm.session_end_times_ms";
-
-        /**
-         * Key to extract the number of successful {@link #getKeyRequest} calls
-         * from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_KEY_REQUEST_OK_COUNT
-            = "drm.mediadrm.get_key_request.ok.count";
-
-        /**
-         * Key to extract the number of failed {@link #getKeyRequest}
-         * calls from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_KEY_REQUEST_ERROR_COUNT
-            = "drm.mediadrm.get_key_request.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #getKeyRequest} calls. The key is used to lookup the list
-         * in the {@link PersistableBundle} returned by a {@link #getMetrics}
-         * call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String GET_KEY_REQUEST_ERROR_LIST
-            = "drm.mediadrm.get_key_request.error.list";
-
-        /**
-         * Key to extract the average time in microseconds of calls to
-         * {@link #getKeyRequest}. The value is retrieved from the
-         * {@link PersistableBundle} returned from {@link #getMetrics}.
-         * The time is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_KEY_REQUEST_OK_TIME_MICROS
-            = "drm.mediadrm.get_key_request.ok.average_time_micros";
-
-        /**
-         * Key to extract the number of successful {@link #provideKeyResponse}
-         * calls from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String PROVIDE_KEY_RESPONSE_OK_COUNT
-            = "drm.mediadrm.provide_key_response.ok.count";
-
-        /**
-         * Key to extract the number of failed {@link #provideKeyResponse}
-         * calls from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String PROVIDE_KEY_RESPONSE_ERROR_COUNT
-            = "drm.mediadrm.provide_key_response.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #provideKeyResponse} calls. The key is used to lookup the
-         * list in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String PROVIDE_KEY_RESPONSE_ERROR_LIST
-            = "drm.mediadrm.provide_key_response.error.list";
-
-        /**
-         * Key to extract the average time in microseconds of calls to
-         * {@link #provideKeyResponse}. The valus is retrieved from the
-         * {@link PersistableBundle} returned from {@link #getMetrics}.
-         * The time is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String PROVIDE_KEY_RESPONSE_OK_TIME_MICROS
-            = "drm.mediadrm.provide_key_response.ok.average_time_micros";
-
-        /**
-         * Key to extract the number of successful {@link #getProvisionRequest}
-         * calls from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_PROVISION_REQUEST_OK_COUNT
-            = "drm.mediadrm.get_provision_request.ok.count";
-
-        /**
-         * Key to extract the number of failed {@link #getProvisionRequest}
-         * calls from the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_PROVISION_REQUEST_ERROR_COUNT
-            = "drm.mediadrm.get_provision_request.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #getProvisionRequest} calls. The key is used to lookup the
-         * list in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String GET_PROVISION_REQUEST_ERROR_LIST
-            = "drm.mediadrm.get_provision_request.error.list";
-
-        /**
-         * Key to extract the number of successful
-         * {@link #provideProvisionResponse} calls from the
-         * {@link PersistableBundle} returned by a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String PROVIDE_PROVISION_RESPONSE_OK_COUNT
-            = "drm.mediadrm.provide_provision_response.ok.count";
-
-        /**
-         * Key to extract the number of failed
-         * {@link #provideProvisionResponse} calls from the
-         * {@link PersistableBundle} returned by a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String PROVIDE_PROVISION_RESPONSE_ERROR_COUNT
-            = "drm.mediadrm.provide_provision_response.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #provideProvisionResponse} calls. The key is used to lookup
-         * the list in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String PROVIDE_PROVISION_RESPONSE_ERROR_LIST
-            = "drm.mediadrm.provide_provision_response.error.list";
-
-        /**
-         * Key to extract the number of successful
-         * {@link #getPropertyByteArray} calls were made with the
-         * {@link #PROPERTY_DEVICE_UNIQUE_ID} value. The key is used to lookup
-         * the value in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_DEVICE_UNIQUE_ID_OK_COUNT
-            = "drm.mediadrm.get_device_unique_id.ok.count";
-
-        /**
-         * Key to extract the number of failed
-         * {@link #getPropertyByteArray} calls were made with the
-         * {@link #PROPERTY_DEVICE_UNIQUE_ID} value. The key is used to lookup
-         * the value in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String GET_DEVICE_UNIQUE_ID_ERROR_COUNT
-            = "drm.mediadrm.get_device_unique_id.error.count";
-
-        /**
-         * Key to extract the list of error codes that were returned from
-         * {@link #getPropertyByteArray} calls with the
-         * {@link #PROPERTY_DEVICE_UNIQUE_ID} value. The key is used to lookup
-         * the list in the {@link PersistableBundle} returned by a
-         * {@link #getMetrics} call.
-         * The list is an array of Long values
-         * ({@link android.os.BaseBundle#getLongArray}).
-         */
-        public static final String GET_DEVICE_UNIQUE_ID_ERROR_LIST
-            = "drm.mediadrm.get_device_unique_id.error.list";
-
-        /**
-         * Key to extraact the count of {@link KeyStatus#STATUS_EXPIRED} events
-         * that occured. The count is extracted from the
-         * {@link PersistableBundle} returned from a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String KEY_STATUS_EXPIRED_COUNT
-            = "drm.mediadrm.key_status.EXPIRED.count";
-
-        /**
-         * Key to extract the count of {@link KeyStatus#STATUS_INTERNAL_ERROR}
-         * events that occured. The count is extracted from the
-         * {@link PersistableBundle} returned from a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String KEY_STATUS_INTERNAL_ERROR_COUNT
-            = "drm.mediadrm.key_status.INTERNAL_ERROR.count";
-
-        /**
-         * Key to extract the count of
-         * {@link KeyStatus#STATUS_OUTPUT_NOT_ALLOWED} events that occured.
-         * The count is extracted from the
-         * {@link PersistableBundle} returned from a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String KEY_STATUS_OUTPUT_NOT_ALLOWED_COUNT
-            = "drm.mediadrm.key_status_change.OUTPUT_NOT_ALLOWED.count";
-
-        /**
-         * Key to extract the count of {@link KeyStatus#STATUS_PENDING}
-         * events that occured. The count is extracted from the
-         * {@link PersistableBundle} returned from a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String KEY_STATUS_PENDING_COUNT
-            = "drm.mediadrm.key_status_change.PENDING.count";
-
-        /**
-         * Key to extract the count of {@link KeyStatus#STATUS_USABLE}
-         * events that occured. The count is extracted from the
-         * {@link PersistableBundle} returned from a {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String KEY_STATUS_USABLE_COUNT
-            = "drm.mediadrm.key_status_change.USABLE.count";
-
-        /**
-         * Key to extract the count of {@link OnEventListener#onEvent}
-         * calls of type PROVISION_REQUIRED occured. The count is
-         * extracted from the {@link PersistableBundle} returned from a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String EVENT_PROVISION_REQUIRED_COUNT
-            = "drm.mediadrm.event.PROVISION_REQUIRED.count";
-
-        /**
-         * Key to extract the count of {@link OnEventListener#onEvent}
-         * calls of type KEY_NEEDED occured. The count is
-         * extracted from the {@link PersistableBundle} returned from a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String EVENT_KEY_NEEDED_COUNT
-            = "drm.mediadrm.event.KEY_NEEDED.count";
-
-        /**
-         * Key to extract the count of {@link OnEventListener#onEvent}
-         * calls of type KEY_EXPIRED occured. The count is
-         * extracted from the {@link PersistableBundle} returned from a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String EVENT_KEY_EXPIRED_COUNT
-            = "drm.mediadrm.event.KEY_EXPIRED.count";
-
-        /**
-         * Key to extract the count of {@link OnEventListener#onEvent}
-         * calls of type VENDOR_DEFINED. The count is
-         * extracted from the {@link PersistableBundle} returned from a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String EVENT_VENDOR_DEFINED_COUNT
-            = "drm.mediadrm.event.VENDOR_DEFINED.count";
-
-        /**
-         * Key to extract the count of {@link OnEventListener#onEvent}
-         * calls of type SESSION_RECLAIMED. The count is
-         * extracted from the {@link PersistableBundle} returned from a
-         * {@link #getMetrics} call.
-         * The count is a Long value ({@link android.os.BaseBundle#getLong}).
-         */
-        public static final String EVENT_SESSION_RECLAIMED_COUNT
-            = "drm.mediadrm.event.SESSION_RECLAIMED.count";
     }
 }

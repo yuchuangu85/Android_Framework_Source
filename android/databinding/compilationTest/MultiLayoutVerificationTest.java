@@ -58,24 +58,25 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
             assertTrue(file.exists());
             assertEquals(1, report.getLocations().size());
             Location location = report.getLocations().get(0);
-            String name = file.getParentFile().getName();
-            if ("layout".equals(name)) {
-                assertEquals(new File(testFolder,
-                        "/app/src/main/res/layout/with_class_name.xml")
-                        .getCanonicalFile(), file.getCanonicalFile());
-                String extract = extract("/app/src/main/res/layout/with_class_name.xml",
-                        location);
-                assertEquals(extract, "AClassName");
-                assertEquals(String.format(
-                        ErrorMessages.MULTI_CONFIG_LAYOUT_CLASS_NAME_MISMATCH,
-                        DEFAULT_APP_PACKAGE + ".databinding.AClassName",
-                        "layout/with_class_name"), exception.getBareMessage());
-                foundNormal = true;
-            } else if ("layout-land".equals(name)) {
+            switch (file.getParentFile().getName()) {
+                case "layout":
+                    assertEquals(new File(testFolder,
+                            "/app/src/main/res/layout/with_class_name.xml")
+                            .getCanonicalFile(), file.getCanonicalFile());
+                    String extract = extract("/app/src/main/res/layout/with_class_name.xml",
+                            location);
+                    assertEquals(extract, "AClassName");
+                    assertEquals(String.format(
+                            ErrorMessages.MULTI_CONFIG_LAYOUT_CLASS_NAME_MISMATCH,
+                            DEFAULT_APP_PACKAGE + ".databinding.AClassName",
+                            "layout/with_class_name"), exception.getBareMessage());
+                    foundNormal = true;
+                    break;
+                case "layout-land":
                     assertEquals(new File(testFolder,
                             "/app/src/main/res/layout-land/with_class_name.xml")
                             .getCanonicalFile(), file.getCanonicalFile());
-                    String extract = extract("/app/src/main/res/layout-land/with_class_name.xml",
+                    extract = extract("/app/src/main/res/layout-land/with_class_name.xml",
                             location);
                     assertEquals("SomeOtherClassName", extract);
                     assertEquals(String.format(
@@ -83,12 +84,13 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
                             DEFAULT_APP_PACKAGE + ".databinding.SomeOtherClassName",
                             "layout-land/with_class_name"), exception.getBareMessage());
                     foundLandscape = true;
-            } else {
-                fail("unexpected error file");
+                    break;
+                default:
+                    fail("unexpected error file");
             }
         }
-        assertTrue("should find default config error\n" + result.error, foundNormal);
-        assertTrue("should find landscape error\n" + result.error, foundLandscape);
+        assertTrue(result.error, foundNormal);
+        assertTrue(result.error, foundLandscape);
     }
 
     @Test
@@ -115,17 +117,19 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
             assertEquals(result.error, 1, report.getLocations().size());
             Location location = report.getLocations().get(0);
             // validated in switch
-            String name = file.getParentFile().getName();
-            String config = name;
+            String config = file.getParentFile().getName();
             String type = "???";
-            if ("layout".equals(name)) {
-                type = "String";
-                foundNormal = true;
-            } else if ("layout-land".equals(name)) {
-                type = "CharSequence";
-                foundLandscape = true;
-            } else {
-                fail("unexpected error file");
+            switch (file.getParentFile().getName()) {
+                case "layout":
+                    type = "String";
+                    foundNormal = true;
+                    break;
+                case "layout-land":
+                    type = "CharSequence";
+                    foundLandscape = true;
+                    break;
+                default:
+                    fail("unexpected error file");
             }
             assertEquals(new File(testFolder,
                     "/app/src/main/res/" + config + "/layout_with_variable_type.xml")
@@ -168,17 +172,19 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
             assertEquals(result.error, 1, report.getLocations().size());
             Location location = report.getLocations().get(0);
             // validated in switch
-            String name = file.getParentFile().getName();
-            String config = name;
+            String config = file.getParentFile().getName();
             String type = "???";
-            if ("layout".equals(name)) {
-                type = typeNormal;
-                foundNormal = true;
-            } else if ("layout-land".equals(name)) {
-                type = typeLand;
-                foundLandscape = true;
-            } else {
-                fail("unexpected error file");
+            switch (file.getParentFile().getName()) {
+                case "layout":
+                    type = typeNormal;
+                    foundNormal = true;
+                    break;
+                case "layout-land":
+                    type = typeLand;
+                    foundLandscape = true;
+                    break;
+                default:
+                    fail("unexpected error file");
             }
             assertEquals(new File(testFolder,
                     "/app/src/main/res/" + config + "/layout_with_import_type.xml")
@@ -208,34 +214,35 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
         CompilationResult result = runGradle("assembleDebug");
         assertNotEquals(result.output, 0, result.resultCode);
         List<ScopedException> exceptions = result.getBindingExceptions();
+        assertEquals(result.error, 2, exceptions.size());
 
         boolean foundNormal = false;
         boolean foundLandscape = false;
         for (ScopedException exception : exceptions) {
             ScopedErrorReport report = exception.getScopedErrorReport();
             assertNotNull(report);
-            if (exception.getMessage().startsWith("Cannot find the setter")) {
-                continue;
-            }
             File file = new File(report.getFilePath());
             assertTrue(file.exists());
             assertEquals(result.error, 1, report.getLocations().size());
             Location location = report.getLocations().get(0);
             // validated in switch
             String config = file.getParentFile().getName();
-            if ("layout".equals(config)) {
-                String extract = extract("/app/src/main/res/" + config + "/foo.xml", location);
-                assertEquals(extract, "<include layout=\"@layout/basic_layout\" "
-                        + "android:id=\"@+id/sharedId\" bind:myVariable=\"@{myVariable}\"/>");
-                foundNormal = true;
-            } else if ("layout-land".equals(config)) {
-                String extract = extract("/app/src/main/res/" + config + "/foo.xml", location);
-                assertEquals(extract, "<TextView android:layout_width=\"wrap_content\" "
-                        + "android:layout_height=\"wrap_content\" android:id=\"@+id/sharedId\" "
-                        + "android:text=\"@{myVariable}\"/>");
-                foundLandscape = true;
-            } else {
-                fail("unexpected error file");
+            switch (file.getParentFile().getName()) {
+                case "layout":
+                    String extract = extract("/app/src/main/res/" + config + "/foo.xml", location);
+                    assertEquals(extract, "<include layout=\"@layout/basic_layout\" "
+                            + "android:id=\"@+id/sharedId\" bind:myVariable=\"@{myVariable}\"/>");
+                    foundNormal = true;
+                    break;
+                case "layout-land":
+                    extract = extract("/app/src/main/res/" + config + "/foo.xml", location);
+                    assertEquals(extract, "<TextView android:layout_width=\"wrap_content\" "
+                            + "android:layout_height=\"wrap_content\" android:id=\"@+id/sharedId\" "
+                            + "android:text=\"@{myVariable}\"/>");
+                    foundLandscape = true;
+                    break;
+                default:
+                    fail("unexpected error file");
             }
             assertEquals(new File(testFolder,
                     "/app/src/main/res/" + config + "/foo.xml").getCanonicalFile(),

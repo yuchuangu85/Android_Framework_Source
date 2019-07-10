@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security.cert;
@@ -28,132 +20,103 @@ package java.security.cert;
 import java.security.PublicKey;
 
 /**
- * This class represents the successful result of the PKIX certification
- * path validation algorithm.
+ * The implementation of the result of the PKIX certification path validation.
  *
- * <p>Instances of {@code PKIXCertPathValidatorResult} are returned by the
- * {@link CertPathValidator#validate validate} method of
- * {@code CertPathValidator} objects implementing the PKIX algorithm.
- *
- * <p> All {@code PKIXCertPathValidatorResult} objects contain the
- * valid policy tree and subject public key resulting from the
- * validation algorithm, as well as a {@code TrustAnchor} describing
- * the certification authority (CA) that served as a trust anchor for the
- * certification path.
- * <p>
- * <b>Concurrent Access</b>
- * <p>
- * Unless otherwise specified, the methods defined in this class are not
- * thread-safe. Multiple threads that need to access a single
- * object concurrently should synchronize amongst themselves and
- * provide the necessary locking. Multiple threads each manipulating
- * separate objects need not synchronize.
- *
- * @see CertPathValidatorResult
- *
- * @since       1.4
- * @author      Yassir Elley
- * @author      Sean Mullan
+ * @see CertPathValidator
+ * @see CertPathValidator#validate(CertPath, CertPathParameters)
  */
 public class PKIXCertPathValidatorResult implements CertPathValidatorResult {
-
-    private TrustAnchor trustAnchor;
-    private PolicyNode policyTree;
-    private PublicKey subjectPublicKey;
+    // A trust anchor used during validation of certification path
+    private final TrustAnchor trustAnchor;
+    // Valid policy tree resulting from PKIX
+    // certification path validation algorithm
+    private final PolicyNode policyTree;
+    // Public key of the subject (target) certificate
+    private final PublicKey subjectPublicKey;
 
     /**
-     * Creates an instance of {@code PKIXCertPathValidatorResult}
-     * containing the specified parameters.
+     * Creates a new {@code PKIXCertPathValidatorResult} with the specified
+     * trust anchor, the valid policy tree and the subject public key.
      *
-     * @param trustAnchor a {@code TrustAnchor} describing the CA that
-     * served as a trust anchor for the certification path
-     * @param policyTree the immutable valid policy tree, or {@code null}
-     * if there are no valid policies
-     * @param subjectPublicKey the public key of the subject
-     * @throws NullPointerException if the {@code subjectPublicKey} or
-     * {@code trustAnchor} parameters are {@code null}
+     * @param trustAnchor
+     *            the trust anchor describing the certification authority (CA)
+     *            that served as trust anchor for the certification path.
+     * @param policyTree
+     *            the valid policy tree from the validation.
+     * @param subjectPublicKey
+     *            the subject public key from the validation.
      */
     public PKIXCertPathValidatorResult(TrustAnchor trustAnchor,
-        PolicyNode policyTree, PublicKey subjectPublicKey)
-    {
-        if (subjectPublicKey == null)
-            throw new NullPointerException("subjectPublicKey must be non-null");
-        if (trustAnchor == null)
-            throw new NullPointerException("trustAnchor must be non-null");
+            PolicyNode policyTree, PublicKey subjectPublicKey) {
         this.trustAnchor = trustAnchor;
         this.policyTree = policyTree;
         this.subjectPublicKey = subjectPublicKey;
+        if (this.trustAnchor == null) {
+            throw new NullPointerException("trustAnchor == null");
+        }
+        if (this.subjectPublicKey == null) {
+            throw new NullPointerException("subjectPublicKey == null");
+        }
     }
 
     /**
-     * Returns the {@code TrustAnchor} describing the CA that served
-     * as a trust anchor for the certification path.
+     * Returns the valid policy tree from the validation.
      *
-     * @return the {@code TrustAnchor} (never {@code null})
-     */
-    public TrustAnchor getTrustAnchor() {
-        return trustAnchor;
-    }
-
-    /**
-     * Returns the root node of the valid policy tree resulting from the
-     * PKIX certification path validation algorithm. The
-     * {@code PolicyNode} object that is returned and any objects that
-     * it returns through public methods are immutable.
-     *
-     * <p>Most applications will not need to examine the valid policy tree.
-     * They can achieve their policy processing goals by setting the
-     * policy-related parameters in {@code PKIXParameters}. However, more
-     * sophisticated applications, especially those that process policy
-     * qualifiers, may need to traverse the valid policy tree using the
-     * {@link PolicyNode#getParent PolicyNode.getParent} and
-     * {@link PolicyNode#getChildren PolicyNode.getChildren} methods.
-     *
-     * @return the root node of the valid policy tree, or {@code null}
-     * if there are no valid policies
+     * @return the valid policy tree from the validation.
      */
     public PolicyNode getPolicyTree() {
         return policyTree;
     }
 
     /**
-     * Returns the public key of the subject (target) of the certification
-     * path, including any inherited public key parameters if applicable.
+     * Returns the subject public key from the validation.
      *
-     * @return the public key of the subject (never {@code null})
+     * @return the subject public key from the validation.
      */
     public PublicKey getPublicKey() {
         return subjectPublicKey;
     }
 
     /**
-     * Returns a copy of this object.
+     * Returns the trust anchor describing the certification authority (CA) that
+     * served as trust anchor for this certification path.
      *
-     * @return the copy
+     * @return the trust anchor.
+     */
+    public TrustAnchor getTrustAnchor() {
+        return trustAnchor;
+    }
+
+    /**
+     * Clones this {@code PKIXCertPathValidatorResult} instance.
+     *
+     * @return the cloned instance.
      */
     public Object clone() {
         try {
             return super.clone();
         } catch (CloneNotSupportedException e) {
-            /* Cannot happen */
-            throw new InternalError(e.toString(), e);
+            throw new AssertionError(e);
         }
     }
 
     /**
-     * Return a printable representation of this
-     * {@code PKIXCertPathValidatorResult}.
+     * Returns a string representation for this {@code
+     * PKIXCertPathValidatorResult} instance.
      *
-     * @return a {@code String} describing the contents of this
-     *         {@code PKIXCertPathValidatorResult}
+     * @return a string representation for this {@code
+     *         PKIXCertPathValidatorResult} instance.
      */
     public String toString() {
-        StringBuffer sb = new StringBuffer();
-        sb.append("PKIXCertPathValidatorResult: [\n");
-        sb.append("  Trust Anchor: " + trustAnchor.toString() + "\n");
-        sb.append("  Policy Tree: " + String.valueOf(policyTree) + "\n");
-        sb.append("  Subject Public Key: " + subjectPublicKey + "\n");
-        sb.append("]");
+        StringBuilder sb = new StringBuilder(super.toString());
+        sb.append(": [\n Trust Anchor: ");
+        sb.append(trustAnchor.toString());
+        sb.append("\n Policy Tree: ");
+        sb.append(policyTree == null ? "no valid policy tree\n"
+                                     : policyTree.toString());
+        sb.append("\n Subject Public Key: ");
+        sb.append(subjectPublicKey.toString());
+        sb.append("\n]");
         return sb.toString();
     }
 }

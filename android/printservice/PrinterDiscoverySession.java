@@ -16,9 +16,7 @@
 
 package android.printservice;
 
-import android.annotation.NonNull;
 import android.content.pm.ParceledListSlice;
-import android.os.CancellationSignal;
 import android.os.RemoteException;
 import android.print.PrinterCapabilitiesInfo;
 import android.print.PrinterId;
@@ -140,7 +138,7 @@ public abstract class PrinterDiscoverySession {
      * @see #removePrinters(List)
      * @see #isDestroyed()
      */
-    public final @NonNull List<PrinterInfo> getPrinters() {
+    public final List<PrinterInfo> getPrinters() {
         PrintService.throwIfNotCalledOnMainThread();
         if (mIsDestroyed) {
             return Collections.emptyList();
@@ -163,7 +161,7 @@ public abstract class PrinterDiscoverySession {
      * @see #getPrinters()
      * @see #isDestroyed()
      */
-    public final void addPrinters(@NonNull List<PrinterInfo> printers) {
+    public final void addPrinters(List<PrinterInfo> printers) {
         PrintService.throwIfNotCalledOnMainThread();
 
         // If the session is destroyed - nothing do to.
@@ -227,7 +225,7 @@ public abstract class PrinterDiscoverySession {
      * @see #getPrinters()
      * @see #isDestroyed()
      */
-    public final void removePrinters(@NonNull List<PrinterId> printerIds) {
+    public final void removePrinters(List<PrinterId> printerIds) {
         PrintService.throwIfNotCalledOnMainThread();
 
         // If the session is destroyed - nothing do to.
@@ -352,7 +350,7 @@ public abstract class PrinterDiscoverySession {
      * @see #removePrinters(List)
      * @see #isPrinterDiscoveryStarted()
      */
-    public abstract void onStartPrinterDiscovery(@NonNull List<PrinterId> priorityList);
+    public abstract void onStartPrinterDiscovery(List<PrinterId> priorityList);
 
     /**
      * Callback notifying you that you should stop printer discovery.
@@ -374,10 +372,10 @@ public abstract class PrinterDiscoverySession {
      *
      * @param printerIds The printers to validate.
      *
-     * @see android.print.PrinterInfo.Builder#setCapabilities(PrinterCapabilitiesInfo)
+     * @see PrinterInfo.Builder#setCapabilities(PrinterCapabilitiesInfo)
      *      PrinterInfo.Builder.setCapabilities(PrinterCapabilitiesInfo)
      */
-    public abstract void onValidatePrinters(@NonNull List<PrinterId> printerIds);
+    public abstract void onValidatePrinters(List<PrinterId> printerIds);
 
     /**
      * Callback asking you to start tracking the state of a printer. Tracking
@@ -402,26 +400,10 @@ public abstract class PrinterDiscoverySession {
      * @param printerId The printer to start tracking.
      *
      * @see #onStopPrinterStateTracking(PrinterId)
-     * @see android.print.PrinterInfo.Builder#setCapabilities(PrinterCapabilitiesInfo)
+     * @see PrinterInfo.Builder#setCapabilities(PrinterCapabilitiesInfo)
      *      PrinterInfo.Builder.setCapabilities(PrinterCapabilitiesInfo)
      */
-    public abstract void onStartPrinterStateTracking(@NonNull PrinterId printerId);
-
-    /**
-     * Called by the system to request the custom icon for a printer. Once the icon is available the
-     * print services uses {@link CustomPrinterIconCallback#onCustomPrinterIconLoaded} to send the
-     * icon to the system.
-     *
-     * @param printerId The printer to icon belongs to.
-     * @param cancellationSignal Signal used to cancel the request.
-     * @param callback Callback for returning the icon to the system.
-     *
-     * @see android.print.PrinterInfo.Builder#setHasCustomPrinterIcon(boolean)
-     */
-    public void onRequestCustomPrinterIcon(@NonNull PrinterId printerId,
-            @NonNull CancellationSignal cancellationSignal,
-            @NonNull CustomPrinterIconCallback callback) {
-    }
+    public abstract void onStartPrinterStateTracking(PrinterId printerId);
 
     /**
      * Callback asking you to stop tracking the state of a printer. The passed
@@ -432,7 +414,7 @@ public abstract class PrinterDiscoverySession {
      *
      * @see #onStartPrinterStateTracking(PrinterId)
      */
-    public abstract void onStopPrinterStateTracking(@NonNull PrinterId printerId);
+    public abstract void onStopPrinterStateTracking(PrinterId printerId);
 
     /**
      * Gets the printers that should be tracked. These are printers that are
@@ -452,7 +434,7 @@ public abstract class PrinterDiscoverySession {
      * @see #onStopPrinterStateTracking(PrinterId)
      * @see #isDestroyed()
      */
-    public final @NonNull List<PrinterId> getTrackedPrinters() {
+    public final List<PrinterId> getTrackedPrinters() {
         PrintService.throwIfNotCalledOnMainThread();
         if (mIsDestroyed) {
             return Collections.emptyList();
@@ -494,7 +476,7 @@ public abstract class PrinterDiscoverySession {
         return mIsDiscoveryStarted;
     }
 
-    void startPrinterDiscovery(@NonNull List<PrinterId> priorityList) {
+    void startPrinterDiscovery(List<PrinterId> priorityList) {
         if (!mIsDestroyed) {
             mIsDiscoveryStarted = true;
             sendOutOfDiscoveryPeriodPrinterChanges();
@@ -512,13 +494,13 @@ public abstract class PrinterDiscoverySession {
         }
     }
 
-    void validatePrinters(@NonNull List<PrinterId> printerIds) {
+    void validatePrinters(List<PrinterId> printerIds) {
         if (!mIsDestroyed && mObserver != null) {
             onValidatePrinters(printerIds);
         }
     }
 
-    void startPrinterStateTracking(@NonNull PrinterId printerId) {
+    void startPrinterStateTracking(PrinterId printerId) {
         if (!mIsDestroyed && mObserver != null
                 && !mTrackedPrinters.contains(printerId)) {
             mTrackedPrinters.add(printerId);
@@ -526,21 +508,7 @@ public abstract class PrinterDiscoverySession {
         }
     }
 
-    /**
-     * Request the custom icon for a printer.
-     *
-     * @param printerId The printer to icon belongs to.
-     * @see android.print.PrinterInfo.Builder#setHasCustomPrinterIcon()
-     */
-    void requestCustomPrinterIcon(@NonNull PrinterId printerId) {
-        if (!mIsDestroyed && mObserver != null) {
-            CustomPrinterIconCallback callback = new CustomPrinterIconCallback(printerId,
-                    mObserver);
-            onRequestCustomPrinterIcon(printerId, new CancellationSignal(), callback);
-        }
-    }
-
-    void stopPrinterStateTracking(@NonNull PrinterId printerId) {
+    void stopPrinterStateTracking(PrinterId printerId) {
         if (!mIsDestroyed && mObserver != null
                 && mTrackedPrinters.remove(printerId)) {
             onStopPrinterStateTracking(printerId);

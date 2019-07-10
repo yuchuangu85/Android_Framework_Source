@@ -41,11 +41,11 @@ import android.view.animation.AnimationUtils;
 import android.widget.ListView;
 import android.widget.Spinner;
 
-import com.android.internal.R;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringTokenizer;
+
+import com.android.internal.R;
 
 /**
  * A Transition holds information about animations that will be run on its
@@ -192,7 +192,7 @@ public abstract class Transition implements Cloneable {
     private TransitionValuesMaps mStartValues = new TransitionValuesMaps();
     private TransitionValuesMaps mEndValues = new TransitionValuesMaps();
     TransitionSet mParent = null;
-    int[] mMatchOrder = DEFAULT_MATCH_ORDER;
+    private int[] mMatchOrder = DEFAULT_MATCH_ORDER;
     ArrayList<TransitionValues> mStartValuesList; // only valid after playTransition starts
     ArrayList<TransitionValues> mEndValuesList; // only valid after playTransitions starts
 
@@ -246,7 +246,7 @@ public abstract class Transition implements Cloneable {
 
     // The function used to interpolate along two-dimensional points. Typically used
     // for adding curves to x/y View motion.
-    PathMotion mPathMotion = STRAIGHT_PATH_MOTION;
+    private PathMotion mPathMotion = STRAIGHT_PATH_MOTION;
 
     /**
      * Constructs a Transition object with no target objects. A transition with
@@ -780,7 +780,7 @@ public abstract class Transition implements Cloneable {
                 }
             }
         }
-        if (startDelays.size() != 0) {
+        if (minStartDelay != 0) {
             for (int i = 0; i < startDelays.size(); i++) {
                 int index = startDelays.keyAt(i);
                 Animator animator = mAnimators.get(index);
@@ -799,10 +799,8 @@ public abstract class Transition implements Cloneable {
      * targetId list. If the target parameter is null, then the target list
      * is not checked (this is in the case of ListView items, where the
      * views are ignored and only the ids are used).
-     *
-     * @hide
      */
-    public boolean isValidTarget(View target) {
+    boolean isValidTarget(View target) {
         if (target == null) {
             return false;
         }
@@ -1943,26 +1941,6 @@ public abstract class Transition implements Cloneable {
     }
 
     /**
-     * Force the transition to move to its end state, ending all the animators.
-     *
-     * @hide
-     */
-    void forceToEnd(ViewGroup sceneRoot) {
-        ArrayMap<Animator, AnimationInfo> runningAnimators = getRunningAnimators();
-        int numOldAnims = runningAnimators.size();
-        if (sceneRoot != null) {
-            WindowId windowId = sceneRoot.getWindowId();
-            for (int i = numOldAnims - 1; i >= 0; i--) {
-                AnimationInfo info = runningAnimators.valueAt(i);
-                if (info.view != null && windowId != null && windowId.equals(info.windowId)) {
-                    Animator anim = runningAnimators.keyAt(i);
-                    anim.end();
-                }
-            }
-        }
-    }
-
-    /**
      * This method cancels a transition that is currently running.
      *
      * @hide
@@ -2074,18 +2052,18 @@ public abstract class Transition implements Cloneable {
      *     attributed with the fully-described class name. For example:</p>
      * <pre>
      * {@code
-     * <changeBounds>
-     *     <pathMotion class="my.app.transition.MyPathMotion"/>
-     * </changeBounds>
+     * &lt;changeBounds>
+     *     &lt;pathMotion class="my.app.transition.MyPathMotion"/>
+     * &lt;/changeBounds>
      * }
      * </pre>
      * <p>or</p>
      * <pre>
      * {@code
-     * <changeBounds>
-     *   <arcMotion android:minimumHorizontalAngle="15"
+     * &lt;changeBounds>
+     *   &lt;arcMotion android:minimumHorizontalAngle="15"
      *     android:minimumVerticalAngle="0" android:maximumAngle="90"/>
-     * </changeBounds>
+     * &lt;/changeBounds>
      * }
      * </pre>
      *
@@ -2112,18 +2090,20 @@ public abstract class Transition implements Cloneable {
      *     the built-in tags <code>arcMotion</code> or <code>patternPathMotion</code> or it can
      *     be a custom PathMotion using <code>pathMotion</code> with the <code>class</code>
      *     attributed with the fully-described class name. For example:</p>
-     * <pre>{@code
-     * <changeBounds>
-     *     <pathMotion class="my.app.transition.MyPathMotion"/>
-     * </changeBounds>}
+     * <pre>
+     * {@code
+     * &lt;changeBounds>
+     *     &lt;pathMotion class="my.app.transition.MyPathMotion"/>
+     * &lt;/changeBounds>}
      * </pre>
      * <p>or</p>
-     * <pre>{@code
-     * <changeBounds>
-     *   <arcMotion android:minimumHorizontalAngle="15"
+     * <pre>
+     * {@code
+     * &lt;changeBounds>
+     *   &lt;arcMotion android:minimumHorizontalAngle="15"
      *              android:minimumVerticalAngle="0"
      *              android:maximumAngle="90"/>
-     * </changeBounds>}
+     * &lt;/changeBounds>}
      * </pre>
      *
      * @return The algorithm object used to interpolate along two dimensions.
@@ -2212,6 +2192,9 @@ public abstract class Transition implements Cloneable {
     public ArrayMap<String, String> getNameOverrides() {
         return mNameOverrides;
     }
+
+    /** @hide */
+    public void forceVisibility(int visibility, boolean isStartValue) {}
 
     @Override
     public String toString() {
@@ -2341,6 +2324,34 @@ public abstract class Transition implements Cloneable {
          * @param transition The transition which was resumed.
          */
         void onTransitionResume(Transition transition);
+    }
+
+    /**
+     * Utility adapter class to avoid having to override all three methods
+     * whenever someone just wants to listen for a single event.
+     *
+     * @hide
+     * */
+    public static class TransitionListenerAdapter implements TransitionListener {
+        @Override
+        public void onTransitionStart(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionEnd(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionCancel(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionPause(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionResume(Transition transition) {
+        }
     }
 
     /**

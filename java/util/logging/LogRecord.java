@@ -1,588 +1,505 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2016, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.util.logging;
-import dalvik.system.VMStack;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.io.*;
+
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.MissingResourceException;
+import java.util.ResourceBundle;
 
 /**
- * LogRecord objects are used to pass logging requests between
- * the logging framework and individual log Handlers.
+ * A {@code LogRecord} object represents a logging request. It is passed between
+ * the logging framework and individual logging handlers. Client applications
+ * should not modify a {@code LogRecord} object that has been passed into the
+ * logging framework.
  * <p>
- * When a LogRecord is passed into the logging framework it
- * logically belongs to the framework and should no longer be
- * used or updated by the client application.
- * <p>
- * Note that if the client application has not specified an
- * explicit source method name and source class name, then the
- * LogRecord class will infer them automatically when they are
- * first accessed (due to a call on getSourceMethodName or
- * getSourceClassName) by analyzing the call stack.  Therefore,
- * if a logging Handler wants to pass off a LogRecord to another
- * thread, or to transmit it over RMI, and if it wishes to subsequently
- * obtain method name or class name information it should call
- * one of getSourceClassName or getSourceMethodName to force
- * the values to be filled in.
- * <p>
- * <b> Serialization notes:</b>
- * <ul>
- * <li>The LogRecord class is serializable.
- *
- * <li> Because objects in the parameters array may not be serializable,
- * during serialization all objects in the parameters array are
- * written as the corresponding Strings (using Object.toString).
- *
- * <li> The ResourceBundle is not transmitted as part of the serialized
- * form, but the resource bundle name is, and the recipient object's
- * readObject method will attempt to locate a suitable resource bundle.
- *
- * </ul>
- *
- * @since 1.4
+ * The {@code LogRecord} class will infer the source method name and source
+ * class name the first time they are accessed if the client application didn't
+ * specify them explicitly. This automatic inference is based on the analysis of
+ * the call stack and is not guaranteed to be precise. Client applications
+ * should force the initialization of these two fields by calling
+ * {@code getSourceClassName} or {@code getSourceMethodName} if they expect to
+ * use them after passing the {@code LogRecord} object to another thread or
+ * transmitting it over RMI.
  */
+public class LogRecord implements Serializable {
 
-public class LogRecord implements java.io.Serializable {
-    private static final AtomicLong globalSequenceNumber
-        = new AtomicLong(0);
+    private static final long serialVersionUID = 5372048053134512534L;
+
+    // The major byte used in serialization.
+    private static final int MAJOR = 1;
+
+    // The minor byte used in serialization.
+    private static final int MINOR = 4;
+
+    // Store the current value for the sequence number.
+    private static long currentSequenceNumber = 0;
+
+    // Store the id for each thread.
+    private static ThreadLocal<Integer> currentThreadId = new ThreadLocal<Integer>();
+
+    // The base id as the starting point for thread ID allocation.
+    private static int initThreadId = 0;
 
     /**
-     * The default value of threadID will be the current thread's
-     * thread id, for ease of correlation, unless it is greater than
-     * MIN_SEQUENTIAL_THREAD_ID, in which case we try harder to keep
-     * our promise to keep threadIDs unique by avoiding collisions due
-     * to 32-bit wraparound.  Unfortunately, LogRecord.getThreadID()
-     * returns int, while Thread.getId() returns long.
-     */
-    private static final int MIN_SEQUENTIAL_THREAD_ID = Integer.MAX_VALUE / 2;
-
-    private static final AtomicInteger nextThreadId
-        = new AtomicInteger(MIN_SEQUENTIAL_THREAD_ID);
-
-    private static final ThreadLocal<Integer> threadIds = new ThreadLocal<>();
-
-    /**
-     * @serial Logging message level
+     * The logging level.
+     *
+     * @serial
      */
     private Level level;
 
     /**
-     * @serial Sequence number
+     * The sequence number.
+     *
+     * @serial
      */
     private long sequenceNumber;
 
     /**
-     * @serial Class that issued logging call
+     * The name of the class that issued the logging call.
+     *
+     * @serial
      */
     private String sourceClassName;
 
     /**
-     * @serial Method that issued logging call
+     * The name of the method that issued the logging call.
+     *
+     * @serial
      */
     private String sourceMethodName;
 
     /**
-     * @serial Non-localized raw message text
+     * The original message text.
+     *
+     * @serial
      */
     private String message;
 
     /**
-     * @serial Thread ID for thread that issued logging call.
+     * The ID of the thread that issued the logging call.
+     *
+     * @serial
      */
     private int threadID;
 
     /**
-     * @serial Event time in milliseconds since 1970
+     * The time that the event occurred, in milliseconds since 1970.
+     *
+     * @serial
      */
     private long millis;
 
     /**
-     * @serial The Throwable (if any) associated with log message
+     * The associated {@code Throwable} object if any.
+     *
+     * @serial
      */
     private Throwable thrown;
 
     /**
-     * @serial Name of the source Logger.
+     * The name of the source logger.
+     *
+     * @serial
      */
     private String loggerName;
 
     /**
-     * @serial Resource bundle name to localized log message.
+     * The name of the resource bundle used to localize the log message.
+     *
+     * @serial
      */
     private String resourceBundleName;
 
-    private transient boolean needToInferCaller;
-    private transient Object parameters[];
+    // The associated resource bundle if any.
     private transient ResourceBundle resourceBundle;
 
-    /**
-     * Returns the default value for a new LogRecord's threadID.
-     */
-    private int defaultThreadID() {
-        long tid = Thread.currentThread().getId();
-        if (tid < MIN_SEQUENTIAL_THREAD_ID) {
-            return (int) tid;
-        } else {
-            Integer id = threadIds.get();
-            if (id == null) {
-                id = nextThreadId.getAndIncrement();
-                threadIds.set(id);
-            }
-            return id;
-        }
-    }
+    // The parameters.
+    private transient Object[] parameters;
+
+    // If the source method and source class has been initialized
+    private transient boolean sourceInitialized;
 
     /**
-     * Construct a LogRecord with the given level and message values.
-     * <p>
-     * The sequence property will be initialized with a new unique value.
-     * These sequence values are allocated in increasing order within a VM.
-     * <p>
-     * The millis property will be initialized to the current time.
-     * <p>
-     * The thread ID property will be initialized with a unique ID for
-     * the current thread.
-     * <p>
-     * All other properties will be initialized to "null".
+     * Constructs a {@code LogRecord} object using the supplied the logging
+     * level and message. The millis property is set to the current time. The
+     * sequence property is set to a new unique value, allocated in increasing
+     * order within the VM. The thread ID is set to a unique value
+     * for the current thread. All other properties are set to {@code null}.
      *
-     * @param level  a logging level value
-     * @param msg  the raw non-localized logging message (may be null)
+     * @param level
+     *            the logging level, may not be {@code null}.
+     * @param msg
+     *            the raw message.
+     * @throws NullPointerException
+     *             if {@code level} is {@code null}.
      */
     public LogRecord(Level level, String msg) {
-        // Make sure level isn't null, by calling random method.
-        level.getClass();
+        if (level == null) {
+            throw new NullPointerException("level == null");
+        }
         this.level = level;
-        message = msg;
-        // Assign a thread ID and a unique sequence number.
-        sequenceNumber = globalSequenceNumber.getAndIncrement();
-        threadID = defaultThreadID();
-        millis = System.currentTimeMillis();
-        needToInferCaller = true;
-   }
+        this.message = msg;
+        this.millis = System.currentTimeMillis();
+
+        synchronized (LogRecord.class) {
+            this.sequenceNumber = currentSequenceNumber++;
+            Integer id = currentThreadId.get();
+            if (id == null) {
+                this.threadID = initThreadId;
+                currentThreadId.set(Integer.valueOf(initThreadId++));
+            } else {
+                this.threadID = id.intValue();
+            }
+        }
+
+        this.sourceClassName = null;
+        this.sourceMethodName = null;
+        this.loggerName = null;
+        this.parameters = null;
+        this.resourceBundle = null;
+        this.resourceBundleName = null;
+        this.thrown = null;
+    }
 
     /**
-     * Get the source Logger's name.
+     * Gets the logging level.
      *
-     * @return source logger name (may be null)
-     */
-    public String getLoggerName() {
-        return loggerName;
-    }
-
-    /**
-     * Set the source Logger's name.
-     *
-     * @param name   the source logger name (may be null)
-     */
-    public void setLoggerName(String name) {
-        loggerName = name;
-    }
-
-    /**
-     * Get the localization resource bundle
-     * <p>
-     * This is the ResourceBundle that should be used to localize
-     * the message string before formatting it.  The result may
-     * be null if the message is not localizable, or if no suitable
-     * ResourceBundle is available.
-     * @return the localization resource bundle
-     */
-    public ResourceBundle getResourceBundle() {
-        return resourceBundle;
-    }
-
-    /**
-     * Set the localization resource bundle.
-     *
-     * @param bundle  localization bundle (may be null)
-     */
-    public void setResourceBundle(ResourceBundle bundle) {
-        resourceBundle = bundle;
-    }
-
-    /**
-     * Get the localization resource bundle name
-     * <p>
-     * This is the name for the ResourceBundle that should be
-     * used to localize the message string before formatting it.
-     * The result may be null if the message is not localizable.
-     * @return the localization resource bundle name
-     */
-    public String getResourceBundleName() {
-        return resourceBundleName;
-    }
-
-    /**
-     * Set the localization resource bundle name.
-     *
-     * @param name  localization bundle name (may be null)
-     */
-    public void setResourceBundleName(String name) {
-        resourceBundleName = name;
-    }
-
-    /**
-     * Get the logging message level, for example Level.SEVERE.
-     * @return the logging message level
+     * @return the logging level.
      */
     public Level getLevel() {
         return level;
     }
 
     /**
-     * Set the logging message level, for example Level.SEVERE.
-     * @param level the logging message level
+     * Sets the logging level.
+     *
+     * @param level
+     *            the level to set.
+     * @throws NullPointerException
+     *             if {@code level} is {@code null}.
      */
     public void setLevel(Level level) {
         if (level == null) {
-            throw new NullPointerException();
+            throw new NullPointerException("level == null");
         }
         this.level = level;
     }
 
     /**
-     * Get the sequence number.
-     * <p>
-     * Sequence numbers are normally assigned in the LogRecord
-     * constructor, which assigns unique sequence numbers to
-     * each new LogRecord in increasing order.
-     * @return the sequence number
-     */
-    public long getSequenceNumber() {
-        return sequenceNumber;
-    }
-
-    /**
-     * Set the sequence number.
-     * <p>
-     * Sequence numbers are normally assigned in the LogRecord constructor,
-     * so it should not normally be necessary to use this method.
-     * @param seq the sequence number
-     */
-    public void setSequenceNumber(long seq) {
-        sequenceNumber = seq;
-    }
-
-    /**
-     * Get the  name of the class that (allegedly) issued the logging request.
-     * <p>
-     * Note that this sourceClassName is not verified and may be spoofed.
-     * This information may either have been provided as part of the
-     * logging call, or it may have been inferred automatically by the
-     * logging framework.  In the latter case, the information may only
-     * be approximate and may in fact describe an earlier call on the
-     * stack frame.
-     * <p>
-     * May be null if no information could be obtained.
+     * Gets the name of the logger.
      *
-     * @return the source class name
+     * @return the logger name.
      */
-    public String getSourceClassName() {
-        if (needToInferCaller) {
-            inferCaller();
-        }
-        return sourceClassName;
+    public String getLoggerName() {
+        return loggerName;
     }
 
     /**
-     * Set the name of the class that (allegedly) issued the logging request.
+     * Sets the name of the logger.
      *
-     * @param sourceClassName the source class name (may be null)
+     * @param loggerName
+     *            the logger name to set.
      */
-    public void setSourceClassName(String sourceClassName) {
-        this.sourceClassName = sourceClassName;
-        needToInferCaller = false;
+    public void setLoggerName(String loggerName) {
+        this.loggerName = loggerName;
     }
 
     /**
-     * Get the  name of the method that (allegedly) issued the logging request.
-     * <p>
-     * Note that this sourceMethodName is not verified and may be spoofed.
-     * This information may either have been provided as part of the
-     * logging call, or it may have been inferred automatically by the
-     * logging framework.  In the latter case, the information may only
-     * be approximate and may in fact describe an earlier call on the
-     * stack frame.
-     * <p>
-     * May be null if no information could be obtained.
+     * Gets the raw message.
      *
-     * @return the source method name
-     */
-    public String getSourceMethodName() {
-        if (needToInferCaller) {
-            inferCaller();
-        }
-        return sourceMethodName;
-    }
-
-    /**
-     * Set the name of the method that (allegedly) issued the logging request.
-     *
-     * @param sourceMethodName the source method name (may be null)
-     */
-    public void setSourceMethodName(String sourceMethodName) {
-        this.sourceMethodName = sourceMethodName;
-        needToInferCaller = false;
-    }
-
-    /**
-     * Get the "raw" log message, before localization or formatting.
-     * <p>
-     * May be null, which is equivalent to the empty string "".
-     * <p>
-     * This message may be either the final text or a localization key.
-     * <p>
-     * During formatting, if the source logger has a localization
-     * ResourceBundle and if that ResourceBundle has an entry for
-     * this message string, then the message string is replaced
-     * with the localized value.
-     *
-     * @return the raw message string
+     * @return the raw message, may be {@code null}.
      */
     public String getMessage() {
         return message;
     }
 
     /**
-     * Set the "raw" log message, before localization or formatting.
+     * Sets the raw message. When this record is formatted by a logger that has
+     * a localization resource bundle that contains an entry for {@code message},
+     * then the raw message is replaced with its localized version.
      *
-     * @param message the raw message string (may be null)
+     * @param message
+     *            the raw message to set, may be {@code null}.
      */
     public void setMessage(String message) {
         this.message = message;
     }
 
     /**
-     * Get the parameters to the log message.
+     * Gets the time when this event occurred, in milliseconds since 1970.
      *
-     * @return the log message parameters.  May be null if
-     *                  there are no parameters.
-     */
-    public Object[] getParameters() {
-        return parameters;
-    }
-
-    /**
-     * Set the parameters to the log message.
-     *
-     * @param parameters the log message parameters. (may be null)
-     */
-    public void setParameters(Object parameters[]) {
-        this.parameters = parameters;
-    }
-
-    /**
-     * Get an identifier for the thread where the message originated.
-     * <p>
-     * This is a thread identifier within the Java VM and may or
-     * may not map to any operating system ID.
-     *
-     * @return thread ID
-     */
-    public int getThreadID() {
-        return threadID;
-    }
-
-    /**
-     * Set an identifier for the thread where the message originated.
-     * @param threadID  the thread ID
-     */
-    public void setThreadID(int threadID) {
-        this.threadID = threadID;
-    }
-
-    /**
-     * Get event time in milliseconds since 1970.
-     *
-     * @return event time in millis since 1970
+     * @return the time when this event occurred, in milliseconds since 1970.
      */
     public long getMillis() {
         return millis;
     }
 
     /**
-     * Set event time.
+     * Sets the time when this event occurred, in milliseconds since 1970.
      *
-     * @param millis event time in millis since 1970
+     * @param millis
+     *            the time when this event occurred, in milliseconds since 1970.
      */
     public void setMillis(long millis) {
         this.millis = millis;
     }
 
     /**
-     * Get any throwable associated with the log record.
-     * <p>
-     * If the event involved an exception, this will be the
-     * exception object. Otherwise null.
+     * Gets the parameters.
      *
-     * @return a throwable
+     * @return the array of parameters or {@code null} if there are no
+     *         parameters.
+     */
+    public Object[] getParameters() {
+        return parameters;
+    }
+
+    /**
+     * Sets the parameters.
+     *
+     * @param parameters
+     *            the array of parameters to set, may be {@code null}.
+     */
+    public void setParameters(Object[] parameters) {
+        this.parameters = parameters;
+    }
+
+    /**
+     * Gets the resource bundle used to localize the raw message during
+     * formatting.
+     *
+     * @return the associated resource bundle, {@code null} if none is
+     *         available or the message is not localizable.
+     */
+    public ResourceBundle getResourceBundle() {
+        return resourceBundle;
+    }
+
+    /**
+     * Sets the resource bundle used to localize the raw message during
+     * formatting.
+     *
+     * @param resourceBundle
+     *            the resource bundle to set, may be {@code null}.
+     */
+    public void setResourceBundle(ResourceBundle resourceBundle) {
+        this.resourceBundle = resourceBundle;
+    }
+
+    /**
+     * Gets the name of the resource bundle.
+     *
+     * @return the name of the resource bundle, {@code null} if none is
+     *         available or the message is not localizable.
+     */
+    public String getResourceBundleName() {
+        return resourceBundleName;
+    }
+
+    /**
+     * Sets the name of the resource bundle.
+     *
+     * @param resourceBundleName
+     *            the name of the resource bundle to set.
+     */
+    public void setResourceBundleName(String resourceBundleName) {
+        this.resourceBundleName = resourceBundleName;
+    }
+
+    /**
+     * Gets the sequence number.
+     *
+     * @return the sequence number.
+     */
+    public long getSequenceNumber() {
+        return sequenceNumber;
+    }
+
+    /**
+     * Sets the sequence number. It is usually not necessary to call this method
+     * to change the sequence number because the number is allocated when this
+     * instance is constructed.
+     *
+     * @param sequenceNumber
+     *            the sequence number to set.
+     */
+    public void setSequenceNumber(long sequenceNumber) {
+        this.sequenceNumber = sequenceNumber;
+    }
+
+    /**
+     * Gets the name of the class that is the source of this log record. This
+     * information can be changed, may be {@code null} and is untrusted.
+     *
+     * @return the name of the source class of this log record (possiblity {@code null})
+     */
+    public String getSourceClassName() {
+        initSource();
+        return sourceClassName;
+    }
+
+    /*
+     *  Init the sourceClass and sourceMethod fields.
+     */
+    private void initSource() {
+        if (sourceInitialized) {
+            return;
+        }
+
+        boolean sawLogger = false;
+        for (StackTraceElement element : new Throwable().getStackTrace()) {
+            String current = element.getClassName();
+            if (current.startsWith(Logger.class.getName())) {
+                sawLogger = true;
+            } else if (sawLogger) {
+                this.sourceClassName = element.getClassName();
+                this.sourceMethodName = element.getMethodName();
+                break;
+            }
+        }
+
+        sourceInitialized = true;
+    }
+
+    /**
+     * Sets the name of the class that is the source of this log record.
+     *
+     * @param sourceClassName
+     *            the name of the source class of this log record, may be
+     *            {@code null}.
+     */
+    public void setSourceClassName(String sourceClassName) {
+        sourceInitialized = true;
+        this.sourceClassName = sourceClassName;
+    }
+
+    /**
+     * Gets the name of the method that is the source of this log record.
+     *
+     * @return the name of the source method of this log record.
+     */
+    public String getSourceMethodName() {
+        initSource();
+        return sourceMethodName;
+    }
+
+    /**
+     * Sets the name of the method that is the source of this log record.
+     *
+     * @param sourceMethodName
+     *            the name of the source method of this log record, may be
+     *            {@code null}.
+     */
+    public void setSourceMethodName(String sourceMethodName) {
+        sourceInitialized = true;
+        this.sourceMethodName = sourceMethodName;
+    }
+
+    /**
+     * Gets a unique ID of the thread originating the log record. Every thread
+     * becomes a different ID.
+     * <p>
+     * Notice : the ID doesn't necessary map the OS thread ID
+     * </p>
+     *
+     * @return the ID of the thread originating this log record.
+     */
+    public int getThreadID() {
+        return threadID;
+    }
+
+    /**
+     * Sets the ID of the thread originating this log record.
+     *
+     * @param threadID
+     *            the new ID of the thread originating this log record.
+     */
+    public void setThreadID(int threadID) {
+        this.threadID = threadID;
+    }
+
+    /**
+     * Gets the {@code Throwable} object associated with this log record.
+     *
+     * @return the {@code Throwable} object associated with this log record.
      */
     public Throwable getThrown() {
         return thrown;
     }
 
     /**
-     * Set a throwable associated with the log event.
+     * Sets the {@code Throwable} object associated with this log record.
      *
-     * @param thrown  a throwable (may be null)
+     * @param thrown
+     *            the new {@code Throwable} object to associate with this log
+     *            record.
      */
     public void setThrown(Throwable thrown) {
         this.thrown = thrown;
     }
 
-    private static final long serialVersionUID = 5372048053134512534L;
-
-    /**
-     * @serialData Default fields, followed by a two byte version number
-     * (major byte, followed by minor byte), followed by information on
-     * the log record parameter array.  If there is no parameter array,
-     * then -1 is written.  If there is a parameter array (possible of zero
-     * length) then the array length is written as an integer, followed
-     * by String values for each parameter.  If a parameter is null, then
-     * a null String is written.  Otherwise the output of Object.toString()
-     * is written.
+    /*
+     * Customized serialization.
      */
     private void writeObject(ObjectOutputStream out) throws IOException {
-        // We have to call defaultWriteObject first.
         out.defaultWriteObject();
-
-        // Write our version number.
-        out.writeByte(1);
-        out.writeByte(0);
+        out.writeByte(MAJOR);
+        out.writeByte(MINOR);
         if (parameters == null) {
             out.writeInt(-1);
-            return;
-        }
-        out.writeInt(parameters.length);
-        // Write string values for the parameters.
-        for (int i = 0; i < parameters.length; i++) {
-            if (parameters[i] == null) {
-                out.writeObject(null);
-            } else {
-                out.writeObject(parameters[i].toString());
+        } else {
+            out.writeInt(parameters.length);
+            for (Object element : parameters) {
+                out.writeObject((element == null) ? null : element.toString());
             }
         }
     }
 
-    private void readObject(ObjectInputStream in)
-                        throws IOException, ClassNotFoundException {
-        // We have to call defaultReadObject first.
+    /*
+     * Customized deserialization.
+     */
+    private void readObject(ObjectInputStream in) throws IOException,
+            ClassNotFoundException {
         in.defaultReadObject();
-
-        // Read version number.
         byte major = in.readByte();
         byte minor = in.readByte();
-        if (major != 1) {
-            throw new IOException("LogRecord: bad version: " + major + "." + minor);
+        // only check MAJOR version
+        if (major != MAJOR) {
+            throw new IOException("Different version " + Byte.valueOf(major) + "." + Byte.valueOf(minor));
         }
-        int len = in.readInt();
-        if (len < -1) {
-            throw new NegativeArraySizeException();
-        } else if (len == -1) {
-            parameters = null;
-        } else if (len < 255) {
-            parameters = new Object[len];
+
+        int length = in.readInt();
+        if (length >= 0) {
+            parameters = new Object[length];
             for (int i = 0; i < parameters.length; i++) {
                 parameters[i] = in.readObject();
             }
-        } else {
-            List<Object> params = new ArrayList<>(Math.min(len, 1024));
-            for (int i = 0; i < len; i++) {
-                params.add(in.readObject());
-            }
-            parameters = params.toArray(new Object[params.size()]);
         }
-        // If necessary, try to regenerate the resource bundle.
         if (resourceBundleName != null) {
             try {
-                // use system class loader to ensure the ResourceBundle
-                // instance is a different instance than null loader uses
-                final ResourceBundle bundle =
-                        ResourceBundle.getBundle(resourceBundleName,
-                                Locale.getDefault(),
-                                ClassLoader.getSystemClassLoader());
-                resourceBundle = bundle;
-            } catch (MissingResourceException ex) {
-                try {
-                    resourceBundle = ResourceBundle.getBundle(resourceBundleName, Locale.getDefault(),
-                            Thread.currentThread().getContextClassLoader());
-                } catch (MissingResourceException innerE){
-                    // This is not a good place to throw an exception,
-                    // so we simply leave the resourceBundle null.
-                    resourceBundle = null;
-                }
+                resourceBundle = Logger.loadResourceBundle(resourceBundleName);
+            } catch (MissingResourceException e) {
+                // Cannot find the specified resource bundle
+                resourceBundle = null;
             }
         }
-
-        needToInferCaller = false;
-    }
-
-    // Private method to infer the caller's class and method names
-    private void inferCaller() {
-        needToInferCaller = false;
-        // Android-changed: Use VMStack.getThreadStackTrace.
-        StackTraceElement[] stack = VMStack.getThreadStackTrace(Thread.currentThread());
-        int depth = stack.length;
-
-        boolean lookingForLogger = true;
-        for (int ix = 0; ix < depth; ix++) {
-            // Calling getStackTraceElement directly prevents the VM
-            // from paying the cost of building the entire stack frame.
-            //
-            // Android-changed: Use value from getThreadStackTrace.
-            StackTraceElement frame = stack[ix];
-            String cname = frame.getClassName();
-            boolean isLoggerImpl = isLoggerImplFrame(cname);
-            if (lookingForLogger) {
-                // Skip all frames until we have found the first logger frame.
-                if (isLoggerImpl) {
-                    lookingForLogger = false;
-                }
-            } else {
-                if (!isLoggerImpl) {
-                    // skip reflection call
-                    if (!cname.startsWith("java.lang.reflect.") && !cname.startsWith("sun.reflect.")) {
-                       // We've found the relevant frame.
-                       setSourceClassName(cname);
-                       setSourceMethodName(frame.getMethodName());
-                       return;
-                    }
-                }
-            }
-        }
-        // We haven't found a suitable frame, so just punt.  This is
-        // OK as we are only committed to making a "best effort" here.
-    }
-
-    private boolean isLoggerImplFrame(String cname) {
-        // the log record could be created for a platform logger
-        return (cname.equals("java.util.logging.Logger") ||
-                cname.startsWith("java.util.logging.LoggingProxyImpl") ||
-                cname.startsWith("sun.util.logging."));
     }
 }

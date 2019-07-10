@@ -20,10 +20,8 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentSender;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -37,30 +35,20 @@ import java.io.PrintWriter;
  * Fragments may be hosted by any object; such as an {@link Activity}. In order to
  * host fragments, implement {@link FragmentHostCallback}, overriding the methods
  * applicable to the host.
- *
- * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
- *      {@link android.support.v4.app.FragmentHostCallback}
  */
-@Deprecated
 public abstract class FragmentHostCallback<E> extends FragmentContainer {
     private final Activity mActivity;
     final Context mContext;
     private final Handler mHandler;
     final int mWindowAnimations;
     final FragmentManagerImpl mFragmentManager = new FragmentManagerImpl();
-    /** The loader managers for individual fragments [i.e. Fragment#getLoaderManager()] */
     private ArrayMap<String, LoaderManager> mAllLoaderManagers;
-    /** Whether or not fragment loaders should retain their state */
-    private boolean mRetainLoaders;
-    /** The loader manger for the fragment host [i.e. Activity#getLoaderManager()] */
     private LoaderManagerImpl mLoaderManager;
     private boolean mCheckedForLoaderManager;
-    /** Whether or not the fragment host loader manager was started */
     private boolean mLoadersStarted;
 
     public FragmentHostCallback(Context context, Handler handler, int windowAnimations) {
-        this((context instanceof Activity) ? (Activity)context : null, context,
-                chooseHandler(context, handler), windowAnimations);
+        this(null /*activity*/, context, handler, windowAnimations);
     }
 
     FragmentHostCallback(Activity activity) {
@@ -73,19 +61,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
         mContext = context;
         mHandler = handler;
         mWindowAnimations = windowAnimations;
-    }
-
-    /**
-     * Used internally in {@link #FragmentHostCallback(Context, Handler, int)} to choose
-     * the Activity's handler or the provided handler.
-     */
-    private static Handler chooseHandler(Context context, Handler handler) {
-        if (handler == null && context instanceof Activity) {
-            Activity activity = (Activity) context;
-            return activity.mHandler;
-        } else {
-            return handler;
-        }
     }
 
     /**
@@ -151,35 +126,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     }
 
     /**
-     * @hide
-     * Starts a new {@link Activity} from the given fragment.
-     * See {@link Activity#startActivityForResult(Intent, int)}.
-     */
-    public void onStartActivityAsUserFromFragment(Fragment fragment, Intent intent, int requestCode,
-            Bundle options, UserHandle userHandle) {
-        if (requestCode != -1) {
-            throw new IllegalStateException(
-                    "Starting activity with a requestCode requires a FragmentActivity host");
-        }
-        mContext.startActivityAsUser(intent, userHandle);
-    }
-
-    /**
-     * Starts a new {@link IntentSender} from the given fragment.
-     * See {@link Activity#startIntentSender(IntentSender, Intent, int, int, int, Bundle)}.
-     */
-    public void onStartIntentSenderFromFragment(Fragment fragment, IntentSender intent,
-            int requestCode, @Nullable Intent fillInIntent, int flagsMask, int flagsValues,
-            int extraFlags, Bundle options) throws IntentSender.SendIntentException {
-        if (requestCode != -1) {
-            throw new IllegalStateException(
-                    "Starting intent sender with a requestCode requires a FragmentActivity host");
-        }
-        mContext.startIntentSender(intent, fillInIntent, flagsMask, flagsValues, extraFlags,
-                options);
-    }
-
-    /**
      * Requests permissions from the given fragment.
      * See {@link Activity#requestPermissions(String[], int)}
      */
@@ -211,17 +157,13 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
 
     @Nullable
     @Override
-    public <T extends View> T onFindViewById(int id) {
+    public View onFindViewById(int id) {
         return null;
     }
 
     @Override
     public boolean onHasView() {
         return true;
-    }
-
-    boolean getRetainLoaders() {
-        return mRetainLoaders;
     }
 
     Activity getActivity() {
@@ -275,8 +217,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     }
 
     void doLoaderStop(boolean retain) {
-        mRetainLoaders = retain;
-
         if (mLoaderManager == null) {
             return;
         }
@@ -327,11 +267,13 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
             mAllLoaderManagers = new ArrayMap<String, LoaderManager>();
         }
         LoaderManagerImpl lm = (LoaderManagerImpl) mAllLoaderManagers.get(who);
-        if (lm == null && create) {
-            lm = new LoaderManagerImpl(who, this, started);
-            mAllLoaderManagers.put(who, lm);
-        } else if (started && lm != null && !lm.mStarted){
-            lm.doStart();
+        if (lm == null) {
+            if (create) {
+                lm = new LoaderManagerImpl(who, this, started);
+                mAllLoaderManagers.put(who, lm);
+            }
+        } else {
+            lm.updateHostController(this);
         }
         return lm;
     }
@@ -339,22 +281,15 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     ArrayMap<String, LoaderManager> retainLoaderNonConfig() {
         boolean retainLoaders = false;
         if (mAllLoaderManagers != null) {
-            // Restart any loader managers that were already stopped so that they
-            // will be ready to retain
+            // prune out any loader managers that were already stopped and so
+            // have nothing useful to retain.
             final int N = mAllLoaderManagers.size();
             LoaderManagerImpl loaders[] = new LoaderManagerImpl[N];
             for (int i=N-1; i>=0; i--) {
                 loaders[i] = (LoaderManagerImpl) mAllLoaderManagers.valueAt(i);
             }
-            final boolean doRetainLoaders = getRetainLoaders();
             for (int i=0; i<N; i++) {
                 LoaderManagerImpl lm = loaders[i];
-                if (!lm.mRetaining && doRetainLoaders) {
-                    if (!lm.mStarted) {
-                        lm.doStart();
-                    }
-                    lm.doRetain();
-                }
                 if (lm.mRetaining) {
                     retainLoaders = true;
                 } else {
@@ -371,11 +306,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     }
 
     void restoreLoaderNonConfig(ArrayMap<String, LoaderManager> loaderManagers) {
-        if (loaderManagers != null) {
-            for (int i = 0, N = loaderManagers.size(); i < N; i++) {
-                ((LoaderManagerImpl) loaderManagers.valueAt(i)).updateHostController(this);
-            }
-        }
         mAllLoaderManagers = loaderManagers;
     }
 

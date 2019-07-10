@@ -27,7 +27,6 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowInsets;
-import android.view.accessibility.AccessibilityEvent;
 import android.widget.ListView;
 
 import com.android.setupwizardlib.R;
@@ -38,15 +37,13 @@ import com.android.setupwizardlib.R;
  * "stickyContainer" and one of its child tagged as "sticky". The sticky container will be drawn
  * when the sticky element hits the top of the view.
  *
- * <p>There are a few things to note:
- * <ol>
- *   <li>The two supported scenarios are StickyHeaderListView -> Header (stickyContainer) -> sticky,
- *   and StickyHeaderListView -> Header (sticky). The arrow (->) represents parent/child
- *   relationship and must be immediate child.
- *   <li>The view does not work well with padding. b/16190933
- *   <li>If fitsSystemWindows is true, then this will offset the sticking position by the height of
- *   the system decorations at the top of the screen.
- * </ol>
+ * There are a few things to note:
+ * 1. The two supported scenarios are StickyHeaderListView -> Header (stickyContainer) -> sticky,
+ *    and StickyHeaderListView -> Header (sticky). The arrow (->) represents parent/child
+ *    relationship and must be immediate child.
+ * 2. The view does not work well with padding. b/16190933
+ * 3. If fitsSystemWindows is true, then this will offset the sticking position by the height of
+ *    the system decorations at the top of the screen.
  *
  * @see StickyHeaderScrollView
  */
@@ -79,7 +76,7 @@ public class StickyHeaderListView extends ListView {
         if (headerResId != 0) {
             LayoutInflater inflater = LayoutInflater.from(getContext());
             View header = inflater.inflate(headerResId, this, false);
-            addHeaderView(header, null, false);
+            addHeaderView(header);
         }
         a.recycle();
     }
@@ -145,19 +142,5 @@ public class StickyHeaderListView extends ListView {
             );
         }
         return insets;
-    }
-
-    @Override
-    public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
-        super.onInitializeAccessibilityEvent(event);
-
-        // Decoration-only headers should not count as an item for accessibility, adjust the
-        // accessibility event to account for that.
-        final int numberOfHeaders = mSticky != null ? 1 : 0;
-        event.setItemCount(event.getItemCount() - numberOfHeaders);
-        event.setFromIndex(Math.max(event.getFromIndex() - numberOfHeaders, 0));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            event.setToIndex(Math.max(event.getToIndex() - numberOfHeaders, 0));
-        }
     }
 }

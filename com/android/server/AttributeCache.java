@@ -24,32 +24,28 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.os.UserHandle;
-import android.util.ArrayMap;
-import android.util.LruCache;
 import android.util.SparseArray;
 
-import com.android.internal.annotations.GuardedBy;
+import java.util.HashMap;
+import java.util.WeakHashMap;
 
 /**
  * TODO: This should be better integrated into the system so it doesn't need
  * special calls from the activity manager to clear it.
  */
 public final class AttributeCache {
-    private static final int CACHE_SIZE = 4;
     private static AttributeCache sInstance = null;
-
+    
     private final Context mContext;
-
-    @GuardedBy("this")
-    private final LruCache<String, Package> mPackages = new LruCache<>(CACHE_SIZE);
-
-    @GuardedBy("this")
+    private final WeakHashMap<String, Package> mPackages =
+            new WeakHashMap<String, Package>();
     private final Configuration mConfiguration = new Configuration();
-
+    
     public final static class Package {
         public final Context context;
-        private final SparseArray<ArrayMap<int[], Entry>> mMap = new SparseArray<>();
-
+        private final SparseArray<HashMap<int[], Entry>> mMap
+                = new SparseArray<HashMap<int[], Entry>>();
+        
         public Package(Context c) {
             context = c;
         }
@@ -62,12 +58,6 @@ public final class AttributeCache {
         public Entry(Context c, TypedArray ta) {
             context = c;
             array = ta;
-        }
-
-        void recycle() {
-            if (array != null) {
-                array.recycle();
-            }
         }
     }
     
@@ -84,24 +74,13 @@ public final class AttributeCache {
     public AttributeCache(Context context) {
         mContext = context;
     }
-
+    
     public void removePackage(String packageName) {
         synchronized (this) {
-            final Package pkg = mPackages.remove(packageName);
-            if (pkg != null) {
-                for (int i = 0; i < pkg.mMap.size(); i++) {
-                    final ArrayMap<int[], Entry> map = pkg.mMap.valueAt(i);
-                    for (int j = 0; j < map.size(); j++) {
-                        map.valueAt(j).recycle();
-                    }
-                }
-
-                final Resources res = pkg.context.getResources();
-                res.flushLayoutCache();
-            }
+            mPackages.remove(packageName);
         }
     }
-
+    
     public void updateConfiguration(Configuration config) {
         synchronized (this) {
             int changes = mConfiguration.updateFrom(config);
@@ -111,7 +90,7 @@ public final class AttributeCache {
                 // The configurations being masked out are ones that commonly
                 // change so we don't want flushing the cache... all others
                 // will flush the cache.
-                mPackages.evictAll();
+                mPackages.clear();
             }
         }
     }
@@ -119,7 +98,7 @@ public final class AttributeCache {
     public Entry get(String packageName, int resId, int[] styleable, int userId) {
         synchronized (this) {
             Package pkg = mPackages.get(packageName);
-            ArrayMap<int[], Entry> map = null;
+            HashMap<int[], Entry> map = null;
             Entry ent = null;
             if (pkg != null) {
                 map = pkg.mMap.get(resId);
@@ -145,7 +124,7 @@ public final class AttributeCache {
             }
             
             if (map == null) {
-                map = new ArrayMap<>();
+                map = new HashMap<int[], Entry>();
                 pkg.mMap.put(resId, map);
             }
             

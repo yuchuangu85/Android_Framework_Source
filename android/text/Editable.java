@@ -40,14 +40,10 @@ extends CharSequence, GetChars, Spannable, Appendable
      * is Spanned, the spans from it are preserved into the Editable.
      * Existing spans within the Editable that entirely cover the replaced
      * range are retained, but any that were strictly within the range
-     * that was replaced are removed. If the <code>source</code> contains a span
-     * with {@link Spanned#SPAN_PARAGRAPH} flag, and it does not satisfy the
-     * paragraph boundary constraint, it is not retained. As a special case, the
-     * cursor position is preserved even when the entire range where it is located
-     * is replaced.
+     * that was replaced are removed.  As a special case, the cursor
+     * position is preserved even when the entire range where it is
+     * located is replaced.
      * @return  a reference to this object.
-     *
-     * @see Spanned#SPAN_PARAGRAPH
      */
     public Editable replace(int st, int en, CharSequence source, int start, int end);
 
@@ -94,10 +90,10 @@ extends CharSequence, GetChars, Spannable, Appendable
     public Editable append(char text);
 
     /**
-     * Convenience for replace(0, length(), "", 0, 0).
+     * Convenience for replace(0, length(), "", 0, 0)
+     * @see #replace(int, int, CharSequence, int, int)
      * Note that this clears the text, not the spans;
      * use {@link #clearSpans} if you need that.
-     * @see #replace(int, int, CharSequence, int, int)
      */
     public void clear();
 
@@ -121,10 +117,8 @@ extends CharSequence, GetChars, Spannable, Appendable
     public InputFilter[] getFilters();
 
     /**
-     * Factory used by TextView to create new {@link Editable Editables}. You can subclass
-     * it to provide something other than {@link SpannableStringBuilder}.
-     *
-     * @see android.widget.TextView#setEditableFactory(Factory)
+     * Factory used by TextView to create new Editables.  You can subclass
+     * it to provide something other than SpannableStringBuilder.
      */
     public static class Factory {
         private static Editable.Factory sInstance = new Editable.Factory();

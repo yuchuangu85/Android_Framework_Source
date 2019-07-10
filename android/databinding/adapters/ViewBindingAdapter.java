@@ -19,7 +19,6 @@ import android.annotation.TargetApi;
 import android.databinding.BindingAdapter;
 import android.databinding.BindingMethod;
 import android.databinding.BindingMethods;
-import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
@@ -61,21 +60,18 @@ public class ViewBindingAdapter {
     public static int FADING_EDGE_VERTICAL = 2;
 
     @BindingAdapter({"android:padding"})
-    public static void setPadding(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPadding(View view, int padding) {
         view.setPadding(padding, padding, padding, padding);
     }
 
     @BindingAdapter({"android:paddingBottom"})
-    public static void setPaddingBottom(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingBottom(View view, int padding) {
         view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(),
                 padding);
     }
 
     @BindingAdapter({"android:paddingEnd"})
-    public static void setPaddingEnd(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingEnd(View view, int padding) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             view.setPaddingRelative(view.getPaddingStart(), view.getPaddingTop(), padding,
                     view.getPaddingBottom());
@@ -86,22 +82,19 @@ public class ViewBindingAdapter {
     }
 
     @BindingAdapter({"android:paddingLeft"})
-    public static void setPaddingLeft(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingLeft(View view, int padding) {
         view.setPadding(padding, view.getPaddingTop(), view.getPaddingRight(),
                 view.getPaddingBottom());
     }
 
     @BindingAdapter({"android:paddingRight"})
-    public static void setPaddingRight(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingRight(View view, int padding) {
         view.setPadding(view.getPaddingLeft(), view.getPaddingTop(), padding,
                 view.getPaddingBottom());
     }
 
     @BindingAdapter({"android:paddingStart"})
-    public static void setPaddingStart(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingStart(View view, int padding) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             view.setPaddingRelative(padding, view.getPaddingTop(), view.getPaddingEnd(),
                     view.getPaddingBottom());
@@ -112,8 +105,7 @@ public class ViewBindingAdapter {
     }
 
     @BindingAdapter({"android:paddingTop"})
-    public static void setPaddingTop(View view, float paddingFloat) {
-        final int padding = pixelsToDimensionPixelSize(paddingFloat);
+    public static void setPaddingTop(View view, int padding) {
         view.setPadding(view.getPaddingLeft(), padding, view.getPaddingRight(),
                 view.getPaddingBottom());
     }
@@ -141,7 +133,7 @@ public class ViewBindingAdapter {
     }
 
     @BindingAdapter({"android:onLongClickListener", "android:longClickable"})
-    public static void setOnLongClickListener(View view, View.OnLongClickListener clickListener,
+    public static void setListener(View view, View.OnLongClickListener clickListener,
             boolean clickable) {
         view.setOnLongClickListener(clickListener);
         view.setLongClickable(clickable);
@@ -154,10 +146,19 @@ public class ViewBindingAdapter {
         view.setLongClickable(clickable);
     }
 
-    @BindingAdapter(value = {"android:onViewDetachedFromWindow", "android:onViewAttachedToWindow"},
-            requireAll = false)
-    public static void setOnAttachStateChangeListener(View view,
-            final OnViewDetachedFromWindow detach, final OnViewAttachedToWindow attach) {
+    @BindingAdapter("android:onViewAttachedToWindow")
+    public static void setListener(View view, OnViewAttachedToWindow attached) {
+        setListener(view, null, attached);
+    }
+
+    @BindingAdapter("android:onViewDetachedFromWindow")
+    public static void setListener(View view, OnViewDetachedFromWindow detached) {
+        setListener(view, detached, null);
+    }
+
+    @BindingAdapter({"android:onViewDetachedFromWindow", "android:onViewAttachedToWindow"})
+    public static void setListener(View view, final OnViewDetachedFromWindow detach,
+            final OnViewAttachedToWindow attach) {
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB_MR1) {
             final OnAttachStateChangeListener newListener;
             if (detach == null && attach == null) {
@@ -200,32 +201,6 @@ public class ViewBindingAdapter {
             if (newValue != null) {
                 view.addOnLayoutChangeListener(newValue);
             }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    @BindingAdapter("android:background")
-    public static void setBackground(View view, Drawable drawable) {
-        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN) {
-            view.setBackground(drawable);
-        } else {
-            view.setBackgroundDrawable(drawable);
-        }
-    }
-
-    // Follows the same conversion mechanism as in TypedValue.complexToDimensionPixelSize as used
-    // when setting padding. It rounds off the float value unless the value is < 1.
-    // When a value is between 0 and 1, it is set to 1. A value less than 0 is set to -1.
-    private static int pixelsToDimensionPixelSize(float pixels) {
-        final int result = (int) (pixels + 0.5f);
-        if (result != 0) {
-            return result;
-        } else if (pixels == 0) {
-            return 0;
-        } else if (pixels > 0) {
-            return 1;
-        } else {
-            return -1;
         }
     }
 

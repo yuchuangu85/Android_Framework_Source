@@ -22,16 +22,12 @@ public class BatteryProperties implements Parcelable {
     public boolean chargerAcOnline;
     public boolean chargerUsbOnline;
     public boolean chargerWirelessOnline;
-    public int maxChargingCurrent;
-    public int maxChargingVoltage;
     public int batteryStatus;
     public int batteryHealth;
     public boolean batteryPresent;
     public int batteryLevel;
     public int batteryVoltage;
     public int batteryTemperature;
-    public int batteryFullCharge;
-    public int batteryChargeCounter;
     public String batteryTechnology;
 
     public BatteryProperties() {
@@ -41,16 +37,12 @@ public class BatteryProperties implements Parcelable {
         chargerAcOnline = other.chargerAcOnline;
         chargerUsbOnline = other.chargerUsbOnline;
         chargerWirelessOnline = other.chargerWirelessOnline;
-        maxChargingCurrent = other.maxChargingCurrent;
-        maxChargingVoltage = other.maxChargingVoltage;
         batteryStatus = other.batteryStatus;
         batteryHealth = other.batteryHealth;
         batteryPresent = other.batteryPresent;
         batteryLevel = other.batteryLevel;
         batteryVoltage = other.batteryVoltage;
         batteryTemperature = other.batteryTemperature;
-        batteryFullCharge = other.batteryFullCharge;
-        batteryChargeCounter = other.batteryChargeCounter;
         batteryTechnology = other.batteryTechnology;
     }
 
@@ -63,16 +55,12 @@ public class BatteryProperties implements Parcelable {
         chargerAcOnline = p.readInt() == 1 ? true : false;
         chargerUsbOnline = p.readInt() == 1 ? true : false;
         chargerWirelessOnline = p.readInt() == 1 ? true : false;
-        maxChargingCurrent = p.readInt();
-        maxChargingVoltage = p.readInt();
         batteryStatus = p.readInt();
         batteryHealth = p.readInt();
         batteryPresent = p.readInt() == 1 ? true : false;
         batteryLevel = p.readInt();
         batteryVoltage = p.readInt();
         batteryTemperature = p.readInt();
-        batteryFullCharge = p.readInt();
-        batteryChargeCounter = p.readInt();
         batteryTechnology = p.readString();
     }
 
@@ -80,16 +68,12 @@ public class BatteryProperties implements Parcelable {
         p.writeInt(chargerAcOnline ? 1 : 0);
         p.writeInt(chargerUsbOnline ? 1 : 0);
         p.writeInt(chargerWirelessOnline ? 1 : 0);
-        p.writeInt(maxChargingCurrent);
-        p.writeInt(maxChargingVoltage);
         p.writeInt(batteryStatus);
         p.writeInt(batteryHealth);
         p.writeInt(batteryPresent ? 1 : 0);
         p.writeInt(batteryLevel);
         p.writeInt(batteryVoltage);
         p.writeInt(batteryTemperature);
-        p.writeInt(batteryFullCharge);
-        p.writeInt(batteryChargeCounter);
         p.writeString(batteryTechnology);
     }
 

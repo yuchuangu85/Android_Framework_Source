@@ -363,8 +363,7 @@ public final class SearchableInfo implements Parcelable {
         String suggestProviderPackage = null;
         if (mSuggestAuthority != null) {
             PackageManager pm = activityContext.getPackageManager();
-            ProviderInfo pi = pm.resolveContentProvider(mSuggestAuthority,
-                    PackageManager.MATCH_DEBUG_TRIAGED_MISSING);
+            ProviderInfo pi = pm.resolveContentProvider(mSuggestAuthority, 0);
             if (pi != null) {
                 suggestProviderPackage = pi.packageName;
             }

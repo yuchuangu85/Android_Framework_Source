@@ -15,15 +15,11 @@
  */
 package android.databinding;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Target;
-
 /**
  * Used within an {@link BindingMethods} annotation to describe a renaming of an attribute to
  * the setter used to set that attribute. By default, an attribute attr will be associated with
  * setter setAttr.
  */
-@Target(ElementType.ANNOTATION_TYPE)
 public @interface BindingMethod {
 
     /**

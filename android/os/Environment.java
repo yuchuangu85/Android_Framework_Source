@@ -16,7 +16,6 @@
 
 package android.os;
 
-import android.annotation.TestApi;
 import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.os.storage.StorageManager;
@@ -25,7 +24,6 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import java.io.File;
-import java.util.LinkedList;
 
 /**
  * Provides access to environment variables.
@@ -36,13 +34,9 @@ public class Environment {
     private static final String ENV_EXTERNAL_STORAGE = "EXTERNAL_STORAGE";
     private static final String ENV_ANDROID_ROOT = "ANDROID_ROOT";
     private static final String ENV_ANDROID_DATA = "ANDROID_DATA";
-    private static final String ENV_ANDROID_EXPAND = "ANDROID_EXPAND";
     private static final String ENV_ANDROID_STORAGE = "ANDROID_STORAGE";
-    private static final String ENV_DOWNLOAD_CACHE = "DOWNLOAD_CACHE";
     private static final String ENV_OEM_ROOT = "OEM_ROOT";
-    private static final String ENV_ODM_ROOT = "ODM_ROOT";
     private static final String ENV_VENDOR_ROOT = "VENDOR_ROOT";
-    private static final String ENV_PRODUCT_ROOT = "PRODUCT_ROOT";
 
     /** {@hide} */
     public static final String DIR_ANDROID = "Android";
@@ -58,13 +52,11 @@ public class Environment {
 
     private static final File DIR_ANDROID_ROOT = getDirectory(ENV_ANDROID_ROOT, "/system");
     private static final File DIR_ANDROID_DATA = getDirectory(ENV_ANDROID_DATA, "/data");
-    private static final File DIR_ANDROID_EXPAND = getDirectory(ENV_ANDROID_EXPAND, "/mnt/expand");
     private static final File DIR_ANDROID_STORAGE = getDirectory(ENV_ANDROID_STORAGE, "/storage");
-    private static final File DIR_DOWNLOAD_CACHE = getDirectory(ENV_DOWNLOAD_CACHE, "/cache");
     private static final File DIR_OEM_ROOT = getDirectory(ENV_OEM_ROOT, "/oem");
-    private static final File DIR_ODM_ROOT = getDirectory(ENV_ODM_ROOT, "/odm");
     private static final File DIR_VENDOR_ROOT = getDirectory(ENV_VENDOR_ROOT, "/vendor");
-    private static final File DIR_PRODUCT_ROOT = getDirectory(ENV_PRODUCT_ROOT, "/product");
+
+    private static final String SYSTEM_PROPERTY_EFS_ENABLED = "persist.security.efs.enabled";
 
     private static UserEnvironment sCurrentUser;
     private static boolean sUserRequired;
@@ -164,16 +156,6 @@ public class Environment {
     }
 
     /**
-     * Return root directory of the "odm" partition holding ODM customizations,
-     * if any. If present, the partition is mounted read-only.
-     *
-     * @hide
-     */
-    public static File getOdmDirectory() {
-        return DIR_ODM_ROOT;
-    }
-
-    /**
      * Return root directory of the "vendor" partition that holds vendor-provided
      * software that should persist across simple reflashing of the "system" partition.
      * @hide
@@ -183,145 +165,92 @@ public class Environment {
     }
 
     /**
-     * Return root directory of the "product" partition holding product-specific
-     * customizations if any. If present, the partition is mounted read-only.
-     *
+     * Gets the system directory available for secure storage.
+     * If Encrypted File system is enabled, it returns an encrypted directory (/data/secure/system).
+     * Otherwise, it returns the unencrypted /data/system directory.
+     * @return File object representing the secure storage system directory.
      * @hide
      */
-    public static File getProductDirectory() {
-        return DIR_PRODUCT_ROOT;
+    public static File getSystemSecureDirectory() {
+        if (isEncryptedFilesystemEnabled()) {
+            return new File(SECURE_DATA_DIRECTORY, "system");
+        } else {
+            return new File(DATA_DIRECTORY, "system");
+        }
     }
 
     /**
-     * Return the system directory for a user. This is for use by system
-     * services to store files relating to the user. This directory will be
-     * automatically deleted when the user is removed.
-     *
-     * @deprecated This directory is valid and still exists, but callers should
-     *             <em>strongly</em> consider switching to
-     *             {@link #getDataSystemCeDirectory(int)} which is protected
-     *             with user credentials or
-     *             {@link #getDataSystemDeDirectory(int)} which supports fast
-     *             user wipe.
+     * Gets the data directory for secure storage.
+     * If Encrypted File system is enabled, it returns an encrypted directory (/data/secure).
+     * Otherwise, it returns the unencrypted /data directory.
+     * @return File object representing the data directory for secure storage.
      * @hide
      */
-    @Deprecated
+    public static File getSecureDataDirectory() {
+        if (isEncryptedFilesystemEnabled()) {
+            return SECURE_DATA_DIRECTORY;
+        } else {
+            return DATA_DIRECTORY;
+        }
+    }
+
+    /**
+     * Return the system directory for a user. This is for use by system services to store
+     * files relating to the user. This directory will be automatically deleted when the user
+     * is removed.
+     *
+     * @hide
+     */
     public static File getUserSystemDirectory(int userId) {
-        return new File(new File(getDataSystemDirectory(), "users"), Integer.toString(userId));
+        return new File(new File(getSystemSecureDirectory(), "users"), Integer.toString(userId));
     }
 
     /**
-     * Returns the config directory for a user. This is for use by system
-     * services to store files relating to the user which should be readable by
-     * any app running as that user.
+     * Returns the config directory for a user. This is for use by system services to store files
+     * relating to the user which should be readable by any app running as that user.
      *
-     * @deprecated This directory is valid and still exists, but callers should
-     *             <em>strongly</em> consider switching to
-     *             {@link #getDataMiscCeDirectory(int)} which is protected with
-     *             user credentials or {@link #getDataMiscDeDirectory(int)}
-     *             which supports fast user wipe.
      * @hide
      */
-    @Deprecated
     public static File getUserConfigDirectory(int userId) {
         return new File(new File(new File(
                 getDataDirectory(), "misc"), "user"), Integer.toString(userId));
     }
 
     /**
+     * Returns whether the Encrypted File System feature is enabled on the device or not.
+     * @return <code>true</code> if Encrypted File System feature is enabled, <code>false</code>
+     * if disabled.
+     * @hide
+     */
+    public static boolean isEncryptedFilesystemEnabled() {
+        return SystemProperties.getBoolean(SYSTEM_PROPERTY_EFS_ENABLED, false);
+    }
+
+    private static final File DATA_DIRECTORY
+            = getDirectory("ANDROID_DATA", "/data");
+
+    /**
+     * @hide
+     */
+    private static final File SECURE_DATA_DIRECTORY
+            = getDirectory("ANDROID_SECURE_DATA", "/data/secure");
+
+    private static final File DOWNLOAD_CACHE_DIRECTORY = getDirectory("DOWNLOAD_CACHE", "/cache");
+
+    /**
      * Return the user data directory.
      */
     public static File getDataDirectory() {
-        return DIR_ANDROID_DATA;
+        return DATA_DIRECTORY;
     }
 
     /** {@hide} */
     public static File getDataDirectory(String volumeUuid) {
         if (TextUtils.isEmpty(volumeUuid)) {
-            return DIR_ANDROID_DATA;
+            return new File("/data");
         } else {
             return new File("/mnt/expand/" + volumeUuid);
         }
-    }
-
-    /** {@hide} */
-    public static File getExpandDirectory() {
-        return DIR_ANDROID_EXPAND;
-    }
-
-    /** {@hide} */
-    public static File getDataSystemDirectory() {
-        return new File(getDataDirectory(), "system");
-    }
-
-    /**
-     * Returns the base directory for per-user system directory, device encrypted.
-     * {@hide}
-     */
-    public static File getDataSystemDeDirectory() {
-        return buildPath(getDataDirectory(), "system_de");
-    }
-
-    /**
-     * Returns the base directory for per-user system directory, credential encrypted.
-     * {@hide}
-     */
-    public static File getDataSystemCeDirectory() {
-        return buildPath(getDataDirectory(), "system_ce");
-    }
-
-    /** {@hide} */
-    public static File getDataSystemCeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "system_ce", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataSystemDeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "system_de", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataMiscDirectory() {
-        return new File(getDataDirectory(), "misc");
-    }
-
-    /** {@hide} */
-    public static File getDataMiscCeDirectory() {
-        return buildPath(getDataDirectory(), "misc_ce");
-    }
-
-    /** {@hide} */
-    public static File getDataMiscCeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "misc_ce", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataMiscDeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "misc_de", String.valueOf(userId));
-    }
-
-    private static File getDataProfilesDeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "misc", "profiles", "cur", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataVendorCeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "vendor_ce", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataVendorDeDirectory(int userId) {
-        return buildPath(getDataDirectory(), "vendor_de", String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataRefProfilesDePackageDirectory(String packageName) {
-        return buildPath(getDataDirectory(), "misc", "profiles", "ref", packageName);
-    }
-
-    /** {@hide} */
-    public static File getDataProfilesDePackageDirectory(int userId, String packageName) {
-        return buildPath(getDataProfilesDeDirectory(userId), packageName);
     }
 
     /** {@hide} */
@@ -330,95 +259,25 @@ public class Environment {
     }
 
     /** {@hide} */
-    public static File getDataUserCeDirectory(String volumeUuid) {
+    public static File getDataUserDirectory(String volumeUuid) {
         return new File(getDataDirectory(volumeUuid), "user");
     }
 
     /** {@hide} */
-    public static File getDataUserCeDirectory(String volumeUuid, int userId) {
-        return new File(getDataUserCeDirectory(volumeUuid), String.valueOf(userId));
+    public static File getDataUserDirectory(String volumeUuid, int userId) {
+        return new File(getDataUserDirectory(volumeUuid), String.valueOf(userId));
     }
 
     /** {@hide} */
-    public static File getDataUserCePackageDirectory(String volumeUuid, int userId,
+    public static File getDataUserPackageDirectory(String volumeUuid, int userId,
             String packageName) {
         // TODO: keep consistent with installd
-        return new File(getDataUserCeDirectory(volumeUuid, userId), packageName);
-    }
-
-    /** {@hide} */
-    public static File getDataUserDeDirectory(String volumeUuid) {
-        return new File(getDataDirectory(volumeUuid), "user_de");
-    }
-
-    /** {@hide} */
-    public static File getDataUserDeDirectory(String volumeUuid, int userId) {
-        return new File(getDataUserDeDirectory(volumeUuid), String.valueOf(userId));
-    }
-
-    /** {@hide} */
-    public static File getDataUserDePackageDirectory(String volumeUuid, int userId,
-            String packageName) {
-        // TODO: keep consistent with installd
-        return new File(getDataUserDeDirectory(volumeUuid, userId), packageName);
+        return new File(getDataUserDirectory(volumeUuid, userId), packageName);
     }
 
     /**
-     * Return preloads directory.
-     * <p>This directory may contain pre-loaded content such as
-     * {@link #getDataPreloadsDemoDirectory() demo videos} and
-     * {@link #getDataPreloadsAppsDirectory() APK files} .
-     * {@hide}
-     */
-    public static File getDataPreloadsDirectory() {
-        return new File(getDataDirectory(), "preloads");
-    }
-
-    /**
-     * @see #getDataPreloadsDirectory()
-     * {@hide}
-     */
-    public static File getDataPreloadsDemoDirectory() {
-        return new File(getDataPreloadsDirectory(), "demo");
-    }
-
-    /**
-     * @see #getDataPreloadsDirectory()
-     * {@hide}
-     */
-    public static File getDataPreloadsAppsDirectory() {
-        return new File(getDataPreloadsDirectory(), "apps");
-    }
-
-    /**
-     * @see #getDataPreloadsDirectory()
-     * {@hide}
-     */
-    public static File getDataPreloadsMediaDirectory() {
-        return new File(getDataPreloadsDirectory(), "media");
-    }
-
-    /**
-     * Returns location of preloaded cache directory for package name
-     * @see #getDataPreloadsDirectory()
-     * {@hide}
-     */
-    public static File getDataPreloadsFileCacheDirectory(String packageName) {
-        return new File(getDataPreloadsFileCacheDirectory(), packageName);
-    }
-
-    /**
-     * Returns location of preloaded cache directory.
-     * @see #getDataPreloadsDirectory()
-     * {@hide}
-     */
-    public static File getDataPreloadsFileCacheDirectory() {
-        return new File(getDataPreloadsDirectory(), "file_cache");
-    }
-
-    /**
-     * Return the primary shared/external storage directory. This directory may
-     * not currently be accessible if it has been mounted by the user on their
+     * Return the primary external storage directory. This directory may not
+     * currently be accessible if it has been mounted by the user on their
      * computer, has been removed from the device, or some other problem has
      * happened. You can determine its current state with
      * {@link #getExternalStorageState()}.
@@ -432,15 +291,12 @@ public class Environment {
      * filesystem on a computer.</em>
      * <p>
      * On devices with multiple users (as described by {@link UserManager}),
-     * each user has their own isolated shared storage. Applications only have
-     * access to the shared storage for the user they're running as.
+     * each user has their own isolated external storage. Applications only have
+     * access to the external storage for the user they're running as.
      * <p>
-     * In devices with multiple shared/external storage directories, this
-     * directory represents the primary storage that the user will interact
+     * In devices with multiple "external" storage directories, this directory
+     * represents the "primary" external storage that the user will interact
      * with. Access to secondary storage is available through
-     * {@link Context#getExternalFilesDirs(String)},
-     * {@link Context#getExternalCacheDirs()}, and
-     * {@link Context#getExternalMediaDirs()}.
      * <p>
      * Applications should not directly use this top-level directory, in order
      * to avoid polluting the user's root namespace. Any files that are private
@@ -453,15 +309,14 @@ public class Environment {
      * <p>
      * Writing to this path requires the
      * {@link android.Manifest.permission#WRITE_EXTERNAL_STORAGE} permission,
-     * and starting in {@link android.os.Build.VERSION_CODES#KITKAT}, read access requires the
+     * and starting in read access requires the
      * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE} permission,
      * which is automatically granted if you hold the write permission.
      * <p>
      * Starting in {@link android.os.Build.VERSION_CODES#KITKAT}, if your
      * application only needs to store internal data, consider using
-     * {@link Context#getExternalFilesDir(String)},
-     * {@link Context#getExternalCacheDir()}, or
-     * {@link Context#getExternalMediaDirs()}, which require no permissions to
+     * {@link Context#getExternalFilesDir(String)} or
+     * {@link Context#getExternalCacheDir()}, which require no permissions to
      * read or write.
      * <p>
      * This path may change between platform versions, so applications should
@@ -470,7 +325,8 @@ public class Environment {
      * Here is an example of typical code to monitor the state of external
      * storage:
      * <p>
-     * {@sample development/samples/ApiDemos/src/com/example/android/apis/content/ExternalStorage.java
+     * {@sample
+     * development/samples/ApiDemos/src/com/example/android/apis/content/ExternalStorage.java
      * monitor_storage}
      *
      * @see #getExternalStorageState()
@@ -501,7 +357,7 @@ public class Environment {
      * type.
      */
     public static String DIRECTORY_MUSIC = "Music";
-
+    
     /**
      * Standard directory in which to place any audio files that should be
      * in the list of podcasts that the user can select (not as regular
@@ -513,7 +369,7 @@ public class Environment {
      * type.
      */
     public static String DIRECTORY_PODCASTS = "Podcasts";
-
+    
     /**
      * Standard directory in which to place any audio files that should be
      * in the list of ringtones that the user can select (not as regular
@@ -525,7 +381,7 @@ public class Environment {
      * type.
      */
     public static String DIRECTORY_RINGTONES = "Ringtones";
-
+    
     /**
      * Standard directory in which to place any audio files that should be
      * in the list of alarms that the user can select (not as regular
@@ -537,7 +393,7 @@ public class Environment {
      * type.
      */
     public static String DIRECTORY_ALARMS = "Alarms";
-
+    
     /**
      * Standard directory in which to place any audio files that should be
      * in the list of notifications that the user can select (not as regular
@@ -549,7 +405,7 @@ public class Environment {
      * type.
      */
     public static String DIRECTORY_NOTIFICATIONS = "Notifications";
-
+    
     /**
      * Standard directory in which to place pictures that are available to
      * the user.  Note that this is primarily a convention for the top-level
@@ -557,7 +413,7 @@ public class Environment {
      * in any directory.
      */
     public static String DIRECTORY_PICTURES = "Pictures";
-
+    
     /**
      * Standard directory in which to place movies that are available to
      * the user.  Note that this is primarily a convention for the top-level
@@ -565,7 +421,7 @@ public class Environment {
      * in any directory.
      */
     public static String DIRECTORY_MOVIES = "Movies";
-
+    
     /**
      * Standard directory in which to place files that have been downloaded by
      * the user.  Note that this is primarily a convention for the top-level
@@ -575,7 +431,7 @@ public class Environment {
      * backwards compatibility reasons.
      */
     public static String DIRECTORY_DOWNLOADS = "Download";
-
+    
     /**
      * The traditional location for pictures and videos when mounting the
      * device as a camera.  Note that this is primarily a convention for the
@@ -590,148 +446,32 @@ public class Environment {
     public static String DIRECTORY_DOCUMENTS = "Documents";
 
     /**
-     * List of standard storage directories.
-     * <p>
-     * Each of its values have its own constant:
-     * <ul>
-     *   <li>{@link #DIRECTORY_MUSIC}
-     *   <li>{@link #DIRECTORY_PODCASTS}
-     *   <li>{@link #DIRECTORY_ALARMS}
-     *   <li>{@link #DIRECTORY_RINGTONES}
-     *   <li>{@link #DIRECTORY_NOTIFICATIONS}
-     *   <li>{@link #DIRECTORY_PICTURES}
-     *   <li>{@link #DIRECTORY_MOVIES}
-     *   <li>{@link #DIRECTORY_DOWNLOADS}
-     *   <li>{@link #DIRECTORY_DCIM}
-     *   <li>{@link #DIRECTORY_DOCUMENTS}
-     * </ul>
-     * @hide
-     */
-    public static final String[] STANDARD_DIRECTORIES = {
-            DIRECTORY_MUSIC,
-            DIRECTORY_PODCASTS,
-            DIRECTORY_RINGTONES,
-            DIRECTORY_ALARMS,
-            DIRECTORY_NOTIFICATIONS,
-            DIRECTORY_PICTURES,
-            DIRECTORY_MOVIES,
-            DIRECTORY_DOWNLOADS,
-            DIRECTORY_DCIM,
-            DIRECTORY_DOCUMENTS
-    };
-
-    /**
-     * @hide
-     */
-    public static boolean isStandardDirectory(String dir) {
-        for (String valid : STANDARD_DIRECTORIES) {
-            if (valid.equals(dir)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** {@hide} */ public static final int HAS_MUSIC = 1 << 0;
-    /** {@hide} */ public static final int HAS_PODCASTS = 1 << 1;
-    /** {@hide} */ public static final int HAS_RINGTONES = 1 << 2;
-    /** {@hide} */ public static final int HAS_ALARMS = 1 << 3;
-    /** {@hide} */ public static final int HAS_NOTIFICATIONS = 1 << 4;
-    /** {@hide} */ public static final int HAS_PICTURES = 1 << 5;
-    /** {@hide} */ public static final int HAS_MOVIES = 1 << 6;
-    /** {@hide} */ public static final int HAS_DOWNLOADS = 1 << 7;
-    /** {@hide} */ public static final int HAS_DCIM = 1 << 8;
-    /** {@hide} */ public static final int HAS_DOCUMENTS = 1 << 9;
-
-    /** {@hide} */ public static final int HAS_ANDROID = 1 << 16;
-    /** {@hide} */ public static final int HAS_OTHER = 1 << 17;
-
-    /**
-     * Classify the content types present on the given external storage device.
-     * <p>
-     * This is typically useful for deciding if an inserted SD card is empty, or
-     * if it contains content like photos that should be preserved.
-     *
-     * @hide
-     */
-    public static int classifyExternalStorageDirectory(File dir) {
-        int res = 0;
-        for (File f : FileUtils.listFilesOrEmpty(dir)) {
-            if (f.isFile() && isInterestingFile(f)) {
-                res |= HAS_OTHER;
-            } else if (f.isDirectory() && hasInterestingFiles(f)) {
-                final String name = f.getName();
-                if (DIRECTORY_MUSIC.equals(name)) res |= HAS_MUSIC;
-                else if (DIRECTORY_PODCASTS.equals(name)) res |= HAS_PODCASTS;
-                else if (DIRECTORY_RINGTONES.equals(name)) res |= HAS_RINGTONES;
-                else if (DIRECTORY_ALARMS.equals(name)) res |= HAS_ALARMS;
-                else if (DIRECTORY_NOTIFICATIONS.equals(name)) res |= HAS_NOTIFICATIONS;
-                else if (DIRECTORY_PICTURES.equals(name)) res |= HAS_PICTURES;
-                else if (DIRECTORY_MOVIES.equals(name)) res |= HAS_MOVIES;
-                else if (DIRECTORY_DOWNLOADS.equals(name)) res |= HAS_DOWNLOADS;
-                else if (DIRECTORY_DCIM.equals(name)) res |= HAS_DCIM;
-                else if (DIRECTORY_DOCUMENTS.equals(name)) res |= HAS_DOCUMENTS;
-                else if (DIRECTORY_ANDROID.equals(name)) res |= HAS_ANDROID;
-                else res |= HAS_OTHER;
-            }
-        }
-        return res;
-    }
-
-    private static boolean hasInterestingFiles(File dir) {
-        final LinkedList<File> explore = new LinkedList<>();
-        explore.add(dir);
-        while (!explore.isEmpty()) {
-            dir = explore.pop();
-            for (File f : FileUtils.listFilesOrEmpty(dir)) {
-                if (isInterestingFile(f)) return true;
-                if (f.isDirectory()) explore.add(f);
-            }
-        }
-        return false;
-    }
-
-    private static boolean isInterestingFile(File file) {
-        if (file.isFile()) {
-            final String name = file.getName().toLowerCase();
-            if (name.endsWith(".exe") || name.equals("autorun.inf")
-                    || name.equals("launchpad.zip") || name.equals(".nomedia")) {
-                return false;
-            } else {
-                return true;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * Get a top-level shared/external storage directory for placing files of a
-     * particular type. This is where the user will typically place and manage
-     * their own files, so you should be careful about what you put here to
-     * ensure you don't erase their files or get in the way of their own
+     * Get a top-level public external storage directory for placing files of
+     * a particular type.  This is where the user will typically place and
+     * manage their own files, so you should be careful about what you put here
+     * to ensure you don't erase their files or get in the way of their own
      * organization.
-     * <p>
-     * On devices with multiple users (as described by {@link UserManager}),
-     * each user has their own isolated shared storage. Applications only have
-     * access to the shared storage for the user they're running as.
-     * </p>
-     * <p>
-     * Here is an example of typical code to manipulate a picture on the public
-     * shared storage:
-     * </p>
+     * 
+     * <p>On devices with multiple users (as described by {@link UserManager}),
+     * each user has their own isolated external storage. Applications only
+     * have access to the external storage for the user they're running as.</p>
+     *
+     * <p>Here is an example of typical code to manipulate a picture on
+     * the public external storage:</p>
+     * 
      * {@sample development/samples/ApiDemos/src/com/example/android/apis/content/ExternalStorage.java
      * public_picture}
-     *
-     * @param type The type of storage directory to return. Should be one of
-     *            {@link #DIRECTORY_MUSIC}, {@link #DIRECTORY_PODCASTS},
-     *            {@link #DIRECTORY_RINGTONES}, {@link #DIRECTORY_ALARMS},
-     *            {@link #DIRECTORY_NOTIFICATIONS}, {@link #DIRECTORY_PICTURES},
-     *            {@link #DIRECTORY_MOVIES}, {@link #DIRECTORY_DOWNLOADS},
-     *            {@link #DIRECTORY_DCIM}, or {@link #DIRECTORY_DOCUMENTS}. May not be null.
-     * @return Returns the File path for the directory. Note that this directory
-     *         may not yet exist, so you must make sure it exists before using
-     *         it such as with {@link File#mkdirs File.mkdirs()}.
+     * 
+     * @param type The type of storage directory to return.  Should be one of
+     * {@link #DIRECTORY_MUSIC}, {@link #DIRECTORY_PODCASTS},
+     * {@link #DIRECTORY_RINGTONES}, {@link #DIRECTORY_ALARMS},
+     * {@link #DIRECTORY_NOTIFICATIONS}, {@link #DIRECTORY_PICTURES},
+     * {@link #DIRECTORY_MOVIES}, {@link #DIRECTORY_DOWNLOADS}, or
+     * {@link #DIRECTORY_DCIM}.  May not be null.
+     * 
+     * @return Returns the File path for the directory.  Note that this
+     * directory may not yet exist, so you must make sure it exists before
+     * using it such as with {@link File#mkdirs File.mkdirs()}.
      */
     public static File getExternalStoragePublicDirectory(String type) {
         throwIfUserRequired();
@@ -755,7 +495,7 @@ public class Environment {
         throwIfUserRequired();
         return sCurrentUser.buildExternalStorageAppDataDirs(packageName);
     }
-
+    
     /**
      * Generates the raw path to an application's media
      * @hide
@@ -764,7 +504,7 @@ public class Environment {
         throwIfUserRequired();
         return sCurrentUser.buildExternalStorageAppMediaDirs(packageName);
     }
-
+    
     /**
      * Generates the raw path to an application's OBB files
      * @hide
@@ -773,7 +513,7 @@ public class Environment {
         throwIfUserRequired();
         return sCurrentUser.buildExternalStorageAppObbDirs(packageName);
     }
-
+    
     /**
      * Generates the path to an application's files.
      * @hide
@@ -791,12 +531,12 @@ public class Environment {
         throwIfUserRequired();
         return sCurrentUser.buildExternalStorageAppCacheDirs(packageName);
     }
-
+    
     /**
      * Return the download/cache content directory.
      */
     public static File getDownloadCacheDirectory() {
-        return DIR_DOWNLOAD_CACHE;
+        return DOWNLOAD_CACHE_DIRECTORY;
     }
 
     /**
@@ -883,8 +623,8 @@ public class Environment {
     public static final String MEDIA_EJECTING = "ejecting";
 
     /**
-     * Returns the current state of the primary shared/external storage media.
-     *
+     * Returns the current state of the primary "external" storage device.
+     * 
      * @see #getExternalStorageDirectory()
      * @return one of {@link #MEDIA_UNKNOWN}, {@link #MEDIA_REMOVED},
      *         {@link #MEDIA_UNMOUNTED}, {@link #MEDIA_CHECKING},
@@ -906,8 +646,8 @@ public class Environment {
     }
 
     /**
-     * Returns the current state of the shared/external storage media at the
-     * given path.
+     * Returns the current state of the storage device that provides the given
+     * path.
      *
      * @return one of {@link #MEDIA_UNKNOWN}, {@link #MEDIA_REMOVED},
      *         {@link #MEDIA_UNMOUNTED}, {@link #MEDIA_CHECKING},
@@ -925,21 +665,21 @@ public class Environment {
     }
 
     /**
-     * Returns whether the primary shared/external storage media is physically
-     * removable.
+     * Returns whether the primary "external" storage device is removable.
      *
      * @return true if the storage device can be removed (such as an SD card),
      *         or false if the storage device is built in and cannot be
      *         physically removed.
      */
     public static boolean isExternalStorageRemovable() {
+        if (isStorageDisabled()) return false;
         final File externalDir = sCurrentUser.getExternalDirs()[0];
         return isExternalStorageRemovable(externalDir);
     }
 
     /**
-     * Returns whether the shared/external storage media at the given path is
-     * physically removable.
+     * Returns whether the storage device that provides the given path is
+     * removable.
      *
      * @return true if the storage device can be removed (such as an SD card),
      *         or false if the storage device is built in and cannot be
@@ -957,35 +697,23 @@ public class Environment {
     }
 
     /**
-     * Returns whether the primary shared/external storage media is emulated.
-     * <p>
-     * The contents of emulated storage devices are backed by a private user
-     * data partition, which means there is little benefit to apps storing data
-     * here instead of the private directories returned by
-     * {@link Context#getFilesDir()}, etc.
-     * <p>
-     * This returns true when emulated storage is backed by either internal
-     * storage or an adopted storage device.
+     * Returns whether the primary "external" storage device is emulated. If
+     * true, data stored on this device will be stored on a portion of the
+     * internal storage system.
      *
      * @see DevicePolicyManager#setStorageEncryption(android.content.ComponentName,
      *      boolean)
      */
     public static boolean isExternalStorageEmulated() {
+        if (isStorageDisabled()) return false;
         final File externalDir = sCurrentUser.getExternalDirs()[0];
         return isExternalStorageEmulated(externalDir);
     }
 
     /**
-     * Returns whether the shared/external storage media at the given path is
-     * emulated.
-     * <p>
-     * The contents of emulated storage devices are backed by a private user
-     * data partition, which means there is little benefit to apps storing data
-     * here instead of the private directories returned by
-     * {@link Context#getFilesDir()}, etc.
-     * <p>
-     * This returns true when emulated storage is backed by either internal
-     * storage or an adopted storage device.
+     * Returns whether the storage device that provides the given path is
+     * emulated. If true, data stored on this device will be stored on a portion
+     * of the internal storage system.
      *
      * @throws IllegalArgumentException if the path is not a valid storage
      *             device.
@@ -1034,7 +762,6 @@ public class Environment {
      *
      * @hide
      */
-    @TestApi
     public static File buildPath(File base, String... segments) {
         File cur = base;
         for (String segment : segments) {
@@ -1047,6 +774,9 @@ public class Environment {
         return cur;
     }
 
+    private static boolean isStorageDisabled() {
+        return SystemProperties.getBoolean("config.disable_storage", false);
+    }
 
     /**
      * If the given path exists on emulated external storage, return the

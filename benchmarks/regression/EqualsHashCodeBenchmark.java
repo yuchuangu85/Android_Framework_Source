@@ -16,12 +16,12 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.net.URI;
 import java.net.URL;
 
-public final class EqualsHashCodeBenchmark {
+public final class EqualsHashCodeBenchmark extends SimpleBenchmark {
     private enum Type {
         URI() {
             @Override Object newInstance(String text) throws Exception {
@@ -48,8 +48,7 @@ public final class EqualsHashCodeBenchmark {
     Object c1;
     Object c2;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         a1 = type.newInstance("https://mail.google.com/mail/u/0/?shva=1#inbox");
         a2 = type.newInstance("https://mail.google.com/mail/u/0/?shva=1#inbox");
         b1 = type.newInstance("http://developer.android.com/reference/java/net/URI.html");

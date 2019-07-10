@@ -1,1158 +1,756 @@
-/*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio.channels;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.spi.AbstractInterruptibleChannel;
-import java.nio.file.*;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.spi.*;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Collections;
 
 /**
- * A channel for reading, writing, mapping, and manipulating a file.
- *
- * <p> A file channel is a {@link SeekableByteChannel} that is connected to
- * a file. It has a current <i>position</i> within its file which can
- * be both {@link #position() <i>queried</i>} and {@link #position(long)
- * <i>modified</i>}.  The file itself contains a variable-length sequence
- * of bytes that can be read and written and whose current {@link #size
- * <i>size</i>} can be queried.  The size of the file increases
- * when bytes are written beyond its current size; the size of the file
- * decreases when it is {@link #truncate <i>truncated</i>}.  The
- * file may also have some associated <i>metadata</i> such as access
- * permissions, content type, and last-modification time; this class does not
- * define methods for metadata access.
- *
- * <p> In addition to the familiar read, write, and close operations of byte
- * channels, this class defines the following file-specific operations: </p>
- *
+ * An abstract channel type for interaction with a platform file.
+ * <p>
+ * A {@code FileChannel} defines the methods for reading, writing, memory
+ * mapping, and manipulating the logical state of a platform file. This type
+ * does not have a method for opening files, since this behavior has been
+ * delegated to the {@link java.io.FileInputStream},
+ * {@link java.io.FileOutputStream} and {@link java.io.RandomAccessFile} types.
+ * <p>
+ * FileChannels created from a {@code FileInputStream} or a
+ * {@code RandomAccessFile} created in mode "r", are read-only. FileChannels
+ * created from a {@code FileOutputStream} are write-only. FileChannels created
+ * from a {@code RandomAccessFile} created in mode "rw" are read/write.
+ * FileChannels created from a {@code RandomAccessFile} that was opened in
+ * append-mode will also be in append-mode -- meaning that each write will be
+ * proceeded by a seek to the end of file.
+ * <p>
+ * FileChannels have a virtual pointer into the file which is referred to as a
+ * file <em>position</em>. The position can be manipulated by moving it
+ * within the file, and the current position can be queried.
+ * <p>
+ * FileChannels also have an associated <em>size</em>. The size of the file
+ * is the number of bytes that it currently contains. The size can be
+ * manipulated by adding more bytes to the end of the file (which increases the
+ * size) or truncating the file (which decreases the size). The current size can
+ * also be queried.
+ * <p>
+ * FileChannels have operations beyond the simple read, write, and close. They
+ * can also:
  * <ul>
- *
- *   <li><p> Bytes may be {@link #read(ByteBuffer, long) read} or
- *   {@link #write(ByteBuffer, long) <i>written</i>} at an absolute
- *   position in a file in a way that does not affect the channel's current
- *   position.  </p></li>
- *
- *   <li><p> A region of a file may be {@link #map <i>mapped</i>}
- *   directly into memory; for large files this is often much more efficient
- *   than invoking the usual <tt>read</tt> or <tt>write</tt> methods.
- *   </p></li>
- *
- *   <li><p> Updates made to a file may be {@link #force <i>forced
- *   out</i>} to the underlying storage device, ensuring that data are not
- *   lost in the event of a system crash.  </p></li>
- *
- *   <li><p> Bytes can be transferred from a file {@link #transferTo <i>to
- *   some other channel</i>}, and {@link #transferFrom <i>vice
- *   versa</i>}, in a way that can be optimized by many operating systems
- *   into a very fast transfer directly to or from the filesystem cache.
- *   </p></li>
- *
- *   <li><p> A region of a file may be {@link FileLock <i>locked</i>}
- *   against access by other programs.  </p></li>
- *
+ * <li>request that cached data be forced onto the disk,</li>
+ * <li>lock ranges of bytes associated with the file,</li>
+ * <li>transfer data directly to another channel in a manner that has the
+ * potential to be optimized by the platform,</li>
+ * <li>memory-mapping files into NIO buffers to provide efficient manipulation
+ * of file data,</li>
+ * <li>read and write to the file at absolute byte offsets in a fashion that
+ * does not modify the current position.</li>
  * </ul>
- *
- * <p> File channels are safe for use by multiple concurrent threads.  The
- * {@link Channel#close close} method may be invoked at any time, as specified
- * by the {@link Channel} interface.  Only one operation that involves the
- * channel's position or can change its file's size may be in progress at any
- * given time; attempts to initiate a second such operation while the first is
- * still in progress will block until the first operation completes.  Other
- * operations, in particular those that take an explicit position, may proceed
- * concurrently; whether they in fact do so is dependent upon the underlying
- * implementation and is therefore unspecified.
- *
- * <p> The view of a file provided by an instance of this class is guaranteed
- * to be consistent with other views of the same file provided by other
- * instances in the same program.  The view provided by an instance of this
- * class may or may not, however, be consistent with the views seen by other
- * concurrently-running programs due to caching performed by the underlying
- * operating system and delays induced by network-filesystem protocols.  This
- * is true regardless of the language in which these other programs are
- * written, and whether they are running on the same machine or on some other
- * machine.  The exact nature of any such inconsistencies are system-dependent
- * and are therefore unspecified.
- *
- * <p> A file channel is created by invoking one of the {@link #open open}
- * methods defined by this class. A file channel can also be obtained from an
- * existing {@link java.io.FileInputStream#getChannel FileInputStream}, {@link
- * java.io.FileOutputStream#getChannel FileOutputStream}, or {@link
- * java.io.RandomAccessFile#getChannel RandomAccessFile} object by invoking
- * that object's <tt>getChannel</tt> method, which returns a file channel that
- * is connected to the same underlying file. Where the file channel is obtained
- * from an existing stream or random access file then the state of the file
- * channel is intimately connected to that of the object whose <tt>getChannel</tt>
- * method returned the channel.  Changing the channel's position, whether
- * explicitly or by reading or writing bytes, will change the file position of
- * the originating object, and vice versa. Changing the file's length via the
- * file channel will change the length seen via the originating object, and vice
- * versa.  Changing the file's content by writing bytes will change the content
- * seen by the originating object, and vice versa.
- *
- * <a name="open-mode"></a> <p> At various points this class specifies that an
- * instance that is "open for reading," "open for writing," or "open for
- * reading and writing" is required.  A channel obtained via the {@link
- * java.io.FileInputStream#getChannel getChannel} method of a {@link
- * java.io.FileInputStream} instance will be open for reading.  A channel
- * obtained via the {@link java.io.FileOutputStream#getChannel getChannel}
- * method of a {@link java.io.FileOutputStream} instance will be open for
- * writing.  Finally, a channel obtained via the {@link
- * java.io.RandomAccessFile#getChannel getChannel} method of a {@link
- * java.io.RandomAccessFile} instance will be open for reading if the instance
- * was created with mode <tt>"r"</tt> and will be open for reading and writing
- * if the instance was created with mode <tt>"rw"</tt>.
- *
- * <a name="append-mode"></a><p> A file channel that is open for writing may be in
- * <i>append mode</i>, for example if it was obtained from a file-output stream
- * that was created by invoking the {@link
- * java.io.FileOutputStream#FileOutputStream(java.io.File,boolean)
- * FileOutputStream(File,boolean)} constructor and passing <tt>true</tt> for
- * the second parameter.  In this mode each invocation of a relative write
- * operation first advances the position to the end of the file and then writes
- * the requested data.  Whether the advancement of the position and the writing
- * of the data are done in a single atomic operation is system-dependent and
- * therefore unspecified.
- *
- * @see java.io.FileInputStream#getChannel()
- * @see java.io.FileOutputStream#getChannel()
- * @see java.io.RandomAccessFile#getChannel()
- *
- * @author Mark Reinhold
- * @author Mike McCloskey
- * @author JSR-51 Expert Group
- * @since 1.4
+ * <p>
+ * FileChannels are thread-safe. Only one operation involving manipulation of
+ * the file position may be executed at the same time. Subsequent calls to such
+ * operations will block, and one of those blocked will be freed to continue
+ * when the first operation has completed. There is no ordered queue or fairness
+ * applied to the blocked threads.
+ * <p>
+ * It is undefined whether operations that do not manipulate the file position
+ * will also block when there are any other operations in-flight.
+ * <p>
+ * The logical view of the underlying file is consistent across all FileChannels
+ * and I/O streams opened on the same file by the same VM.
+ * Therefore, modifications performed via a channel will be visible to the
+ * stream and vice versa; this includes modifications to the file position,
+ * content, size, etc.
  */
-
-public abstract class FileChannel
-    extends AbstractInterruptibleChannel
-    implements SeekableByteChannel, GatheringByteChannel, ScatteringByteChannel
-{
-    /**
-     * Initializes a new instance of this class.
-     */
-    protected FileChannel() { }
+public abstract class FileChannel extends AbstractInterruptibleChannel
+        implements ByteChannel, GatheringByteChannel, ScatteringByteChannel {
 
     /**
-     * Opens or creates a file, returning a file channel to access the file.
-     *
-     * <p> The {@code options} parameter determines how the file is opened.
-     * The {@link StandardOpenOption#READ READ} and {@link StandardOpenOption#WRITE
-     * WRITE} options determine if the file should be opened for reading and/or
-     * writing. If neither option (or the {@link StandardOpenOption#APPEND APPEND}
-     * option) is contained in the array then the file is opened for reading.
-     * By default reading or writing commences at the beginning of the file.
-     *
-     * <p> In the addition to {@code READ} and {@code WRITE}, the following
-     * options may be present:
-     *
-     * <table border=1 cellpadding=5 summary="">
-     * <tr> <th>Option</th> <th>Description</th> </tr>
-     * <tr>
-     *   <td> {@link StandardOpenOption#APPEND APPEND} </td>
-     *   <td> If this option is present then the file is opened for writing and
-     *     each invocation of the channel's {@code write} method first advances
-     *     the position to the end of the file and then writes the requested
-     *     data. Whether the advancement of the position and the writing of the
-     *     data are done in a single atomic operation is system-dependent and
-     *     therefore unspecified. This option may not be used in conjunction
-     *     with the {@code READ} or {@code TRUNCATE_EXISTING} options. </td>
-     * </tr>
-     * <tr>
-     *   <td> {@link StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING} </td>
-     *   <td> If this option is present then the existing file is truncated to
-     *   a size of 0 bytes. This option is ignored when the file is opened only
-     *   for reading. </td>
-     * </tr>
-     * <tr>
-     *   <td> {@link StandardOpenOption#CREATE_NEW CREATE_NEW} </td>
-     *   <td> If this option is present then a new file is created, failing if
-     *   the file already exists. When creating a file the check for the
-     *   existence of the file and the creation of the file if it does not exist
-     *   is atomic with respect to other file system operations. This option is
-     *   ignored when the file is opened only for reading. </td>
-     * </tr>
-     * <tr>
-     *   <td > {@link StandardOpenOption#CREATE CREATE} </td>
-     *   <td> If this option is present then an existing file is opened if it
-     *   exists, otherwise a new file is created. When creating a file the check
-     *   for the existence of the file and the creation of the file if it does
-     *   not exist is atomic with respect to other file system operations. This
-     *   option is ignored if the {@code CREATE_NEW} option is also present or
-     *   the file is opened only for reading. </td>
-     * </tr>
-     * <tr>
-     *   <td > {@link StandardOpenOption#DELETE_ON_CLOSE DELETE_ON_CLOSE} </td>
-     *   <td> When this option is present then the implementation makes a
-     *   <em>best effort</em> attempt to delete the file when closed by the
-     *   the {@link #close close} method. If the {@code close} method is not
-     *   invoked then a <em>best effort</em> attempt is made to delete the file
-     *   when the Java virtual machine terminates. </td>
-     * </tr>
-     * <tr>
-     *   <td>{@link StandardOpenOption#SPARSE SPARSE} </td>
-     *   <td> When creating a new file this option is a <em>hint</em> that the
-     *   new file will be sparse. This option is ignored when not creating
-     *   a new file. </td>
-     * </tr>
-     * <tr>
-     *   <td> {@link StandardOpenOption#SYNC SYNC} </td>
-     *   <td> Requires that every update to the file's content or metadata be
-     *   written synchronously to the underlying storage device. (see <a
-     *   href="../file/package-summary.html#integrity"> Synchronized I/O file
-     *   integrity</a>). </td>
-     * </tr>
-     * <tr>
-     *   <td> {@link StandardOpenOption#DSYNC DSYNC} </td>
-     *   <td> Requires that every update to the file's content be written
-     *   synchronously to the underlying storage device. (see <a
-     *   href="../file/package-summary.html#integrity"> Synchronized I/O file
-     *   integrity</a>). </td>
-     * </tr>
-     * </table>
-     *
-     * <p> An implementation may also support additional options.
-     *
-     * <p> The {@code attrs} parameter is an optional array of file {@link
-     * FileAttribute file-attributes} to set atomically when creating the file.
-     *
-     * <p> The new channel is created by invoking the {@link
-     * FileSystemProvider#newFileChannel newFileChannel} method on the
-     * provider that created the {@code Path}.
-     *
-     * @param   path
-     *          The path of the file to open or create
-     * @param   options
-     *          Options specifying how the file is opened
-     * @param   attrs
-     *          An optional list of file attributes to set atomically when
-     *          creating the file
-     *
-     * @return  A new file channel
-     *
-     * @throws  IllegalArgumentException
-     *          If the set contains an invalid combination of options
-     * @throws  UnsupportedOperationException
-     *          If the {@code path} is associated with a provider that does not
-     *          support creating file channels, or an unsupported open option is
-     *          specified, or the array contains an attribute that cannot be set
-     *          atomically when creating the file
-     * @throws  IOException
-     *          If an I/O error occurs
-     * @throws  SecurityException
-     *          If a security manager is installed and it denies an
-     *          unspecified permission required by the implementation.
-     *          In the case of the default provider, the {@link
-     *          SecurityManager#checkRead(String)} method is invoked to check
-     *          read access if the file is opened for reading. The {@link
-     *          SecurityManager#checkWrite(String)} method is invoked to check
-     *          write access if the file is opened for writing
-     *
-     * @since   1.7
-     */
-    public static FileChannel open(Path path,
-                                   Set<? extends OpenOption> options,
-                                   FileAttribute<?>... attrs)
-        throws IOException
-    {
-        FileSystemProvider provider = path.getFileSystem().provider();
-        return provider.newFileChannel(path, options, attrs);
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"}) // generic array construction
-    private static final FileAttribute<?>[] NO_ATTRIBUTES = new FileAttribute[0];
-
-    /**
-     * Opens or creates a file, returning a file channel to access the file.
-     *
-     * <p> An invocation of this method behaves in exactly the same way as the
-     * invocation
-     * <pre>
-     *     fc.{@link #open(Path,Set,FileAttribute[]) open}(file, opts, new FileAttribute&lt;?&gt;[0]);
-     * </pre>
-     * where {@code opts} is a set of the options specified in the {@code
-     * options} array.
-     *
-     * @param   path
-     *          The path of the file to open or create
-     * @param   options
-     *          Options specifying how the file is opened
-     *
-     * @return  A new file channel
-     *
-     * @throws  IllegalArgumentException
-     *          If the set contains an invalid combination of options
-     * @throws  UnsupportedOperationException
-     *          If the {@code path} is associated with a provider that does not
-     *          support creating file channels, or an unsupported open option is
-     *          specified
-     * @throws  IOException
-     *          If an I/O error occurs
-     * @throws  SecurityException
-     *          If a security manager is installed and it denies an
-     *          unspecified permission required by the implementation.
-     *          In the case of the default provider, the {@link
-     *          SecurityManager#checkRead(String)} method is invoked to check
-     *          read access if the file is opened for reading. The {@link
-     *          SecurityManager#checkWrite(String)} method is invoked to check
-     *          write access if the file is opened for writing
-     *
-     * @since   1.7
-     */
-    public static FileChannel open(Path path, OpenOption... options)
-        throws IOException
-    {
-        Set<OpenOption> set = new HashSet<OpenOption>(options.length);
-        Collections.addAll(set, options);
-        return open(path, set, NO_ATTRIBUTES);
-    }
-
-    // -- Channel operations --
-
-    /**
-     * Reads a sequence of bytes from this channel into the given buffer.
-     *
-     * <p> Bytes are read starting at this channel's current file position, and
-     * then the file position is updated with the number of bytes actually
-     * read.  Otherwise this method behaves exactly as specified in the {@link
-     * ReadableByteChannel} interface. </p>
-     */
-    public abstract int read(ByteBuffer dst) throws IOException;
-
-    /**
-     * Reads a sequence of bytes from this channel into a subsequence of the
-     * given buffers.
-     *
-     * <p> Bytes are read starting at this channel's current file position, and
-     * then the file position is updated with the number of bytes actually
-     * read.  Otherwise this method behaves exactly as specified in the {@link
-     * ScatteringByteChannel} interface.  </p>
-     */
-    public abstract long read(ByteBuffer[] dsts, int offset, int length)
-        throws IOException;
-
-    /**
-     * Reads a sequence of bytes from this channel into the given buffers.
-     *
-     * <p> Bytes are read starting at this channel's current file position, and
-     * then the file position is updated with the number of bytes actually
-     * read.  Otherwise this method behaves exactly as specified in the {@link
-     * ScatteringByteChannel} interface.  </p>
-     */
-    public final long read(ByteBuffer[] dsts) throws IOException {
-        return read(dsts, 0, dsts.length);
-    }
-
-    /**
-     * Writes a sequence of bytes to this channel from the given buffer.
-     *
-     * <p> Bytes are written starting at this channel's current file position
-     * unless the channel is in append mode, in which case the position is
-     * first advanced to the end of the file.  The file is grown, if necessary,
-     * to accommodate the written bytes, and then the file position is updated
-     * with the number of bytes actually written.  Otherwise this method
-     * behaves exactly as specified by the {@link WritableByteChannel}
-     * interface. </p>
-     */
-    public abstract int write(ByteBuffer src) throws IOException;
-
-    /**
-     * Writes a sequence of bytes to this channel from a subsequence of the
-     * given buffers.
-     *
-     * <p> Bytes are written starting at this channel's current file position
-     * unless the channel is in append mode, in which case the position is
-     * first advanced to the end of the file.  The file is grown, if necessary,
-     * to accommodate the written bytes, and then the file position is updated
-     * with the number of bytes actually written.  Otherwise this method
-     * behaves exactly as specified in the {@link GatheringByteChannel}
-     * interface.  </p>
-     */
-    public abstract long write(ByteBuffer[] srcs, int offset, int length)
-        throws IOException;
-
-    /**
-     * Writes a sequence of bytes to this channel from the given buffers.
-     *
-     * <p> Bytes are written starting at this channel's current file position
-     * unless the channel is in append mode, in which case the position is
-     * first advanced to the end of the file.  The file is grown, if necessary,
-     * to accommodate the written bytes, and then the file position is updated
-     * with the number of bytes actually written.  Otherwise this method
-     * behaves exactly as specified in the {@link GatheringByteChannel}
-     * interface.  </p>
-     */
-    public final long write(ByteBuffer[] srcs) throws IOException {
-        return write(srcs, 0, srcs.length);
-    }
-
-
-    // -- Other operations --
-
-    /**
-     * Returns this channel's file position.
-     *
-     * @return  This channel's file position,
-     *          a non-negative integer counting the number of bytes
-     *          from the beginning of the file to the current position
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract long position() throws IOException;
-
-    /**
-     * Sets this channel's file position.
-     *
-     * <p> Setting the position to a value that is greater than the file's
-     * current size is legal but does not change the size of the file.  A later
-     * attempt to read bytes at such a position will immediately return an
-     * end-of-file indication.  A later attempt to write bytes at such a
-     * position will cause the file to be grown to accommodate the new bytes;
-     * the values of any bytes between the previous end-of-file and the
-     * newly-written bytes are unspecified.  </p>
-     *
-     * @param  newPosition
-     *         The new position, a non-negative integer counting
-     *         the number of bytes from the beginning of the file
-     *
-     * @return  This file channel
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  IllegalArgumentException
-     *          If the new position is negative
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract FileChannel position(long newPosition) throws IOException;
-
-    /**
-     * Returns the current size of this channel's file.
-     *
-     * @return  The current size of this channel's file,
-     *          measured in bytes
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract long size() throws IOException;
-
-    /**
-     * Truncates this channel's file to the given size.
-     *
-     * <p> If the given size is less than the file's current size then the file
-     * is truncated, discarding any bytes beyond the new end of the file.  If
-     * the given size is greater than or equal to the file's current size then
-     * the file is not modified.  In either case, if this channel's file
-     * position is greater than the given size then it is set to that size.
-     * </p>
-     *
-     * @param  size
-     *         The new size, a non-negative byte count
-     *
-     * @return  This file channel
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  IllegalArgumentException
-     *          If the new size is negative
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract FileChannel truncate(long size) throws IOException;
-
-    /**
-     * Forces any updates to this channel's file to be written to the storage
-     * device that contains it.
-     *
-     * <p> If this channel's file resides on a local storage device then when
-     * this method returns it is guaranteed that all changes made to the file
-     * since this channel was created, or since this method was last invoked,
-     * will have been written to that device.  This is useful for ensuring that
-     * critical information is not lost in the event of a system crash.
-     *
-     * <p> If the file does not reside on a local device then no such guarantee
-     * is made.
-     *
-     * <p> The <tt>metaData</tt> parameter can be used to limit the number of
-     * I/O operations that this method is required to perform.  Passing
-     * <tt>false</tt> for this parameter indicates that only updates to the
-     * file's content need be written to storage; passing <tt>true</tt>
-     * indicates that updates to both the file's content and metadata must be
-     * written, which generally requires at least one more I/O operation.
-     * Whether this parameter actually has any effect is dependent upon the
-     * underlying operating system and is therefore unspecified.
-     *
-     * <p> Invoking this method may cause an I/O operation to occur even if the
-     * channel was only opened for reading.  Some operating systems, for
-     * example, maintain a last-access time as part of a file's metadata, and
-     * this time is updated whenever the file is read.  Whether or not this is
-     * actually done is system-dependent and is therefore unspecified.
-     *
-     * <p> This method is only guaranteed to force changes that were made to
-     * this channel's file via the methods defined in this class.  It may or
-     * may not force changes that were made by modifying the content of a
-     * {@link MappedByteBuffer <i>mapped byte buffer</i>} obtained by
-     * invoking the {@link #map map} method.  Invoking the {@link
-     * MappedByteBuffer#force force} method of the mapped byte buffer will
-     * force changes made to the buffer's content to be written.  </p>
-     *
-     * @param   metaData
-     *          If <tt>true</tt> then this method is required to force changes
-     *          to both the file's content and metadata to be written to
-     *          storage; otherwise, it need only force content changes to be
-     *          written
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract void force(boolean metaData) throws IOException;
-
-    /**
-     * Transfers bytes from this channel's file to the given writable byte
-     * channel.
-     *
-     * <p> An attempt is made to read up to <tt>count</tt> bytes starting at
-     * the given <tt>position</tt> in this channel's file and write them to the
-     * target channel.  An invocation of this method may or may not transfer
-     * all of the requested bytes; whether or not it does so depends upon the
-     * natures and states of the channels.  Fewer than the requested number of
-     * bytes are transferred if this channel's file contains fewer than
-     * <tt>count</tt> bytes starting at the given <tt>position</tt>, or if the
-     * target channel is non-blocking and it has fewer than <tt>count</tt>
-     * bytes free in its output buffer.
-     *
-     * <p> This method does not modify this channel's position.  If the given
-     * position is greater than the file's current size then no bytes are
-     * transferred.  If the target channel has a position then bytes are
-     * written starting at that position and then the position is incremented
-     * by the number of bytes written.
-     *
-     * <p> This method is potentially much more efficient than a simple loop
-     * that reads from this channel and writes to the target channel.  Many
-     * operating systems can transfer bytes directly from the filesystem cache
-     * to the target channel without actually copying them.  </p>
-     *
-     * @param  position
-     *         The position within the file at which the transfer is to begin;
-     *         must be non-negative
-     *
-     * @param  count
-     *         The maximum number of bytes to be transferred; must be
-     *         non-negative
-     *
-     * @param  target
-     *         The target channel
-     *
-     * @return  The number of bytes, possibly zero,
-     *          that were actually transferred
-     *
-     * @throws IllegalArgumentException
-     *         If the preconditions on the parameters do not hold
-     *
-     * @throws  NonReadableChannelException
-     *          If this channel was not opened for reading
-     *
-     * @throws  NonWritableChannelException
-     *          If the target channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If either this channel or the target channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes either channel
-     *          while the transfer is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread while the
-     *          transfer is in progress, thereby closing both channels and
-     *          setting the current thread's interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract long transferTo(long position, long count,
-                                    WritableByteChannel target)
-        throws IOException;
-
-    /**
-     * Transfers bytes into this channel's file from the given readable byte
-     * channel.
-     *
-     * <p> An attempt is made to read up to <tt>count</tt> bytes from the
-     * source channel and write them to this channel's file starting at the
-     * given <tt>position</tt>.  An invocation of this method may or may not
-     * transfer all of the requested bytes; whether or not it does so depends
-     * upon the natures and states of the channels.  Fewer than the requested
-     * number of bytes will be transferred if the source channel has fewer than
-     * <tt>count</tt> bytes remaining, or if the source channel is non-blocking
-     * and has fewer than <tt>count</tt> bytes immediately available in its
-     * input buffer.
-     *
-     * <p> This method does not modify this channel's position.  If the given
-     * position is greater than the file's current size then no bytes are
-     * transferred.  If the source channel has a position then bytes are read
-     * starting at that position and then the position is incremented by the
-     * number of bytes read.
-     *
-     * <p> This method is potentially much more efficient than a simple loop
-     * that reads from the source channel and writes to this channel.  Many
-     * operating systems can transfer bytes directly from the source channel
-     * into the filesystem cache without actually copying them.  </p>
-     *
-     * @param  src
-     *         The source channel
-     *
-     * @param  position
-     *         The position within the file at which the transfer is to begin;
-     *         must be non-negative
-     *
-     * @param  count
-     *         The maximum number of bytes to be transferred; must be
-     *         non-negative
-     *
-     * @return  The number of bytes, possibly zero,
-     *          that were actually transferred
-     *
-     * @throws IllegalArgumentException
-     *         If the preconditions on the parameters do not hold
-     *
-     * @throws  NonReadableChannelException
-     *          If the source channel was not opened for reading
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If either this channel or the source channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes either channel
-     *          while the transfer is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread while the
-     *          transfer is in progress, thereby closing both channels and
-     *          setting the current thread's interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract long transferFrom(ReadableByteChannel src,
-                                      long position, long count)
-        throws IOException;
-
-    /**
-     * Reads a sequence of bytes from this channel into the given buffer,
-     * starting at the given file position.
-     *
-     * <p> This method works in the same manner as the {@link
-     * #read(ByteBuffer)} method, except that bytes are read starting at the
-     * given file position rather than at the channel's current position.  This
-     * method does not modify this channel's position.  If the given position
-     * is greater than the file's current size then no bytes are read.  </p>
-     *
-     * @param  dst
-     *         The buffer into which bytes are to be transferred
-     *
-     * @param  position
-     *         The file position at which the transfer is to begin;
-     *         must be non-negative
-     *
-     * @return  The number of bytes read, possibly zero, or <tt>-1</tt> if the
-     *          given position is greater than or equal to the file's current
-     *          size
-     *
-     * @throws  IllegalArgumentException
-     *          If the position is negative
-     *
-     * @throws  NonReadableChannelException
-     *          If this channel was not opened for reading
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the read operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the read operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract int read(ByteBuffer dst, long position) throws IOException;
-
-    /**
-     * Writes a sequence of bytes to this channel from the given buffer,
-     * starting at the given file position.
-     *
-     * <p> This method works in the same manner as the {@link
-     * #write(ByteBuffer)} method, except that bytes are written starting at
-     * the given file position rather than at the channel's current position.
-     * This method does not modify this channel's position.  If the given
-     * position is greater than the file's current size then the file will be
-     * grown to accommodate the new bytes; the values of any bytes between the
-     * previous end-of-file and the newly-written bytes are unspecified.  </p>
-     *
-     * @param  src
-     *         The buffer from which bytes are to be transferred
-     *
-     * @param  position
-     *         The file position at which the transfer is to begin;
-     *         must be non-negative
-     *
-     * @return  The number of bytes written, possibly zero
-     *
-     * @throws  IllegalArgumentException
-     *          If the position is negative
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the write operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the write operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     */
-    public abstract int write(ByteBuffer src, long position) throws IOException;
-
-
-    // -- Memory-mapped buffers --
-
-    /**
-     * A typesafe enumeration for file-mapping modes.
-     *
-     * @since 1.4
-     *
-     * @see java.nio.channels.FileChannel#map
+     * {@code MapMode} defines file mapping mode constants.
      */
     public static class MapMode {
+        /**
+         * Private mapping mode (equivalent to copy on write).
+         */
+        public static final MapMode PRIVATE = new MapMode("PRIVATE");
 
         /**
-         * Mode for a read-only mapping.
+         * Read-only mapping mode.
          */
-        public static final MapMode READ_ONLY
-            = new MapMode("READ_ONLY");
+        public static final MapMode READ_ONLY = new MapMode("READ_ONLY");
 
         /**
-         * Mode for a read/write mapping.
+         * Read-write mapping mode.
          */
-        public static final MapMode READ_WRITE
-            = new MapMode("READ_WRITE");
+        public static final MapMode READ_WRITE = new MapMode("READ_WRITE");
 
-        /**
-         * Mode for a private (copy-on-write) mapping.
+        // The string used to display the mapping mode.
+        private final String displayName;
+
+        /*
+         * Private constructor prevents others creating new modes.
          */
-        public static final MapMode PRIVATE
-            = new MapMode("PRIVATE");
-
-        private final String name;
-
-        private MapMode(String name) {
-            this.name = name;
+        private MapMode(String displayName) {
+            this.displayName = displayName;
         }
 
         /**
-         * Returns a string describing this file-mapping mode.
+         * Returns a string version of the mapping mode.
          *
-         * @return  A descriptive string
+         * @return this map mode as string.
          */
+        @Override
         public String toString() {
-            return name;
+            return displayName;
         }
-
     }
 
     /**
-     * Maps a region of this channel's file directly into memory.
+     * Protected default constructor.
+     */
+    protected FileChannel() {
+    }
+
+    /**
+     * Requests that all updates to this channel are committed to the storage
+     * device.
+     * <p>
+     * When this method returns, all modifications made to the platform file
+     * underlying this channel have been committed if the file resides on a
+     * local storage device. If the file is not hosted locally, for example on a
+     * networked file system, then applications cannot be certain that the
+     * modifications have been committed.
+     * <p>
+     * There are no assurances given that changes made to the file using methods
+     * defined elsewhere will be committed. For example, changes made via a
+     * mapped byte buffer may not be committed.
+     * <p>
+     * The <code>metadata</code> parameter indicates whether the update should
+     * include the file's metadata such as last modification time, last access
+     * time, etc. Note that passing <code>true</code> may invoke an underlying
+     * write to the operating system (if the platform is maintaining metadata
+     * such as last access time), even if the channel is opened read-only.
      *
-     * <p> A region of a file may be mapped into memory in one of three modes:
-     * </p>
-     *
-     * <ul>
-     *
-     *   <li><p> <i>Read-only:</i> Any attempt to modify the resulting buffer
-     *   will cause a {@link java.nio.ReadOnlyBufferException} to be thrown.
-     *   ({@link MapMode#READ_ONLY MapMode.READ_ONLY}) </p></li>
-     *
-     *   <li><p> <i>Read/write:</i> Changes made to the resulting buffer will
-     *   eventually be propagated to the file; they may or may not be made
-     *   visible to other programs that have mapped the same file.  ({@link
-     *   MapMode#READ_WRITE MapMode.READ_WRITE}) </p></li>
-     *
-     *   <li><p> <i>Private:</i> Changes made to the resulting buffer will not
-     *   be propagated to the file and will not be visible to other programs
-     *   that have mapped the same file; instead, they will cause private
-     *   copies of the modified portions of the buffer to be created.  ({@link
-     *   MapMode#PRIVATE MapMode.PRIVATE}) </p></li>
-     *
-     * </ul>
-     *
-     * <p> For a read-only mapping, this channel must have been opened for
-     * reading; for a read/write or private mapping, this channel must have
-     * been opened for both reading and writing.
-     *
-     * <p> The {@link MappedByteBuffer <i>mapped byte buffer</i>}
-     * returned by this method will have a position of zero and a limit and
-     * capacity of <tt>size</tt>; its mark will be undefined.  The buffer and
-     * the mapping that it represents will remain valid until the buffer itself
-     * is garbage-collected.
-     *
-     * <p> A mapping, once established, is not dependent upon the file channel
-     * that was used to create it.  Closing the channel, in particular, has no
-     * effect upon the validity of the mapping.
-     *
-     * <p> Many of the details of memory-mapped files are inherently dependent
-     * upon the underlying operating system and are therefore unspecified.  The
-     * behavior of this method when the requested region is not completely
-     * contained within this channel's file is unspecified.  Whether changes
-     * made to the content or size of the underlying file, by this program or
-     * another, are propagated to the buffer is unspecified.  The rate at which
-     * changes to the buffer are propagated to the file is unspecified.
-     *
-     * <p> For most operating systems, mapping a file into memory is more
-     * expensive than reading or writing a few tens of kilobytes of data via
-     * the usual {@link #read read} and {@link #write write} methods.  From the
-     * standpoint of performance it is generally only worth mapping relatively
-     * large files into memory.  </p>
-     *
-     * @param  mode
-     *         One of the constants {@link MapMode#READ_ONLY READ_ONLY}, {@link
-     *         MapMode#READ_WRITE READ_WRITE}, or {@link MapMode#PRIVATE
-     *         PRIVATE} defined in the {@link MapMode} class, according to
-     *         whether the file is to be mapped read-only, read/write, or
-     *         privately (copy-on-write), respectively
-     *
-     * @param  position
-     *         The position within the file at which the mapped region
-     *         is to start; must be non-negative
-     *
-     * @param  size
-     *         The size of the region to be mapped; must be non-negative and
-     *         no greater than {@link java.lang.Integer#MAX_VALUE}
-     *
-     * @return  The mapped byte buffer
-     *
-     * @throws NonReadableChannelException
-     *         If the <tt>mode</tt> is {@link MapMode#READ_ONLY READ_ONLY} but
-     *         this channel was not opened for reading
-     *
-     * @throws NonWritableChannelException
-     *         If the <tt>mode</tt> is {@link MapMode#READ_WRITE READ_WRITE} or
-     *         {@link MapMode#PRIVATE PRIVATE} but this channel was not opened
-     *         for both reading and writing
-     *
-     * @throws IllegalArgumentException
-     *         If the preconditions on the parameters do not hold
-     *
+     * @param metadata
+     *            {@code true} if the file metadata should be flushed in
+     *            addition to the file content, {@code false} otherwise.
+     * @throws ClosedChannelException
+     *             if this channel is already closed.
      * @throws IOException
-     *         If some other I/O error occurs
-     *
-     * @see java.nio.channels.FileChannel.MapMode
-     * @see java.nio.MappedByteBuffer
+     *             if another I/O error occurs.
      */
-    public abstract MappedByteBuffer map(MapMode mode,
-                                         long position, long size)
-        throws IOException;
-
-
-    // -- Locks --
+    public abstract void force(boolean metadata) throws IOException;
 
     /**
-     * Acquires a lock on the given region of this channel's file.
+     * Obtains an exclusive lock on this file.
+     * <p>
+     * This is a convenience method for acquiring a maximum length lock on a
+     * file. It is equivalent to:
+     * {@code fileChannel.lock(0L, Long.MAX_VALUE, false);}
      *
-     * <p> An invocation of this method will block until the region can be
-     * locked, this channel is closed, or the invoking thread is interrupted,
-     * whichever comes first.
-     *
-     * <p> If this channel is closed by another thread during an invocation of
-     * this method then an {@link AsynchronousCloseException} will be thrown.
-     *
-     * <p> If the invoking thread is interrupted while waiting to acquire the
-     * lock then its interrupt status will be set and a {@link
-     * FileLockInterruptionException} will be thrown.  If the invoker's
-     * interrupt status is set when this method is invoked then that exception
-     * will be thrown immediately; the thread's interrupt status will not be
-     * changed.
-     *
-     * <p> The region specified by the <tt>position</tt> and <tt>size</tt>
-     * parameters need not be contained within, or even overlap, the actual
-     * underlying file.  Lock regions are fixed in size; if a locked region
-     * initially contains the end of the file and the file grows beyond the
-     * region then the new portion of the file will not be covered by the lock.
-     * If a file is expected to grow in size and a lock on the entire file is
-     * required then a region starting at zero, and no smaller than the
-     * expected maximum size of the file, should be locked.  The zero-argument
-     * {@link #lock()} method simply locks a region of size {@link
-     * Long#MAX_VALUE}.
-     *
-     * <p> Some operating systems do not support shared locks, in which case a
-     * request for a shared lock is automatically converted into a request for
-     * an exclusive lock.  Whether the newly-acquired lock is shared or
-     * exclusive may be tested by invoking the resulting lock object's {@link
-     * FileLock#isShared() isShared} method.
-     *
-     * <p> File locks are held on behalf of the entire Java virtual machine.
-     * They are not suitable for controlling access to a file by multiple
-     * threads within the same virtual machine.  </p>
-     *
-     * @param  position
-     *         The position at which the locked region is to start; must be
-     *         non-negative
-     *
-     * @param  size
-     *         The size of the locked region; must be non-negative, and the sum
-     *         <tt>position</tt>&nbsp;+&nbsp;<tt>size</tt> must be non-negative
-     *
-     * @param  shared
-     *         <tt>true</tt> to request a shared lock, in which case this
-     *         channel must be open for reading (and possibly writing);
-     *         <tt>false</tt> to request an exclusive lock, in which case this
-     *         channel must be open for writing (and possibly reading)
-     *
-     * @return  A lock object representing the newly-acquired lock
-     *
-     * @throws  IllegalArgumentException
-     *          If the preconditions on the parameters do not hold
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel while the invoking
-     *          thread is blocked in this method
-     *
-     * @throws  FileLockInterruptionException
-     *          If the invoking thread is interrupted while blocked in this
-     *          method
-     *
-     * @throws  OverlappingFileLockException
-     *          If a lock that overlaps the requested region is already held by
-     *          this Java virtual machine, or if another thread is already
-     *          blocked in this method and is attempting to lock an overlapping
-     *          region
-     *
-     * @throws  NonReadableChannelException
-     *          If <tt>shared</tt> is <tt>true</tt> this channel was not
-     *          opened for reading
-     *
-     * @throws  NonWritableChannelException
-     *          If <tt>shared</tt> is <tt>false</tt> but this channel was not
-     *          opened for writing
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     *
-     * @see     #lock()
-     * @see     #tryLock()
-     * @see     #tryLock(long,long,boolean)
-     */
-    public abstract FileLock lock(long position, long size, boolean shared)
-        throws IOException;
-
-    /**
-     * Acquires an exclusive lock on this channel's file.
-     *
-     * <p> An invocation of this method of the form <tt>fc.lock()</tt> behaves
-     * in exactly the same way as the invocation
-     *
-     * <pre>
-     *     fc.{@link #lock(long,long,boolean) lock}(0L, Long.MAX_VALUE, false) </pre>
-     *
-     * @return  A lock object representing the newly-acquired lock
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel while the invoking
-     *          thread is blocked in this method
-     *
-     * @throws  FileLockInterruptionException
-     *          If the invoking thread is interrupted while blocked in this
-     *          method
-     *
-     * @throws  OverlappingFileLockException
-     *          If a lock that overlaps the requested region is already held by
-     *          this Java virtual machine, or if another thread is already
-     *          blocked in this method and is attempting to lock an overlapping
-     *          region of the same file
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     *
-     * @see     #lock(long,long,boolean)
-     * @see     #tryLock()
-     * @see     #tryLock(long,long,boolean)
+     * @return the lock object representing the locked file area.
+     * @throws ClosedChannelException
+     *             the file channel is closed.
+     * @throws NonWritableChannelException
+     *             this channel was not opened for writing.
+     * @throws OverlappingFileLockException
+     *             either a lock is already held that overlaps this lock
+     *             request, or another thread is waiting to acquire a lock that
+     *             will overlap with this request.
+     * @throws FileLockInterruptionException
+     *             the calling thread was interrupted while waiting to acquire
+     *             the lock.
+     * @throws AsynchronousCloseException
+     *             the channel was closed while the calling thread was waiting
+     *             to acquire the lock.
+     * @throws IOException
+     *             if another I/O error occurs while obtaining the requested
+     *             lock.
      */
     public final FileLock lock() throws IOException {
         return lock(0L, Long.MAX_VALUE, false);
     }
 
     /**
-     * Attempts to acquire a lock on the given region of this channel's file.
+     * Obtains a lock on a specified region of the file.
+     * <p>
+     * This is the blocking version of lock acquisition, see also the
+     * <code>tryLock()</code> methods.
+     * <p>
+     * Attempts to acquire an overlapping lock region will fail. The attempt
+     * will fail if the overlapping lock has already been obtained, or if
+     * another thread is currently waiting to acquire the overlapping lock.
+     * <p>
+     * If the request is not for an overlapping lock, the thread calling this
+     * method will block until the lock is obtained (likely by no contention or
+     * another process releasing a lock), or until this thread is interrupted or
+     * the channel is closed.
+     * <p>
+     * If the lock is obtained successfully then the {@link FileLock} object
+     * returned represents the lock for subsequent operations on the locked
+     * region.
+     * <p>
+     * If the thread is interrupted while waiting for the lock, the thread is
+     * set to the interrupted state and throws a
+     * {@link FileLockInterruptionException}. If this channel is closed while
+     * the thread is waiting to obtain the lock then the thread throws a
+     * {@link AsynchronousCloseException}.
+     * <p>
+     * There is no requirement for the position and size to be within the
+     * current start and length of the file.
+     * <p>
+     * Some platforms do not support shared locks, and if a request is made for
+     * a shared lock on such a platform, this method will attempt to acquire an
+     * exclusive lock instead. It is undefined whether the lock obtained is
+     * advisory or mandatory.
      *
-     * <p> This method does not block.  An invocation always returns
-     * immediately, either having acquired a lock on the requested region or
-     * having failed to do so.  If it fails to acquire a lock because an
-     * overlapping lock is held by another program then it returns
-     * <tt>null</tt>.  If it fails to acquire a lock for any other reason then
-     * an appropriate exception is thrown.
-     *
-     * <p> The region specified by the <tt>position</tt> and <tt>size</tt>
-     * parameters need not be contained within, or even overlap, the actual
-     * underlying file.  Lock regions are fixed in size; if a locked region
-     * initially contains the end of the file and the file grows beyond the
-     * region then the new portion of the file will not be covered by the lock.
-     * If a file is expected to grow in size and a lock on the entire file is
-     * required then a region starting at zero, and no smaller than the
-     * expected maximum size of the file, should be locked.  The zero-argument
-     * {@link #tryLock()} method simply locks a region of size {@link
-     * Long#MAX_VALUE}.
-     *
-     * <p> Some operating systems do not support shared locks, in which case a
-     * request for a shared lock is automatically converted into a request for
-     * an exclusive lock.  Whether the newly-acquired lock is shared or
-     * exclusive may be tested by invoking the resulting lock object's {@link
-     * FileLock#isShared() isShared} method.
-     *
-     * <p> File locks are held on behalf of the entire Java virtual machine.
-     * They are not suitable for controlling access to a file by multiple
-     * threads within the same virtual machine.  </p>
-     *
-     * @param  position
-     *         The position at which the locked region is to start; must be
-     *         non-negative
-     *
-     * @param  size
-     *         The size of the locked region; must be non-negative, and the sum
-     *         <tt>position</tt>&nbsp;+&nbsp;<tt>size</tt> must be non-negative
-     *
-     * @param  shared
-     *         <tt>true</tt> to request a shared lock,
-     *         <tt>false</tt> to request an exclusive lock
-     *
-     * @return  A lock object representing the newly-acquired lock,
-     *          or <tt>null</tt> if the lock could not be acquired
-     *          because another program holds an overlapping lock
-     *
-     * @throws  IllegalArgumentException
-     *          If the preconditions on the parameters do not hold
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  OverlappingFileLockException
-     *          If a lock that overlaps the requested region is already held by
-     *          this Java virtual machine, or if another thread is already
-     *          blocked in this method and is attempting to lock an overlapping
-     *          region of the same file
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
-     *
-     * @see     #lock()
-     * @see     #lock(long,long,boolean)
-     * @see     #tryLock()
+     * @param position
+     *            the starting position for the locked region.
+     * @param size
+     *            the length of the locked region in bytes.
+     * @param shared
+     *            a flag indicating whether an attempt should be made to acquire
+     *            a shared lock.
+     * @return the file lock object.
+     * @throws IllegalArgumentException
+     *             if {@code position} or {@code size} is negative.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws OverlappingFileLockException
+     *             if the requested region overlaps an existing lock or pending
+     *             lock request.
+     * @throws NonReadableChannelException
+     *             if the channel is not opened in read-mode but shared is true.
+     * @throws NonWritableChannelException
+     *             if the channel is not opened in write mode but shared is
+     *             false.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws FileLockInterruptionException
+     *             if the thread is interrupted while in the state of waiting on
+     *             the desired file lock.
+     * @throws IOException
+     *             if another I/O error occurs.
      */
-    public abstract FileLock tryLock(long position, long size, boolean shared)
-        throws IOException;
+    public abstract FileLock lock(long position, long size, boolean shared)
+            throws IOException;
 
     /**
-     * Attempts to acquire an exclusive lock on this channel's file.
+     * Maps the file into memory. There can be three modes: read-only,
+     * read/write and private. After mapping, changes made to memory or the file
+     * channel do not affect the other storage place.
+     * <p>
+     * Note: mapping a file into memory is usually expensive.
      *
-     * <p> An invocation of this method of the form <tt>fc.tryLock()</tt>
-     * behaves in exactly the same way as the invocation
+     * @param mode
+     *            one of the three mapping modes.
+     * @param position
+     *            the starting position of the file.
+     * @param size
+     *            the size of the region to map into memory.
+     * @return the mapped byte buffer.
+     * @throws NonReadableChannelException
+     *             if the FileChannel is not opened for reading but the given
+     *             mode is "READ_ONLY".
+     * @throws NonWritableChannelException
+     *             if the FileChannel is not opened for writing but the given
+     *             mode is not "READ_ONLY".
+     * @throws IllegalArgumentException
+     *             if the given parameters of position and size are not correct.
+     *             Both must be non negative. {@code size} also must not be
+     *             bigger than max integer.
+     * @throws IOException
+     *             if any I/O error occurs.
+     */
+    public abstract MappedByteBuffer map(FileChannel.MapMode mode,
+            long position, long size) throws IOException;
+
+    /**
+     * Returns the current position as a positive integer number of bytes from
+     * the start of the file.
      *
-     * <pre>
-     *     fc.{@link #tryLock(long,long,boolean) tryLock}(0L, Long.MAX_VALUE, false) </pre>
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     */
+    public abstract long position() throws IOException;
+
+    /**
+     * Sets the file position pointer to a new value.
+     * <p>
+     * The argument is the number of bytes counted from the start of the file.
+     * The position cannot be set to a value that is negative. The new position
+     * can be set beyond the current file size. If set beyond the current file
+     * size, attempts to read will return end of file. Write operations will
+     * succeed but they will fill the bytes between the current end of file and
+     * the new position with the required number of (unspecified) byte values.
      *
-     * @return  A lock object representing the newly-acquired lock,
-     *          or <tt>null</tt> if the lock could not be acquired
-     *          because another program holds an overlapping lock
+     * @return this.
+     * @throws IllegalArgumentException
+     *             if the new position is negative.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     */
+    public abstract FileChannel position(long newPosition) throws IOException;
+
+    /**
+     * Reads bytes from this file channel into the given buffer.
+     * <p>
+     * The maximum number of bytes that will be read is the remaining number of
+     * bytes in the buffer when the method is invoked. The bytes will be copied
+     * into the buffer starting at the buffer's current position.
+     * <p>
+     * The call may block if other threads are also attempting to read from this
+     * channel.
+     * <p>
+     * Upon completion, the buffer's position is set to the end of the bytes
+     * that have been read. The buffer's limit is not changed.
      *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
+     * @param buffer
+     *            the byte buffer to receive the bytes.
+     * @return the number of bytes actually read.
+     * @throws AsynchronousCloseException
+     *             if another thread closes the channel during the read.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread during the
+     *             read.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs, details are in the message.
+     * @throws NonReadableChannelException
+     *             if the channel has not been opened in a mode that permits
+     *             reading.
+     */
+    public abstract int read(ByteBuffer buffer) throws IOException;
+
+    /**
+     * Reads bytes from this file channel into the given buffer starting from
+     * the specified file position.
+     * <p>
+     * The bytes are read starting at the given file position (up to the
+     * remaining number of bytes in the buffer). The number of bytes actually
+     * read is returned.
+     * <p>
+     * If {@code position} is beyond the current end of file, then no bytes are
+     * read.
+     * <p>
+     * Note that the file position is unmodified by this method.
      *
-     * @throws  OverlappingFileLockException
-     *          If a lock that overlaps the requested region is already held by
-     *          this Java virtual machine, or if another thread is already
-     *          blocked in this method and is attempting to lock an overlapping
-     *          region
+     * @param buffer
+     *            the buffer to receive the bytes.
+     * @param position
+     *            the (non-negative) position at which to read the bytes.
+     * @return the number of bytes actually read, or -1 if the end of the file has been reached.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The calling thread will have the
+     *             interrupt state set, and the channel will be closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IllegalArgumentException
+     *             if <code>position</code> is less than 0.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @throws NonReadableChannelException
+     *             if the channel has not been opened in a mode that permits
+     *             reading.
+     */
+    public abstract int read(ByteBuffer buffer, long position)
+            throws IOException;
+
+    /**
+     * Reads bytes from this file channel and stores them in the specified array
+     * of buffers. This method attempts to read as many bytes as can be stored
+     * in the buffer array from this channel and returns the number of bytes
+     * actually read. It also increases the file position by the number of bytes
+     * read.
+     * <p>
+     * If a read operation is in progress, subsequent threads will block until
+     * the read is completed and will then contend for the ability to read.
+     * <p>
+     * Calling this method is equivalent to calling
+     * {@code read(buffers, 0, buffers.length);}
      *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @param buffers
+     *            the array of byte buffers into which the bytes will be copied.
+     * @return the number of bytes actually read, or -1 if the end of the file has been reached.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this read
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if the thread is interrupted by another thread during this
+     *             read operation.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonReadableChannelException
+     *             if the channel has not been opened in a mode that permits
+     *             reading.
+     */
+    @Override
+    public final long read(ByteBuffer[] buffers) throws IOException {
+        return read(buffers, 0, buffers.length);
+    }
+
+    /**
+     * Reads bytes from this file channel into a subset of the given buffers.
+     * This method attempts to read all {@code remaining()} bytes from {@code
+     * length} byte buffers, in order, starting at {@code targets[offset]}. It
+     * increases the file position by the number of bytes actually read. The
+     * number of bytes actually read is returned.
+     * <p>
+     * If a read operation is in progress, subsequent threads will block until
+     * the read is completed and will then contend for the ability to read.
      *
-     * @see     #lock()
-     * @see     #lock(long,long,boolean)
-     * @see     #tryLock(long,long,boolean)
+     * @param buffers
+     *            the array of byte buffers into which the bytes will be copied.
+     * @param start
+     *            the index of the first buffer to store bytes in.
+     * @param number
+     *            the maximum number of buffers to store bytes in.
+     * @return the number of bytes actually read, or -1 if the end of the file has been reached.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this read
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if the thread is interrupted by another thread during this
+     *             read operation.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code start < 0} or {@code number < 0}, or if
+     *             {@code start + number} is greater than the size of
+     *             {@code buffers}.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonReadableChannelException
+     *             if the channel has not been opened in a mode that permits
+     *             reading.
+     */
+    public abstract long read(ByteBuffer[] buffers, int start, int number)
+            throws IOException;
+
+    /**
+     * Returns the size of the file underlying this channel in bytes.
+     *
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if an I/O error occurs while getting the size of the file.
+     */
+    public abstract long size() throws IOException;
+
+    /**
+     * Reads up to {@code count} bytes from {@code src} and stores them in this
+     * channel's file starting at {@code position}. No bytes are transferred if
+     * {@code position} is larger than the size of this channel's file. Less
+     * than {@code count} bytes are transferred if there are less bytes
+     * remaining in the source channel or if the source channel is non-blocking
+     * and has less than {@code count} bytes immediately available in its output
+     * buffer.
+     * <p>
+     * Note that this channel's position is not modified.
+     *
+     * @param src
+     *            the source channel to read bytes from.
+     * @param position
+     *            the non-negative start position.
+     * @param count
+     *            the non-negative number of bytes to transfer.
+     * @return the number of bytes that are transferred.
+     * @throws IllegalArgumentException
+     *             if the parameters are invalid.
+     * @throws NonReadableChannelException
+     *             if the source channel is not readable.
+     * @throws NonWritableChannelException
+     *             if this channel is not writable.
+     * @throws ClosedChannelException
+     *             if either channel has already been closed.
+     * @throws AsynchronousCloseException
+     *             if either channel is closed by other threads during this
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if the thread is interrupted during this operation.
+     * @throws IOException
+     *             if any I/O error occurs.
+     */
+    public abstract long transferFrom(ReadableByteChannel src, long position,
+            long count) throws IOException;
+
+    /**
+     * Reads up to {@code count} bytes from this channel's file starting at
+     * {@code position} and writes them to {@code target}. No bytes are
+     * transferred if {@code position} is larger than the size of this channel's
+     * file. Less than {@code count} bytes are transferred if there less bytes
+     * available from this channel's file or if the target channel is
+     * non-blocking and has less than {@code count} bytes free in its input
+     * buffer.
+     * <p>
+     * Note that this channel's position is not modified.
+     *
+     * @param position
+     *            the non-negative position to begin.
+     * @param count
+     *            the non-negative number of bytes to transfer.
+     * @param target
+     *            the target channel to write to.
+     * @return the number of bytes that were transferred.
+     * @throws IllegalArgumentException
+     *             if the parameters are invalid.
+     * @throws NonReadableChannelException
+     *             if this channel is not readable.
+     * @throws NonWritableChannelException
+     *             if the target channel is not writable.
+     * @throws ClosedChannelException
+     *             if either channel has already been closed.
+     * @throws AsynchronousCloseException
+     *             if either channel is closed by other threads during this
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if the thread is interrupted during this operation.
+     * @throws IOException
+     *             if any I/O error occurs.
+     */
+    public abstract long transferTo(long position, long count,
+            WritableByteChannel target) throws IOException;
+
+    /**
+     * Truncates the file underlying this channel to a given size. Any bytes
+     * beyond the given size are removed from the file. If there are no bytes
+     * beyond the given size then the file contents are unmodified.
+     * <p>
+     * If the file position is currently greater than the given size, then it is
+     * set to the new size.
+     *
+     * @param size
+     *            the maximum size of the underlying file.
+     * @throws IllegalArgumentException
+     *             if the requested size is negative.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws NonWritableChannelException
+     *             if the channel cannot be written to.
+     * @throws IOException
+     *             if another I/O error occurs.
+     * @return this channel.
+     */
+    public abstract FileChannel truncate(long size) throws IOException;
+
+    /**
+     * Attempts to acquire an exclusive lock on this file without blocking.
+     * <p>
+     * This is a convenience method for attempting to acquire a maximum length
+     * lock on the file. It is equivalent to:
+     * {@code fileChannel.tryLock(0L, Long.MAX_VALUE, false);}
+     * <p>
+     * The method returns {@code null} if the acquisition would result in an
+     * overlapped lock with another OS process.
+     *
+     * @return the file lock object, or {@code null} if the lock would overlap
+     *         with an existing exclusive lock in another OS process.
+     * @throws ClosedChannelException
+     *             if the file channel is closed.
+     * @throws OverlappingFileLockException
+     *             if a lock already exists that overlaps this lock request or
+     *             another thread is waiting to acquire a lock that will overlap
+     *             with this request.
+     * @throws IOException
+     *             if any I/O error occurs.
      */
     public final FileLock tryLock() throws IOException {
         return tryLock(0L, Long.MAX_VALUE, false);
     }
 
+    /**
+     * Attempts to acquire an exclusive lock on this file without blocking. The
+     * method returns {@code null} if the acquisition would result in an
+     * overlapped lock with another OS process.
+     * <p>
+     * It is possible to acquire a lock for any region even if it's completely
+     * outside of the file's size. The size of the lock is fixed. If the file
+     * grows outside of the lock that region of the file won't be locked by this
+     * lock.
+     *
+     * @param position
+     *            the starting position.
+     * @param size
+     *            the size of file to lock.
+     * @param shared
+     *            true if the lock is shared.
+     * @return the file lock object, or {@code null} if the lock would overlap
+     *         with an existing exclusive lock in another OS process.
+     * @throws IllegalArgumentException
+     *             if any parameters are invalid.
+     * @throws ClosedChannelException
+     *             if the file channel is closed.
+     * @throws OverlappingFileLockException
+     *             if a lock is already held that overlaps this lock request or
+     *             another thread is waiting to acquire a lock that will overlap
+     *             with this request.
+     * @throws IOException
+     *             if any I/O error occurs.
+     */
+    public abstract FileLock tryLock(long position, long size, boolean shared)
+            throws IOException;
+
+    /**
+     * Writes bytes from the given byte buffer to this file channel.
+     * <p>
+     * The bytes are written starting at the current file position, and after
+     * some number of bytes are written (up to the remaining number of bytes in
+     * the buffer) the file position is increased by the number of bytes
+     * actually written.
+     *
+     * @param src
+     *            the byte buffer containing the bytes to be written.
+     * @return the number of bytes actually written.
+     * @throws NonWritableChannelException
+     *             if the channel was not opened for writing.
+     * @throws ClosedChannelException
+     *             if the channel was already closed.
+     * @throws AsynchronousCloseException
+     *             if another thread closes the channel during the write.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs, details are in the message.
+     * @see java.nio.channels.WritableByteChannel#write(java.nio.ByteBuffer)
+     */
+    public abstract int write(ByteBuffer src) throws IOException;
+
+    /**
+     * Writes bytes from the given buffer to this file channel starting at the
+     * given file position.
+     * <p>
+     * The bytes are written starting at the given file position (up to the
+     * remaining number of bytes in the buffer). The number of bytes actually
+     * written is returned.
+     * <p>
+     * If the position is beyond the current end of file, then the file is first
+     * extended up to the given position by the required number of unspecified
+     * byte values.
+     * <p>
+     * Note that the file position is not modified by this method.
+     *
+     * @param buffer
+     *            the buffer containing the bytes to be written.
+     * @param position
+     *            the (non-negative) position at which to write the bytes.
+     * @return the number of bytes actually written.
+     * @throws IllegalArgumentException
+     *             if <code>position</code> is less than 0.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws NonWritableChannelException
+     *             if the channel was not opened in write-mode.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread while this method
+     *             is executing.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs.
+     */
+    public abstract int write(ByteBuffer buffer, long position)
+            throws IOException;
+
+    /**
+     * Writes bytes from all the given byte buffers to this file channel.
+     * <p>
+     * The bytes are written starting at the current file position, and after
+     * the bytes are written (up to the remaining number of bytes in all the
+     * buffers), the file position is increased by the number of bytes actually
+     * written.
+     * <p>
+     * Calling this method is equivalent to calling
+     * {@code write(buffers, 0, buffers.length);}
+     *
+     * @param buffers
+     *            the buffers containing bytes to write.
+     * @return the number of bytes actually written.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonWritableChannelException
+     *             if this channel was not opened for writing.
+     */
+    @Override
+    public final long write(ByteBuffer[] buffers) throws IOException {
+        return write(buffers, 0, buffers.length);
+    }
+
+    /**
+     * Attempts to write a subset of the given bytes from the buffers to this
+     * file channel. This method attempts to write all {@code remaining()}
+     * bytes from {@code length} byte buffers, in order, starting at {@code
+     * sources[offset]}. The number of bytes actually written is returned.
+     * <p>
+     * If a write operation is in progress, subsequent threads will block until
+     * the write is completed and then contend for the ability to write.
+     *
+     * @param buffers
+     *            the array of byte buffers that is the source for bytes written
+     *            to this channel.
+     * @param offset
+     *            the index of the first buffer in {@code buffers }to get bytes
+     *            from.
+     * @param length
+     *            the number of buffers to get bytes from.
+     * @return the number of bytes actually written to this channel.
+     * @throws AsynchronousCloseException
+     *             if this channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while this
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if this channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code length < 0}, or if
+     *             {@code offset + length} is greater than the size of
+     *             {@code buffers}.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonWritableChannelException
+     *             if this channel was not opened for writing.
+     */
+    @Override
+    public abstract long write(ByteBuffer[] buffers, int offset, int length)
+            throws IOException;
 }

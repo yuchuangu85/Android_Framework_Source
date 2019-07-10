@@ -18,8 +18,10 @@ package benchmarks.regression;
 
 import java.security.SecureRandom;
 import java.util.Random;
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class RandomBenchmark {
+public class RandomBenchmark extends SimpleBenchmark {
     public void timeNewRandom(int reps) throws Exception {
         for (int i = 0; i < reps; ++i) {
             Random rng = new Random();

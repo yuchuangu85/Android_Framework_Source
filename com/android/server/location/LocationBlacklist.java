@@ -50,7 +50,7 @@ public final class LocationBlacklist extends ContentObserver {
     private String[] mWhitelist = new String[0];
     private String[] mBlacklist = new String[0];
 
-    private int mCurrentUserId = UserHandle.USER_SYSTEM;
+    private int mCurrentUserId = UserHandle.USER_OWNER;
     
     public LocationBlacklist(Context context, Handler handler) {
         super(handler);

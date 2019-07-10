@@ -19,7 +19,7 @@ package android.media;
 /**
  * AudioDeviceCallback defines the mechanism by which applications can receive notifications
  * of audio device connection and disconnection events.
- * @see AudioManager#registerAudioDeviceCallback(AudioDeviceCallback, android.os.Handler handler).
+ * @see AudioManager#registerAudioDeviceCallback.
  */
 public abstract class AudioDeviceCallback {
     /**

@@ -17,12 +17,9 @@
 package android.graphics;
 
 import android.annotation.CheckResult;
-import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import android.text.TextUtils;
-import android.util.proto.ProtoOutputStream;
 import java.io.PrintWriter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -33,11 +30,6 @@ import java.util.regex.Pattern;
  * These fields can be accessed directly. Use width() and height() to retrieve
  * the rectangle's width and height. Note: most methods do not check to see that
  * the coordinates are sorted correctly (i.e. left <= right and top <= bottom).
- * <p>
- * Note that the right and bottom coordinates are exclusive. This means a Rect
- * being drawn untransformed onto a {@link android.graphics.Canvas} will draw
- * into the column and row described by its left and top coordinates, but not
- * those of its bottom and right.
  */
 public final class Rect implements Parcelable {
     public int left;
@@ -98,16 +90,6 @@ public final class Rect implements Parcelable {
             right = r.right;
             bottom = r.bottom;
         }
-    }
-
-    /**
-     * Returns a copy of {@code r} if {@code r} is not {@code null}, or {@code null} otherwise.
-     *
-     * @hide
-     */
-    @Nullable
-    public static Rect copyOrNull(@Nullable Rect r) {
-        return r == null ? null : new Rect(r);
     }
 
     @Override
@@ -183,10 +165,6 @@ public final class Rect implements Parcelable {
      * or null if the string is not of that form.
      */
     public static Rect unflattenFromString(String str) {
-        if (TextUtils.isEmpty(str)) {
-            return null;
-        }
-
         Matcher matcher = UnflattenHelper.getMatcher(str);
         if (!matcher.matches()) {
             return null;
@@ -196,7 +174,7 @@ public final class Rect implements Parcelable {
                 Integer.parseInt(matcher.group(3)),
                 Integer.parseInt(matcher.group(4)));
     }
-
+    
     /**
      * Print short representation to given writer.
      * @hide
@@ -206,24 +184,7 @@ public final class Rect implements Parcelable {
         pw.print(top); pw.print("]["); pw.print(right);
         pw.print(','); pw.print(bottom); pw.print(']');
     }
-
-    /**
-     * Write to a protocol buffer output stream.
-     * Protocol buffer message definition at {@link android.graphics.RectProto}
-     *
-     * @param protoOutputStream Stream to write the Rect object to.
-     * @param fieldId           Field Id of the Rect as defined in the parent message
-     * @hide
-     */
-    public void writeToProto(ProtoOutputStream protoOutputStream, long fieldId) {
-        final long token = protoOutputStream.start(fieldId);
-        protoOutputStream.write(RectProto.LEFT, left);
-        protoOutputStream.write(RectProto.TOP, top);
-        protoOutputStream.write(RectProto.RIGHT, right);
-        protoOutputStream.write(RectProto.BOTTOM, bottom);
-        protoOutputStream.end(token);
-    }
-
+    
     /**
      * Returns true if the rectangle is empty (left >= right or top >= bottom)
      */
@@ -361,34 +322,6 @@ public final class Rect implements Parcelable {
     }
 
     /**
-     * Insets the rectangle on all sides specified by the dimensions of the {@code insets}
-     * rectangle.
-     * @hide
-     * @param insets The rectangle specifying the insets on all side.
-     */
-    public void inset(Rect insets) {
-        left += insets.left;
-        top += insets.top;
-        right -= insets.right;
-        bottom -= insets.bottom;
-    }
-
-    /**
-     * Insets the rectangle on all sides specified by the insets.
-     * @hide
-     * @param left The amount to add from the rectangle's left
-     * @param top The amount to add from the rectangle's top
-     * @param right The amount to subtract from the rectangle's right
-     * @param bottom The amount to subtract from the rectangle's bottom
-     */
-    public void inset(int left, int top, int right, int bottom) {
-        this.left += left;
-        this.top += top;
-        this.right -= right;
-        this.bottom -= bottom;
-    }
-
-    /**
      * Returns true if (x,y) is inside the rectangle. The left and top are
      * considered to be inside, while the right and bottom are not. This means
      * that for a x,y to be contained: left <= x < right and top <= y < bottom.
@@ -483,19 +416,6 @@ public final class Rect implements Parcelable {
     @CheckResult
     public boolean intersect(Rect r) {
         return intersect(r.left, r.top, r.right, r.bottom);
-    }
-
-    /**
-     * If the specified rectangle intersects this rectangle, set this rectangle to that
-     * intersection, otherwise set this rectangle to the empty rectangle.
-     * @see #inset(int, int, int, int) but without checking if the rects overlap.
-     * @hide
-     */
-    public void intersectUnchecked(Rect other) {
-        left = Math.max(left, other.left);
-        top = Math.max(top, other.top);
-        right = Math.min(right, other.right);
-        bottom = Math.min(bottom, other.bottom);
     }
 
     /**
@@ -694,4 +614,16 @@ public final class Rect implements Parcelable {
         }
     }
 
+    /**
+     * Scales up the rect by the given scale, rounding values toward the inside.
+     * @hide
+     */
+    public void scaleRoundIn(float scale) {
+        if (scale != 1.0f) {
+            left = (int) Math.ceil(left * scale);
+            top = (int) Math.ceil(top * scale);
+            right = (int) Math.floor(right * scale);
+            bottom = (int) Math.floor(bottom * scale);
+        }
+    }
 }

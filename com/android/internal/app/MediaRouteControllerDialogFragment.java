@@ -39,6 +39,7 @@ public class MediaRouteControllerDialogFragment extends DialogFragment {
      */
     public MediaRouteControllerDialogFragment() {
         setCancelable(true);
+        setStyle(STYLE_NORMAL, android.R.style.Theme_DeviceDefault_Dialog);
     }
 
     /**
@@ -54,6 +55,6 @@ public class MediaRouteControllerDialogFragment extends DialogFragment {
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-        return onCreateControllerDialog(getContext(), savedInstanceState);
+        return onCreateControllerDialog(getActivity(), savedInstanceState);
     }
 }

@@ -1,1011 +1,616 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.util.StringTokenizer;
-import java.util.NoSuchElementException;
+import java.nio.ByteBuffer;
 import java.security.AlgorithmParameters;
-import java.security.Provider;
-import java.security.Key;
-import java.security.SecureRandom;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.InvalidKeyException;
 import java.security.InvalidAlgorithmParameterException;
-import java.security.ProviderException;
+import java.security.InvalidKeyException;
+import java.security.Key;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
 
-import java.nio.ByteBuffer;
-
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the <code>Cipher</code> class.
- * All the abstract methods in this class must be implemented by each
- * cryptographic service provider who wishes to supply the implementation
- * of a particular cipher algorithm.
- *
- * <p>In order to create an instance of <code>Cipher</code>, which
- * encapsulates an instance of this <code>CipherSpi</code> class, an
- * application calls one of the
- * {@link Cipher#getInstance(java.lang.String) getInstance}
- * factory methods of the
- * {@link Cipher Cipher} engine class and specifies the requested
- * <i>transformation</i>.
- * Optionally, the application may also specify the name of a provider.
- *
- * <p>A <i>transformation</i> is a string that describes the operation (or
- * set of operations) to be performed on the given input, to produce some
- * output. A transformation always includes the name of a cryptographic
- * algorithm (e.g., <i>DES</i>), and may be followed by a feedback mode and
- * padding scheme.
- *
- * <p> A transformation is of the form:
- *
+ * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>) for
+ * cryptographic ciphers.
+ * <p>
+ * Implementers of cryptographic ciphers must implement all the abstract methods
+ * for every cipher they implement. {@code CipherSpi} instances are created
+ * along with ciphers when the {@link Cipher#getInstance} method is called. A
+ * {@code Cipher} is referenced by a <i>transformation</i>, which is a string
+ * that describes the operation (or set of operations), always consisting of the
+ * cipher's name and optionally followed by a mode and a padding, in the form:
  * <ul>
- * <li>"<i>algorithm/mode/padding</i>" or
- *
- * <li>"<i>algorithm</i>"
+ * <li>"algorithm"</li>or
+ * <li>"algorithm/mode/padding"</li>
+ * </ul>
+ * The following behavior should be implemented for obtaining {@code Cipher}
+ * instances.
+ * <p>
+ * When one of the {@link Cipher#getInstance} factory methods is called with a
+ * <i>transformation</i> that is only an <i>algorithm</i>, check if the provider
+ * defines a {@code CipherSpi} for "algorithm", if so: return it, otherwise
+ * throw a {@link NoSuchAlgorithmException}.
+ * <p>
+ * The following rules apply when a <i>transformation</i> is of the form
+ * "algorithm/mode/padding":
+ * <ul>
+ * 1. The Provider has a {@code CipherSpi} subclass registered for
+ * "algorithm/mode/padding": return it, otherwise go to step 2.
+ * </ul>
+ * <ul>
+ * 2. The Provider has a {@code CipherSpi} subclass registered for
+ * "algorithm/mode": instantiate it, call
+ * {@link CipherSpi#engineSetPadding(String) engineSetPadding(String)} for the
+ * padding name and return it, otherwise go to step 3.
+ * </ul>
+ * <ul>
+ * 3. The Provider has a {@code CipherSpi} subclass registered for
+ * "algorithm//padding": instantiate it, call
+ * {@link CipherSpi#engineSetMode(String) engineSetMode(String)} for the mode
+ * name and return it, otherwise go to step 4.
+ * </ul>
+ * <ul>
+ * 4. The Provider has a {@code CipherSpi} subclass registered for "algorithm":
+ * instantiate it, call {@link CipherSpi#engineSetMode(String)
+ * engineSetMode(String)} for the mode name , call
+ * {@link CipherSpi#engineSetPadding(String) engineSetPadding(String)} for the
+ * padding name and return it, otherwise throw a
+ * {@link NoSuchAlgorithmException}.
  * </ul>
  *
- * <P> (in the latter case,
- * provider-specific default values for the mode and padding scheme are used).
- * For example, the following is a valid transformation:
- *
- * <pre>
- *     Cipher c = Cipher.getInstance("<i>DES/CBC/PKCS5Padding</i>");
- * </pre>
- *
- * <p>A provider may supply a separate class for each combination
- * of <i>algorithm/mode/padding</i>, or may decide to provide more generic
- * classes representing sub-transformations corresponding to
- * <i>algorithm</i> or <i>algorithm/mode</i> or <i>algorithm//padding</i>
- * (note the double slashes),
- * in which case the requested mode and/or padding are set automatically by
- * the <code>getInstance</code> methods of <code>Cipher</code>, which invoke
- * the {@link #engineSetMode(java.lang.String) engineSetMode} and
- * {@link #engineSetPadding(java.lang.String) engineSetPadding}
- * methods of the provider's subclass of <code>CipherSpi</code>.
- *
- * <p>A <code>Cipher</code> property in a provider master class may have one of
- * the following formats:
- *
- * <ul>
- *
- * <li>
- * <pre>
- *     // provider's subclass of "CipherSpi" implements "algName" with
- *     // pluggable mode and padding
- *     <code>Cipher.</code><i>algName</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     // provider's subclass of "CipherSpi" implements "algName" in the
- *     // specified "mode", with pluggable padding
- *     <code>Cipher.</code><i>algName/mode</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     // provider's subclass of "CipherSpi" implements "algName" with the
- *     // specified "padding", with pluggable mode
- *     <code>Cipher.</code><i>algName//padding</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     // provider's subclass of "CipherSpi" implements "algName" with the
- *     // specified "mode" and "padding"
- *     <code>Cipher.</code><i>algName/mode/padding</i>
- * </pre>
- *
- * </ul>
- *
- * <p>For example, a provider may supply a subclass of <code>CipherSpi</code>
- * that implements <i>DES/ECB/PKCS5Padding</i>, one that implements
- * <i>DES/CBC/PKCS5Padding</i>, one that implements
- * <i>DES/CFB/PKCS5Padding</i>, and yet another one that implements
- * <i>DES/OFB/PKCS5Padding</i>. That provider would have the following
- * <code>Cipher</code> properties in its master class:
- *
- * <ul>
- *
- * <li>
- * <pre>
- *     <code>Cipher.</code><i>DES/ECB/PKCS5Padding</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     <code>Cipher.</code><i>DES/CBC/PKCS5Padding</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     <code>Cipher.</code><i>DES/CFB/PKCS5Padding</i>
- * </pre>
- *
- * <li>
- * <pre>
- *     <code>Cipher.</code><i>DES/OFB/PKCS5Padding</i>
- * </pre>
- *
- * </ul>
- *
- * <p>Another provider may implement a class for each of the above modes
- * (i.e., one class for <i>ECB</i>, one for <i>CBC</i>, one for <i>CFB</i>,
- * and one for <i>OFB</i>), one class for <i>PKCS5Padding</i>,
- * and a generic <i>DES</i> class that subclasses from <code>CipherSpi</code>.
- * That provider would have the following
- * <code>Cipher</code> properties in its master class:
- *
- * <ul>
- *
- * <li>
- * <pre>
- *     <code>Cipher.</code><i>DES</i>
- * </pre>
- *
- * </ul>
- *
- * <p>The <code>getInstance</code> factory method of the <code>Cipher</code>
- * engine class follows these rules in order to instantiate a provider's
- * implementation of <code>CipherSpi</code> for a
- * transformation of the form "<i>algorithm</i>":
- *
- * <ol>
- * <li>
- * Check if the provider has registered a subclass of <code>CipherSpi</code>
- * for the specified "<i>algorithm</i>".
- * <p>If the answer is YES, instantiate this
- * class, for whose mode and padding scheme default values (as supplied by
- * the provider) are used.
- * <p>If the answer is NO, throw a <code>NoSuchAlgorithmException</code>
- * exception.
- * </ol>
- *
- * <p>The <code>getInstance</code> factory method of the <code>Cipher</code>
- * engine class follows these rules in order to instantiate a provider's
- * implementation of <code>CipherSpi</code> for a
- * transformation of the form "<i>algorithm/mode/padding</i>":
- *
- * <ol>
- * <li>
- * Check if the provider has registered a subclass of <code>CipherSpi</code>
- * for the specified "<i>algorithm/mode/padding</i>" transformation.
- * <p>If the answer is YES, instantiate it.
- * <p>If the answer is NO, go to the next step.
- * <li>
- * Check if the provider has registered a subclass of <code>CipherSpi</code>
- * for the sub-transformation "<i>algorithm/mode</i>".
- * <p>If the answer is YES, instantiate it, and call
- * <code>engineSetPadding(<i>padding</i>)</code> on the new instance.
- * <p>If the answer is NO, go to the next step.
- * <li>
- * Check if the provider has registered a subclass of <code>CipherSpi</code>
- * for the sub-transformation "<i>algorithm//padding</i>" (note the double
- * slashes).
- * <p>If the answer is YES, instantiate it, and call
- * <code>engineSetMode(<i>mode</i>)</code> on the new instance.
- * <p>If the answer is NO, go to the next step.
- * <li>
- * Check if the provider has registered a subclass of <code>CipherSpi</code>
- * for the sub-transformation "<i>algorithm</i>".
- * <p>If the answer is YES, instantiate it, and call
- * <code>engineSetMode(<i>mode</i>)</code> and
- * <code>engineSetPadding(<i>padding</i>)</code> on the new instance.
- * <p>If the answer is NO, throw a <code>NoSuchAlgorithmException</code>
- * exception.
- * </ol>
- *
- * @author Jan Luehe
- * @see KeyGenerator
- * @see SecretKey
- * @since 1.4
+ * @see Cipher
  */
-
 public abstract class CipherSpi {
 
     /**
-     * Sets the mode of this cipher.
+     * Creates a new {@code CipherSpi} instance.
+     */
+    public CipherSpi() {
+    }
+
+    /**
+     * Sets the mode for this cipher.
      *
-     * @param mode the cipher mode
-     *
-     * @exception NoSuchAlgorithmException if the requested cipher mode does
-     * not exist
+     * @param mode
+     *            the name of the cipher mode.
+     * @throws NoSuchAlgorithmException
+     *             if the specified cipher mode is not supported by this
+     *             provider.
      */
     protected abstract void engineSetMode(String mode)
-        throws NoSuchAlgorithmException;
+            throws NoSuchAlgorithmException;
 
     /**
-     * Sets the padding mechanism of this cipher.
+     * Sets the padding method for this cipher.
      *
-     * @param padding the padding mechanism
-     *
-     * @exception NoSuchPaddingException if the requested padding mechanism
-     * does not exist
+     * @param padding
+     *            the name of the padding method.
+     * @throws NoSuchPaddingException
+     *             if the specified padding method is not supported by this
+     *             cipher.
      */
     protected abstract void engineSetPadding(String padding)
-        throws NoSuchPaddingException;
+            throws NoSuchPaddingException;
 
     /**
-     * Returns the block size (in bytes).
+     * Returns the block size of this cipher (in bytes)
      *
-     * @return the block size (in bytes), or 0 if the underlying algorithm is
-     * not a block cipher
+     * @return the block size of this cipher, or zero if this cipher is not a
+     *         block cipher.
      */
     protected abstract int engineGetBlockSize();
 
     /**
-     * Returns the length in bytes that an output buffer would
-     * need to be in order to hold the result of the next <code>update</code>
-     * or <code>doFinal</code> operation, given the input length
-     * <code>inputLen</code> (in bytes).
+     * Returns the size for a buffer (in bytes), that the next call to {@code
+     * update} of {@code doFinal} would return, taking into account any buffered
+     * data from previous {@code update} calls and padding.
+     * <p>
+     * The actual output length of the next call to {@code update} or {@code
+     * doFinal} may be smaller than the length returned by this method.
      *
-     * <p>This call takes into account any unprocessed (buffered) data from a
-     * previous <code>update</code> call, padding, and AEAD tagging.
-     *
-     * <p>The actual output length of the next <code>update</code> or
-     * <code>doFinal</code> call may be smaller than the length returned by
-     * this method.
-     *
-     * @param inputLen the input length (in bytes)
-     *
-     * @return the required output buffer size (in bytes)
+     * @param inputLen
+     *            the length of the input (in bytes).
+     * @return the size for a buffer (in bytes).
      */
     protected abstract int engineGetOutputSize(int inputLen);
 
     /**
-     * Returns the initialization vector (IV) in a new buffer.
+     * Returns the Initialization Vector (IV) that was used to initialize this
+     * cipher or {@code null} if none was used.
      *
-     * <p> This is useful in the context of password-based encryption or
-     * decryption, where the IV is derived from a user-provided passphrase.
-     *
-     * @return the initialization vector in a new buffer, or null if the
-     * underlying algorithm does not use an IV, or if the IV has not yet
-     * been set.
+     * @return the Initialization Vector (IV), or {@code null} if none was used.
      */
     protected abstract byte[] engineGetIV();
 
     /**
-     * Returns the parameters used with this cipher.
+     * Returns the parameters that where used to create this cipher instance.
+     * <p>
+     * These may be a the same parameters that were used to create this cipher
+     * instance, or may be a combination of default and random parameters,
+     * depending on the underlying cipher implementation.
      *
-     * <p>The returned parameters may be the same that were used to initialize
-     * this cipher, or may contain a combination of default and random
-     * parameter values used by the underlying cipher implementation if this
-     * cipher requires algorithm parameters but was not initialized with any.
-     *
-     * @return the parameters used with this cipher, or null if this cipher
-     * does not use any parameters.
+     * @return the parameters that where used to create this cipher instance, or
+     *         {@code null} if this cipher instance does not have any parameters
+     *         at all.
      */
     protected abstract AlgorithmParameters engineGetParameters();
 
     /**
-     * Initializes this cipher with a key and a source
-     * of randomness.
+     * Initializes this cipher instance with the specified key and a source of
+     * randomness.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters or random values
+     * that the specified key cannot provide, the underlying implementation of
+     * this cipher is supposed to generate the required parameters (using its
+     * provider or random values). Random values will be generated using {@code
+     * random};
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
      *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or key unwrapping, depending on
-     * the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters that cannot be
-     * derived from the given <code>key</code>, the underlying cipher
-     * implementation is supposed to generate the required parameters itself
-     * (using provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidKeyException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #engineGetParameters() engineGetParameters} or
-     * {@link #engineGetIV() engineGetIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of
-     * the following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher, or requires
-     * algorithm parameters that cannot be
-     * determined from the given key.
-     * @throws UnsupportedOperationException if {@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} is not implemented
-     * by the cipher.
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this cipher
+     *             instance.
      */
-    protected abstract void engineInit(int opmode, Key key,
-                                       SecureRandom random)
-        throws InvalidKeyException;
+    protected abstract void engineInit(int opmode, Key key, SecureRandom random)
+            throws InvalidKeyException;
 
     /**
-     * Initializes this cipher with a key, a set of
-     * algorithm parameters, and a source of randomness.
+     * Initializes this cipher instance with the specified key, algorithm
+     * parameters and a source of randomness.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values). Random values are generated using {@code random}.
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
      *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or key unwrapping, depending on
-     * the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #engineGetParameters() engineGetParameters} or
-     * {@link #engineGetIV() engineGetIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of
-     * the following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or if this cipher requires
-     * algorithm parameters and <code>params</code> is null.
-     * @throws UnsupportedOperationException if {@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} is not implemented
-     * by the cipher.
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this cipher
+     *             instance.
+     * @throws InvalidAlgorithmParameterException
+     *             it the specified parameters are inappropriate for this
+     *             cipher.
      */
     protected abstract void engineInit(int opmode, Key key,
-                                       AlgorithmParameterSpec params,
-                                       SecureRandom random)
-        throws InvalidKeyException, InvalidAlgorithmParameterException;
+            AlgorithmParameterSpec params, SecureRandom random)
+            throws InvalidKeyException, InvalidAlgorithmParameterException;
 
     /**
-     * Initializes this cipher with a key, a set of
-     * algorithm parameters, and a source of randomness.
+     * Initializes this cipher instance with the specified key, algorithm
+     * parameters and a source of randomness.
+     * <p>
+     * The cipher will be initialized for the specified operation (one of:
+     * encryption, decryption, key wrapping or key unwrapping) depending on
+     * {@code opmode}.
+     * <p>
+     * If this cipher instance needs any algorithm parameters and {@code params}
+     * is {@code null}, the underlying implementation of this cipher is supposed
+     * to generate the required parameters (using its provider or random
+     * values). Random values are generated using {@code random}.
+     * <p>
+     * When a cipher instance is initialized by a call to any of the {@code
+     * init} methods, the state of the instance is overridden, means it is
+     * equivalent to creating a new instance and calling it {@code init} method.
      *
-     * <p>The cipher is initialized for one of the following four operations:
-     * encryption, decryption, key wrapping or key unwrapping, depending on
-     * the value of <code>opmode</code>.
-     *
-     * <p>If this cipher requires any algorithm parameters and
-     * <code>params</code> is null, the underlying cipher implementation is
-     * supposed to generate the required parameters itself (using
-     * provider-specific default or random values) if it is being
-     * initialized for encryption or key wrapping, and raise an
-     * <code>InvalidAlgorithmParameterException</code> if it is being
-     * initialized for decryption or key unwrapping.
-     * The generated parameters can be retrieved using
-     * {@link #engineGetParameters() engineGetParameters} or
-     * {@link #engineGetIV() engineGetIV} (if the parameter is an IV).
-     *
-     * <p>If this cipher requires algorithm parameters that cannot be
-     * derived from the input parameters, and there are no reasonable
-     * provider-specific default values, initialization will
-     * necessarily fail.
-     *
-     * <p>If this cipher (including its underlying feedback or padding scheme)
-     * requires any random bytes (e.g., for parameter generation), it will get
-     * them from <code>random</code>.
-     *
-     * <p>Note that when a Cipher object is initialized, it loses all
-     * previously-acquired state. In other words, initializing a Cipher is
-     * equivalent to creating a new instance of that Cipher and initializing
-     * it.
-     *
-     * @param opmode the operation mode of this cipher (this is one of
-     * the following:
-     * <code>ENCRYPT_MODE</code>, <code>DECRYPT_MODE</code>,
-     * <code>WRAP_MODE</code> or <code>UNWRAP_MODE</code>)
-     * @param key the encryption key
-     * @param params the algorithm parameters
-     * @param random the source of randomness
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * initializing this cipher
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this cipher,
-     * or if this cipher requires
-     * algorithm parameters and <code>params</code> is null.
-     * @throws UnsupportedOperationException if {@code opmode} is
-     * {@code WRAP_MODE} or {@code UNWRAP_MODE} is not implemented
-     * by the cipher.
+     * @param opmode
+     *            the operation this cipher instance should be initialized for
+     *            (one of: {@code ENCRYPT_MODE}, {@code DECRYPT_MODE}, {@code
+     *            WRAP_MODE} or {@code UNWRAP_MODE}).
+     * @param key
+     *            the input key for the operation.
+     * @param params
+     *            the algorithm parameters.
+     * @param random
+     *            the source of randomness to use.
+     * @throws InvalidKeyException
+     *             if the specified key cannot be used to initialize this cipher
+     *             instance.
+     * @throws InvalidAlgorithmParameterException
+     *             if the specified parameters are inappropriate for this
+     *             cipher.
      */
     protected abstract void engineInit(int opmode, Key key,
-                                       AlgorithmParameters params,
-                                       SecureRandom random)
-        throws InvalidKeyException, InvalidAlgorithmParameterException;
+            AlgorithmParameters params, SecureRandom random)
+            throws InvalidKeyException, InvalidAlgorithmParameterException;
 
     /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are returned.
      *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, are processed,
-     * and the result is stored in a new buffer.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     *
-     * @return the new buffer with the result, or null if the underlying
-     * cipher is a block cipher and the input data is too short to result in a
-     * new block.
+     * @param input
+     *            the input bytes to transform.
+     * @param inputOffset
+     *            the offset in the input to start.
+     * @param inputLen
+     *            the length of the input to transform.
+     * @return the transformed bytes in a new buffer, or {@code null} if the
+     *         input has zero length.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if the input is null, or if {@code inputOffset} and {@code
+     *             inputLen} do not specify a valid chunk in the input buffer.
      */
     protected abstract byte[] engineUpdate(byte[] input, int inputOffset,
-                                           int inputLen);
+            int inputLen);
 
     /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
+     * Continues a multi-part transformation (encryption or decryption). The
+     * transformed bytes are stored in the {@code output} buffer.
+     * <p>
+     * If the size of the {@code output} buffer is too small to hold the result,
+     * a {@code ShortBufferException} is thrown. Use
+     * {@link Cipher#getOutputSize getOutputSize} to check for the size of the
+     * output buffer.
      *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, are processed,
-     * and the result is stored in the <code>output</code> buffer, starting at
-     * <code>outputOffset</code> inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
+     * @param input
+     *            the input bytes to transform.
+     * @param inputOffset
+     *            the offset in the input to start.
+     * @param inputLen
+     *            the length of the input to transform.
+     * @param output
+     *            the output buffer.
+     * @param outputOffset
+     *            the offset in the output buffer.
+     * @return the number of bytes placed in output.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
      */
     protected abstract int engineUpdate(byte[] input, int inputOffset,
-                                        int inputLen, byte[] output,
-                                        int outputOffset)
-        throws ShortBufferException;
+            int inputLen, byte[] output, int outputOffset)
+            throws ShortBufferException;
 
     /**
-     * Continues a multiple-part encryption or decryption operation
-     * (depending on how this cipher was initialized), processing another data
-     * part.
+     * Continues a multi-part transformation (encryption or decryption). The
+     * {@code input.remaining()} bytes starting at {@code input.position()} are
+     * transformed and stored in the {@code output} buffer.
+     * <p>
+     * If the {@code output.remaining()} is too small to hold the transformed
+     * bytes a {@code ShortBufferException} is thrown. Use
+     * {@link Cipher#getOutputSize getOutputSize} to check for the size of the
+     * output buffer.
      *
-     * <p>All <code>input.remaining()</code> bytes starting at
-     * <code>input.position()</code> are processed. The result is stored
-     * in the output buffer.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed. The output buffer's
-     * position will have advanced by n, where n is the value returned
-     * by this method; the output buffer's limit will not have changed.
-     *
-     * <p>If <code>output.remaining()</code> bytes are insufficient to
-     * hold the result, a <code>ShortBufferException</code> is thrown.
-     *
-     * <p>Subclasses should consider overriding this method if they can
-     * process ByteBuffers more efficiently than byte arrays.
-     *
-     * @param input the input ByteBuffer
-     * @param output the output ByteByffer
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception ShortBufferException if there is insufficient space in the
-     * output buffer
-     *
-     * @throws NullPointerException if either parameter is <CODE>null</CODE>
-     * @since 1.5
+     * @param input
+     *            the input buffer to transform.
+     * @param output
+     *            the output buffer to store the result within.
+     * @return the number of bytes stored in the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
      */
     protected int engineUpdate(ByteBuffer input, ByteBuffer output)
             throws ShortBufferException {
+        if (input == null) {
+            throw new NullPointerException("input == null");
+        }
+        if (output == null) {
+            throw new NullPointerException("output == null");
+        }
+        int position = input.position();
+        int limit = input.limit();
+        if ((limit - position) <= 0) {
+            return 0;
+        }
+        byte[] bInput;
+        byte[] bOutput;
+        if (input.hasArray()) {
+            bInput = input.array();
+            int offset = input.arrayOffset();
+            bOutput = engineUpdate(bInput, offset + position, limit - position);
+            input.position(limit);
+        } else {
+            bInput = new byte[limit - position];
+            input.get(bInput);
+            bOutput = engineUpdate(bInput, 0, limit - position);
+        }
+        if (bOutput == null) {
+            return 0;
+        }
+        if (output.remaining() < bOutput.length) {
+            throw new ShortBufferException("output buffer too small");
+        }
         try {
-            return bufferCrypt(input, output, true);
-        } catch (IllegalBlockSizeException e) {
-            // never thrown for engineUpdate()
-            throw new ProviderException("Internal error in update()");
-        } catch (BadPaddingException e) {
-            // never thrown for engineUpdate()
-            throw new ProviderException("Internal error in update()");
+            output.put(bOutput);
+        } catch (java.nio.BufferOverflowException e) {
+            throw new ShortBufferException("output buffer too small");
+        }
+        return bOutput.length;
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption) with
+     * Authenticated Additional Data (AAD). AAD may only be added after the
+     * {@code Cipher} is initialized and before any data is passed to the
+     * instance.
+     * <p>
+     * This is only usable with cipher modes that support Authenticated
+     * Encryption with Additional Data (AEAD) such as Galois/Counter Mode (GCM).
+     *
+     * @param input bytes of AAD to use with the cipher
+     * @param inputOffset offset within bytes of additional data to add to cipher
+     * @param inputLen length of bytes of additional data to add to cipher
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
+     * @throws IllegalArgumentException
+     *             if {@code input} is {@code null}, or if {@code inputOffset} and
+     *             {@code inputLen} do not specify a valid chunk in the input
+     *             buffer.
+     * @throws UnsupportedOperationException if the cipher does not support AEAD
+     * @since 1.7
+     */
+    protected void engineUpdateAAD(byte[] input, int inputOffset, int inputLen) {
+        throw new UnsupportedOperationException(
+                "This cipher does not support Authenticated Encryption with Additional Data");
+    }
+
+    /**
+     * Continues a multi-part transformation (encryption or decryption). The
+     * {@code input.remaining()} bytes starting at {@code input.position()} are
+     * used for the Additional Authenticated Data (AAD). AAD may only be added
+     * after the {@code Cipher} is initialized and before any data is passed to
+     * the instance.
+     * <p>
+     * This is only usable with cipher modes that support Authenticated
+     * Encryption with Additional Data (AEAD) such as Galois/Counter Mode (GCM).
+     *
+     * @param input the input buffer to transform.
+     * @since 1.7
+     */
+    protected void engineUpdateAAD(ByteBuffer input) {
+        if (input == null) {
+            throw new NullPointerException("input == null");
+        }
+        int position = input.position();
+        int limit = input.limit();
+        if ((limit - position) <= 0) {
+            return;
+        }
+        byte[] bInput;
+        if (input.hasArray()) {
+            bInput = input.array();
+            int offset = input.arrayOffset();
+            engineUpdateAAD(bInput, offset + position, limit - position);
+            input.position(limit);
+        } else {
+            int len = limit - position;
+            bInput = new byte[len];
+            input.get(bInput);
+            engineUpdateAAD(bInput, 0, len);
         }
     }
 
     /**
-     * Encrypts or decrypts data in a single-part operation,
-     * or finishes a multiple-part operation.
-     * The data is encrypted or decrypted, depending on how this cipher was
-     * initialized.
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code inputLen} bytes in {@code input} buffer at {@code
+     * inputOffset}, and any bytes that have been buffered in previous {@code
+     * update} calls.
      *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, and any input
-     * bytes that may have been buffered during a previous <code>update</code>
-     * operation, are processed, with padding (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in a new buffer.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to
-     * <code>engineInit</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>engineInit</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     *
-     * @return the new buffer with the result
-     *
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
+     * @param input
+     *            the input buffer.
+     * @param inputOffset
+     *            the offset in the input buffer.
+     * @param inputLen
+     *            the length of the input.
+     * @return the final bytes from the transformation.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
      */
     protected abstract byte[] engineDoFinal(byte[] input, int inputOffset,
-                                            int inputLen)
-        throws IllegalBlockSizeException, BadPaddingException;
+            int inputLen) throws IllegalBlockSizeException, BadPaddingException;
 
     /**
-     * Encrypts or decrypts data in a single-part operation,
-     * or finishes a multiple-part operation.
-     * The data is encrypted or decrypted, depending on how this cipher was
-     * initialized.
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code inputLen} bytes in {@code input} buffer at
+     * {@code inputOffset}, and any bytes that have been buffered in previous
+     * {@code update} calls.
      *
-     * <p>The first <code>inputLen</code> bytes in the <code>input</code>
-     * buffer, starting at <code>inputOffset</code> inclusive, and any input
-     * bytes that may have been buffered during a previous <code>update</code>
-     * operation, are processed, with padding (if requested) being applied.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the <code>output</code> buffer, starting at
-     * <code>outputOffset</code> inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to
-     * <code>engineInit</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>engineInit</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * @param input the input buffer
-     * @param inputOffset the offset in <code>input</code> where the input
-     * starts
-     * @param inputLen the input length
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
+     * @param input
+     *            the input buffer.
+     * @param inputOffset
+     *            the offset in the input buffer.
+     * @param inputLen
+     *            the length of the input.
+     * @param output
+     *            the output buffer for the transformed bytes.
+     * @param outputOffset
+     *            the offset in the output buffer.
+     * @return the number of bytes placed in the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
      */
     protected abstract int engineDoFinal(byte[] input, int inputOffset,
-                                         int inputLen, byte[] output,
-                                         int outputOffset)
-        throws ShortBufferException, IllegalBlockSizeException,
-               BadPaddingException;
+            int inputLen, byte[] output, int outputOffset)
+            throws ShortBufferException, IllegalBlockSizeException,
+            BadPaddingException;
 
     /**
-     * Encrypts or decrypts data in a single-part operation,
-     * or finishes a multiple-part operation.
-     * The data is encrypted or decrypted, depending on how this cipher was
-     * initialized.
+     * Finishes a multi-part transformation (encryption or decryption).
+     * <p>
+     * Processes the {@code input.remaining()} bytes in {@code input} buffer at
+     * {@code input.position()}, and any bytes that have been buffered in
+     * previous {@code update} calls. The transformed bytes are placed into
+     * {@code output} buffer.
      *
-     * <p>All <code>input.remaining()</code> bytes starting at
-     * <code>input.position()</code> are processed.
-     * If an AEAD mode such as GCM/CCM is being used, the authentication
-     * tag is appended in the case of encryption, or verified in the
-     * case of decryption.
-     * The result is stored in the output buffer.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed. The output buffer's
-     * position will have advanced by n, where n is the value returned
-     * by this method; the output buffer's limit will not have changed.
-     *
-     * <p>If <code>output.remaining()</code> bytes are insufficient to
-     * hold the result, a <code>ShortBufferException</code> is thrown.
-     *
-     * <p>Upon finishing, this method resets this cipher object to the state
-     * it was in when previously initialized via a call to
-     * <code>engineInit</code>.
-     * That is, the object is reset and available to encrypt or decrypt
-     * (depending on the operation mode that was specified in the call to
-     * <code>engineInit</code>) more data.
-     *
-     * <p>Note: if any exception is thrown, this cipher object may need to
-     * be reset before it can be used again.
-     *
-     * <p>Subclasses should consider overriding this method if they can
-     * process ByteBuffers more efficiently than byte arrays.
-     *
-     * @param input the input ByteBuffer
-     * @param output the output ByteByffer
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested (only in encryption mode), and the total
-     * input length of the data processed by this cipher is not a multiple of
-     * block size; or if this encryption algorithm is unable to
-     * process the input data provided.
-     * @exception ShortBufferException if there is insufficient space in the
-     * output buffer
-     * @exception BadPaddingException if this cipher is in decryption mode,
-     * and (un)padding has been requested, but the decrypted data is not
-     * bounded by the appropriate padding bytes
-     * @exception AEADBadTagException if this cipher is decrypting in an
-     * AEAD mode (such as GCM/CCM), and the received authentication tag
-     * does not match the calculated value
-     *
-     * @throws NullPointerException if either parameter is <CODE>null</CODE>
-     * @since 1.5
+     * @param input
+     *            the input buffer.
+     * @param output
+     *            the output buffer.
+     * @return the number of bytes placed into the output buffer.
+     * @throws ShortBufferException
+     *             if the size of the {@code output} buffer is too small.
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws BadPaddingException
+     *             if the padding of the data does not match the padding scheme.
+     * @throws IllegalArgumentException
+     *             if the input buffer and the output buffer are the same
+     *             object.
+     * @throws IllegalStateException
+     *             if this cipher instance is not initialized for encryption or
+     *             decryption.
      */
     protected int engineDoFinal(ByteBuffer input, ByteBuffer output)
             throws ShortBufferException, IllegalBlockSizeException,
             BadPaddingException {
-        return bufferCrypt(input, output, false);
-    }
-
-    // copied from sun.security.jca.JCAUtil
-    // will be changed to reference that method once that code has been
-    // integrated and promoted
-    static int getTempArraySize(int totalSize) {
-        return Math.min(4096, totalSize);
-    }
-
-    /**
-     * Implementation for encryption using ByteBuffers. Used for both
-     * engineUpdate() and engineDoFinal().
-     */
-    private int bufferCrypt(ByteBuffer input, ByteBuffer output,
-            boolean isUpdate) throws ShortBufferException,
-            IllegalBlockSizeException, BadPaddingException {
-        if ((input == null) || (output == null)) {
-            throw new NullPointerException
-                ("Input and output buffers must not be null");
+        if (input == null) {
+            throw new NullPointerException("input == null");
         }
-        int inPos = input.position();
-        int inLimit = input.limit();
-        int inLen = inLimit - inPos;
-        if (isUpdate && (inLen == 0)) {
+        if (output == null) {
+            throw new NullPointerException("output == null");
+        }
+        int position = input.position();
+        int limit = input.limit();
+
+        if ((limit - position) <= 0) {
             return 0;
         }
-        int outLenNeeded = engineGetOutputSize(inLen);
-        if (output.remaining() < outLenNeeded) {
-            throw new ShortBufferException("Need at least " + outLenNeeded
-                + " bytes of space in output buffer");
-        }
+        byte[] bInput;
+        byte[] bOutput;
 
-        boolean a1 = input.hasArray();
-        boolean a2 = output.hasArray();
-
-        if (a1 && a2) {
-            byte[] inArray = input.array();
-            int inOfs = input.arrayOffset() + inPos;
-            byte[] outArray = output.array();
-            int outPos = output.position();
-            int outOfs = output.arrayOffset() + outPos;
-            int n;
-            if (isUpdate) {
-                n = engineUpdate(inArray, inOfs, inLen, outArray, outOfs);
-            } else {
-                n = engineDoFinal(inArray, inOfs, inLen, outArray, outOfs);
-            }
-            input.position(inLimit);
-            output.position(outPos + n);
-            return n;
-        } else if (!a1 && a2) {
-            int outPos = output.position();
-            byte[] outArray = output.array();
-            int outOfs = output.arrayOffset() + outPos;
-            byte[] inArray = new byte[getTempArraySize(inLen)];
-            int total = 0;
-            do {
-                int chunk = Math.min(inLen, inArray.length);
-                if (chunk > 0) {
-                    input.get(inArray, 0, chunk);
-                }
-                int n;
-                if (isUpdate || (inLen != chunk)) {
-                    n = engineUpdate(inArray, 0, chunk, outArray, outOfs);
-                } else {
-                    n = engineDoFinal(inArray, 0, chunk, outArray, outOfs);
-                }
-                total += n;
-                outOfs += n;
-                inLen -= chunk;
-            } while (inLen > 0);
-            output.position(outPos + total);
-            return total;
-        } else { // output is not backed by an accessible byte[]
-            byte[] inArray;
-            int inOfs;
-            if (a1) {
-                inArray = input.array();
-                inOfs = input.arrayOffset() + inPos;
-            } else {
-                inArray = new byte[getTempArraySize(inLen)];
-                inOfs = 0;
-            }
-            byte[] outArray = new byte[getTempArraySize(outLenNeeded)];
-            int outSize = outArray.length;
-            int total = 0;
-            boolean resized = false;
-            do {
-                int chunk =
-                    Math.min(inLen, (outSize == 0? inArray.length : outSize));
-                if (!a1 && !resized && chunk > 0) {
-                    input.get(inArray, 0, chunk);
-                    inOfs = 0;
-                }
-                try {
-                    int n;
-                    if (isUpdate || (inLen != chunk)) {
-                        n = engineUpdate(inArray, inOfs, chunk, outArray, 0);
-                    } else {
-                        n = engineDoFinal(inArray, inOfs, chunk, outArray, 0);
-                    }
-                    resized = false;
-                    inOfs += chunk;
-                    inLen -= chunk;
-                    if (n > 0) {
-                        output.put(outArray, 0, n);
-                        total += n;
-                    }
-                } catch (ShortBufferException e) {
-                    if (resized) {
-                        // we just resized the output buffer, but it still
-                        // did not work. Bug in the provider, abort
-                        throw (ProviderException)new ProviderException
-                            ("Could not determine buffer size").initCause(e);
-                    }
-                    // output buffer is too small, realloc and try again
-                    resized = true;
-                    outSize = engineGetOutputSize(chunk);
-                    outArray = new byte[outSize];
-                }
-            } while (inLen > 0);
-            if (a1) {
-                input.position(inLimit);
-            }
-            return total;
+        if (input.hasArray()) {
+            bInput = input.array();
+            int offset = input.arrayOffset();
+            bOutput = engineDoFinal(bInput, offset + position, limit - position);
+            input.position(limit);
+        } else {
+            bInput = new byte[limit - position];
+            input.get(bInput);
+            bOutput = engineDoFinal(bInput, 0, limit - position);
         }
+        if (output.remaining() < bOutput.length) {
+            throw new ShortBufferException("output buffer too small");
+        }
+        try {
+            output.put(bOutput);
+        } catch (java.nio.BufferOverflowException e) {
+            throw new ShortBufferException("output buffer too small");
+        }
+        return bOutput.length;
     }
 
     /**
-     * Wrap a key.
+     * Wraps a key using this cipher instance. This method has been added to
+     * this class (for backwards compatibility, it cannot be abstract). If this
+     * method is not overridden, it throws an {@code
+     * UnsupportedOperationException}.
      *
-     * <p>This concrete method has been added to this previously-defined
-     * abstract class. (For backwards compatibility, it cannot be abstract.)
-     * It may be overridden by a provider to wrap a key.
-     * Such an override is expected to throw an IllegalBlockSizeException or
-     * InvalidKeyException (under the specified circumstances),
-     * if the given key cannot be wrapped.
-     * If this method is not overridden, it always throws an
-     * UnsupportedOperationException.
-     *
-     * @param key the key to be wrapped.
-     *
-     * @return the wrapped key.
-     *
-     * @exception IllegalBlockSizeException if this cipher is a block cipher,
-     * no padding has been requested, and the length of the encoding of the
-     * key to be wrapped is not a multiple of the block size.
-     *
-     * @exception InvalidKeyException if it is impossible or unsafe to
-     * wrap the key with this cipher (e.g., a hardware protected key is
-     * being passed to a software-only cipher).
-     *
-     * @throws UnsupportedOperationException if this method is not supported.
+     * @param key
+     *            the key to wrap.
+     * @return the wrapped key
+     * @throws IllegalBlockSizeException
+     *             if the size of the resulting bytes is not a multiple of the
+     *             cipher block size.
+     * @throws InvalidKeyException
+     *             if this cipher instance cannot wrap this key.
      */
-    protected byte[] engineWrap(Key key)
-        throws IllegalBlockSizeException, InvalidKeyException
-    {
+    protected byte[] engineWrap(Key key) throws IllegalBlockSizeException, InvalidKeyException {
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Unwrap a previously wrapped key.
+     * Unwraps a key using this cipher instance.
+     * <p>
+     * This method has been added to this class (for backwards compatibility, it
+     * cannot be abstract). If this method is not overridden, it throws an
+     * {@code UnsupportedOperationException}.
      *
-     * <p>This concrete method has been added to this previously-defined
-     * abstract class. (For backwards compatibility, it cannot be abstract.)
-     * It may be overridden by a provider to unwrap a previously wrapped key.
-     * Such an override is expected to throw an InvalidKeyException if
-     * the given wrapped key cannot be unwrapped.
-     * If this method is not overridden, it always throws an
-     * UnsupportedOperationException.
-     *
-     * @param wrappedKey the key to be unwrapped.
-     *
-     * @param wrappedKeyAlgorithm the algorithm associated with the wrapped
-     * key.
-     *
-     * @param wrappedKeyType the type of the wrapped key. This is one of
-     * <code>SECRET_KEY</code>, <code>PRIVATE_KEY</code>, or
-     * <code>PUBLIC_KEY</code>.
-     *
+     * @param wrappedKey
+     *            the wrapped key to unwrap.
+     * @param wrappedKeyAlgorithm
+     *            the algorithm for the wrapped key.
+     * @param wrappedKeyType
+     *            the type of the wrapped key (one of: {@code SECRET_KEY},
+     *            {@code PRIVATE_KEY} or {@code PUBLIC_KEY})
      * @return the unwrapped key.
-     *
-     * @exception NoSuchAlgorithmException if no installed providers
-     * can create keys of type <code>wrappedKeyType</code> for the
-     * <code>wrappedKeyAlgorithm</code>.
-     *
-     * @exception InvalidKeyException if <code>wrappedKey</code> does not
-     * represent a wrapped key of type <code>wrappedKeyType</code> for
-     * the <code>wrappedKeyAlgorithm</code>.
-     *
-     * @throws UnsupportedOperationException if this method is not supported.
+     * @throws InvalidKeyException
+     *             if the {@code wrappedKey} cannot be unwrapped to a key of
+     *             type {@code wrappedKeyType} for the {@code
+     *             wrappedKeyAlgorithm}.
+     * @throws NoSuchAlgorithmException
+     *             if no provider can be found that can create a key of type
+     *             {@code wrappedKeyType} for the {@code wrappedKeyAlgorithm}.
      */
-    protected Key engineUnwrap(byte[] wrappedKey,
-                               String wrappedKeyAlgorithm,
-                               int wrappedKeyType)
-        throws InvalidKeyException, NoSuchAlgorithmException
-    {
+    protected Key engineUnwrap(byte[] wrappedKey, String wrappedKeyAlgorithm,
+            int wrappedKeyType) throws InvalidKeyException, NoSuchAlgorithmException {
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Returns the key size of the given key object in bits.
-     * <p>This concrete method has been added to this previously-defined
-     * abstract class. It throws an <code>UnsupportedOperationException</code>
-     * if it is not overridden by the provider.
+     * Returns the size of a specified key object in bits. This method has been
+     * added to this class (for backwards compatibility, it cannot be abstract).
+     * If this method is not overridden, it throws an {@code
+     * UnsupportedOperationException}.
      *
-     * @param key the key object.
-     *
-     * @return the key size of the given key object.
-     *
-     * @exception InvalidKeyException if <code>key</code> is invalid.
+     * @param key
+     *            the key to get the size for.
+     * @return the size of a specified key object in bits.
+     * @throws InvalidKeyException
+     *             if the size of the key cannot be determined by this
+     *             implementation.
      */
-    protected int engineGetKeySize(Key key)
-        throws InvalidKeyException
-    {
+    protected int engineGetKeySize(Key key) throws InvalidKeyException {
         throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Continues a multi-part update of the Additional Authentication
-     * Data (AAD), using a subset of the provided buffer.
-     * <p>
-     * Calls to this method provide AAD to the cipher when operating in
-     * modes such as AEAD (GCM/CCM).  If this cipher is operating in
-     * either GCM or CCM mode, all AAD must be supplied before beginning
-     * operations on the ciphertext (via the {@code update} and {@code
-     * doFinal} methods).
-     *
-     * @param src the buffer containing the AAD
-     * @param offset the offset in {@code src} where the AAD input starts
-     * @param len the number of AAD bytes
-     *
-     * @throws IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized), does not accept AAD, or if
-     * operating in either GCM or CCM mode and one of the {@code update}
-     * methods has already been called for the active
-     * encryption/decryption operation
-     * @throws UnsupportedOperationException if this method
-     * has not been overridden by an implementation
-     *
-     * @since 1.7
-     */
-    protected void engineUpdateAAD(byte[] src, int offset, int len) {
-        throw new UnsupportedOperationException(
-            "The underlying Cipher implementation "
-            +  "does not support this method");
-    }
-
-    /**
-     * Continues a multi-part update of the Additional Authentication
-     * Data (AAD).
-     * <p>
-     * Calls to this method provide AAD to the cipher when operating in
-     * modes such as AEAD (GCM/CCM).  If this cipher is operating in
-     * either GCM or CCM mode, all AAD must be supplied before beginning
-     * operations on the ciphertext (via the {@code update} and {@code
-     * doFinal} methods).
-     * <p>
-     * All {@code src.remaining()} bytes starting at
-     * {@code src.position()} are processed.
-     * Upon return, the input buffer's position will be equal
-     * to its limit; its limit will not have changed.
-     *
-     * @param src the buffer containing the AAD
-     *
-     * @throws IllegalStateException if this cipher is in a wrong state
-     * (e.g., has not been initialized), does not accept AAD, or if
-     * operating in either GCM or CCM mode and one of the {@code update}
-     * methods has already been called for the active
-     * encryption/decryption operation
-     * @throws UnsupportedOperationException if this method
-     * has not been overridden by an implementation
-     *
-     * @since 1.7
-     */
-    protected void engineUpdateAAD(ByteBuffer src) {
-        throw new UnsupportedOperationException(
-            "The underlying Cipher implementation "
-            +  "does not support this method");
     }
 }

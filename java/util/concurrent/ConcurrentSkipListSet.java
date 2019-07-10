@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -35,21 +6,10 @@
 
 package java.util.concurrent;
 
-import java.util.AbstractSet;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.NavigableSet;
-import java.util.Set;
-import java.util.SortedSet;
-import java.util.Spliterator;
+import java.util.*;
 
 // BEGIN android-note
 // removed link to collections framework docs
-// fixed framework docs link to "Collection#optional"
 // END android-note
 
 /**
@@ -63,12 +23,12 @@ import java.util.Spliterator;
  * cost for the {@code contains}, {@code add}, and {@code remove}
  * operations and their variants.  Insertion, removal, and access
  * operations safely execute concurrently by multiple threads.
- *
- * <p>Iterators and spliterators are
- * <a href="package-summary.html#Weakly"><i>weakly consistent</i></a>.
- *
- * <p>Ascending ordered views and their iterators are faster than
- * descending ones.
+ * Iterators are <i>weakly consistent</i>, returning elements
+ * reflecting the state of the set at some point at or since the
+ * creation of the iterator.  They do <em>not</em> throw {@link
+ * ConcurrentModificationException}, and may proceed concurrently with
+ * other operations.  Ascending ordered views and their iterators are
+ * faster than descending ones.
  *
  * <p>Beware that, unlike in most collections, the {@code size}
  * method is <em>not</em> a constant-time operation. Because of the
@@ -325,9 +285,8 @@ public class ConcurrentSkipListSet<E>
      *
      * @param  c collection containing elements to be removed from this set
      * @return {@code true} if this set changed as a result of the call
-     * @throws ClassCastException if the class of an element of this set
-     *         is incompatible with the specified collection
-     * (<a href="../Collection.html#optional-restrictions">optional</a>)
+     * @throws ClassCastException if the types of one or more elements in this
+     *         set are incompatible with the specified collection
      * @throws NullPointerException if the specified collection or any
      *         of its elements are null
      */
@@ -387,19 +346,20 @@ public class ConcurrentSkipListSet<E>
 
     /* ---------------- SortedSet operations -------------- */
 
+
     public Comparator<? super E> comparator() {
         return m.comparator();
     }
 
     /**
-     * @throws java.util.NoSuchElementException {@inheritDoc}
+     * @throws NoSuchElementException {@inheritDoc}
      */
     public E first() {
         return m.firstKey();
     }
 
     /**
-     * @throws java.util.NoSuchElementException {@inheritDoc}
+     * @throws NoSuchElementException {@inheritDoc}
      */
     public E last() {
         return m.lastKey();
@@ -482,42 +442,20 @@ public class ConcurrentSkipListSet<E>
         return new ConcurrentSkipListSet<E>(m.descendingMap());
     }
 
-    /**
-     * Returns a {@link Spliterator} over the elements in this set.
-     *
-     * <p>The {@code Spliterator} reports {@link Spliterator#CONCURRENT},
-     * {@link Spliterator#NONNULL}, {@link Spliterator#DISTINCT},
-     * {@link Spliterator#SORTED} and {@link Spliterator#ORDERED}, with an
-     * encounter order that is ascending order.  Overriding implementations
-     * should document the reporting of additional characteristic values.
-     *
-     * <p>The spliterator's comparator (see
-     * {@link java.util.Spliterator#getComparator()}) is {@code null} if
-     * the set's comparator (see {@link #comparator()}) is {@code null}.
-     * Otherwise, the spliterator's comparator is the same as or imposes the
-     * same total ordering as the set's comparator.
-     *
-     * @return a {@code Spliterator} over the elements in this set
-     * @since 1.8
-     */
-    public Spliterator<E> spliterator() {
-        return (m instanceof ConcurrentSkipListMap)
-            ? ((ConcurrentSkipListMap<E,?>)m).keySpliterator()
-            : ((ConcurrentSkipListMap.SubMap<E,?>)m).new SubMapKeyIterator();
-    }
-
     // Support for resetting map in clone
     private void setMap(ConcurrentNavigableMap<E,Object> map) {
-        U.putObjectVolatile(this, MAP, map);
+        UNSAFE.putObjectVolatile(this, mapOffset, map);
     }
 
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long MAP;
+    private static final sun.misc.Unsafe UNSAFE;
+    private static final long mapOffset;
     static {
         try {
-            MAP = U.objectFieldOffset
-                (ConcurrentSkipListSet.class.getDeclaredField("m"));
-        } catch (ReflectiveOperationException e) {
+            UNSAFE = sun.misc.Unsafe.getUnsafe();
+            Class<?> k = ConcurrentSkipListSet.class;
+            mapOffset = UNSAFE.objectFieldOffset
+                (k.getDeclaredField("m"));
+        } catch (Exception e) {
             throw new Error(e);
         }
     }

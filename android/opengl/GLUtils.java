@@ -261,6 +261,12 @@ public final class GLUtils {
         }
     }
 
+    /**
+     * Set OpenGL Tracing level for this application.
+     * @hide
+     */
+    native public static void setTracingLevel(int level);
+
     native private static int native_getInternalFormat(Bitmap bitmap);
     native private static int native_getType(Bitmap bitmap);
     native private static int native_texImage2D(int target, int level, int internalformat,

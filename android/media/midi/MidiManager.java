@@ -16,11 +16,7 @@
 
 package android.media.midi;
 
-import android.annotation.RequiresFeature;
-import android.annotation.SystemService;
 import android.bluetooth.BluetoothDevice;
-import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Bundle;
@@ -32,9 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class is the public application interface to the MIDI service.
+ *
+ * <p>You can obtain an instance of this class by calling
+ * {@link android.content.Context#getSystemService(java.lang.String) Context.getSystemService()}.
+ *
+ * {@samplecode
+ * MidiManager manager = (MidiManager) getSystemService(Context.MIDI_SERVICE);}
  */
-@SystemService(Context.MIDI_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_MIDI)
 public final class MidiManager {
     private static final String TAG = "MidiManager";
 
@@ -169,13 +169,6 @@ public final class MidiManager {
     /**
      * Registers a callback to receive notifications when MIDI devices are added and removed.
      *
-     * The {@link  DeviceCallback#onDeviceStatusChanged} method will be called immediately
-     * for any devices that have open ports. This allows applications to know which input
-     * ports are already in use and, therefore, unavailable.
-     *
-     * Applications should call {@link #getDevices} before registering the callback
-     * to get a list of devices already added.
-     *
      * @param callback a {@link DeviceCallback} for MIDI device notifications
      * @param handler The {@link android.os.Handler Handler} that will be used for delivering the
      *                device notifications. If handler is null, then the thread used for the
@@ -186,7 +179,8 @@ public final class MidiManager {
         try {
             mService.registerListener(mToken, deviceListener);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            Log.e(TAG, "RemoteException in registerDeviceListener");
+            return;
         }
         mDeviceListeners.put(callback, deviceListener);
     }
@@ -202,7 +196,7 @@ public final class MidiManager {
             try {
                 mService.unregisterListener(mToken, deviceListener);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                Log.e(TAG, "RemoteException in unregisterDeviceListener");
             }
         }
     }
@@ -216,7 +210,8 @@ public final class MidiManager {
         try {
            return mService.getDevices();
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            Log.e(TAG, "RemoteException in getDevices");
+            return new MidiDeviceInfo[0];
         }
     }
 
@@ -265,7 +260,7 @@ public final class MidiManager {
         try {
             mService.openDevice(mToken, deviceInfo, callback);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            Log.e(TAG, "RemoteException in openDevice");
         }
     }
 
@@ -293,6 +288,7 @@ public final class MidiManager {
                         // fetch MidiDeviceInfo from the server
                         MidiDeviceInfo deviceInfo = server.getDeviceInfo();
                         device = new MidiDevice(deviceInfo, server, mService, mToken, deviceToken);
+                        sendOpenDeviceResponse(device, listenerF, handlerF);
                     } catch (RemoteException e) {
                         Log.e(TAG, "remote exception in getDeviceInfo()");
                     }
@@ -304,7 +300,7 @@ public final class MidiManager {
         try {
             mService.openBluetoothDevice(mToken, bluetoothDevice, callback);
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            Log.e(TAG, "RemoteException in openDevice");
         }
     }
 
@@ -324,7 +320,8 @@ public final class MidiManager {
             }
             return server;
         } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            Log.e(TAG, "RemoteException in createVirtualDevice");
+            return null;
         }
     }
 }

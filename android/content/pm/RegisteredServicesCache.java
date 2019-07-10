@@ -16,7 +16,6 @@
 
 package android.content.pm;
 
-import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -31,7 +30,6 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.AtomicFile;
 import android.util.AttributeSet;
-import android.util.IntArray;
 import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
@@ -41,11 +39,8 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.FastXmlSerializer;
-
 import com.google.android.collect.Lists;
 import com.google.android.collect.Maps;
-
-import libcore.io.IoUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -59,11 +54,12 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import libcore.io.IoUtils;
 
 /**
  * Cache of registered services. This cache is lazily built by interrogating
@@ -74,7 +70,7 @@ import java.util.Map;
  * <p>
  * The services are referred to by type V and are made available via the
  * {@link #getServiceInfo} method.
- *
+ * 
  * @hide
  */
 public abstract class RegisteredServicesCache<V> {
@@ -100,8 +96,6 @@ public abstract class RegisteredServicesCache<V> {
         Map<V, ServiceInfo<V>> services = null;
         @GuardedBy("mServicesLock")
         boolean mPersistentServicesFileDidNotExist = true;
-        @GuardedBy("mServicesLock")
-        boolean mBindInstantServiceAllowed = false;
     }
 
     @GuardedBy("mServicesLock")
@@ -219,7 +213,7 @@ public abstract class RegisteredServicesCache<V> {
         @Override
         public void onReceive(Context context, Intent intent) {
             // External apps can't coexist with multi-user, so scan owner
-            handlePackageEvent(intent, UserHandle.USER_SYSTEM);
+            handlePackageEvent(intent, UserHandle.USER_OWNER);
         }
     };
 
@@ -277,7 +271,7 @@ public abstract class RegisteredServicesCache<V> {
             Log.d(TAG, "notifyListener: " + type + " is " + (removed ? "removed" : "added"));
         }
         RegisteredServicesCacheListener<V> listener;
-        Handler handler;
+        Handler handler; 
         synchronized (this) {
             listener = mListener;
             handler = mHandler;
@@ -285,7 +279,7 @@ public abstract class RegisteredServicesCache<V> {
         if (listener == null) {
             return;
         }
-
+        
         final RegisteredServicesCacheListener<V> listener2 = listener;
         handler.post(new Runnable() {
             public void run() {
@@ -300,16 +294,14 @@ public abstract class RegisteredServicesCache<V> {
      */
     public static class ServiceInfo<V> {
         public final V type;
-        public final ComponentInfo componentInfo;
         public final ComponentName componentName;
         public final int uid;
 
         /** @hide */
-        public ServiceInfo(V type, ComponentInfo componentInfo, ComponentName componentName) {
+        public ServiceInfo(V type, ComponentName componentName, int uid) {
             this.type = type;
-            this.componentInfo = componentInfo;
             this.componentName = componentName;
-            this.uid = (componentInfo != null) ? componentInfo.applicationInfo.uid : -1;
+            this.uid = uid;
         }
 
         @Override
@@ -350,89 +342,18 @@ public abstract class RegisteredServicesCache<V> {
         }
     }
 
-    public void updateServices(int userId) {
-        if (DEBUG) {
-            Slog.d(TAG, "updateServices u" + userId);
-        }
-        List<ServiceInfo<V>> allServices;
-        synchronized (mServicesLock) {
-            final UserServices<V> user = findOrCreateUserLocked(userId);
-            // If services haven't been initialized yet - no updates required
-            if (user.services == null) {
-                return;
-            }
-            allServices = new ArrayList<>(user.services.values());
-        }
-        IntArray updatedUids = null;
-        for (ServiceInfo<V> service : allServices) {
-            long versionCode = service.componentInfo.applicationInfo.versionCode;
-            String pkg = service.componentInfo.packageName;
-            ApplicationInfo newAppInfo = null;
-            try {
-                newAppInfo = mContext.getPackageManager().getApplicationInfoAsUser(pkg, 0, userId);
-            } catch (NameNotFoundException e) {
-                // Package uninstalled - treat as null app info
-            }
-            // If package updated or removed
-            if ((newAppInfo == null) || (newAppInfo.versionCode != versionCode)) {
-                if (DEBUG) {
-                    Slog.d(TAG, "Package " + pkg + " uid=" + service.uid
-                            + " updated. New appInfo: " + newAppInfo);
-                }
-                if (updatedUids == null) {
-                    updatedUids = new IntArray();
-                }
-                updatedUids.add(service.uid);
-            }
-        }
-        if (updatedUids != null && updatedUids.size() > 0) {
-            int[] updatedUidsArray = updatedUids.toArray();
-            generateServicesMap(updatedUidsArray, userId);
-        }
-    }
-
-    /**
-     * @return whether the binding to service is allowed for instant apps.
-     */
-    public boolean getBindInstantServiceAllowed(int userId) {
-        mContext.enforceCallingOrSelfPermission(
-                Manifest.permission.MANAGE_BIND_INSTANT_SERVICE,
-                "getBindInstantServiceAllowed");
-
-        synchronized (mServicesLock) {
-            final UserServices<V> user = findOrCreateUserLocked(userId);
-            return user.mBindInstantServiceAllowed;
-        }
-    }
-
-    /**
-     * Set whether the binding to service is allowed or not for instant apps.
-     */
-    public void setBindInstantServiceAllowed(int userId, boolean allowed) {
-        mContext.enforceCallingOrSelfPermission(
-                Manifest.permission.MANAGE_BIND_INSTANT_SERVICE,
-                "setBindInstantServiceAllowed");
-
-        synchronized (mServicesLock) {
-            final UserServices<V> user = findOrCreateUserLocked(userId);
-            user.mBindInstantServiceAllowed = allowed;
-        }
-    }
-
     @VisibleForTesting
     protected boolean inSystemImage(int callerUid) {
         String[] packages = mContext.getPackageManager().getPackagesForUid(callerUid);
-        if (packages != null) {
-            for (String name : packages) {
-                try {
-                    PackageInfo packageInfo =
-                            mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
-                    if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
-                        return true;
-                    }
-                } catch (PackageManager.NameNotFoundException e) {
-                    return false;
+        for (String name : packages) {
+            try {
+                PackageInfo packageInfo =
+                        mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
+                if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    return true;
                 }
+            } catch (PackageManager.NameNotFoundException e) {
+                return false;
             }
         }
         return false;
@@ -441,16 +362,8 @@ public abstract class RegisteredServicesCache<V> {
     @VisibleForTesting
     protected List<ResolveInfo> queryIntentServices(int userId) {
         final PackageManager pm = mContext.getPackageManager();
-        int flags = PackageManager.GET_META_DATA
-                | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
-        synchronized (mServicesLock) {
-            final UserServices<V> user = findOrCreateUserLocked(userId);
-            if (user.mBindInstantServiceAllowed) {
-                flags |= PackageManager.MATCH_INSTANT;
-            }
-        }
-        return pm.queryIntentServicesAsUser(new Intent(mInterfaceName), flags, userId);
+        return pm.queryIntentServicesAsUser(
+                new Intent(mInterfaceName), PackageManager.GET_META_DATA, userId);
     }
 
     /**
@@ -462,11 +375,10 @@ public abstract class RegisteredServicesCache<V> {
      */
     private void generateServicesMap(int[] changedUids, int userId) {
         if (DEBUG) {
-            Slog.d(TAG, "generateServicesMap() for " + userId + ", changed UIDs = "
-                    + Arrays.toString(changedUids));
+            Slog.d(TAG, "generateServicesMap() for " + userId + ", changed UIDs = " + changedUids);
         }
 
-        final ArrayList<ServiceInfo<V>> serviceInfos = new ArrayList<>();
+        final ArrayList<ServiceInfo<V>> serviceInfos = new ArrayList<ServiceInfo<V>>();
         final List<ResolveInfo> resolveInfos = queryIntentServices(userId);
         for (ResolveInfo resolveInfo : resolveInfos) {
             try {
@@ -651,7 +563,9 @@ public abstract class RegisteredServicesCache<V> {
                 return null;
             }
             final android.content.pm.ServiceInfo serviceInfo = service.serviceInfo;
-            return new ServiceInfo<V>(v, serviceInfo, componentName);
+            final ApplicationInfo applicationInfo = serviceInfo.applicationInfo;
+            final int uid = applicationInfo.uid;
+            return new ServiceInfo<V>(v, componentName, uid);
         } catch (NameNotFoundException e) {
             throw new XmlPullParserException(
                     "Unable to load resources for pacakge " + si.packageName);

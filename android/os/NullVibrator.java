@@ -38,14 +38,22 @@ public class NullVibrator extends Vibrator {
         return false;
     }
 
+    /**
+     * @hide
+     */
     @Override
-    public boolean hasAmplitudeControl() {
-        return false;
+    public void vibrate(int uid, String opPkg, long milliseconds, AudioAttributes attributes) {
     }
 
+    /**
+     * @hide
+     */
     @Override
-    public void vibrate(int uid, String opPkg,
-            VibrationEffect effect, AudioAttributes attributes) {
+    public void vibrate(int uid, String opPkg, long[] pattern, int repeat,
+            AudioAttributes attributes) {
+        if (repeat >= pattern.length) {
+            throw new ArrayIndexOutOfBoundsException();
+        }
     }
 
     @Override

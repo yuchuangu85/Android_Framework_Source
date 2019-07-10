@@ -1,7 +1,5 @@
 package com.android.systemui.assist;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.SearchManager;
@@ -9,13 +7,12 @@ import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.database.ContentObserver;
 import android.graphics.PixelFormat;
+import android.media.AudioAttributes;
 import android.os.AsyncTask;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.RemoteException;
@@ -24,6 +21,7 @@ import android.provider.Settings;
 import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -31,20 +29,19 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 
 import com.android.internal.app.AssistUtils;
-import com.android.internal.app.IVoiceInteractionSessionListener;
 import com.android.internal.app.IVoiceInteractionSessionShowCallback;
-import com.android.keyguard.KeyguardUpdateMonitor;
-import com.android.settingslib.applications.InterestingConfigChanges;
-import com.android.systemui.ConfigurationChangedReceiver;
 import com.android.systemui.R;
-import com.android.systemui.SysUiServiceProvider;
+import com.android.systemui.statusbar.BaseStatusBar;
 import com.android.systemui.statusbar.CommandQueue;
-import com.android.systemui.statusbar.policy.DeviceProvisionedController;
+import com.android.systemui.statusbar.phone.PhoneStatusBar;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * Class to manage everything related to assist in SystemUI.
  */
-public class AssistManager implements ConfigurationChangedReceiver {
+public class AssistManager {
 
     private static final String TAG = "AssistManager";
     private static final String ASSIST_ICON_METADATA_NAME =
@@ -53,15 +50,15 @@ public class AssistManager implements ConfigurationChangedReceiver {
     private static final long TIMEOUT_SERVICE = 2500;
     private static final long TIMEOUT_ACTIVITY = 1000;
 
-    protected final Context mContext;
+    private final Context mContext;
     private final WindowManager mWindowManager;
     private final AssistDisclosure mAssistDisclosure;
-    private final InterestingConfigChanges mInterestingConfigChanges;
 
     private AssistOrbContainer mView;
-    private final DeviceProvisionedController mDeviceProvisionedController;
-    protected final AssistUtils mAssistUtils;
-    private final boolean mShouldEnableOrb;
+    private final BaseStatusBar mBar;
+    private final AssistUtils mAssistUtils;
+
+    private ComponentName mAssistComponent;
 
     private IVoiceInteractionSessionShowCallback mShowCallback =
             new IVoiceInteractionSessionShowCallback.Stub() {
@@ -85,40 +82,27 @@ public class AssistManager implements ConfigurationChangedReceiver {
         }
     };
 
-    public AssistManager(DeviceProvisionedController controller, Context context) {
+    private final ContentObserver mAssistSettingsObserver = new ContentObserver(new Handler()) {
+        @Override
+        public void onChange(boolean selfChange) {
+            updateAssistInfo();
+        }
+    };
+
+    public AssistManager(BaseStatusBar bar, Context context) {
         mContext = context;
-        mDeviceProvisionedController = controller;
+        mBar = bar;
         mWindowManager = (WindowManager) mContext.getSystemService(Context.WINDOW_SERVICE);
         mAssistUtils = new AssistUtils(context);
+
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.ASSISTANT), false,
+                mAssistSettingsObserver);
+        mAssistSettingsObserver.onChange(false);
         mAssistDisclosure = new AssistDisclosure(context, new Handler());
-
-        registerVoiceInteractionSessionListener();
-        mInterestingConfigChanges = new InterestingConfigChanges(ActivityInfo.CONFIG_ORIENTATION
-                | ActivityInfo.CONFIG_LOCALE | ActivityInfo.CONFIG_UI_MODE
-                | ActivityInfo.CONFIG_SCREEN_LAYOUT | ActivityInfo.CONFIG_ASSETS_PATHS);
-        onConfigurationChanged(context.getResources().getConfiguration());
-        mShouldEnableOrb = !ActivityManager.isLowRamDeviceStatic();
     }
 
-    protected void registerVoiceInteractionSessionListener() {
-        mAssistUtils.registerVoiceInteractionSessionListener(
-                new IVoiceInteractionSessionListener.Stub() {
-            @Override
-            public void onVoiceSessionShown() throws RemoteException {
-                Log.v(TAG, "Voice open");
-            }
-
-            @Override
-            public void onVoiceSessionHidden() throws RemoteException {
-                Log.v(TAG, "Voice closed");
-            }
-        });
-    }
-
-    public void onConfigurationChanged(Configuration newConfiguration) {
-        if (!mInterestingConfigChanges.applyNewConfig(mContext.getResources())) {
-            return;
-        }
+    public void onConfigurationChanged() {
         boolean visible = false;
         if (mView != null) {
             visible = mView.isShowing();
@@ -138,24 +122,20 @@ public class AssistManager implements ConfigurationChangedReceiver {
         }
     }
 
-    protected boolean shouldShowOrb() {
-        return true;
-    }
-
     public void startAssist(Bundle args) {
-        final ComponentName assistComponent = getAssistInfo();
-        if (assistComponent == null) {
+        updateAssistInfo();
+        if (mAssistComponent == null) {
             return;
         }
 
-        final boolean isService = assistComponent.equals(getVoiceInteractorComponentName());
-        if (!isService || (!isVoiceSessionRunning() && shouldShowOrb())) {
-            showOrb(assistComponent, isService);
+        final boolean isService = isAssistantService();
+        if (!isService || !isVoiceSessionRunning()) {
+            showOrb();
             mView.postDelayed(mHideRunnable, isService
                     ? TIMEOUT_SERVICE
                     : TIMEOUT_ACTIVITY);
         }
-        startAssistInternal(args, assistComponent, isService);
+        startAssistInternal(args);
     }
 
     public void hideAssist() {
@@ -171,7 +151,9 @@ public class AssistManager implements ConfigurationChangedReceiver {
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
-        lp.token = new Binder();
+        if (ActivityManager.isHighEndGfx()) {
+            lp.flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
+        }
         lp.gravity = Gravity.BOTTOM | Gravity.START;
         lp.setTitle("AssistPreviewPanel");
         lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
@@ -179,44 +161,41 @@ public class AssistManager implements ConfigurationChangedReceiver {
         return lp;
     }
 
-    private void showOrb(@NonNull ComponentName assistComponent, boolean isService) {
-        maybeSwapSearchIcon(assistComponent, isService);
-        if (mShouldEnableOrb) {
-            mView.show(true /* show */, true /* animate */);
+    private void showOrb() {
+        maybeSwapSearchIcon();
+        mView.show(true /* show */, true /* animate */);
+    }
+
+    private void startAssistInternal(Bundle args) {
+        if (mAssistComponent != null) {
+            if (isAssistantService()) {
+                startVoiceInteractor(args);
+            } else {
+                startAssistActivity(args);
+            }
         }
     }
 
-    private void startAssistInternal(Bundle args, @NonNull ComponentName assistComponent,
-            boolean isService) {
-        if (isService) {
-            startVoiceInteractor(args);
-        } else {
-            startAssistActivity(args, assistComponent);
-        }
-    }
-
-    private void startAssistActivity(Bundle args, @NonNull ComponentName assistComponent) {
-        if (!mDeviceProvisionedController.isDeviceProvisioned()) {
+    private void startAssistActivity(Bundle args) {
+        if (!mBar.isDeviceProvisioned()) {
             return;
         }
 
         // Close Recent Apps if needed
-        SysUiServiceProvider.getComponent(mContext, CommandQueue.class).animateCollapsePanels(
-                CommandQueue.FLAG_EXCLUDE_SEARCH_PANEL | CommandQueue.FLAG_EXCLUDE_RECENTS_PANEL);
+        mBar.animateCollapsePanels(CommandQueue.FLAG_EXCLUDE_SEARCH_PANEL |
+                CommandQueue.FLAG_EXCLUDE_RECENTS_PANEL);
 
         boolean structureEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
                 Settings.Secure.ASSIST_STRUCTURE_ENABLED, 1, UserHandle.USER_CURRENT) != 0;
 
-        final SearchManager searchManager =
-            (SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE);
-        if (searchManager == null) {
-            return;
-        }
-        final Intent intent = searchManager.getAssistIntent(structureEnabled);
+        final Intent intent = ((SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE))
+                .getAssistIntent(structureEnabled);
         if (intent == null) {
             return;
         }
-        intent.setComponent(assistComponent);
+        if (mAssistComponent != null) {
+            intent.setComponent(mAssistComponent);
+        }
         intent.putExtras(args);
 
         if (structureEnabled) {
@@ -264,9 +243,13 @@ public class AssistManager implements ConfigurationChangedReceiver {
         mWindowManager.removeViewImmediate(mView);
     }
 
-    private void maybeSwapSearchIcon(@NonNull ComponentName assistComponent, boolean isService) {
-        replaceDrawable(mView.getOrb().getLogo(), assistComponent, ASSIST_ICON_METADATA_NAME,
-                isService);
+    private void maybeSwapSearchIcon() {
+        if (mAssistComponent != null) {
+            replaceDrawable(mView.getOrb().getLogo(), mAssistComponent, ASSIST_ICON_METADATA_NAME,
+                    isAssistantService());
+        } else {
+            mView.getOrb().getLogo().setImageDrawable(null);
+        }
     }
 
     public void replaceDrawable(ImageView v, ComponentName component, String name,
@@ -290,8 +273,8 @@ public class AssistManager implements ConfigurationChangedReceiver {
                     }
                 }
             } catch (PackageManager.NameNotFoundException e) {
-                Log.v(TAG, "Assistant component "
-                        + component.flattenToShortString() + " not found");
+                Log.w(TAG, "Failed to swap drawable; "
+                        + component.flattenToShortString() + " not found", e);
             } catch (Resources.NotFoundException nfe) {
                 Log.w(TAG, "Failed to swap drawable from "
                         + component.flattenToShortString(), nfe);
@@ -300,13 +283,26 @@ public class AssistManager implements ConfigurationChangedReceiver {
         v.setImageDrawable(null);
     }
 
-    @Nullable
-    private ComponentName getAssistInfo() {
-        return mAssistUtils.getAssistComponentForUser(KeyguardUpdateMonitor.getCurrentUser());
+    private boolean isAssistantService() {
+        return mAssistComponent == null ?
+                false : mAssistComponent.equals(getVoiceInteractorComponentName());
+    }
+
+    private void updateAssistInfo() {
+        mAssistComponent = mAssistUtils.getAssistComponentForUser(UserHandle.USER_CURRENT);
+    }
+
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("AssistManager state:");
+        pw.print("  mAssistComponent="); pw.println(mAssistComponent);
     }
 
     public void showDisclosure() {
         mAssistDisclosure.postShow();
+    }
+
+    public void onUserSwitched(int newUserId) {
+        updateAssistInfo();
     }
 
     public void onLockscreenShown() {

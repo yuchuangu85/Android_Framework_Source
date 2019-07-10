@@ -25,7 +25,7 @@ public class ListChangeRegistry
         CallbackRegistry<ObservableList.OnListChangedCallback, ObservableList,
                 ListChangeRegistry.ListChanges> {
     private static final Pools.SynchronizedPool<ListChanges> sListChanges =
-            new Pools.SynchronizedPool<ListChanges>(10);
+            new Pools.SynchronizedPool<>(10);
 
     private static final int ALL = 0;
     private static final int CHANGED = 1;

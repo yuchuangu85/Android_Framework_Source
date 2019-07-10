@@ -20,17 +20,16 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.res.TypedArray;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Handler;
-import android.support.annotation.RequiresPermission;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+
+import com.android.setupwizardlib.R;
 
 /**
  * A helper class to manage the system navigation bar and status bar. This will add various
@@ -42,8 +41,6 @@ import android.view.WindowManager;
  * layout the screen contents (usually the illustration) behind it.
  */
 public class SystemBarHelper {
-
-    private static final String TAG = "SystemBarHelper";
 
     @SuppressLint("InlinedApi")
     private static final int DEFAULT_IMMERSIVE_FLAGS =
@@ -63,80 +60,31 @@ public class SystemBarHelper {
     private static final int STATUS_BAR_DISABLE_BACK = 0x00400000;
 
     /**
-     * The maximum number of retries when peeking the decor view. When polling for the decor view,
-     * waiting it to be installed, set a maximum number of retries.
-     */
-    private static final int PEEK_DECOR_VIEW_RETRIES = 3;
-
-    /**
      * Hide the navigation bar for a dialog.
      *
-     * <p>This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
+     * This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
      */
     public static void hideSystemBars(final Dialog dialog) {
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             final Window window = dialog.getWindow();
             temporarilyDisableDialogFocus(window);
-            addVisibilityFlag(window, DIALOG_IMMERSIVE_FLAGS);
-            addImmersiveFlagsToDecorView(window, DIALOG_IMMERSIVE_FLAGS);
-
-            // Also set the navigation bar and status bar to transparent color. Note that this
-            // doesn't work if android.R.boolean.config_enableTranslucentDecor is false.
-            window.setNavigationBarColor(0);
-            window.setStatusBarColor(0);
+            addImmersiveFlagsToWindow(window, DIALOG_IMMERSIVE_FLAGS);
+            addImmersiveFlagsToDecorView(window, new Handler(), DIALOG_IMMERSIVE_FLAGS);
         }
     }
 
     /**
-     * Hide the navigation bar, make the color of the status and navigation bars transparent, and
-     * specify {@link View#SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN} flag so that the content is laid-out
-     * behind the transparent status bar. This is commonly used with
-     * {@link android.app.Activity#getWindow()} to make the navigation and status bars follow the
-     * Setup Wizard style.
+     * Hide the navigation bar, and make the color of the status and navigation bars transparent,
+     * and specify the LAYOUT_FULLSCREEN flag so that the content is laid-out behind the transparent
+     * status bar. This is commonly used with Activity.getWindow() to make the navigation and status
+     * bars follow the Setup Wizard style.
      *
-     * <p>This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
+     * This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
      */
     public static void hideSystemBars(final Window window) {
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            addVisibilityFlag(window, DEFAULT_IMMERSIVE_FLAGS);
-            addImmersiveFlagsToDecorView(window, DEFAULT_IMMERSIVE_FLAGS);
-
-            // Also set the navigation bar and status bar to transparent color. Note that this
-            // doesn't work if android.R.boolean.config_enableTranslucentDecor is false.
-            window.setNavigationBarColor(0);
-            window.setStatusBarColor(0);
-        }
-    }
-
-    /**
-     * Revert the actions of hideSystemBars. Note that this will remove the system UI visibility
-     * flags regardless of whether it is originally present. You should also manually reset the
-     * navigation bar and status bar colors, as this method doesn't know what value to revert it to.
-     */
-    public static void showSystemBars(final Dialog dialog, final Context context) {
-        showSystemBars(dialog.getWindow(), context);
-    }
-
-    /**
-     * Revert the actions of hideSystemBars. Note that this will remove the system UI visibility
-     * flags regardless of whether it is originally present. You should also manually reset the
-     * navigation bar and status bar colors, as this method doesn't know what value to revert it to.
-     */
-    public static void showSystemBars(final Window window, final Context context) {
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            removeVisibilityFlag(window, DEFAULT_IMMERSIVE_FLAGS);
-            removeImmersiveFlagsFromDecorView(window, DEFAULT_IMMERSIVE_FLAGS);
-
-            if (context != null) {
-                //noinspection AndroidLintInlinedApi
-                final TypedArray typedArray = context.obtainStyledAttributes(new int[]{
-                        android.R.attr.statusBarColor, android.R.attr.navigationBarColor});
-                final int statusBarColor = typedArray.getColor(0, 0);
-                final int navigationBarColor = typedArray.getColor(1, 0);
-                window.setStatusBarColor(statusBarColor);
-                window.setNavigationBarColor(navigationBarColor);
-                typedArray.recycle();
-            }
+            addImmersiveFlagsToWindow(window, DEFAULT_IMMERSIVE_FLAGS);
+            addImmersiveFlagsToDecorView(window, new Handler(), DEFAULT_IMMERSIVE_FLAGS);
         }
     }
 
@@ -184,25 +132,12 @@ public class SystemBarHelper {
         }
     }
 
-    /**
-     * Sets whether the back button on the software navigation bar is visible. This only works if
-     * you have the STATUS_BAR permission. Otherwise framework will filter out this flag and this
-     * method call will not have any effect.
-     *
-     * <p>IMPORTANT: Do not assume that users have no way to go back when the back button is hidden.
-     * Many devices have physical back buttons, and accessibility services like TalkBack may have
-     * gestures mapped to back. Please use onBackPressed, onKeyDown, or other similar ways to
-     * make sure back button events are still handled (or ignored) properly.
-     */
-    @RequiresPermission("android.permission.STATUS_BAR")
     public static void setBackButtonVisible(final Window window, final boolean visible) {
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             if (visible) {
                 removeVisibilityFlag(window, STATUS_BAR_DISABLE_BACK);
-                removeImmersiveFlagsFromDecorView(window, STATUS_BAR_DISABLE_BACK);
             } else {
                 addVisibilityFlag(window, STATUS_BAR_DISABLE_BACK);
-                addImmersiveFlagsToDecorView(window, STATUS_BAR_DISABLE_BACK);
             }
         }
     }
@@ -212,88 +147,52 @@ public class SystemBarHelper {
      * view to be immediately above the keyboard, and assumes that the view sits immediately above
      * the navigation bar.
      *
-     * <p>Note that you must set {@link android.R.attr#windowSoftInputMode} to {@code adjustResize}
-     * for this class to work. Otherwise window insets are not dispatched and this method will have
-     * no effect.
+     * Note that you must set windowSoftInputMode to adjustResize for this class to work. Otherwise
+     * window insets are not dispatched and this method will have no effect.
      *
-     * <p>This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
+     * This will only take effect in versions Lollipop or above. Otherwise this is a no-op.
      *
      * @param view The view to be resized when the keyboard is shown.
      */
     public static void setImeInsetView(final View view) {
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            view.setOnApplyWindowInsetsListener(new WindowInsetsListener());
+            view.setOnApplyWindowInsetsListener(new WindowInsetsListener(view.getContext()));
         }
     }
 
     /**
-     * Add the specified immersive flags to the decor view of the window, because
-     * {@link View#SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN} only takes effect when it is added to a view
-     * instead of the window.
+     * View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN only takes effect when it is added a view instead of
+     * the window.
      */
-    @TargetApi(VERSION_CODES.HONEYCOMB)
-    private static void addImmersiveFlagsToDecorView(final Window window, final int vis) {
-        getDecorView(window, new OnDecorViewInstalledListener() {
-            @Override
-            public void onDecorViewInstalled(View decorView) {
-                addVisibilityFlag(decorView, vis);
-            }
-        });
-    }
-
-    @TargetApi(VERSION_CODES.HONEYCOMB)
-    private static void removeImmersiveFlagsFromDecorView(final Window window, final int vis) {
-        getDecorView(window, new OnDecorViewInstalledListener() {
-            @Override
-            public void onDecorViewInstalled(View decorView) {
-                removeVisibilityFlag(decorView, vis);
-            }
-        });
-    }
-
-    private static void getDecorView(Window window, OnDecorViewInstalledListener callback) {
-        new DecorViewFinder().getDecorView(window, callback, PEEK_DECOR_VIEW_RETRIES);
-    }
-
-    private static class DecorViewFinder {
-
-        private final Handler mHandler = new Handler();
-        private Window mWindow;
-        private int mRetries;
-        private OnDecorViewInstalledListener mCallback;
-
-        private Runnable mCheckDecorViewRunnable = new Runnable() {
-            @Override
-            public void run() {
-                // Use peekDecorView instead of getDecorView so that clients can still set window
-                // features after calling this method.
-                final View decorView = mWindow.peekDecorView();
-                if (decorView != null) {
-                    mCallback.onDecorViewInstalled(decorView);
-                } else {
-                    mRetries--;
-                    if (mRetries >= 0) {
-                        // If the decor view is not installed yet, try again in the next loop.
-                        mHandler.post(mCheckDecorViewRunnable);
-                    } else {
-                        Log.w(TAG, "Cannot get decor view of window: " + mWindow);
-                    }
+    @TargetApi(VERSION_CODES.LOLLIPOP)
+    private static void addImmersiveFlagsToDecorView(final Window window, final Handler handler,
+            final int vis) {
+        // Use peekDecorView instead of getDecorView so that clients can still set window features
+        // after calling this method.
+        final View decorView = window.peekDecorView();
+        if (decorView != null) {
+            addVisibilityFlag(decorView, vis);
+        } else {
+            // If the decor view is not installed yet, try again in the next loop.
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    addImmersiveFlagsToDecorView(window, handler, vis);
                 }
-            }
-        };
-
-        public void getDecorView(Window window, OnDecorViewInstalledListener callback,
-                int retries) {
-            mWindow = window;
-            mRetries = retries;
-            mCallback = callback;
-            mCheckDecorViewRunnable.run();
+            });
         }
     }
 
-    private interface OnDecorViewInstalledListener {
+    @TargetApi(VERSION_CODES.LOLLIPOP)
+    private static void addImmersiveFlagsToWindow(final Window window, final int vis) {
+        WindowManager.LayoutParams attrs = window.getAttributes();
+        attrs.systemUiVisibility |= vis;
+        window.setAttributes(attrs);
 
-        void onDecorViewInstalled(View decorView);
+        // Also set the navigation bar and status bar to transparent color. Note that this doesn't
+        // work on some devices.
+        window.setNavigationBarColor(0);
+        window.setStatusBarColor(0);
     }
 
     /**
@@ -317,20 +216,20 @@ public class SystemBarHelper {
 
     @TargetApi(VERSION_CODES.LOLLIPOP)
     private static class WindowInsetsListener implements View.OnApplyWindowInsetsListener {
-        private int mBottomOffset;
-        private boolean mHasCalculatedBottomOffset = false;
+
+        private int mNavigationBarHeight;
+
+        public WindowInsetsListener(Context context) {
+            mNavigationBarHeight =
+                    context.getResources().getDimensionPixelSize(R.dimen.suw_navbar_height);
+        }
 
         @Override
         public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
-            if (!mHasCalculatedBottomOffset) {
-                mBottomOffset = getBottomDistance(view);
-                mHasCalculatedBottomOffset = true;
-            }
-
             int bottomInset = insets.getSystemWindowInsetBottom();
 
             final int bottomMargin = Math.max(
-                    insets.getSystemWindowInsetBottom() - mBottomOffset, 0);
+                    insets.getSystemWindowInsetBottom() - mNavigationBarHeight, 0);
 
             final ViewGroup.MarginLayoutParams lp =
                     (ViewGroup.MarginLayoutParams) view.getLayoutParams();
@@ -350,11 +249,5 @@ public class SystemBarHelper {
                     bottomInset
             );
         }
-    }
-
-    private static int getBottomDistance(View view) {
-        int[] coords = new int[2];
-        view.getLocationInWindow(coords);
-        return view.getRootView().getHeight() - coords[1] - view.getHeight();
     }
 }

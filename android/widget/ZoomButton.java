@@ -17,32 +17,21 @@
 package android.widget;
 
 import android.content.Context;
+import android.os.Handler;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnLongClickListener;
 
-/**
- * This widget provides a simple utility for turning a continued long-press event
- * into a series of clicks at some set frequency. There is no actual 'zoom' functionality
- * handled by this widget directly. Instead, clients of this API should set up an
- * {@link View#setOnClickListener(OnClickListener) onClickListener} to handle
- * zoom functionality. That click listener is called on a frequency
- * determined by {@link #setZoomSpeed(long)} whenever the user long-presses
- * on the ZoomButton.
- *
- * @deprecated Use other means to handle this functionality. This widget is merely a
- * simple wrapper around a long-press handler.
- */
-@Deprecated
 public class ZoomButton extends ImageButton implements OnLongClickListener {
 
+    private final Handler mHandler;
     private final Runnable mRunnable = new Runnable() {
         public void run() {
             if (hasOnClickListeners() && mIsInLongpress && isEnabled()) {
                 callOnClick();
-                postDelayed(this, mZoomSpeed);
+                mHandler.postDelayed(this, mZoomSpeed);
             }
         }
     };
@@ -64,6 +53,7 @@ public class ZoomButton extends ImageButton implements OnLongClickListener {
 
     public ZoomButton(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+        mHandler = new Handler();
         setOnLongClickListener(this);
     }
 
@@ -75,21 +65,14 @@ public class ZoomButton extends ImageButton implements OnLongClickListener {
         }
         return super.onTouchEvent(event);
     }
-
-    /**
-     * Sets the delay between calls to the widget's {@link View#setOnClickListener(OnClickListener)
-     * onClickListener}.
-     *
-     * @param speed The delay between calls to the click listener, in milliseconds
-     */
+        
     public void setZoomSpeed(long speed) {
         mZoomSpeed = speed;
     }
 
-    @Override
     public boolean onLongClick(View v) {
         mIsInLongpress = true;
-        post(mRunnable);
+        mHandler.post(mRunnable);
         return true;
     }
         

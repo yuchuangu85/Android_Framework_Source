@@ -210,9 +210,6 @@ public class CallbackRegistry<C, T, A> implements Cloneable {
      * @param callback The callback to add.
      */
     public synchronized void add(C callback) {
-        if (callback == null) {
-            throw new IllegalArgumentException("callback cannot be null");
-        }
         int index = mCallbacks.lastIndexOf(callback);
         if (index < 0 || isRemoved(index)) {
             mCallbacks.add(callback);

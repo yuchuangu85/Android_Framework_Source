@@ -16,24 +16,22 @@
 
 package android.view.animation;
 
-import android.content.pm.ActivityInfo.Config;
-
 /**
  * An abstract class which is extended by default interpolators.
  */
 abstract public class BaseInterpolator implements Interpolator {
-    private @Config int mChangingConfiguration;
+    private int mChangingConfiguration;
     /**
      * @hide
      */
-    public @Config int getChangingConfiguration() {
+    public int getChangingConfiguration() {
         return mChangingConfiguration;
     }
 
     /**
      * @hide
      */
-    void setChangingConfiguration(@Config int changingConfiguration) {
+    void setChangingConfiguration(int changingConfiguration) {
         mChangingConfiguration = changingConfiguration;
     }
 }

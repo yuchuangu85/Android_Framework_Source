@@ -1,781 +1,740 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
 /**
- * This class provides a skeletal implementation of the {@link List}
- * interface to minimize the effort required to implement this interface
- * backed by a "random access" data store (such as an array).  For sequential
- * access data (such as a linked list), {@link AbstractSequentialList} should
- * be used in preference to this class.
+ * {@code AbstractList} is an abstract implementation of the {@code List} interface, optimized
+ * for a backing store which supports random access. This implementation does
+ * not support adding or replacing. A subclass must implement the abstract
+ * methods {@code get()} and {@code size()}, and to create a
+ * modifiable {@code List} it's necessary to override the {@code add()} method that
+ * currently throws an {@code UnsupportedOperationException}.
  *
- * <p>To implement an unmodifiable list, the programmer needs only to extend
- * this class and provide implementations for the {@link #get(int)} and
- * {@link List#size() size()} methods.
- *
- * <p>To implement a modifiable list, the programmer must additionally
- * override the {@link #set(int, Object) set(int, E)} method (which otherwise
- * throws an {@code UnsupportedOperationException}).  If the list is
- * variable-size the programmer must additionally override the
- * {@link #add(int, Object) add(int, E)} and {@link #remove(int)} methods.
- *
- * <p>The programmer should generally provide a void (no argument) and collection
- * constructor, as per the recommendation in the {@link Collection} interface
- * specification.
- *
- * <p>Unlike the other abstract collection implementations, the programmer does
- * <i>not</i> have to provide an iterator implementation; the iterator and
- * list iterator are implemented by this class, on top of the "random access"
- * methods:
- * {@link #get(int)},
- * {@link #set(int, Object) set(int, E)},
- * {@link #add(int, Object) add(int, E)} and
- * {@link #remove(int)}.
- *
- * <p>The documentation for each non-abstract method in this class describes its
- * implementation in detail.  Each of these methods may be overridden if the
- * collection being implemented admits a more efficient implementation.
- *
- * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
- * Java Collections Framework</a>.
- *
- * @author  Josh Bloch
- * @author  Neal Gafter
  * @since 1.2
  */
-
 public abstract class AbstractList<E> extends AbstractCollection<E> implements List<E> {
+
     /**
-     * Sole constructor.  (For invocation by subclass constructors, typically
-     * implicit.)
+     * A counter for changes to the list.
+     */
+    protected transient int modCount;
+
+    private class SimpleListIterator implements Iterator<E> {
+        int pos = -1;
+
+        int expectedModCount;
+
+        int lastPosition = -1;
+
+        SimpleListIterator() {
+            expectedModCount = modCount;
+        }
+
+        public boolean hasNext() {
+            return pos + 1 < size();
+        }
+
+        public E next() {
+            if (expectedModCount == modCount) {
+                try {
+                    E result = get(pos + 1);
+                    lastPosition = ++pos;
+                    return result;
+                } catch (IndexOutOfBoundsException e) {
+                    throw new NoSuchElementException();
+                }
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        public void remove() {
+            if (this.lastPosition == -1) {
+                throw new IllegalStateException();
+            }
+
+            if (expectedModCount != modCount) {
+                throw new ConcurrentModificationException();
+            }
+
+            try {
+                AbstractList.this.remove(lastPosition);
+            } catch (IndexOutOfBoundsException e) {
+                throw new ConcurrentModificationException();
+            }
+
+            expectedModCount = modCount;
+            if (pos == lastPosition) {
+                pos--;
+            }
+            lastPosition = -1;
+        }
+    }
+
+    private final class FullListIterator extends SimpleListIterator implements ListIterator<E> {
+        FullListIterator(int start) {
+            if (start >= 0 && start <= size()) {
+                pos = start - 1;
+            } else {
+                throw new IndexOutOfBoundsException();
+            }
+        }
+
+        public void add(E object) {
+            if (expectedModCount == modCount) {
+                try {
+                    AbstractList.this.add(pos + 1, object);
+                } catch (IndexOutOfBoundsException e) {
+                    throw new NoSuchElementException();
+                }
+                pos++;
+                lastPosition = -1;
+                if (modCount != expectedModCount) {
+                    expectedModCount = modCount;
+                }
+            } else {
+                throw new ConcurrentModificationException();
+            }
+        }
+
+        public boolean hasPrevious() {
+            return pos >= 0;
+        }
+
+        public int nextIndex() {
+            return pos + 1;
+        }
+
+        public E previous() {
+            if (expectedModCount == modCount) {
+                try {
+                    E result = get(pos);
+                    lastPosition = pos;
+                    pos--;
+                    return result;
+                } catch (IndexOutOfBoundsException e) {
+                    throw new NoSuchElementException();
+                }
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        public int previousIndex() {
+            return pos;
+        }
+
+        public void set(E object) {
+            if (expectedModCount == modCount) {
+                try {
+                    AbstractList.this.set(lastPosition, object);
+                } catch (IndexOutOfBoundsException e) {
+                    throw new IllegalStateException();
+                }
+            } else {
+                throw new ConcurrentModificationException();
+            }
+        }
+    }
+
+    private static final class SubAbstractListRandomAccess<E> extends
+            SubAbstractList<E> implements RandomAccess {
+        SubAbstractListRandomAccess(AbstractList<E> list, int start, int end) {
+            super(list, start, end);
+        }
+    }
+
+    private static class SubAbstractList<E> extends AbstractList<E> {
+        private final AbstractList<E> fullList;
+
+        private int offset;
+
+        private int size;
+
+        private static final class SubAbstractListIterator<E> implements
+                ListIterator<E> {
+            private final SubAbstractList<E> subList;
+
+            private final ListIterator<E> iterator;
+
+            private int start;
+
+            private int end;
+
+            SubAbstractListIterator(ListIterator<E> it,
+                    SubAbstractList<E> list, int offset, int length) {
+                iterator = it;
+                subList = list;
+                start = offset;
+                end = start + length;
+            }
+
+            public void add(E object) {
+                iterator.add(object);
+                subList.sizeChanged(true);
+                end++;
+            }
+
+            public boolean hasNext() {
+                return iterator.nextIndex() < end;
+            }
+
+            public boolean hasPrevious() {
+                return iterator.previousIndex() >= start;
+            }
+
+            public E next() {
+                if (iterator.nextIndex() < end) {
+                    return iterator.next();
+                }
+                throw new NoSuchElementException();
+            }
+
+            public int nextIndex() {
+                return iterator.nextIndex() - start;
+            }
+
+            public E previous() {
+                if (iterator.previousIndex() >= start) {
+                    return iterator.previous();
+                }
+                throw new NoSuchElementException();
+            }
+
+            public int previousIndex() {
+                int previous = iterator.previousIndex();
+                if (previous >= start) {
+                    return previous - start;
+                }
+                return -1;
+            }
+
+            public void remove() {
+                iterator.remove();
+                subList.sizeChanged(false);
+                end--;
+            }
+
+            public void set(E object) {
+                iterator.set(object);
+            }
+        }
+
+        SubAbstractList(AbstractList<E> list, int start, int end) {
+            fullList = list;
+            modCount = fullList.modCount;
+            offset = start;
+            size = end - start;
+        }
+
+        @Override
+        public void add(int location, E object) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location <= size) {
+                    fullList.add(location + offset, object);
+                    size++;
+                    modCount = fullList.modCount;
+                } else {
+                    throw new IndexOutOfBoundsException();
+                }
+            } else {
+                throw new ConcurrentModificationException();
+            }
+        }
+
+        @Override
+        public boolean addAll(int location, Collection<? extends E> collection) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location <= size) {
+                    boolean result = fullList.addAll(location + offset,
+                            collection);
+                    if (result) {
+                        size += collection.size();
+                        modCount = fullList.modCount;
+                    }
+                    return result;
+                }
+                throw new IndexOutOfBoundsException();
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        public boolean addAll(Collection<? extends E> collection) {
+            if (modCount == fullList.modCount) {
+                boolean result = fullList.addAll(offset + size, collection);
+                if (result) {
+                    size += collection.size();
+                    modCount = fullList.modCount;
+                }
+                return result;
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        public E get(int location) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location < size) {
+                    return fullList.get(location + offset);
+                }
+                throw new IndexOutOfBoundsException();
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        public Iterator<E> iterator() {
+            return listIterator(0);
+        }
+
+        @Override
+        public ListIterator<E> listIterator(int location) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location <= size) {
+                    return new SubAbstractListIterator<E>(fullList
+                            .listIterator(location + offset), this, offset,
+                            size);
+                }
+                throw new IndexOutOfBoundsException();
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        public E remove(int location) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location < size) {
+                    E result = fullList.remove(location + offset);
+                    size--;
+                    modCount = fullList.modCount;
+                    return result;
+                }
+                throw new IndexOutOfBoundsException();
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        protected void removeRange(int start, int end) {
+            if (start != end) {
+                if (modCount == fullList.modCount) {
+                    fullList.removeRange(start + offset, end + offset);
+                    size -= end - start;
+                    modCount = fullList.modCount;
+                } else {
+                    throw new ConcurrentModificationException();
+                }
+            }
+        }
+
+        @Override
+        public E set(int location, E object) {
+            if (modCount == fullList.modCount) {
+                if (location >= 0 && location < size) {
+                    return fullList.set(location + offset, object);
+                }
+                throw new IndexOutOfBoundsException();
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        @Override
+        public int size() {
+            if (modCount == fullList.modCount) {
+                return size;
+            }
+            throw new ConcurrentModificationException();
+        }
+
+        void sizeChanged(boolean increment) {
+            if (increment) {
+                size++;
+            } else {
+                size--;
+            }
+            modCount = fullList.modCount;
+        }
+    }
+
+    /**
+     * Constructs a new instance of this AbstractList.
      */
     protected AbstractList() {
     }
 
     /**
-     * Appends the specified element to the end of this list (optional
-     * operation).
+     * Inserts the specified object into this List at the specified location.
+     * The object is inserted before any previous element at the specified
+     * location. If the location is equal to the size of this List, the object
+     * is added at the end.
+     * <p>
+     * Concrete implementations that would like to support the add functionality
+     * must override this method.
      *
-     * <p>Lists that support this operation may place limitations on what
-     * elements may be added to this list.  In particular, some
-     * lists will refuse to add null elements, and others will impose
-     * restrictions on the type of elements that may be added.  List
-     * classes should clearly specify in their documentation any restrictions
-     * on what elements may be added.
+     * @param location
+     *            the index at which to insert.
+     * @param object
+     *            the object to add.
      *
-     * <p>This implementation calls {@code add(size(), e)}.
-     *
-     * <p>Note that this implementation throws an
-     * {@code UnsupportedOperationException} unless
-     * {@link #add(int, Object) add(int, E)} is overridden.
-     *
-     * @param e element to be appended to this list
-     * @return {@code true} (as specified by {@link Collection#add})
-     * @throws UnsupportedOperationException if the {@code add} operation
-     *         is not supported by this list
-     * @throws ClassCastException if the class of the specified element
-     *         prevents it from being added to this list
-     * @throws NullPointerException if the specified element is null and this
-     *         list does not permit null elements
-     * @throws IllegalArgumentException if some property of this element
-     *         prevents it from being added to this list
+     * @throws UnsupportedOperationException
+     *                if adding to this List is not supported.
+     * @throws ClassCastException
+     *                if the class of the object is inappropriate for this
+     *                List
+     * @throws IllegalArgumentException
+     *                if the object cannot be added to this List
+     * @throws IndexOutOfBoundsException
+     *                if {@code location < 0 || location > size()}
      */
-    public boolean add(E e) {
-        add(size(), e);
+    public void add(int location, E object) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Adds the specified object at the end of this List.
+     *
+     *
+     * @param object
+     *            the object to add
+     * @return true
+     *
+     * @throws UnsupportedOperationException
+     *                if adding to this List is not supported
+     * @throws ClassCastException
+     *                if the class of the object is inappropriate for this
+     *                List
+     * @throws IllegalArgumentException
+     *                if the object cannot be added to this List
+     */
+    @Override
+    public boolean add(E object) {
+        add(size(), object);
         return true;
     }
 
     /**
-     * {@inheritDoc}
+     * Inserts the objects in the specified Collection at the specified location
+     * in this List. The objects are added in the order they are returned from
+     * the collection's iterator.
      *
-     * @throws IndexOutOfBoundsException {@inheritDoc}
+     * @param location
+     *            the index at which to insert.
+     * @param collection
+     *            the Collection of objects
+     * @return {@code true} if this List is modified, {@code false} otherwise.
+     * @throws UnsupportedOperationException
+     *             if adding to this list is not supported.
+     * @throws ClassCastException
+     *             if the class of an object is inappropriate for this list.
+     * @throws IllegalArgumentException
+     *             if an object cannot be added to this list.
+     * @throws IndexOutOfBoundsException
+     *             if {@code location < 0 || location > size()}
      */
-    abstract public E get(int index);
-
-    /**
-     * {@inheritDoc}
-     *
-     * <p>This implementation always throws an
-     * {@code UnsupportedOperationException}.
-     *
-     * @throws UnsupportedOperationException {@inheritDoc}
-     * @throws ClassCastException            {@inheritDoc}
-     * @throws NullPointerException          {@inheritDoc}
-     * @throws IllegalArgumentException      {@inheritDoc}
-     * @throws IndexOutOfBoundsException     {@inheritDoc}
-     */
-    public E set(int index, E element) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * <p>This implementation always throws an
-     * {@code UnsupportedOperationException}.
-     *
-     * @throws UnsupportedOperationException {@inheritDoc}
-     * @throws ClassCastException            {@inheritDoc}
-     * @throws NullPointerException          {@inheritDoc}
-     * @throws IllegalArgumentException      {@inheritDoc}
-     * @throws IndexOutOfBoundsException     {@inheritDoc}
-     */
-    public void add(int index, E element) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * <p>This implementation always throws an
-     * {@code UnsupportedOperationException}.
-     *
-     * @throws UnsupportedOperationException {@inheritDoc}
-     * @throws IndexOutOfBoundsException     {@inheritDoc}
-     */
-    public E remove(int index) {
-        throw new UnsupportedOperationException();
-    }
-
-
-    // Search Operations
-
-    /**
-     * {@inheritDoc}
-     *
-     * <p>This implementation first gets a list iterator (with
-     * {@code listIterator()}).  Then, it iterates over the list until the
-     * specified element is found or the end of the list is reached.
-     *
-     * @throws ClassCastException   {@inheritDoc}
-     * @throws NullPointerException {@inheritDoc}
-     */
-    public int indexOf(Object o) {
-        ListIterator<E> it = listIterator();
-        if (o==null) {
-            while (it.hasNext())
-                if (it.next()==null)
-                    return it.previousIndex();
-        } else {
-            while (it.hasNext())
-                if (o.equals(it.next()))
-                    return it.previousIndex();
+    public boolean addAll(int location, Collection<? extends E> collection) {
+        Iterator<? extends E> it = collection.iterator();
+        while (it.hasNext()) {
+            add(location++, it.next());
         }
-        return -1;
+        return !collection.isEmpty();
     }
 
     /**
-     * {@inheritDoc}
+     * Removes all elements from this list, leaving it empty.
      *
-     * <p>This implementation first gets a list iterator that points to the end
-     * of the list (with {@code listIterator(size())}).  Then, it iterates
-     * backwards over the list until the specified element is found, or the
-     * beginning of the list is reached.
-     *
-     * @throws ClassCastException   {@inheritDoc}
-     * @throws NullPointerException {@inheritDoc}
+     * @throws UnsupportedOperationException
+     *             if removing from this list is not supported.
+     * @see List#isEmpty
+     * @see List#size
      */
-    public int lastIndexOf(Object o) {
-        ListIterator<E> it = listIterator(size());
-        if (o==null) {
-            while (it.hasPrevious())
-                if (it.previous()==null)
-                    return it.nextIndex();
-        } else {
-            while (it.hasPrevious())
-                if (o.equals(it.previous()))
-                    return it.nextIndex();
-        }
-        return -1;
-    }
-
-
-    // Bulk Operations
-
-    /**
-     * Removes all of the elements from this list (optional operation).
-     * The list will be empty after this call returns.
-     *
-     * <p>This implementation calls {@code removeRange(0, size())}.
-     *
-     * <p>Note that this implementation throws an
-     * {@code UnsupportedOperationException} unless {@code remove(int
-     * index)} or {@code removeRange(int fromIndex, int toIndex)} is
-     * overridden.
-     *
-     * @throws UnsupportedOperationException if the {@code clear} operation
-     *         is not supported by this list
-     */
+    @Override
     public void clear() {
         removeRange(0, size());
     }
 
     /**
-     * {@inheritDoc}
+     * Compares the specified object to this list and return true if they are
+     * equal. Two lists are equal when they both contain the same objects in the
+     * same order.
      *
-     * <p>This implementation gets an iterator over the specified collection
-     * and iterates over it, inserting the elements obtained from the
-     * iterator into this list at the appropriate position, one at a time,
-     * using {@code add(int, E)}.
-     * Many implementations will override this method for efficiency.
-     *
-     * <p>Note that this implementation throws an
-     * {@code UnsupportedOperationException} unless
-     * {@link #add(int, Object) add(int, E)} is overridden.
-     *
-     * @throws UnsupportedOperationException {@inheritDoc}
-     * @throws ClassCastException            {@inheritDoc}
-     * @throws NullPointerException          {@inheritDoc}
-     * @throws IllegalArgumentException      {@inheritDoc}
-     * @throws IndexOutOfBoundsException     {@inheritDoc}
+     * @param object
+     *            the object to compare to this object.
+     * @return {@code true} if the specified object is equal to this list,
+     *         {@code false} otherwise.
+     * @see #hashCode
      */
-    public boolean addAll(int index, Collection<? extends E> c) {
-        rangeCheckForAdd(index);
-        boolean modified = false;
-        for (E e : c) {
-            add(index++, e);
-            modified = true;
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
         }
-        return modified;
+        if (object instanceof List) {
+            List<?> list = (List<?>) object;
+            if (list.size() != size()) {
+                return false;
+            }
+
+            Iterator<?> it1 = iterator(), it2 = list.iterator();
+            while (it1.hasNext()) {
+                Object e1 = it1.next(), e2 = it2.next();
+                if (!(e1 == null ? e2 == null : e1.equals(e2))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
-
-    // Iterators
-
     /**
-     * Returns an iterator over the elements in this list in proper sequence.
+     * Returns the element at the specified location in this list.
      *
-     * <p>This implementation returns a straightforward implementation of the
-     * iterator interface, relying on the backing list's {@code size()},
-     * {@code get(int)}, and {@code remove(int)} methods.
-     *
-     * <p>Note that the iterator returned by this method will throw an
-     * {@link UnsupportedOperationException} in response to its
-     * {@code remove} method unless the list's {@code remove(int)} method is
-     * overridden.
-     *
-     * <p>This implementation can be made to throw runtime exceptions in the
-     * face of concurrent modification, as described in the specification
-     * for the (protected) {@link #modCount} field.
-     *
-     * @return an iterator over the elements in this list in proper sequence
+     * @param location
+     *            the index of the element to return.
+     * @return the element at the specified index.
+     * @throws IndexOutOfBoundsException
+     *             if {@code location < 0 || location >= size()}
      */
-    public Iterator<E> iterator() {
-        return new Itr();
+    public abstract E get(int location);
+
+    /**
+     * Returns the hash code of this list. The hash code is calculated by taking
+     * each element's hashcode into account.
+     *
+     * @return the hash code.
+     * @see #equals
+     * @see List#hashCode()
+     */
+    @Override
+    public int hashCode() {
+        int result = 1;
+        Iterator<?> it = iterator();
+        while (it.hasNext()) {
+            Object object = it.next();
+            result = (31 * result) + (object == null ? 0 : object.hashCode());
+        }
+        return result;
     }
 
     /**
-     * {@inheritDoc}
+     * Searches this list for the specified object and returns the index of the
+     * first occurrence.
      *
-     * <p>This implementation returns {@code listIterator(0)}.
+     * @param object
+     *            the object to search for.
+     * @return the index of the first occurrence of the object, or -1 if it was
+     *         not found.
+     */
+    public int indexOf(Object object) {
+        ListIterator<?> it = listIterator();
+        if (object != null) {
+            while (it.hasNext()) {
+                if (object.equals(it.next())) {
+                    return it.previousIndex();
+                }
+            }
+        } else {
+            while (it.hasNext()) {
+                if (it.next() == null) {
+                    return it.previousIndex();
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Returns an iterator on the elements of this list. The elements are
+     * iterated in the same order as they occur in the list.
      *
-     * @see #listIterator(int)
+     * @return an iterator on the elements of this list.
+     * @see Iterator
+     */
+    @Override
+    public Iterator<E> iterator() {
+        return new SimpleListIterator();
+    }
+
+    /**
+     * Searches this list for the specified object and returns the index of the
+     * last occurrence.
+     *
+     * @param object
+     *            the object to search for.
+     * @return the index of the last occurrence of the object, or -1 if the
+     *         object was not found.
+     */
+    public int lastIndexOf(Object object) {
+        ListIterator<?> it = listIterator(size());
+        if (object != null) {
+            while (it.hasPrevious()) {
+                if (object.equals(it.previous())) {
+                    return it.nextIndex();
+                }
+            }
+        } else {
+            while (it.hasPrevious()) {
+                if (it.previous() == null) {
+                    return it.nextIndex();
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Returns a ListIterator on the elements of this list. The elements are
+     * iterated in the same order that they occur in the list.
+     *
+     * @return a ListIterator on the elements of this list
+     * @see ListIterator
      */
     public ListIterator<E> listIterator() {
         return listIterator(0);
     }
 
     /**
-     * {@inheritDoc}
+     * Returns a list iterator on the elements of this list. The elements are
+     * iterated in the same order as they occur in the list. The iteration
+     * starts at the specified location.
      *
-     * <p>This implementation returns a straightforward implementation of the
-     * {@code ListIterator} interface that extends the implementation of the
-     * {@code Iterator} interface returned by the {@code iterator()} method.
-     * The {@code ListIterator} implementation relies on the backing list's
-     * {@code get(int)}, {@code set(int, E)}, {@code add(int, E)}
-     * and {@code remove(int)} methods.
-     *
-     * <p>Note that the list iterator returned by this implementation will
-     * throw an {@link UnsupportedOperationException} in response to its
-     * {@code remove}, {@code set} and {@code add} methods unless the
-     * list's {@code remove(int)}, {@code set(int, E)}, and
-     * {@code add(int, E)} methods are overridden.
-     *
-     * <p>This implementation can be made to throw runtime exceptions in the
-     * face of concurrent modification, as described in the specification for
-     * the (protected) {@link #modCount} field.
-     *
-     * @throws IndexOutOfBoundsException {@inheritDoc}
+     * @param location
+     *            the index at which to start the iteration.
+     * @return a ListIterator on the elements of this list.
+     * @throws IndexOutOfBoundsException
+     *             if {@code location < 0 || location > size()}
+     * @see ListIterator
      */
-    public ListIterator<E> listIterator(final int index) {
-        rangeCheckForAdd(index);
-
-        return new ListItr(index);
-    }
-
-    private class Itr implements Iterator<E> {
-        /**
-         * Index of element to be returned by subsequent call to next.
-         */
-        int cursor = 0;
-
-        /**
-         * Index of element returned by most recent call to next or
-         * previous.  Reset to -1 if this element is deleted by a call
-         * to remove.
-         */
-        int lastRet = -1;
-
-        /**
-         * The modCount value that the iterator believes that the backing
-         * List should have.  If this expectation is violated, the iterator
-         * has detected concurrent modification.
-         */
-        int expectedModCount = modCount;
-
-        public boolean hasNext() {
-            return cursor != size();
-        }
-
-        public E next() {
-            checkForComodification();
-            try {
-                int i = cursor;
-                E next = get(i);
-                lastRet = i;
-                cursor = i + 1;
-                return next;
-            } catch (IndexOutOfBoundsException e) {
-                checkForComodification();
-                throw new NoSuchElementException();
-            }
-        }
-
-        public void remove() {
-            if (lastRet < 0)
-                throw new IllegalStateException();
-            checkForComodification();
-
-            try {
-                AbstractList.this.remove(lastRet);
-                if (lastRet < cursor)
-                    cursor--;
-                lastRet = -1;
-                expectedModCount = modCount;
-            } catch (IndexOutOfBoundsException e) {
-                throw new ConcurrentModificationException();
-            }
-        }
-
-        final void checkForComodification() {
-            if (modCount != expectedModCount)
-                throw new ConcurrentModificationException();
-        }
-    }
-
-    private class ListItr extends Itr implements ListIterator<E> {
-        ListItr(int index) {
-            cursor = index;
-        }
-
-        public boolean hasPrevious() {
-            return cursor != 0;
-        }
-
-        public E previous() {
-            checkForComodification();
-            try {
-                int i = cursor - 1;
-                E previous = get(i);
-                lastRet = cursor = i;
-                return previous;
-            } catch (IndexOutOfBoundsException e) {
-                checkForComodification();
-                throw new NoSuchElementException();
-            }
-        }
-
-        public int nextIndex() {
-            return cursor;
-        }
-
-        public int previousIndex() {
-            return cursor-1;
-        }
-
-        public void set(E e) {
-            if (lastRet < 0)
-                throw new IllegalStateException();
-            checkForComodification();
-
-            try {
-                AbstractList.this.set(lastRet, e);
-                expectedModCount = modCount;
-            } catch (IndexOutOfBoundsException ex) {
-                throw new ConcurrentModificationException();
-            }
-        }
-
-        public void add(E e) {
-            checkForComodification();
-
-            try {
-                int i = cursor;
-                AbstractList.this.add(i, e);
-                lastRet = -1;
-                cursor = i + 1;
-                expectedModCount = modCount;
-            } catch (IndexOutOfBoundsException ex) {
-                throw new ConcurrentModificationException();
-            }
-        }
+    public ListIterator<E> listIterator(int location) {
+        return new FullListIterator(location);
     }
 
     /**
-     * {@inheritDoc}
+     * Removes the object at the specified location from this list.
      *
-     * <p>This implementation returns a list that subclasses
-     * {@code AbstractList}.  The subclass stores, in private fields, the
-     * offset of the subList within the backing list, the size of the subList
-     * (which can change over its lifetime), and the expected
-     * {@code modCount} value of the backing list.  There are two variants
-     * of the subclass, one of which implements {@code RandomAccess}.
-     * If this list implements {@code RandomAccess} the returned list will
-     * be an instance of the subclass that implements {@code RandomAccess}.
-     *
-     * <p>The subclass's {@code set(int, E)}, {@code get(int)},
-     * {@code add(int, E)}, {@code remove(int)}, {@code addAll(int,
-     * Collection)} and {@code removeRange(int, int)} methods all
-     * delegate to the corresponding methods on the backing abstract list,
-     * after bounds-checking the index and adjusting for the offset.  The
-     * {@code addAll(Collection c)} method merely returns {@code addAll(size,
-     * c)}.
-     *
-     * <p>The {@code listIterator(int)} method returns a "wrapper object"
-     * over a list iterator on the backing list, which is created with the
-     * corresponding method on the backing list.  The {@code iterator} method
-     * merely returns {@code listIterator()}, and the {@code size} method
-     * merely returns the subclass's {@code size} field.
-     *
-     * <p>All methods first check to see if the actual {@code modCount} of
-     * the backing list is equal to its expected value, and throw a
-     * {@code ConcurrentModificationException} if it is not.
-     *
-     * @throws IndexOutOfBoundsException if an endpoint index value is out of range
-     *         {@code (fromIndex < 0 || toIndex > size)}
-     * @throws IllegalArgumentException if the endpoint indices are out of order
-     *         {@code (fromIndex > toIndex)}
+     * @param location
+     *            the index of the object to remove.
+     * @return the removed object.
+     * @throws UnsupportedOperationException
+     *             if removing from this list is not supported.
+     * @throws IndexOutOfBoundsException
+     *             if {@code location < 0 || location >= size()}
      */
-    public List<E> subList(int fromIndex, int toIndex) {
-        return (this instanceof RandomAccess ?
-                new RandomAccessSubList<>(this, fromIndex, toIndex) :
-                new SubList<>(this, fromIndex, toIndex));
-    }
-
-    // Comparison and hashing
-
-    /**
-     * Compares the specified object with this list for equality.  Returns
-     * {@code true} if and only if the specified object is also a list, both
-     * lists have the same size, and all corresponding pairs of elements in
-     * the two lists are <i>equal</i>.  (Two elements {@code e1} and
-     * {@code e2} are <i>equal</i> if {@code (e1==null ? e2==null :
-     * e1.equals(e2))}.)  In other words, two lists are defined to be
-     * equal if they contain the same elements in the same order.<p>
-     *
-     * This implementation first checks if the specified object is this
-     * list. If so, it returns {@code true}; if not, it checks if the
-     * specified object is a list. If not, it returns {@code false}; if so,
-     * it iterates over both lists, comparing corresponding pairs of elements.
-     * If any comparison returns {@code false}, this method returns
-     * {@code false}.  If either iterator runs out of elements before the
-     * other it returns {@code false} (as the lists are of unequal length);
-     * otherwise it returns {@code true} when the iterations complete.
-     *
-     * @param o the object to be compared for equality with this list
-     * @return {@code true} if the specified object is equal to this list
-     */
-    public boolean equals(Object o) {
-        if (o == this)
-            return true;
-        if (!(o instanceof List))
-            return false;
-
-        ListIterator<E> e1 = listIterator();
-        ListIterator<?> e2 = ((List<?>) o).listIterator();
-        while (e1.hasNext() && e2.hasNext()) {
-            E o1 = e1.next();
-            Object o2 = e2.next();
-            if (!(o1==null ? o2==null : o1.equals(o2)))
-                return false;
-        }
-        return !(e1.hasNext() || e2.hasNext());
+    public E remove(int location) {
+        throw new UnsupportedOperationException();
     }
 
     /**
-     * Returns the hash code value for this list.
+     * Removes the objects in the specified range from the start to the end
+     * index minus one.
      *
-     * <p>This implementation uses exactly the code that is used to define the
-     * list hash function in the documentation for the {@link List#hashCode}
-     * method.
-     *
-     * @return the hash code value for this list
+     * @param start
+     *            the index at which to start removing.
+     * @param end
+     *            the index after the last element to remove.
+     * @throws UnsupportedOperationException
+     *             if removing from this list is not supported.
+     * @throws IndexOutOfBoundsException
+     *             if {@code start < 0} or {@code start >= size()}.
      */
-    public int hashCode() {
-        int hashCode = 1;
-        for (E e : this)
-            hashCode = 31*hashCode + (e==null ? 0 : e.hashCode());
-        return hashCode;
-    }
-
-    /**
-     * Removes from this list all of the elements whose index is between
-     * {@code fromIndex}, inclusive, and {@code toIndex}, exclusive.
-     * Shifts any succeeding elements to the left (reduces their index).
-     * This call shortens the list by {@code (toIndex - fromIndex)} elements.
-     * (If {@code toIndex==fromIndex}, this operation has no effect.)
-     *
-     * <p>This method is called by the {@code clear} operation on this list
-     * and its subLists.  Overriding this method to take advantage of
-     * the internals of the list implementation can <i>substantially</i>
-     * improve the performance of the {@code clear} operation on this list
-     * and its subLists.
-     *
-     * <p>This implementation gets a list iterator positioned before
-     * {@code fromIndex}, and repeatedly calls {@code ListIterator.next}
-     * followed by {@code ListIterator.remove} until the entire range has
-     * been removed.  <b>Note: if {@code ListIterator.remove} requires linear
-     * time, this implementation requires quadratic time.</b>
-     *
-     * @param fromIndex index of first element to be removed
-     * @param toIndex index after last element to be removed
-     */
-    protected void removeRange(int fromIndex, int toIndex) {
-        ListIterator<E> it = listIterator(fromIndex);
-        for (int i=0, n=toIndex-fromIndex; i<n; i++) {
+    protected void removeRange(int start, int end) {
+        Iterator<?> it = listIterator(start);
+        for (int i = start; i < end; i++) {
             it.next();
             it.remove();
         }
     }
 
     /**
-     * The number of times this list has been <i>structurally modified</i>.
-     * Structural modifications are those that change the size of the
-     * list, or otherwise perturb it in such a fashion that iterations in
-     * progress may yield incorrect results.
+     * Replaces the element at the specified location in this list with the
+     * specified object.
      *
-     * <p>This field is used by the iterator and list iterator implementation
-     * returned by the {@code iterator} and {@code listIterator} methods.
-     * If the value of this field changes unexpectedly, the iterator (or list
-     * iterator) will throw a {@code ConcurrentModificationException} in
-     * response to the {@code next}, {@code remove}, {@code previous},
-     * {@code set} or {@code add} operations.  This provides
-     * <i>fail-fast</i> behavior, rather than non-deterministic behavior in
-     * the face of concurrent modification during iteration.
-     *
-     * <p><b>Use of this field by subclasses is optional.</b> If a subclass
-     * wishes to provide fail-fast iterators (and list iterators), then it
-     * merely has to increment this field in its {@code add(int, E)} and
-     * {@code remove(int)} methods (and any other methods that it overrides
-     * that result in structural modifications to the list).  A single call to
-     * {@code add(int, E)} or {@code remove(int)} must add no more than
-     * one to this field, or the iterators (and list iterators) will throw
-     * bogus {@code ConcurrentModificationExceptions}.  If an implementation
-     * does not wish to provide fail-fast iterators, this field may be
-     * ignored.
+     * @param location
+     *            the index at which to put the specified object.
+     * @param object
+     *            the object to add.
+     * @return the previous element at the index.
+     * @throws UnsupportedOperationException
+     *             if replacing elements in this list is not supported.
+     * @throws ClassCastException
+     *             if the class of an object is inappropriate for this list.
+     * @throws IllegalArgumentException
+     *             if an object cannot be added to this list.
+     * @throws IndexOutOfBoundsException
+     *             if {@code location < 0 || location >= size()}
      */
-    protected transient int modCount = 0;
-
-    private void rangeCheckForAdd(int index) {
-        if (index < 0 || index > size())
-            throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
+    public E set(int location, E object) {
+        throw new UnsupportedOperationException();
     }
 
-    private String outOfBoundsMsg(int index) {
-        return "Index: "+index+", Size: "+size();
-    }
-}
-
-class SubList<E> extends AbstractList<E> {
-    private final AbstractList<E> l;
-    private final int offset;
-    private int size;
-
-    SubList(AbstractList<E> list, int fromIndex, int toIndex) {
-        if (fromIndex < 0)
-            throw new IndexOutOfBoundsException("fromIndex = " + fromIndex);
-        if (toIndex > list.size())
-            throw new IndexOutOfBoundsException("toIndex = " + toIndex);
-        if (fromIndex > toIndex)
-            throw new IllegalArgumentException("fromIndex(" + fromIndex +
-                                               ") > toIndex(" + toIndex + ")");
-        l = list;
-        offset = fromIndex;
-        size = toIndex - fromIndex;
-        this.modCount = l.modCount;
-    }
-
-    public E set(int index, E element) {
-        rangeCheck(index);
-        checkForComodification();
-        return l.set(index+offset, element);
-    }
-
-    public E get(int index) {
-        rangeCheck(index);
-        checkForComodification();
-        return l.get(index+offset);
-    }
-
-    public int size() {
-        checkForComodification();
-        return size;
-    }
-
-    public void add(int index, E element) {
-        rangeCheckForAdd(index);
-        checkForComodification();
-        l.add(index+offset, element);
-        this.modCount = l.modCount;
-        size++;
-    }
-
-    public E remove(int index) {
-        rangeCheck(index);
-        checkForComodification();
-        E result = l.remove(index+offset);
-        this.modCount = l.modCount;
-        size--;
-        return result;
-    }
-
-    protected void removeRange(int fromIndex, int toIndex) {
-        checkForComodification();
-        l.removeRange(fromIndex+offset, toIndex+offset);
-        this.modCount = l.modCount;
-        size -= (toIndex-fromIndex);
-    }
-
-    public boolean addAll(Collection<? extends E> c) {
-        return addAll(size, c);
-    }
-
-    public boolean addAll(int index, Collection<? extends E> c) {
-        rangeCheckForAdd(index);
-        int cSize = c.size();
-        if (cSize==0)
-            return false;
-
-        checkForComodification();
-        l.addAll(offset+index, c);
-        this.modCount = l.modCount;
-        size += cSize;
-        return true;
-    }
-
-    public Iterator<E> iterator() {
-        return listIterator();
-    }
-
-    public ListIterator<E> listIterator(final int index) {
-        checkForComodification();
-        rangeCheckForAdd(index);
-
-        return new ListIterator<E>() {
-            private final ListIterator<E> i = l.listIterator(index+offset);
-
-            public boolean hasNext() {
-                return nextIndex() < size;
+    /**
+     * Returns a part of consecutive elements of this list as a view. The
+     * returned view will be of zero length if start equals end. Any change that
+     * occurs in the returned subList will be reflected to the original list,
+     * and vice-versa. All the supported optional operations by the original
+     * list will also be supported by this subList.
+     * <p>
+     * This method can be used as a handy method to do some operations on a sub
+     * range of the original list, for example
+     * {@code list.subList(from, to).clear();}
+     * <p>
+     * If the original list is modified in other ways than through the returned
+     * subList, the behavior of the returned subList becomes undefined.
+     * <p>
+     * The returned subList is a subclass of AbstractList. The subclass stores
+     * offset, size of itself, and modCount of the original list. If the
+     * original list implements RandomAccess interface, the returned subList
+     * also implements RandomAccess interface.
+     * <p>
+     * The subList's set(int, Object), get(int), add(int, Object), remove(int),
+     * addAll(int, Collection) and removeRange(int, int) methods first check the
+     * bounds, adjust offsets and then call the corresponding methods of the
+     * original AbstractList. addAll(Collection c) method of the returned
+     * subList calls the original addAll(offset + size, c).
+     * <p>
+     * The listIterator(int) method of the subList wraps the original list
+     * iterator. The iterator() method of the subList invokes the original
+     * listIterator() method, and the size() method merely returns the size of
+     * the subList.
+     * <p>
+     * All methods will throw a ConcurrentModificationException if the modCount
+     * of the original list is not equal to the expected value.
+     *
+     * @param start
+     *            start index of the subList (inclusive).
+     * @param end
+     *            end index of the subList, (exclusive).
+     * @return a subList view of this list starting from {@code start}
+     *         (inclusive), and ending with {@code end} (exclusive)
+     * @throws IndexOutOfBoundsException
+     *             if (start < 0 || end > size())
+     * @throws IllegalArgumentException
+     *             if (start > end)
+     */
+    public List<E> subList(int start, int end) {
+        if (start >= 0 && end <= size()) {
+            if (start <= end) {
+                if (this instanceof RandomAccess) {
+                    return new SubAbstractListRandomAccess<E>(this, start, end);
+                }
+                return new SubAbstractList<E>(this, start, end);
             }
-
-            public E next() {
-                if (hasNext())
-                    return i.next();
-                else
-                    throw new NoSuchElementException();
-            }
-
-            public boolean hasPrevious() {
-                return previousIndex() >= 0;
-            }
-
-            public E previous() {
-                if (hasPrevious())
-                    return i.previous();
-                else
-                    throw new NoSuchElementException();
-            }
-
-            public int nextIndex() {
-                return i.nextIndex() - offset;
-            }
-
-            public int previousIndex() {
-                return i.previousIndex() - offset;
-            }
-
-            public void remove() {
-                i.remove();
-                SubList.this.modCount = l.modCount;
-                size--;
-            }
-
-            public void set(E e) {
-                i.set(e);
-            }
-
-            public void add(E e) {
-                i.add(e);
-                SubList.this.modCount = l.modCount;
-                size++;
-            }
-        };
-    }
-
-    public List<E> subList(int fromIndex, int toIndex) {
-        return new SubList<>(this, fromIndex, toIndex);
-    }
-
-    private void rangeCheck(int index) {
-        if (index < 0 || index >= size)
-            throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
-    }
-
-    private void rangeCheckForAdd(int index) {
-        if (index < 0 || index > size)
-            throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
-    }
-
-    private String outOfBoundsMsg(int index) {
-        return "Index: "+index+", Size: "+size;
-    }
-
-    private void checkForComodification() {
-        if (this.modCount != l.modCount)
-            throw new ConcurrentModificationException();
-    }
-}
-
-class RandomAccessSubList<E> extends SubList<E> implements RandomAccess {
-    RandomAccessSubList(AbstractList<E> list, int fromIndex, int toIndex) {
-        super(list, fromIndex, toIndex);
-    }
-
-    public List<E> subList(int fromIndex, int toIndex) {
-        return new RandomAccessSubList<>(this, fromIndex, toIndex);
+            throw new IllegalArgumentException();
+        }
+        throw new IndexOutOfBoundsException();
     }
 }

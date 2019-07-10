@@ -29,8 +29,6 @@ import android.text.TextUtils;
 public class ExtractedText implements Parcelable {
     /**
      * The text that has been extracted.
-     *
-     * @see android.widget.TextView#getText()
      */
     public CharSequence text;
 
@@ -89,13 +87,6 @@ public class ExtractedText implements Parcelable {
     public int flags;
 
     /**
-     * The hint that has been extracted.
-     *
-     * @see android.widget.TextView#getHint()
-     */
-    public CharSequence hint;
-
-    /**
      * Used to package this object into a {@link Parcel}.
      *
      * @param dest The {@link Parcel} to be written.
@@ -109,7 +100,6 @@ public class ExtractedText implements Parcelable {
         dest.writeInt(selectionStart);
         dest.writeInt(selectionEnd);
         dest.writeInt(this.flags);
-        TextUtils.writeToParcel(hint, dest, flags);
     }
 
     /**
@@ -117,18 +107,17 @@ public class ExtractedText implements Parcelable {
      */
     public static final Parcelable.Creator<ExtractedText> CREATOR
             = new Parcelable.Creator<ExtractedText>() {
-                public ExtractedText createFromParcel(Parcel source) {
-                    ExtractedText res = new ExtractedText();
-                    res.text = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
-                    res.startOffset = source.readInt();
-                    res.partialStartOffset = source.readInt();
-                    res.partialEndOffset = source.readInt();
-                    res.selectionStart = source.readInt();
-                    res.selectionEnd = source.readInt();
-                    res.flags = source.readInt();
-                    res.hint = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
-                    return res;
-                }
+        public ExtractedText createFromParcel(Parcel source) {
+            ExtractedText res = new ExtractedText();
+            res.text = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
+            res.startOffset = source.readInt();
+            res.partialStartOffset = source.readInt();
+            res.partialEndOffset = source.readInt();
+            res.selectionStart = source.readInt();
+            res.selectionEnd = source.readInt();
+            res.flags = source.readInt();
+            return res;
+        }
 
         public ExtractedText[] newArray(int size) {
             return new ExtractedText[size];

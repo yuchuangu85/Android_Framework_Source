@@ -37,7 +37,6 @@ public class TrustArchive {
     private static final int TYPE_AGENT_CONNECTED = 4;
     private static final int TYPE_AGENT_STOPPED = 5;
     private static final int TYPE_MANAGING_TRUST = 6;
-    private static final int TYPE_POLICY_CHANGED = 7;
 
     private static final int HISTORY_LIMIT = 200;
 
@@ -100,10 +99,6 @@ public class TrustArchive {
         addEvent(new Event(TYPE_MANAGING_TRUST, userId, agent, null, 0, 0, managing));
     }
 
-    public void logDevicePolicyChanged() {
-        addEvent(new Event(TYPE_POLICY_CHANGED, UserHandle.USER_ALL, null, null, 0, 0, false));
-    }
-
     private void addEvent(Event e) {
         if (mEvents.size() >= HISTORY_LIMIT) {
             mEvents.removeFirst();
@@ -117,8 +112,7 @@ public class TrustArchive {
         Iterator<Event> iter = mEvents.descendingIterator();
         while (iter.hasNext() && count < limit) {
             Event ev = iter.next();
-            if (userId != UserHandle.USER_ALL && userId != ev.userId
-                    && ev.userId != UserHandle.USER_ALL) {
+            if (userId != UserHandle.USER_ALL && userId != ev.userId) {
                 continue;
             }
 
@@ -128,13 +122,11 @@ public class TrustArchive {
             if (userId == UserHandle.USER_ALL) {
                 writer.print("user="); writer.print(ev.userId); writer.print(", ");
             }
-            if (ev.agent != null) {
-                writer.print("agent=");
-                if (duplicateSimpleNames) {
-                    writer.print(ev.agent.flattenToShortString());
-                } else {
-                    writer.print(getSimpleName(ev.agent));
-                }
+            writer.print("agent=");
+            if (duplicateSimpleNames) {
+                writer.print(ev.agent.flattenToShortString());
+            } else {
+                writer.print(getSimpleName(ev.agent));
             }
             switch (ev.type) {
                 case TYPE_GRANT_TRUST:
@@ -189,8 +181,6 @@ public class TrustArchive {
                 return "AgentStopped";
             case TYPE_MANAGING_TRUST:
                 return "ManagingTrust";
-            case TYPE_POLICY_CHANGED:
-                return "DevicePolicyChanged";
             default:
                 return "Unknown(" + type + ")";
         }

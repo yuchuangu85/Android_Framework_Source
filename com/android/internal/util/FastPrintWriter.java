@@ -1,22 +1,5 @@
-/*
- * Copyright (C) 2013 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.android.internal.util;
 
-import android.util.Log;
 import android.util.Printer;
 
 import java.io.IOException;
@@ -345,13 +328,11 @@ public class FastPrintWriter extends PrintWriter {
     }
 
     private void flushBytesLocked() throws IOException {
-        if (!mIoError) {
-            int position;
-            if ((position = mBytes.position()) > 0) {
-                mBytes.flip();
-                mOutputStream.write(mBytes.array(), 0, position);
-                mBytes.clear();
-            }
+        int position;
+        if ((position = mBytes.position()) > 0) {
+            mBytes.flip();
+            mOutputStream.write(mBytes.array(), 0, position);
+            mBytes.clear();
         }
     }
 
@@ -361,7 +342,7 @@ public class FastPrintWriter extends PrintWriter {
             if (mOutputStream != null) {
                 CharBuffer charBuffer = CharBuffer.wrap(mText, 0, mPos);
                 CoderResult result = mCharset.encode(charBuffer, mBytes, true);
-                while (!mIoError) {
+                while (true) {
                     if (result.isError()) {
                         throw new IOException(result.toString());
                     } else if (result.isOverflow()) {
@@ -371,15 +352,11 @@ public class FastPrintWriter extends PrintWriter {
                     }
                     break;
                 }
-                if (!mIoError) {
-                    flushBytesLocked();
-                    mOutputStream.flush();
-                }
+                flushBytesLocked();
+                mOutputStream.flush();
             } else if (mWriter != null) {
-                if (!mIoError) {
-                    mWriter.write(mText, 0, mPos);
-                    mWriter.flush();
-                }
+                mWriter.write(mText, 0, mPos);
+                mWriter.flush();
             } else {
                 int nonEolOff = 0;
                 final int sepLen = mSeparator.length();
@@ -408,15 +385,12 @@ public class FastPrintWriter extends PrintWriter {
         synchronized (lock) {
             try {
                 flushLocked();
-                if (!mIoError) {
-                    if (mOutputStream != null) {
-                        mOutputStream.flush();
-                    } else if (mWriter != null) {
-                        mWriter.flush();
-                    }
+                if (mOutputStream != null) {
+                    mOutputStream.flush();
+                } else if (mWriter != null) {
+                    mWriter.flush();
                 }
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
                 setError();
             }
         }
@@ -433,7 +407,6 @@ public class FastPrintWriter extends PrintWriter {
                     mWriter.close();
                 }
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
                 setError();
             }
         }
@@ -452,8 +425,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(charArray, 0, charArray.length);
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }
@@ -471,8 +442,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(ch);
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }
@@ -496,7 +465,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(str, 0, str.length());
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
                 setError();
             }
         }
@@ -532,7 +500,6 @@ public class FastPrintWriter extends PrintWriter {
                     flushLocked();
                 }
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
                 setError();
             }
         }
@@ -597,8 +564,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(buf, offset, count);
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }
@@ -619,8 +584,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked((char) oneChar);
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }
@@ -637,8 +600,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(str, 0, str.length());
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }
@@ -663,8 +624,6 @@ public class FastPrintWriter extends PrintWriter {
             try {
                 appendLocked(str, offset, count);
             } catch (IOException e) {
-                Log.w("FastPrintWriter", "Write failure", e);
-                setError();
             }
         }
     }

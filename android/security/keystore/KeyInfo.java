@@ -38,30 +38,32 @@ import javax.crypto.SecretKey;
  * <p><h3>Example: Symmetric Key</h3>
  * The following example illustrates how to obtain a {@code KeyInfo} describing the provided Android
  * Keystore {@link SecretKey}.
- * <pre>{@code
+ * <pre> {@code
  * SecretKey key = ...; // Android Keystore key
  *
  * SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
  * KeyInfo keyInfo;
- * try {
+ * try &#123;
  *     keyInfo = (KeyInfo) factory.getKeySpec(key, KeyInfo.class);
- * } catch (InvalidKeySpecException e) {
+ * &#125; catch (InvalidKeySpecException e) &#123;
  *     // Not an Android KeyStore key.
- * }}</pre>
+ * &#125;
+ * }</pre>
  *
  * <p><h3>Example: Private Key</h3>
  * The following example illustrates how to obtain a {@code KeyInfo} describing the provided
  * Android KeyStore {@link PrivateKey}.
- * <pre>{@code
+ * <pre> {@code
  * PrivateKey key = ...; // Android KeyStore key
  *
  * KeyFactory factory = KeyFactory.getInstance(key.getAlgorithm(), "AndroidKeyStore");
  * KeyInfo keyInfo;
- * try {
+ * try &#123;
  *     keyInfo = factory.getKeySpec(key, KeyInfo.class);
- * } catch (InvalidKeySpecException e) {
+ * &#125; catch (InvalidKeySpecException e) &#123;
  *     // Not an Android KeyStore key.
- * }}</pre>
+ * &#125;
+ * }</pre>
  */
 public class KeyInfo implements KeySpec {
     private final String mKeystoreAlias;
@@ -79,10 +81,6 @@ public class KeyInfo implements KeySpec {
     private final boolean mUserAuthenticationRequired;
     private final int mUserAuthenticationValidityDurationSeconds;
     private final boolean mUserAuthenticationRequirementEnforcedBySecureHardware;
-    private final boolean mUserAuthenticationValidWhileOnBody;
-    private final boolean mTrustedUserPresenceRequired;
-    private final boolean mInvalidatedByBiometricEnrollment;
-    private final boolean mUserConfirmationRequired;
 
     /**
      * @hide
@@ -101,11 +99,7 @@ public class KeyInfo implements KeySpec {
             @KeyProperties.BlockModeEnum String[] blockModes,
             boolean userAuthenticationRequired,
             int userAuthenticationValidityDurationSeconds,
-            boolean userAuthenticationRequirementEnforcedBySecureHardware,
-            boolean userAuthenticationValidWhileOnBody,
-            boolean trustedUserPresenceRequired,
-            boolean invalidatedByBiometricEnrollment,
-            boolean userConfirmationRequired) {
+            boolean userAuthenticationRequirementEnforcedBySecureHardware) {
         mKeystoreAlias = keystoreKeyAlias;
         mInsideSecureHardware = insideSecureHardware;
         mOrigin = origin;
@@ -124,10 +118,6 @@ public class KeyInfo implements KeySpec {
         mUserAuthenticationValidityDurationSeconds = userAuthenticationValidityDurationSeconds;
         mUserAuthenticationRequirementEnforcedBySecureHardware =
                 userAuthenticationRequirementEnforcedBySecureHardware;
-        mUserAuthenticationValidWhileOnBody = userAuthenticationValidWhileOnBody;
-        mTrustedUserPresenceRequired = trustedUserPresenceRequired;
-        mInvalidatedByBiometricEnrollment = invalidatedByBiometricEnrollment;
-        mUserConfirmationRequired = userConfirmationRequired;
     }
 
     /**
@@ -263,27 +253,6 @@ public class KeyInfo implements KeySpec {
     }
 
     /**
-     * Returns {@code true} if the key is authorized to be used only for messages confirmed by the
-     * user.
-     *
-     * Confirmation is separate from user authentication (see
-     * {@link #isUserAuthenticationRequired()}). Keys can be created that require confirmation but
-     * not user authentication, or user authentication but not confirmation, or both. Confirmation
-     * verifies that some user with physical possession of the device has approved a displayed
-     * message. User authentication verifies that the correct user is present and has
-     * authenticated.
-     *
-     * <p>This authorization applies only to secret key and private key operations. Public key
-     * operations are not restricted.
-     *
-     * @see KeyGenParameterSpec.Builder#setUserConfirmationRequired(boolean)
-     * @see KeyProtection.Builder#setUserConfirmationRequired(boolean)
-     */
-    public boolean isUserConfirmationRequired() {
-        return mUserConfirmationRequired;
-    }
-
-    /**
      * Gets the duration of time (seconds) for which this key is authorized to be used after the
      * user is successfully authenticated. This has effect only if user authentication is required
      * (see {@link #isUserAuthenticationRequired()}).
@@ -302,38 +271,12 @@ public class KeyInfo implements KeySpec {
 
     /**
      * Returns {@code true} if the requirement that this key can only be used if the user has been
-     * authenticated is enforced by secure hardware (e.g., Trusted Execution Environment (TEE) or
+     * authenticated if enforced by secure hardware (e.g., Trusted Execution Environment (TEE) or
      * Secure Element (SE)).
      *
      * @see #isUserAuthenticationRequired()
      */
     public boolean isUserAuthenticationRequirementEnforcedBySecureHardware() {
         return mUserAuthenticationRequirementEnforcedBySecureHardware;
-    }
-
-    /**
-     * Returns {@code true} if this key will become unusable when the device is removed from the
-     * user's body.  This is possible only for keys with a specified validity duration, and only on
-     * devices with an on-body sensor.  Always returns {@code false} on devices that lack an on-body
-     * sensor.
-     */
-    public boolean isUserAuthenticationValidWhileOnBody() {
-        return mUserAuthenticationValidWhileOnBody;
-    }
-
-    /**
-     * Returns {@code true} if the key will be invalidated by enrollment of a new fingerprint or
-     * removal of all fingerprints.
-     */
-    public boolean isInvalidatedByBiometricEnrollment() {
-        return mInvalidatedByBiometricEnrollment;
-    }
-
-    /**
-     * Returns {@code true} if the key can only be only be used if a test for user presence has
-     * succeeded since Signature.initSign() has been called.
-     */
-    public boolean isTrustedUserPresenceRequired() {
-        return mTrustedUserPresenceRequired;
     }
 }

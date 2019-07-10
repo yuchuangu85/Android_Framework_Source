@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -35,16 +6,11 @@
 
 package java.util.concurrent;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
-import java.util.ArrayList;
-import java.util.ConcurrentModificationException;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.*;
 
 // BEGIN android-note
 // removed security manager docs
@@ -79,8 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>Core and maximum pool sizes</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * A {@code ThreadPoolExecutor} will automatically adjust the
+ * <dd>A {@code ThreadPoolExecutor} will automatically adjust the
  * pool size (see {@link #getPoolSize})
  * according to the bounds set by
  * corePoolSize (see {@link #getCorePoolSize}) and
@@ -102,8 +67,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>On-demand construction</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * By default, even core threads are initially created and
+ * <dd>By default, even core threads are initially created and
  * started only when new tasks arrive, but this can be overridden
  * dynamically using method {@link #prestartCoreThread} or {@link
  * #prestartAllCoreThreads}.  You probably want to prestart threads if
@@ -111,8 +75,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>Creating new threads</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * New threads are created using a {@link ThreadFactory}.  If not
+ * <dd>New threads are created using a {@link ThreadFactory}.  If not
  * otherwise specified, a {@link Executors#defaultThreadFactory} is
  * used, that creates threads to all be in the same {@link
  * ThreadGroup} and with the same {@code NORM_PRIORITY} priority and
@@ -120,17 +83,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * alter the thread's name, thread group, priority, daemon status,
  * etc. If a {@code ThreadFactory} fails to create a thread when asked
  * by returning null from {@code newThread}, the executor will
- * continue, but might not be able to execute any tasks. Threads
- * should possess the "modifyThread" {@code RuntimePermission}. If
- * worker threads or other threads using the pool do not possess this
- * permission, service may be degraded: configuration changes may not
- * take effect in a timely manner, and a shutdown pool may remain in a
- * state in which termination is possible but not completed.</dd>
+ * continue, but might not be able to execute any tasks.</dd>
  *
  * <dt>Keep-alive times</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * If the pool currently has more than corePoolSize threads,
+ * <dd>If the pool currently has more than corePoolSize threads,
  * excess threads will be terminated if they have been idle for more
  * than the keepAliveTime (see {@link #getKeepAliveTime(TimeUnit)}).
  * This provides a means of reducing resource consumption when the
@@ -140,37 +97,36 @@ import java.util.concurrent.locks.ReentrantLock;
  * TimeUnit)}.  Using a value of {@code Long.MAX_VALUE} {@link
  * TimeUnit#NANOSECONDS} effectively disables idle threads from ever
  * terminating prior to shut down. By default, the keep-alive policy
- * applies only when there are more than corePoolSize threads, but
+ * applies only when there are more than corePoolSize threads. But
  * method {@link #allowCoreThreadTimeOut(boolean)} can be used to
  * apply this time-out policy to core threads as well, so long as the
  * keepAliveTime value is non-zero. </dd>
  *
  * <dt>Queuing</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * Any {@link BlockingQueue} may be used to transfer and hold
+ * <dd>Any {@link BlockingQueue} may be used to transfer and hold
  * submitted tasks.  The use of this queue interacts with pool sizing:
  *
  * <ul>
  *
- * <li>If fewer than corePoolSize threads are running, the Executor
+ * <li> If fewer than corePoolSize threads are running, the Executor
  * always prefers adding a new thread
- * rather than queuing.
+ * rather than queuing.</li>
  *
- * <li>If corePoolSize or more threads are running, the Executor
+ * <li> If corePoolSize or more threads are running, the Executor
  * always prefers queuing a request rather than adding a new
- * thread.
+ * thread.</li>
  *
- * <li>If a request cannot be queued, a new thread is created unless
+ * <li> If a request cannot be queued, a new thread is created unless
  * this would exceed maximumPoolSize, in which case, the task will be
- * rejected.
+ * rejected.</li>
  *
  * </ul>
  *
  * There are three general strategies for queuing:
  * <ol>
  *
- * <li><em> Direct handoffs.</em> A good default choice for a work
+ * <li> <em> Direct handoffs.</em> A good default choice for a work
  * queue is a {@link SynchronousQueue} that hands off tasks to threads
  * without otherwise holding them. Here, an attempt to queue a task
  * will fail if no threads are immediately available to run it, so a
@@ -179,7 +135,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Direct handoffs generally require unbounded maximumPoolSizes to
  * avoid rejection of new submitted tasks. This in turn admits the
  * possibility of unbounded thread growth when commands continue to
- * arrive on average faster than they can be processed.
+ * arrive on average faster than they can be processed.  </li>
  *
  * <li><em> Unbounded queues.</em> Using an unbounded queue (for
  * example a {@link LinkedBlockingQueue} without a predefined
@@ -192,7 +148,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * While this style of queuing can be useful in smoothing out
  * transient bursts of requests, it admits the possibility of
  * unbounded work queue growth when commands continue to arrive on
- * average faster than they can be processed.
+ * average faster than they can be processed.  </li>
  *
  * <li><em>Bounded queues.</em> A bounded queue (for example, an
  * {@link ArrayBlockingQueue}) helps prevent resource exhaustion when
@@ -205,7 +161,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * time for more threads than you otherwise allow. Use of small queues
  * generally requires larger pool sizes, which keeps CPUs busier but
  * may encounter unacceptable scheduling overhead, which also
- * decreases throughput.
+ * decreases throughput.  </li>
  *
  * </ol>
  *
@@ -213,8 +169,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>Rejected tasks</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * New tasks submitted in method {@link #execute(Runnable)} will be
+ * <dd>New tasks submitted in method {@link #execute(Runnable)} will be
  * <em>rejected</em> when the Executor has been shut down, and also when
  * the Executor uses finite bounds for both maximum threads and work queue
  * capacity, and is saturated.  In either case, the {@code execute} method
@@ -225,22 +180,22 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <ol>
  *
- * <li>In the default {@link ThreadPoolExecutor.AbortPolicy}, the
+ * <li> In the default {@link ThreadPoolExecutor.AbortPolicy}, the
  * handler throws a runtime {@link RejectedExecutionException} upon
- * rejection.
+ * rejection. </li>
  *
- * <li>In {@link ThreadPoolExecutor.CallerRunsPolicy}, the thread
+ * <li> In {@link ThreadPoolExecutor.CallerRunsPolicy}, the thread
  * that invokes {@code execute} itself runs the task. This provides a
  * simple feedback control mechanism that will slow down the rate that
- * new tasks are submitted.
+ * new tasks are submitted. </li>
  *
- * <li>In {@link ThreadPoolExecutor.DiscardPolicy}, a task that
- * cannot be executed is simply dropped.
+ * <li> In {@link ThreadPoolExecutor.DiscardPolicy}, a task that
+ * cannot be executed is simply dropped.  </li>
  *
  * <li>In {@link ThreadPoolExecutor.DiscardOldestPolicy}, if the
  * executor is not shut down, the task at the head of the work queue
  * is dropped, and then execution is retried (which can fail again,
- * causing this to be repeated.)
+ * causing this to be repeated.) </li>
  *
  * </ol>
  *
@@ -251,8 +206,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>Hook methods</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * This class provides {@code protected} overridable
+ * <dd>This class provides {@code protected} overridable
  * {@link #beforeExecute(Thread, Runnable)} and
  * {@link #afterExecute(Runnable, Throwable)} methods that are called
  * before and after execution of each task.  These can be used to
@@ -262,14 +216,12 @@ import java.util.concurrent.locks.ReentrantLock;
  * any special processing that needs to be done once the Executor has
  * fully terminated.
  *
- * <p>If hook, callback, or BlockingQueue methods throw exceptions,
- * internal worker threads may in turn fail, abruptly terminate, and
- * possibly be replaced.</dd>
+ * <p>If hook or callback methods throw exceptions, internal worker
+ * threads may in turn fail and abruptly terminate.</dd>
  *
  * <dt>Queue maintenance</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * Method {@link #getQueue()} allows access to the work queue
+ * <dd>Method {@link #getQueue()} allows access to the work queue
  * for purposes of monitoring and debugging.  Use of this method for
  * any other purpose is strongly discouraged.  Two supplied methods,
  * {@link #remove(Runnable)} and {@link #purge} are available to
@@ -278,8 +230,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <dt>Finalization</dt>
  *
- * <dd style="font-family:'DejaVu Sans', Arial, Helvetica, sans-serif">
- * A pool that is no longer referenced in a program <em>AND</em>
+ * <dd>A pool that is no longer referenced in a program <em>AND</em>
  * has no remaining threads will be {@code shutdown} automatically. If
  * you would like to ensure that unreferenced pools are reclaimed even
  * if users forget to call {@link #shutdown}, then you must arrange
@@ -293,7 +244,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * override one or more of the protected hook methods. For example,
  * here is a subclass that adds a simple pause/resume feature:
  *
- * <pre> {@code
+ *  <pre> {@code
  * class PausableThreadPoolExecutor extends ThreadPoolExecutor {
  *   private boolean isPaused;
  *   private ReentrantLock pauseLock = new ReentrantLock();
@@ -394,8 +345,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
-    // Android-added: @ReachabilitySensitive
-    @ReachabilitySensitive
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
     private static final int COUNT_BITS = Integer.SIZE - 3;
     private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
@@ -484,12 +433,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Set containing all worker threads in pool. Accessed only when
      * holding mainLock.
      */
-    // Android-added: @ReachabilitySensitive
-    @ReachabilitySensitive
-    private final HashSet<Worker> workers = new HashSet<>();
+    private final HashSet<Worker> workers = new HashSet<Worker>();
 
     /**
-     * Wait condition to support awaitTermination.
+     * Wait condition to support awaitTermination
      */
     private final Condition termination = mainLock.newCondition();
 
@@ -565,7 +512,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private volatile int maximumPoolSize;
 
     /**
-     * The default rejected execution handler.
+     * The default rejected execution handler
      */
     private static final RejectedExecutionHandler defaultHandler =
         new AbortPolicy();
@@ -692,7 +639,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *        (but not TIDYING or TERMINATED -- use tryTerminate for that)
      */
     private void advanceRunState(int targetState) {
-        // assert targetState == SHUTDOWN || targetState == STOP;
         for (;;) {
             int c = ctl.get();
             if (runStateAtLeast(c, targetState) ||
@@ -875,7 +821,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     private List<Runnable> drainQueue() {
         BlockingQueue<Runnable> q = workQueue;
-        ArrayList<Runnable> taskList = new ArrayList<>();
+        ArrayList<Runnable> taskList = new ArrayList<Runnable>();
         q.drainTo(taskList);
         if (!q.isEmpty()) {
             for (Runnable r : q.toArray(new Runnable[0])) {
@@ -1430,7 +1376,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * <p>There are no guarantees beyond best-effort attempts to stop
      * processing actively executing tasks.  This implementation
-     * interrupts tasks via {@link Thread#interrupt}; any task that
+     * cancels tasks via {@link Thread#interrupt}, so any task that
      * fails to respond to interrupts may never terminate.
      */
     // android-note: Removed @throws SecurityException
@@ -1480,12 +1426,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
-            while (!runStateAtLeast(ctl.get(), TERMINATED)) {
-                if (nanos <= 0L)
+            for (;;) {
+                if (runStateAtLeast(ctl.get(), TERMINATED))
+                    return true;
+                if (nanos <= 0)
                     return false;
                 nanos = termination.awaitNanos(nanos);
             }
-            return true;
         } finally {
             mainLock.unlock();
         }
@@ -1556,13 +1503,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * @throws IllegalArgumentException if {@code corePoolSize < 0}
      * @see #getCorePoolSize
      */
-     // Android-changed: Reverted code that threw an IAE when
-     // {@code corePoolSize} is greater than the {@linkplain #getMaximumPoolSize()
-     // maximum pool size}. This is due to defective code in a commonly used third
-     // party library that does something like :
-     //
-     // exec.setCorePoolSize(N);
-     // exec.setMaxPoolSize(N);
     public void setCorePoolSize(int corePoolSize) {
         if (corePoolSize < 0)
             throw new IllegalArgumentException();
@@ -1707,13 +1647,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Sets the thread keep-alive time, which is the amount of time
-     * that threads may remain idle before being terminated.
-     * Threads that wait this amount of time without processing a
-     * task will be terminated if there are more than the core
-     * number of threads currently in the pool, or if this pool
-     * {@linkplain #allowsCoreThreadTimeOut() allows core thread timeout}.
-     * This overrides any value set in the constructor.
+     * Sets the time limit for which threads may remain idle before
+     * being terminated.  If there are more than the core number of
+     * threads currently in the pool, after waiting this amount of
+     * time without processing a task, excess threads will be
+     * terminated.  This overrides any value set in the constructor.
      *
      * @param time the time to wait.  A time value of zero will cause
      *        excess threads to terminate immediately after executing tasks.
@@ -1736,11 +1674,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
     /**
      * Returns the thread keep-alive time, which is the amount of time
-     * that threads may remain idle before being terminated.
-     * Threads that wait this amount of time without processing a
-     * task will be terminated if there are more than the core
-     * number of threads currently in the pool, or if this pool
-     * {@linkplain #allowsCoreThreadTimeOut() allows core thread timeout}.
+     * that threads in excess of the core pool size may remain
+     * idle before being terminated.
      *
      * @param unit the desired time unit of the result
      * @return the time limit
@@ -1771,8 +1706,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * <p>This method may be useful as one part of a cancellation
      * scheme.  It may fail to remove tasks that have been converted
-     * into other forms before being placed on the internal queue.
-     * For example, a task entered using {@code submit} might be
+     * into other forms before being placed on the internal queue. For
+     * example, a task entered using {@code submit} might be
      * converted into a form that maintains {@code Future} status.
      * However, in such cases, method {@link #purge} may be used to
      * remove those Futures that have been cancelled.
@@ -1944,12 +1879,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             mainLock.unlock();
         }
         int c = ctl.get();
-        String runState =
-            runStateLessThan(c, SHUTDOWN) ? "Running" :
-            runStateAtLeast(c, TERMINATED) ? "Terminated" :
-            "Shutting down";
+        String rs = (runStateLessThan(c, SHUTDOWN) ? "Running" :
+                     (runStateAtLeast(c, TERMINATED) ? "Terminated" :
+                      "Shutting down"));
         return super.toString() +
-            "[" + runState +
+            "[" + rs +
             ", pool size = " + nworkers +
             ", active threads = " + nactive +
             ", queued tasks = " + workQueue.size() +
@@ -1996,23 +1930,20 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * as in this sample subclass that prints either the direct cause
      * or the underlying exception if a task has been aborted:
      *
-     * <pre> {@code
+     *  <pre> {@code
      * class ExtendedExecutor extends ThreadPoolExecutor {
      *   // ...
      *   protected void afterExecute(Runnable r, Throwable t) {
      *     super.afterExecute(r, t);
-     *     if (t == null
-     *         && r instanceof Future<?>
-     *         && ((Future<?>)r).isDone()) {
+     *     if (t == null && r instanceof Future<?>) {
      *       try {
      *         Object result = ((Future<?>) r).get();
      *       } catch (CancellationException ce) {
-     *         t = ce;
+     *           t = ce;
      *       } catch (ExecutionException ee) {
-     *         t = ee.getCause();
+     *           t = ee.getCause();
      *       } catch (InterruptedException ie) {
-     *         // ignore/reset
-     *         Thread.currentThread().interrupt();
+     *           Thread.currentThread().interrupt(); // ignore/reset
      *       }
      *     }
      *     if (t != null)

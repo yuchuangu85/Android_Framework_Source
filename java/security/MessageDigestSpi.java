@@ -1,206 +1,151 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.security;
 
 import java.nio.ByteBuffer;
 
-import sun.security.jca.JCAUtil;
-
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the {@code MessageDigest} class, which provides the functionality
- * of a message digest algorithm, such as MD5 or SHA. Message digests are
- * secure one-way hash functions that take arbitrary-sized data and output a
- * fixed-length hash value.
- *
- * <p> All the abstract methods in this class must be implemented by a
- * cryptographic service provider who wishes to supply the implementation
- * of a particular message digest algorithm.
- *
- * <p> Implementations are free to implement the Cloneable interface.
- *
- * @author Benjamin Renaud
- *
+ * {@code MessageDigestSpi} is the Service Provider Interface (SPI) definition
+ * for {@link MessageDigest}. Examples of digest algorithms are MD5 and SHA. A
+ * digest is a secure one way hash function for a stream of bytes. It acts like
+ * a fingerprint for a stream of bytes.
  *
  * @see MessageDigest
  */
-
 public abstract class MessageDigestSpi {
 
-    // for re-use in engineUpdate(ByteBuffer input)
-    private byte[] tempArray;
-
     /**
-     * Returns the digest length in bytes.
+     * Returns the engine digest length in bytes. If the implementation does not
+     * implement this function {@code 0} is returned.
      *
-     * <p>This concrete method has been added to this previously-defined
-     * abstract class. (For backwards compatibility, it cannot be abstract.)
-     *
-     * <p>The default behavior is to return 0.
-     *
-     * <p>This method may be overridden by a provider to return the digest
-     * length.
-     *
-     * @return the digest length in bytes.
-     *
-     * @since 1.2
+     * @return the digest length in bytes, or {@code 0}.
      */
     protected int engineGetDigestLength() {
         return 0;
     }
 
     /**
-     * Updates the digest using the specified byte.
+     * Updates this {@code MessageDigestSpi} using the given {@code byte}.
      *
-     * @param input the byte to use for the update.
+     * @param input
+     *            the {@code byte} to update this {@code MessageDigestSpi} with.
+     * @see #engineReset()
      */
     protected abstract void engineUpdate(byte input);
 
     /**
-     * Updates the digest using the specified array of bytes,
-     * starting at the specified offset.
+     * Updates this {@code MessageDigestSpi} using the given {@code byte[]}.
      *
-     * @param input the array of bytes to use for the update.
-     *
-     * @param offset the offset to start from in the array of bytes.
-     *
-     * @param len the number of bytes to use, starting at
-     * {@code offset}.
+     * @param input
+     *            the {@code byte} array.
+     * @param offset
+     *            the index of the first byte in {@code input} to update from.
+     * @param len
+     *            the number of bytes in {@code input} to update from.
+     * @throws IllegalArgumentException
+     *             if {@code offset} or {@code len} are not valid in respect to
+     *             {@code input}.
      */
     protected abstract void engineUpdate(byte[] input, int offset, int len);
 
     /**
-     * Update the digest using the specified ByteBuffer. The digest is
-     * updated using the {@code input.remaining()} bytes starting
-     * at {@code input.position()}.
-     * Upon return, the buffer's position will be equal to its limit;
-     * its limit will not have changed.
+     * Updates this {@code MessageDigestSpi} using the given {@code input}.
      *
-     * @param input the ByteBuffer
-     * @since 1.5
+     * @param input
+     *            the {@code ByteBuffer}.
      */
     protected void engineUpdate(ByteBuffer input) {
-        if (input.hasRemaining() == false) {
+        if (!input.hasRemaining()) {
             return;
         }
+        byte[] tmp;
         if (input.hasArray()) {
-            byte[] b = input.array();
-            int ofs = input.arrayOffset();
-            int pos = input.position();
-            int lim = input.limit();
-            engineUpdate(b, ofs + pos, lim - pos);
-            input.position(lim);
+            tmp = input.array();
+            int offset = input.arrayOffset();
+            int position = input.position();
+            int limit = input.limit();
+            engineUpdate(tmp, offset+position, limit - position);
+            input.position(limit);
         } else {
-            int len = input.remaining();
-            int n = JCAUtil.getTempArraySize(len);
-            if ((tempArray == null) || (n > tempArray.length)) {
-                tempArray = new byte[n];
-            }
-            while (len > 0) {
-                int chunk = Math.min(len, tempArray.length);
-                input.get(tempArray, 0, chunk);
-                engineUpdate(tempArray, 0, chunk);
-                len -= chunk;
-            }
+            tmp = new byte[input.limit() - input.position()];
+            input.get(tmp);
+            engineUpdate(tmp, 0, tmp.length);
         }
     }
 
     /**
-     * Completes the hash computation by performing final
-     * operations such as padding. Once {@code engineDigest} has
-     * been called, the engine should be reset (see
-     * {@link #engineReset() engineReset}).
-     * Resetting is the responsibility of the
-     * engine implementor.
+     * Computes and returns the final hash value for this
+     * {@link MessageDigestSpi}. After the digest is computed the receiver is
+     * reset.
      *
-     * @return the array of bytes for the resulting hash value.
+     * @return the computed one way hash value.
+     * @see #engineReset()
      */
     protected abstract byte[] engineDigest();
 
     /**
-     * Completes the hash computation by performing final
-     * operations such as padding. Once {@code engineDigest} has
-     * been called, the engine should be reset (see
-     * {@link #engineReset() engineReset}).
-     * Resetting is the responsibility of the
-     * engine implementor.
+     * Computes and stores the final hash value for this
+     * {@link MessageDigestSpi}. After the digest is computed the receiver is
+     * reset.
      *
-     * This method should be abstract, but we leave it concrete for
-     * binary compatibility.  Knowledgeable providers should override this
-     * method.
-     *
-     * @param buf the output buffer in which to store the digest
-     *
-     * @param offset offset to start from in the output buffer
-     *
-     * @param len number of bytes within buf allotted for the digest.
-     * Both this default implementation and the SUN provider do not
-     * return partial digests.  The presence of this parameter is solely
-     * for consistency in our API's.  If the value of this parameter is less
-     * than the actual digest length, the method will throw a DigestException.
-     * This parameter is ignored if its value is greater than or equal to
-     * the actual digest length.
-     *
-     * @return the length of the digest stored in the output buffer.
-     *
-     * @exception DigestException if an error occurs.
-     *
-     * @since 1.2
+     * @param buf
+     *            the buffer to store the result in.
+     * @param offset
+     *            the index of the first byte in {@code buf} to store in.
+     * @param len
+     *            the number of bytes allocated for the digest.
+     * @return the number of bytes written to {@code buf}.
+     * @throws DigestException
+     *             if an error occures.
+     * @throws IllegalArgumentException
+     *             if {@code offset} or {@code len} are not valid in respect to
+     *             {@code buf}.
+     * @see #engineReset()
      */
-    protected int engineDigest(byte[] buf, int offset, int len)
-                                                throws DigestException {
-
-        byte[] digest = engineDigest();
-        if (len < digest.length)
-                throw new DigestException("partial digests not returned");
-        if (buf.length - offset < digest.length)
-                throw new DigestException("insufficient space in the output "
-                                          + "buffer to store the digest");
-        System.arraycopy(digest, 0, buf, offset, digest.length);
-        return digest.length;
+    protected int engineDigest(byte[] buf, int offset, int len) throws DigestException {
+        if (len < engineGetDigestLength()) {
+            engineReset();
+            throw new DigestException("The value of len parameter is less than the actual digest length");
+        }
+        if (offset < 0) {
+            engineReset();
+            throw new DigestException("offset < 0");
+        }
+        if (offset + len > buf.length) {
+            engineReset();
+            throw new DigestException("offset + len > buf.length");
+        }
+        byte[] tmp = engineDigest();
+        if (len < tmp.length) {
+            throw new DigestException("The value of len parameter is less than the actual digest length");
+        }
+        System.arraycopy(tmp, 0, buf, offset, tmp.length);
+        return tmp.length;
     }
 
     /**
-     * Resets the digest for further use.
+     * Puts this {@code MessageDigestSpi} back in an initial state, such that it
+     * is ready to compute a one way hash value.
      */
     protected abstract void engineReset();
 
-    /**
-     * Returns a clone if the implementation is cloneable.
-     *
-     * @return a clone if the implementation is cloneable.
-     *
-     * @exception CloneNotSupportedException if this is called on an
-     * implementation that does not support {@code Cloneable}.
-     */
+    @Override
     public Object clone() throws CloneNotSupportedException {
-        if (this instanceof Cloneable) {
-            return super.clone();
-        } else {
-            throw new CloneNotSupportedException();
-        }
+        return super.clone();
     }
 }

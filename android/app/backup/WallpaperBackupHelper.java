@@ -18,19 +18,20 @@ package android.app.backup;
 
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.graphics.BitmapFactory;
+import android.graphics.Point;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.os.UserHandle;
 import android.util.Slog;
+import android.view.Display;
+import android.view.WindowManager;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 
 /**
- * We no longer back up wallpapers with this helper, but we do need to process restores
- * of legacy backup payloads.  We just take the restored image as-is and apply it as the
- * system wallpaper using the public "set the wallpaper" API.
+ * Helper for backing up / restoring wallpapers.  Basically an AbsoluteFileBackupHelper,
+ * but with logic for deciding what to do with restored wallpaper images.
  *
  * @hide
  */
@@ -38,34 +39,78 @@ public class WallpaperBackupHelper extends FileBackupHelperBase implements Backu
     private static final String TAG = "WallpaperBackupHelper";
     private static final boolean DEBUG = false;
 
-    // Key that legacy wallpaper imagery was stored under
+    // If 'true', then apply an acceptable-size heuristic at restore time, dropping back
+    // to the factory default wallpaper if the restored one differs "too much" from the
+    // device's preferred wallpaper image dimensions.
+    private static final boolean REJECT_OUTSIZED_RESTORE = true;
+
+    // When outsized restore rejection is enabled, this is the maximum ratio between the
+    // source and target image heights that will be permitted.  The ratio is checked both
+    // ways (i.e. >= MAX, or <= 1/MAX) to validate restores from both largeer-than-target
+    // and smaller-than-target sources.
+    private static final double MAX_HEIGHT_RATIO = 1.35;
+
+    // The height ratio check when applying larger images on smaller screens is separate;
+    // in current policy we accept any such restore regardless of the relative dimensions.
+    private static final double MIN_HEIGHT_RATIO = 0;
+
+    // This path must match what the WallpaperManagerService uses
+    // TODO: Will need to change if backing up non-primary user's wallpaper
+    public static final String WALLPAPER_IMAGE =
+            new File(Environment.getUserSystemDirectory(UserHandle.USER_OWNER),
+                    "wallpaper").getAbsolutePath();
+    public static final String WALLPAPER_INFO =
+            new File(Environment.getUserSystemDirectory(UserHandle.USER_OWNER),
+                    "wallpaper_info.xml").getAbsolutePath();
+    // Use old keys to keep legacy data compatibility and avoid writing two wallpapers
     public static final String WALLPAPER_IMAGE_KEY =
             "/data/data/com.android.settings/files/wallpaper";
     public static final String WALLPAPER_INFO_KEY = "/data/system/wallpaper_info.xml";
 
-    // Stage file that the restored imagery is stored to prior to being applied
-    // as the system wallpaper.
+    // Stage file - should be adjacent to the WALLPAPER_IMAGE location.  The wallpapers
+    // will be saved to this file from the restore stream, then renamed to the proper
+    // location if it's deemed suitable.
+    // TODO: Will need to change if backing up non-primary user's wallpaper
     private static final String STAGE_FILE =
-            new File(Environment.getUserSystemDirectory(UserHandle.USER_SYSTEM),
+            new File(Environment.getUserSystemDirectory(UserHandle.USER_OWNER),
                     "wallpaper-tmp").getAbsolutePath();
 
-    private final String[] mKeys;
-    private final WallpaperManager mWpm;
+    Context mContext;
+    String[] mFiles;
+    String[] mKeys;
+    double mDesiredMinWidth;
+    double mDesiredMinHeight;
 
     /**
-     * Legacy wallpaper restores, from back when the imagery was stored under the
-     * "android" system package as file key/value entities.
+     * Construct a helper for backing up / restoring the files at the given absolute locations
+     * within the file system.
      *
      * @param context
      * @param files
      */
-    public WallpaperBackupHelper(Context context, String[] keys) {
+    public WallpaperBackupHelper(Context context, String[] files, String[] keys) {
         super(context);
 
         mContext = context;
+        mFiles = files;
         mKeys = keys;
 
-        mWpm = (WallpaperManager) context.getSystemService(Context.WALLPAPER_SERVICE);
+        final WindowManager wm =
+                (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        final WallpaperManager wpm =
+                (WallpaperManager) context.getSystemService(Context.WALLPAPER_SERVICE);
+        final Display d = wm.getDefaultDisplay();
+        final Point size = new Point();
+        d.getSize(size);
+        mDesiredMinWidth = Math.min(size.x, size.y);
+        mDesiredMinHeight = (double) wpm.getDesiredMinimumHeight();
+        if (mDesiredMinHeight <= 0) {
+            mDesiredMinHeight = size.y;
+        }
+
+        if (DEBUG) {
+            Slog.d(TAG, "dmW=" + mDesiredMinWidth + " dmH=" + mDesiredMinHeight);
+        }
     }
 
     /**
@@ -73,36 +118,71 @@ public class WallpaperBackupHelper extends FileBackupHelperBase implements Backu
      * need to be backed up, write them to the data stream, and fill in newState with the
      * state as it exists now.
      */
-    @Override
     public void performBackup(ParcelFileDescriptor oldState, BackupDataOutput data,
             ParcelFileDescriptor newState) {
-        // Intentionally no-op; we don't back up the wallpaper this way any more.
+        performBackup_checked(oldState, data, newState, mFiles, mKeys);
     }
 
     /**
      * Restore one absolute file entity from the restore stream.  If we're restoring the
-     * magic wallpaper file, apply it as the system wallpaper.
+     * magic wallpaper file, take specific action to determine whether it is suitable for
+     * the current device.
      */
-    @Override
     public void restoreEntity(BackupDataInputStream data) {
         final String key = data.getKey();
         if (isKeyInList(key, mKeys)) {
             if (key.equals(WALLPAPER_IMAGE_KEY)) {
                 // restore the file to the stage for inspection
-                File stage = new File(STAGE_FILE);
-                try {
-                    if (writeFile(stage, data)) {
-                        try (FileInputStream in = new FileInputStream(stage)) {
-                            mWpm.setStream(in);
-                        } catch (IOException e) {
-                            Slog.e(TAG, "Unable to set restored wallpaper: " + e.getMessage());
+                File f = new File(STAGE_FILE);
+                if (writeFile(f, data)) {
+
+                    // Preflight the restored image's dimensions without loading it
+                    BitmapFactory.Options options = new BitmapFactory.Options();
+                    options.inJustDecodeBounds = true;
+                    BitmapFactory.decodeFile(STAGE_FILE, options);
+
+                    if (DEBUG) Slog.d(TAG, "Restoring wallpaper image w=" + options.outWidth
+                            + " h=" + options.outHeight);
+
+                    if (REJECT_OUTSIZED_RESTORE) {
+                        // We accept any wallpaper that is at least as wide as our preference
+                        // (i.e. wide enough to fill the screen), and is within a comfortable
+                        // factor of the target height, to avoid significant clipping/scaling/
+                        // letterboxing.  At this point we know that mDesiredMinWidth is the
+                        // smallest dimension, regardless of current orientation, so we can
+                        // safely require that the candidate's width and height both exceed
+                        // that hard minimum.
+                        final double heightRatio = mDesiredMinHeight / options.outHeight;
+                        if (options.outWidth < mDesiredMinWidth
+                                || options.outHeight < mDesiredMinWidth
+                                || heightRatio >= MAX_HEIGHT_RATIO
+                                || heightRatio <= MIN_HEIGHT_RATIO) {
+                            // Not wide enough for the screen, or too short/tall to be a good fit
+                            // for the height of the screen, broken image file, or the system's
+                            // desires for wallpaper size are in a bad state.  Probably one of the
+                            // first two.
+                            Slog.i(TAG, "Restored image dimensions (w="
+                                    + options.outWidth + ", h=" + options.outHeight
+                                    + ") too far off target (tw="
+                                    + mDesiredMinWidth + ", th=" + mDesiredMinHeight
+                                    + "); falling back to default wallpaper.");
+                            f.delete();
+                            return;
                         }
-                    } else {
-                        Slog.e(TAG, "Unable to save restored wallpaper");
                     }
-                } finally {
-                    stage.delete();
+
+                    // We passed the acceptable-dimensions test (if any), so we're going to
+                    // use the restored image.
+                    // TODO: spin a service to copy the restored image to sd/usb storage,
+                    // since it does not exist anywhere other than the private wallpaper
+                    // file.
+                    Slog.d(TAG, "Applying restored wallpaper image.");
+                    f.renameTo(new File(WALLPAPER_IMAGE));
                 }
+            } else if (key.equals(WALLPAPER_INFO_KEY)) {
+                // XML file containing wallpaper info
+                File f = new File(WALLPAPER_INFO);
+                writeFile(f, data);
             }
         }
     }

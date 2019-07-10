@@ -16,6 +16,7 @@
 
 package android.content.pm;
 
+import android.content.pm.ManifestDigest;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -50,6 +51,12 @@ public class VerificationParams implements Parcelable {
     private int mInstallerUid;
 
     /**
+     * An object that holds the digest of the package which can be used to
+     * verify ownership.
+     */
+    private final ManifestDigest mManifestDigest;
+
+    /**
      * Creates verification specifications for installing with application verification.
      *
      * @param verificationURI The location of the supplementary verification
@@ -60,13 +67,16 @@ public class VerificationParams implements Parcelable {
      *            May be {@code null}.
      * @param originatingUid UID of the application that the install request originated
      *            from, or NO_UID if not present
+     * @param manifestDigest an object that holds the digest of the package
+     *            which can be used to verify ownership. May be {@code null}.
      */
     public VerificationParams(Uri verificationURI, Uri originatingURI, Uri referrer,
-            int originatingUid) {
+            int originatingUid, ManifestDigest manifestDigest) {
         mVerificationURI = verificationURI;
         mOriginatingURI = originatingURI;
         mReferrer = referrer;
         mOriginatingUid = originatingUid;
+        mManifestDigest = manifestDigest;
         mInstallerUid = NO_UID;
     }
 
@@ -85,6 +95,10 @@ public class VerificationParams implements Parcelable {
     /** return NO_UID if not available */
     public int getOriginatingUid() {
         return mOriginatingUid;
+    }
+
+    public ManifestDigest getManifestDigest() {
+        return mManifestDigest;
     }
 
     /** @return NO_UID when not set */
@@ -141,6 +155,14 @@ public class VerificationParams implements Parcelable {
             return false;
         }
 
+        if (mManifestDigest == null) {
+            if (other.mManifestDigest != null) {
+                return false;
+            }
+        } else if (!mManifestDigest.equals(other.mManifestDigest)) {
+            return false;
+        }
+
         if (mInstallerUid != other.mInstallerUid) {
             return false;
         }
@@ -156,7 +178,8 @@ public class VerificationParams implements Parcelable {
         hash += 7 * (mOriginatingURI == null ? 1 : mOriginatingURI.hashCode());
         hash += 11 * (mReferrer == null ? 1 : mReferrer.hashCode());
         hash += 13 * mOriginatingUid;
-        hash += 17 * mInstallerUid;
+        hash += 17 * (mManifestDigest == null ? 1 : mManifestDigest.hashCode());
+        hash += 19 * mInstallerUid;
 
         return hash;
     }
@@ -173,6 +196,8 @@ public class VerificationParams implements Parcelable {
         sb.append(mReferrer.toString());
         sb.append(",mOriginatingUid=");
         sb.append(mOriginatingUid);
+        sb.append(",mManifestDigest=");
+        sb.append(mManifestDigest.toString());
         sb.append(",mInstallerUid=");
         sb.append(mInstallerUid);
         sb.append('}');
@@ -186,6 +211,7 @@ public class VerificationParams implements Parcelable {
         dest.writeParcelable(mOriginatingURI, 0);
         dest.writeParcelable(mReferrer, 0);
         dest.writeInt(mOriginatingUid);
+        dest.writeParcelable(mManifestDigest, 0);
         dest.writeInt(mInstallerUid);
     }
 
@@ -195,6 +221,7 @@ public class VerificationParams implements Parcelable {
         mOriginatingURI = source.readParcelable(Uri.class.getClassLoader());
         mReferrer = source.readParcelable(Uri.class.getClassLoader());
         mOriginatingUid = source.readInt();
+        mManifestDigest = source.readParcelable(ManifestDigest.class.getClassLoader());
         mInstallerUid = source.readInt();
     }
 

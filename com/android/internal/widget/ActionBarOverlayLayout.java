@@ -75,10 +75,9 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
     private final Rect mBaseContentInsets = new Rect();
     private final Rect mLastBaseContentInsets = new Rect();
     private final Rect mContentInsets = new Rect();
-    private WindowInsets mBaseInnerInsets = WindowInsets.CONSUMED;
-    private WindowInsets mLastBaseInnerInsets = WindowInsets.CONSUMED;
-    private WindowInsets mInnerInsets = WindowInsets.CONSUMED;
-    private WindowInsets mLastInnerInsets = WindowInsets.CONSUMED;
+    private final Rect mBaseInnerInsets = new Rect();
+    private final Rect mInnerInsets = new Rect();
+    private final Rect mLastInnerInsets = new Rect();
 
     private ActionBarVisibilityCallback mActionBarVisibilityCallback;
 
@@ -322,15 +321,8 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
             changed |= applyInsets(mActionBarBottom, systemInsets, true, false, true, true);
         }
 
-        // Cannot use the result of computeSystemWindowInsets, because that consumes the
-        // systemWindowInsets. Instead, we do the insetting by the local insets ourselves.
-        computeSystemWindowInsets(insets, mBaseContentInsets);
-        mBaseInnerInsets = insets.inset(mBaseContentInsets);
-
-        if (!mLastBaseInnerInsets.equals(mBaseInnerInsets)) {
-            changed = true;
-            mLastBaseInnerInsets = mBaseInnerInsets;
-        }
+        mBaseInnerInsets.set(systemInsets);
+        computeFitSystemWindows(mBaseInnerInsets, mBaseContentInsets);
         if (!mLastBaseContentInsets.equals(mBaseContentInsets)) {
             changed = true;
             mLastBaseContentInsets.set(mBaseContentInsets);
@@ -433,29 +425,22 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
         // will still be covered by the action bar if they have requested it to
         // overlay.
         mContentInsets.set(mBaseContentInsets);
-        mInnerInsets = mBaseInnerInsets;
+        mInnerInsets.set(mBaseInnerInsets);
         if (!mOverlayMode && !stable) {
             mContentInsets.top += topInset;
             mContentInsets.bottom += bottomInset;
-            // Content view has been shrunk, shrink all insets to match.
-            mInnerInsets = mInnerInsets.inset(0 /* left */, topInset, 0 /* right */, bottomInset);
         } else {
-            // Add ActionBar to system window inset, but leave other insets untouched.
-            mInnerInsets = mInnerInsets.replaceSystemWindowInsets(
-                    mInnerInsets.getSystemWindowInsetLeft(),
-                    mInnerInsets.getSystemWindowInsetTop() + topInset,
-                    mInnerInsets.getSystemWindowInsetRight(),
-                    mInnerInsets.getSystemWindowInsetBottom() + bottomInset
-            );
+            mInnerInsets.top += topInset;
+            mInnerInsets.bottom += bottomInset;
         }
         applyInsets(mContent, mContentInsets, true, true, true, true);
 
         if (!mLastInnerInsets.equals(mInnerInsets)) {
             // If the inner insets have changed, we need to dispatch this down to
-            // the app's onApplyWindowInsets().  We do this before measuring the content
+            // the app's fitSystemWindows().  We do this before measuring the content
             // view to keep the same semantics as the normal fitSystemWindows() call.
-            mLastInnerInsets = mInnerInsets;
-            mContent.dispatchApplyWindowInsets(mInnerInsets);
+            mLastInnerInsets.set(mInnerInsets);
+            mContent.dispatchApplyWindowInsets(new WindowInsets(mInnerInsets));
         }
 
         measureChildWithMargins(mContent, widthMeasureSpec, 0, heightMeasureSpec, 0);
@@ -584,10 +569,10 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
     void pullChildren() {
         if (mContent == null) {
             mContent = findViewById(com.android.internal.R.id.content);
-            mActionBarTop = findViewById(
+            mActionBarTop = (ActionBarContainer) findViewById(
                     com.android.internal.R.id.action_bar_container);
             mDecorToolbar = getDecorToolbar(findViewById(com.android.internal.R.id.action_bar));
-            mActionBarBottom = findViewById(
+            mActionBarBottom = (ActionBarContainer) findViewById(
                     com.android.internal.R.id.split_action_bar);
         }
     }
@@ -722,7 +707,7 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
                 mDecorToolbar.setSplitToolbar(splitActionBar);
                 mDecorToolbar.setSplitWhenNarrow(splitWhenNarrow);
 
-                final ActionBarContextView cab = findViewById(
+                final ActionBarContextView cab = (ActionBarContextView) findViewById(
                         com.android.internal.R.id.action_context_bar);
                 cab.setSplitView(mActionBarBottom);
                 cab.setSplitToolbar(splitActionBar);

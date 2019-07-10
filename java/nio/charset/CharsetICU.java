@@ -11,9 +11,6 @@ package java.nio.charset;
 
 import libcore.icu.NativeConverter;
 
-/**
- * This class is used from native code associated with {@link NativeConverter}.
- */
 final class CharsetICU extends Charset {
     private final String icuCanonicalName;
 

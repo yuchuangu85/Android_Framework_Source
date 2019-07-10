@@ -1,92 +1,73 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang.reflect;
 
 /**
- * Member is an interface that reflects identifying information about
- * a single member (a field or a method) or a constructor.
+ * Common interface providing access to reflective information on class members.
  *
- * @see java.lang.Class
  * @see Field
- * @see Method
  * @see Constructor
- *
- * @author Nakul Saraiya
+ * @see Method
  */
-public
-interface Member {
+public interface Member {
 
     /**
-     * Identifies the set of all public members of a class or interface,
-     * including inherited members.
+     * Designates all public members of a class or interface (including
+     * inherited members).
      */
     public static final int PUBLIC = 0;
 
     /**
-     * Identifies the set of declared members of a class or interface.
-     * Inherited members are not included.
+     * Designates all declared members of a class or interface (without
+     * inherited members).
      */
     public static final int DECLARED = 1;
 
     /**
-     * Returns the Class object representing the class or interface
-     * that declares the member or constructor represented by this Member.
+     * Returns the class that declares this member.
      *
-     * @return an object representing the declaring class of the
-     * underlying member
+     * @return the declaring class
      */
-    public Class<?> getDeclaringClass();
+    @SuppressWarnings("unchecked")
+    Class<?> getDeclaringClass();
 
     /**
-     * Returns the simple name of the underlying member or constructor
-     * represented by this Member.
+     * Returns the modifiers for this member. The {@link Modifier} class should
+     * be used to decode the result.
      *
-     * @return the simple name of the underlying member
-     */
-    public String getName();
-
-    /**
-     * Returns the Java language modifiers for the member or
-     * constructor represented by this Member, as an integer.  The
-     * Modifier class should be used to decode the modifiers in
-     * the integer.
+     * @return the modifiers for this member
      *
-     * @return the Java language modifiers for the underlying member
      * @see Modifier
      */
-    public int getModifiers();
+    int getModifiers();
 
     /**
-     * Returns {@code true} if this member was introduced by
-     * the compiler; returns {@code false} otherwise.
+     * Returns the name of this member.
      *
-     * @return true if and only if this member was introduced by
-     * the compiler.
-     * @jls 13.1 The Form of a Binary
-     * @since 1.5
+     * @return the name of this member
      */
-    public boolean isSynthetic();
+    String getName();
+
+    /**
+     * Indicates whether or not this member is synthetic (artificially
+     * introduced by the compiler).
+     *
+     * @return {@code true} if this member is synthetic, {@code false} otherwise
+     */
+    boolean isSynthetic();
 }

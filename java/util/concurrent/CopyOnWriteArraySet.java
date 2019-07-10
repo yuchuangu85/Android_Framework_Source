@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -35,19 +6,10 @@
 
 package java.util.concurrent;
 
-import java.util.AbstractSet;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.Objects;
-import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
+import java.util.*;
 
 // BEGIN android-note
 // removed link to collections framework docs
-// fixed framework docs link to "Collection#optional"
 // END android-note
 
 /**
@@ -73,12 +35,12 @@ import java.util.function.Predicate;
  * copy-on-write set to maintain a set of Handler objects that
  * perform some action upon state updates.
  *
- * <pre> {@code
+ *  <pre> {@code
  * class Handler { void handle(); ... }
  *
  * class X {
  *   private final CopyOnWriteArraySet<Handler> handlers
- *     = new CopyOnWriteArraySet<>();
+ *     = new CopyOnWriteArraySet<Handler>();
  *   public void addHandler(Handler h) { handlers.add(h); }
  *
  *   private long internalState;
@@ -94,7 +56,7 @@ import java.util.function.Predicate;
  * @see CopyOnWriteArrayList
  * @since 1.5
  * @author Doug Lea
- * @param <E> the type of elements held in this set
+ * @param <E> the type of elements held in this collection
  */
 public class CopyOnWriteArraySet<E> extends AbstractSet<E>
         implements java.io.Serializable {
@@ -117,15 +79,8 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * @throws NullPointerException if the specified collection is null
      */
     public CopyOnWriteArraySet(Collection<? extends E> c) {
-        if (c.getClass() == CopyOnWriteArraySet.class) {
-            @SuppressWarnings("unchecked") CopyOnWriteArraySet<E> cc =
-                (CopyOnWriteArraySet<E>)c;
-            al = new CopyOnWriteArrayList<E>(cc.al);
-        }
-        else {
-            al = new CopyOnWriteArrayList<E>();
-            al.addAllAbsent(c);
-        }
+        al = new CopyOnWriteArrayList<E>();
+        al.addAllAbsent(c);
     }
 
     /**
@@ -149,7 +104,8 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
     /**
      * Returns {@code true} if this set contains the specified element.
      * More formally, returns {@code true} if and only if this set
-     * contains an element {@code e} such that {@code Objects.equals(o, e)}.
+     * contains an element {@code e} such that
+     * <tt>(o==null&nbsp;?&nbsp;e==null&nbsp;:&nbsp;o.equals(e))</tt>.
      *
      * @param o element whose presence in this set is to be tested
      * @return {@code true} if this set contains the specified element
@@ -205,7 +161,7 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * The following code can be used to dump the set into a newly allocated
      * array of {@code String}:
      *
-     * <pre> {@code String[] y = x.toArray(new String[0]);}</pre>
+     *  <pre> {@code String[] y = x.toArray(new String[0]);}</pre>
      *
      * Note that {@code toArray(new Object[0])} is identical in function to
      * {@code toArray()}.
@@ -234,10 +190,11 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
     /**
      * Removes the specified element from this set if it is present.
      * More formally, removes an element {@code e} such that
-     * {@code Objects.equals(o, e)}, if this set contains such an element.
-     * Returns {@code true} if this set contained the element (or
-     * equivalently, if this set changed as a result of the call).
-     * (This set will not contain the element once the call returns.)
+     * <tt>(o==null&nbsp;?&nbsp;e==null&nbsp;:&nbsp;o.equals(e))</tt>,
+     * if this set contains such an element.  Returns {@code true} if
+     * this set contained the element (or equivalently, if this set
+     * changed as a result of the call).  (This set will not contain the
+     * element once the call returns.)
      *
      * @param o object to be removed from this set, if present
      * @return {@code true} if this set contained the specified element
@@ -250,7 +207,7 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * Adds the specified element to this set if it is not already present.
      * More formally, adds the specified element {@code e} to this set if
      * the set contains no element {@code e2} such that
-     * {@code Objects.equals(e, e2)}.
+     * <tt>(e==null&nbsp;?&nbsp;e2==null&nbsp;:&nbsp;e.equals(e2))</tt>.
      * If this set already contains the element, the call leaves the set
      * unchanged and returns {@code false}.
      *
@@ -274,44 +231,7 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * @see #contains(Object)
      */
     public boolean containsAll(Collection<?> c) {
-        return (c instanceof Set)
-            ? compareSets(al.getArray(), (Set<?>) c) >= 0
-            : al.containsAll(c);
-    }
-
-    /**
-     * Tells whether the objects in snapshot (regarded as a set) are a
-     * superset of the given set.
-     *
-     * @return -1 if snapshot is not a superset, 0 if the two sets
-     * contain precisely the same elements, and 1 if snapshot is a
-     * proper superset of the given set
-     */
-    private static int compareSets(Object[] snapshot, Set<?> set) {
-        // Uses O(n^2) algorithm, that is only appropriate for small
-        // sets, which CopyOnWriteArraySets should be.
-        //
-        // Optimize up to O(n) if the two sets share a long common prefix,
-        // as might happen if one set was created as a copy of the other set.
-
-        final int len = snapshot.length;
-        // Mark matched elements to avoid re-checking
-        final boolean[] matched = new boolean[len];
-
-        // j is the largest int with matched[i] true for { i | 0 <= i < j }
-        int j = 0;
-        outer: for (Object x : set) {
-            for (int i = j; i < len; i++) {
-                if (!matched[i] && Objects.equals(x, snapshot[i])) {
-                    matched[i] = true;
-                    if (i == j)
-                        do { j++; } while (j < len && matched[j]);
-                    continue outer;
-                }
-            }
-            return -1;
-        }
-        return (j == len) ? 0 : 1;
+        return al.containsAll(c);
     }
 
     /**
@@ -340,11 +260,9 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * @param  c collection containing elements to be removed from this set
      * @return {@code true} if this set changed as a result of the call
      * @throws ClassCastException if the class of an element of this set
-     *         is incompatible with the specified collection
-     * (<a href="../Collection.html#optional-restrictions">optional</a>)
+     *         is incompatible with the specified collection (optional)
      * @throws NullPointerException if this set contains a null element and the
-     *         specified collection does not permit null elements
-     * (<a href="../Collection.html#optional-restrictions">optional</a>),
+     *         specified collection does not permit null elements (optional),
      *         or if the specified collection is null
      * @see #remove(Object)
      */
@@ -363,11 +281,9 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * @param  c collection containing elements to be retained in this set
      * @return {@code true} if this set changed as a result of the call
      * @throws ClassCastException if the class of an element of this set
-     *         is incompatible with the specified collection
-     * (<a href="../Collection.html#optional-restrictions">optional</a>)
+     *         is incompatible with the specified collection (optional)
      * @throws NullPointerException if this set contains a null element and the
-     *         specified collection does not permit null elements
-     * (<a href="../Collection.html#optional-restrictions">optional</a>),
+     *         specified collection does not permit null elements (optional),
      *         or if the specified collection is null
      * @see #remove(Object)
      */
@@ -394,49 +310,54 @@ public class CopyOnWriteArraySet<E> extends AbstractSet<E>
      * Compares the specified object with this set for equality.
      * Returns {@code true} if the specified object is the same object
      * as this object, or if it is also a {@link Set} and the elements
-     * returned by an {@linkplain Set#iterator() iterator} over the
+     * returned by an {@linkplain List#iterator() iterator} over the
      * specified set are the same as the elements returned by an
      * iterator over this set.  More formally, the two iterators are
      * considered to return the same elements if they return the same
      * number of elements and for every element {@code e1} returned by
      * the iterator over the specified set, there is an element
      * {@code e2} returned by the iterator over this set such that
-     * {@code Objects.equals(e1, e2)}.
+     * {@code (e1==null ? e2==null : e1.equals(e2))}.
      *
      * @param o object to be compared for equality with this set
      * @return {@code true} if the specified object is equal to this set
      */
     public boolean equals(Object o) {
-        return (o == this)
-            || ((o instanceof Set)
-                && compareSets(al.getArray(), (Set<?>) o) == 0);
-    }
+        if (o == this)
+            return true;
+        if (!(o instanceof Set))
+            return false;
+        Set<?> set = (Set<?>)(o);
+        Iterator<?> it = set.iterator();
 
-    public boolean removeIf(Predicate<? super E> filter) {
-        return al.removeIf(filter);
-    }
+        // Uses O(n^2) algorithm that is only appropriate
+        // for small sets, which CopyOnWriteArraySets should be.
 
-    public void forEach(Consumer<? super E> action) {
-        al.forEach(action);
+        //  Use a single snapshot of underlying array
+        Object[] elements = al.getArray();
+        int len = elements.length;
+        // Mark matched elements to avoid re-checking
+        boolean[] matched = new boolean[len];
+        int k = 0;
+        outer: while (it.hasNext()) {
+            if (++k > len)
+                return false;
+            Object x = it.next();
+            for (int i = 0; i < len; ++i) {
+                if (!matched[i] && eq(x, elements[i])) {
+                    matched[i] = true;
+                    continue outer;
+                }
+            }
+            return false;
+        }
+        return k == len;
     }
 
     /**
-     * Returns a {@link Spliterator} over the elements in this set in the order
-     * in which these elements were added.
-     *
-     * <p>The {@code Spliterator} reports {@link Spliterator#IMMUTABLE},
-     * {@link Spliterator#DISTINCT}, {@link Spliterator#SIZED}, and
-     * {@link Spliterator#SUBSIZED}.
-     *
-     * <p>The spliterator provides a snapshot of the state of the set
-     * when the spliterator was constructed. No synchronization is needed while
-     * operating on the spliterator.
-     *
-     * @return a {@code Spliterator} over the elements in this set
-     * @since 1.8
+     * Tests for equality, coping with nulls.
      */
-    public Spliterator<E> spliterator() {
-        return Spliterators.spliterator
-            (al.getArray(), Spliterator.IMMUTABLE | Spliterator.DISTINCT);
+    private static boolean eq(Object o1, Object o2) {
+        return (o1 == null) ? o2 == null : o1.equals(o2);
     }
 }

@@ -16,6 +16,8 @@
 
 package com.android.systemui.qs;
 
+import com.android.systemui.R;
+
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
@@ -23,8 +25,6 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-
-import com.android.systemui.R;
 
 import java.lang.ref.WeakReference;
 
@@ -98,7 +98,7 @@ public class PseudoGridView extends ViewGroup {
             }
         }
 
-        setMeasuredDimension(width, resolveSizeAndState(totalHeight, heightMeasureSpec, 0));
+        setMeasuredDimension(width, getDefaultSize(totalHeight, heightMeasureSpec));
     }
 
     @Override

@@ -21,7 +21,6 @@ import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
 
 import android.content.Context;
 import android.util.AttributeSet;
-import android.view.InflateException;
 
 public class BridgePreferenceInflater extends PreferenceInflater {
 
@@ -30,7 +29,7 @@ public class BridgePreferenceInflater extends PreferenceInflater {
     }
 
     @Override
-    public Preference createItem(String name, String prefix, AttributeSet attrs)
+    protected Preference onCreateItem(String name, AttributeSet attrs)
             throws ClassNotFoundException {
         Object viewKey = null;
         BridgeContext bc = null;
@@ -39,22 +38,11 @@ public class BridgePreferenceInflater extends PreferenceInflater {
         if (context instanceof BridgeContext) {
             bc = (BridgeContext) context;
         }
-
         if (attrs instanceof BridgeXmlBlockParser) {
             viewKey = ((BridgeXmlBlockParser) attrs).getViewCookie();
         }
 
-        Preference preference = null;
-        try {
-            preference = super.createItem(name, prefix, attrs);
-        } catch (ClassNotFoundException | InflateException exception) {
-            // name is probably not a valid preference type
-            if (("android.support.v7.preference".equals(prefix) ||
-                    "androidx.preference".equals(prefix)) &&
-                    "SwitchPreferenceCompat".equals(name)) {
-                preference = super.createItem("SwitchPreference", prefix, attrs);
-            }
-        }
+        Preference preference = super.onCreateItem(name, attrs);
 
         if (viewKey != null && bc != null) {
             bc.addCookie(preference, viewKey);

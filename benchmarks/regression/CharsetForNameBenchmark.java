@@ -16,10 +16,11 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.Param;
 import java.nio.charset.Charset;
+import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 
-public class CharsetForNameBenchmark {
+public class CharsetForNameBenchmark extends SimpleBenchmark {
     // canonical    => canonical charset name
     // built-in     => guaranteed-present charset
     // special-case => libcore treats this charset specially for performance

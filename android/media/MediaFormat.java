@@ -16,10 +16,6 @@
 
 package android.media;
 
-import android.annotation.IntDef;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -46,22 +42,13 @@ import java.util.Map;
  * <tr><td>{@link #KEY_HEIGHT}</td><td>Integer</td><td></td></tr>
  * <tr><td>{@link #KEY_COLOR_FORMAT}</td><td>Integer</td><td>set by the user
  *         for encoders, readable in the output format of decoders</b></td></tr>
- * <tr><td>{@link #KEY_FRAME_RATE}</td><td>Integer or Float</td><td>required for <b>encoders</b>,
- *         optional for <b>decoders</b></td></tr>
+ * <tr><td>{@link #KEY_FRAME_RATE}</td><td>Integer or Float</td><td><b>encoder-only</b></td></tr>
  * <tr><td>{@link #KEY_CAPTURE_RATE}</td><td>Integer</td><td></td></tr>
- * <tr><td>{@link #KEY_I_FRAME_INTERVAL}</td><td>Integer (or Float)</td><td><b>encoder-only</b>,
- *         time-interval between key frames.
- *         Float support added in {@link android.os.Build.VERSION_CODES#N_MR1}</td></tr>
- * <tr><td>{@link #KEY_INTRA_REFRESH_PERIOD}</td><td>Integer</td><td><b>encoder-only</b>, optional</td></tr>
- * <tr><td>{@link #KEY_LATENCY}</td><td>Integer</td><td><b>encoder-only</b>, optional</td></tr>
+* <tr><td>{@link #KEY_I_FRAME_INTERVAL}</td><td>Integer</td><td><b>encoder-only</b></td></tr>
  * <tr><td>{@link #KEY_MAX_WIDTH}</td><td>Integer</td><td><b>decoder-only</b>, optional, max-resolution width</td></tr>
  * <tr><td>{@link #KEY_MAX_HEIGHT}</td><td>Integer</td><td><b>decoder-only</b>, optional, max-resolution height</td></tr>
- * <tr><td>{@link #KEY_REPEAT_PREVIOUS_FRAME_AFTER}</td><td>Long</td><td><b>encoder in surface-mode
- *         only</b>, optional</td></tr>
- * <tr><td>{@link #KEY_PUSH_BLANK_BUFFERS_ON_STOP}</td><td>Integer(1)</td><td><b>decoder rendering
- *         to a surface only</b>, optional</td></tr>
- * <tr><td>{@link #KEY_TEMPORAL_LAYERING}</td><td>String</td><td><b>encoder only</b>, optional,
- *         temporal-layering schema</td></tr>
+ * <tr><td>{@link #KEY_REPEAT_PREVIOUS_FRAME_AFTER}</td><td>Long</td><td><b>video encoder in surface-mode only</b></td></tr>
+ * <tr><td>{@link #KEY_PUSH_BLANK_BUFFERS_ON_STOP}</td><td>Integer(1)</td><td><b>video decoder rendering to a surface only</b></td></tr>
  * </table>
  * Specify both {@link #KEY_MAX_WIDTH} and {@link #KEY_MAX_HEIGHT} to enable
  * adaptive playback (seamless resolution change) for a video decoder that
@@ -77,7 +64,6 @@ import java.util.Map;
  * <tr><th>Name</th><th>Value Type</th><th>Description</th></tr>
  * <tr><td>{@link #KEY_CHANNEL_COUNT}</td><td>Integer</td><td></td></tr>
  * <tr><td>{@link #KEY_SAMPLE_RATE}</td><td>Integer</td><td></td></tr>
- * <tr><td>{@link #KEY_PCM_ENCODING}</td><td>Integer</td><td>optional</td></tr>
  * <tr><td>{@link #KEY_IS_ADTS}</td><td>Integer</td><td>optional, if <em>decoding</em> AAC audio content, setting this key to 1 indicates that each audio frame is prefixed by the ADTS header.</td></tr>
  * <tr><td>{@link #KEY_AAC_PROFILE}</td><td>Integer</td><td><b>encoder-only</b>, optional, if content is AAC audio, specifies the desired profile.</td></tr>
  * <tr><td>{@link #KEY_AAC_SBR_MODE}</td><td>Integer</td><td><b>encoder-only</b>, optional, if content is AAC audio, specifies the desired SBR mode.</td></tr>
@@ -87,7 +73,6 @@ import java.util.Map;
  * <tr><td>{@link #KEY_AAC_DRC_ATTENUATION_FACTOR}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the DRC attenuation factor.</td></tr>
  * <tr><td>{@link #KEY_AAC_DRC_HEAVY_COMPRESSION}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies whether to use heavy compression.</td></tr>
  * <tr><td>{@link #KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the maximum number of channels the decoder outputs.</td></tr>
- * <tr><td>{@link #KEY_AAC_DRC_EFFECT_TYPE}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the MPEG-D DRC effect type to use.</td></tr>
  * <tr><td>{@link #KEY_CHANNEL_MASK}</td><td>Integer</td><td>optional, a mask of audio channel assignments</td></tr>
  * <tr><td>{@link #KEY_FLAC_COMPRESSION_LEVEL}</td><td>Integer</td><td><b>encoder-only</b>, optional, if content is FLAC audio, specifies the desired compression level.</td></tr>
  * </table>
@@ -96,19 +81,6 @@ import java.util.Map;
  * <table>
  * <tr><td>{@link #KEY_MIME}</td><td>String</td><td>The type of the format.</td></tr>
  * <tr><td>{@link #KEY_LANGUAGE}</td><td>String</td><td>The language of the content.</td></tr>
- * </table>
- *
- * Image formats have the following keys:
- * <table>
- * <tr><td>{@link #KEY_MIME}</td><td>String</td><td>The type of the format.</td></tr>
- * <tr><td>{@link #KEY_WIDTH}</td><td>Integer</td><td></td></tr>
- * <tr><td>{@link #KEY_HEIGHT}</td><td>Integer</td><td></td></tr>
- * <tr><td>{@link #KEY_COLOR_FORMAT}</td><td>Integer</td><td>set by the user
- *         for encoders, readable in the output format of decoders</b></td></tr>
- * <tr><td>{@link #KEY_TILE_WIDTH}</td><td>Integer</td><td>required if the image has grid</td></tr>
- * <tr><td>{@link #KEY_TILE_HEIGHT}</td><td>Integer</td><td>required if the image has grid</td></tr>
- * <tr><td>{@link #KEY_GRID_ROWS}</td><td>Integer</td><td>required if the image has grid</td></tr>
- * <tr><td>{@link #KEY_GRID_COLUMNS}</td><td>Integer</td><td>required if the image has grid</td></tr>
  * </table>
  */
 public final class MediaFormat {
@@ -120,8 +92,6 @@ public final class MediaFormat {
     public static final String MIMETYPE_VIDEO_H263 = "video/3gpp";
     public static final String MIMETYPE_VIDEO_MPEG2 = "video/mpeg2";
     public static final String MIMETYPE_VIDEO_RAW = "video/raw";
-    public static final String MIMETYPE_VIDEO_DOLBY_VISION = "video/dolby-vision";
-    public static final String MIMETYPE_VIDEO_SCRAMBLED = "video/scrambled";
 
     public static final String MIMETYPE_AUDIO_AMR_NB = "audio/3gpp";
     public static final String MIMETYPE_AUDIO_AMR_WB = "audio/amr-wb";
@@ -137,36 +107,6 @@ public final class MediaFormat {
     public static final String MIMETYPE_AUDIO_MSGSM = "audio/gsm";
     public static final String MIMETYPE_AUDIO_AC3 = "audio/ac3";
     public static final String MIMETYPE_AUDIO_EAC3 = "audio/eac3";
-    public static final String MIMETYPE_AUDIO_SCRAMBLED = "audio/scrambled";
-
-    /**
-     * MIME type for HEIF still image data encoded in HEVC.
-     *
-     * To decode such an image, {@link MediaCodec} decoder for
-     * {@ #MIMETYPE_VIDEO_HEVC} shall be used. The client needs to form
-     * the correct {@link #MediaFormat} based on additional information in
-     * the track format, and send it to {@link MediaCodec#configure}.
-     *
-     * The track's MediaFormat will come with {@link #KEY_WIDTH} and
-     * {@link #KEY_HEIGHT} keys, which describes the width and height
-     * of the image. If the image doesn't contain grid (i.e. none of
-     * {@link #KEY_TILE_WIDTH}, {@link #KEY_TILE_HEIGHT},
-     * {@link #KEY_GRID_ROWS}, {@link #KEY_GRID_COLUMNS} are present}), the
-     * track will contain a single sample of coded data for the entire image,
-     * and the image width and height should be used to set up the decoder.
-     *
-     * If the image does come with grid, each sample from the track will
-     * contain one tile in the grid, of which the size is described by
-     * {@link #KEY_TILE_WIDTH} and {@link #KEY_TILE_HEIGHT}. This size
-     * (instead of {@link #KEY_WIDTH} and {@link #KEY_HEIGHT}) should be
-     * used to set up the decoder. The track contains {@link #KEY_GRID_ROWS}
-     * by {@link #KEY_GRID_COLUMNS} samples in row-major, top-row first,
-     * left-to-right order. The output image should be reconstructed by
-     * first tiling the decoding results of the tiles in the correct order,
-     * then trimming (before rotation is applied) on the bottom and right
-     * side, if the tiled area is larger than the image width and height.
-     */
-    public static final String MIMETYPE_IMAGE_ANDROID_HEIC = "image/vnd.android.heic";
 
     /**
      * MIME type for WebVTT subtitle data.
@@ -174,19 +114,9 @@ public final class MediaFormat {
     public static final String MIMETYPE_TEXT_VTT = "text/vtt";
 
     /**
-     * MIME type for SubRip (SRT) container.
-     */
-    public static final String MIMETYPE_TEXT_SUBRIP = "application/x-subrip";
-
-    /**
      * MIME type for CEA-608 closed caption data.
      */
     public static final String MIMETYPE_TEXT_CEA_608 = "text/cea-608";
-
-    /**
-     * MIME type for CEA-708 closed caption data.
-     */
-    public static final String MIMETYPE_TEXT_CEA_708 = "text/cea-708";
 
     private Map<String, Object> mMap;
 
@@ -247,18 +177,10 @@ public final class MediaFormat {
     public static final String KEY_MAX_INPUT_SIZE = "max-input-size";
 
     /**
-     * A key describing the average bitrate in bits/sec.
+     * A key describing the bitrate in bits/sec.
      * The associated value is an integer
      */
     public static final String KEY_BIT_RATE = "bitrate";
-
-    /**
-     * A key describing the max bitrate in bits/sec.
-     * This is usually over a one-second sliding window (e.g. over any window of one second).
-     * The associated value is an integer
-     * @hide
-     */
-    public static final String KEY_MAX_BIT_RATE = "max-bitrate";
 
     /**
      * A key describing the color format of the content in a video format.
@@ -268,89 +190,9 @@ public final class MediaFormat {
 
     /**
      * A key describing the frame rate of a video format in frames/sec.
-     * The associated value is normally an integer when the value is used by the platform,
-     * but video codecs also accept float configuration values.
-     * Specifically, {@link MediaExtractor#getTrackFormat MediaExtractor} provides an integer
-     * value corresponding to the frame rate information of the track if specified and non-zero.
-     * Otherwise, this key is not present. {@link MediaCodec#configure MediaCodec} accepts both
-     * float and integer values. This represents the desired operating frame rate if the
-     * {@link #KEY_OPERATING_RATE} is not present and {@link #KEY_PRIORITY} is {@code 0}
-     * (realtime). For video encoders this value corresponds to the intended frame rate,
-     * although encoders are expected
-     * to support variable frame rate based on {@link MediaCodec.BufferInfo#presentationTimeUs
-     * buffer timestamp}. This key is not used in the {@code MediaCodec}
-     * {@link MediaCodec#getInputFormat input}/{@link MediaCodec#getOutputFormat output} formats,
-     * nor by {@link MediaMuxer#addTrack MediaMuxer}.
+     * The associated value is an integer or a float.
      */
     public static final String KEY_FRAME_RATE = "frame-rate";
-
-    /**
-     * A key describing the width (in pixels) of each tile of the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
-     *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
-     *
-     * @see #KEY_TILE_HEIGHT
-     * @see #KEY_GRID_ROWS
-     * @see #KEY_GRID_COLUMNS
-     */
-    public static final String KEY_TILE_WIDTH = "tile-width";
-
-    /**
-     * A key describing the height (in pixels) of each tile of the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
-     *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
-     *
-     * @see #KEY_TILE_WIDTH
-     * @see #KEY_GRID_ROWS
-     * @see #KEY_GRID_COLUMNS
-     */
-    public static final String KEY_TILE_HEIGHT = "tile-height";
-
-    /**
-     * A key describing the number of grid rows in the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
-     *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
-     *
-     * @see #KEY_TILE_WIDTH
-     * @see #KEY_TILE_HEIGHT
-     * @see #KEY_GRID_COLUMNS
-     */
-    public static final String KEY_GRID_ROWS = "grid-rows";
-
-    /**
-     * A key describing the number of grid columns in the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
-     *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
-     *
-     * @see #KEY_TILE_WIDTH
-     * @see #KEY_TILE_HEIGHT
-     * @see #KEY_GRID_ROWS
-     */
-    public static final String KEY_GRID_COLUMNS = "grid-cols";
-
-    /**
-     * A key describing the raw audio sample encoding/format.
-     *
-     * <p>The associated value is an integer, using one of the
-     * {@link AudioFormat}.ENCODING_PCM_ values.</p>
-     *
-     * <p>This is an optional key for audio decoders and encoders specifying the
-     * desired raw audio sample format during {@link MediaCodec#configure
-     * MediaCodec.configure(&hellip;)} call. Use {@link MediaCodec#getInputFormat
-     * MediaCodec.getInput}/{@link MediaCodec#getOutputFormat OutputFormat(&hellip;)}
-     * to confirm the actual format. For the PCM decoder this key specifies both
-     * input and output sample encodings.</p>
-     *
-     * <p>This key is also used by {@link MediaExtractor} to specify the sample
-     * format of audio data, if it is specified.</p>
-     *
-     * <p>If this key is missing, the raw audio sample format is signed 16-bit short.</p>
-     */
-    public static final String KEY_PCM_ENCODING = "pcm-encoding";
 
     /**
      * A key describing the capture rate of a video format in frames/sec.
@@ -368,51 +210,20 @@ public final class MediaFormat {
     public static final String KEY_CAPTURE_RATE = "capture-rate";
 
     /**
-     * A key describing the frequency of key frames expressed in seconds between key frames.
-     * <p>
-     * This key is used by video encoders.
-     * A negative value means no key frames are requested after the first frame.
-     * A zero value means a stream containing all key frames is requested.
-     * <p class=note>
-     * Most video encoders will convert this value of the number of non-key-frames between
-     * key-frames, using the {@linkplain #KEY_FRAME_RATE frame rate} information; therefore,
-     * if the actual frame rate differs (e.g. input frames are dropped or the frame rate
-     * changes), the <strong>time interval</strong> between key frames will not be the
-     * configured value.
-     * <p>
-     * The associated value is an integer (or float since
-     * {@link android.os.Build.VERSION_CODES#N_MR1}).
+     * A key describing the frequency of I frames expressed in secs
+     * between I frames.
+     * The associated value is an integer.
      */
     public static final String KEY_I_FRAME_INTERVAL = "i-frame-interval";
 
     /**
-    * An optional key describing the period of intra refresh in frames. This is an
-    * optional parameter that applies only to video encoders. If encoder supports it
-    * ({@link MediaCodecInfo.CodecCapabilities#FEATURE_IntraRefresh}), the whole
-    * frame is completely refreshed after the specified period. Also for each frame,
-    * a fix subset of macroblocks must be intra coded which leads to more constant bitrate
-    * than inserting a key frame. This key is recommended for video streaming applications
-    * as it provides low-delay and good error-resilience. This key is ignored if the
-    * video encoder does not support the intra refresh feature. Use the output format to
-    * verify that this feature was enabled.
-    * The associated value is an integer.
-    */
-    public static final String KEY_INTRA_REFRESH_PERIOD = "intra-refresh-period";
-
-   /**
      * A key describing the temporal layering schema.  This is an optional parameter
-     * that applies only to video encoders.  Use {@link MediaCodec#getOutputFormat}
+     * that applies only to video encoders.  Use {@link MediaCodec#getInputFormat}
      * after {@link MediaCodec#configure configure} to query if the encoder supports
-     * the desired schema. Supported values are {@code webrtc.vp8.N-layer},
-     * {@code android.generic.N}, {@code android.generic.N+M} and {@code none}, where
-     * {@code N} denotes the total number of non-bidirectional layers (which must be at least 1)
-     * and {@code M} denotes the total number of bidirectional layers (which must be non-negative).
-     * <p class=note>{@code android.generic.*} schemas have been added in {@link
-     * android.os.Build.VERSION_CODES#N_MR1}.
-     * <p>
-     * The encoder may support fewer temporal layers, in which case the output format
-     * will contain the configured schema. If the encoder does not support temporal
-     * layering, the output format will not have an entry with this key.
+     * the desired schema. Supported values are {@code webrtc.vp8.1-layer},
+     * {@code webrtc.vp8.2-layer}, {@code webrtc.vp8.3-layer}, and {@code none}.
+     * If the encoder does not support temporal layering, the input format will
+     * not have an entry with this key.
      * The associated value is a string.
      */
     public static final String KEY_TEMPORAL_LAYERING = "ts-schema";
@@ -422,19 +233,17 @@ public final class MediaFormat {
      * Stride (or row increment) is the difference between the index of a pixel
      * and that of the pixel directly underneath. For YUV 420 formats, the
      * stride corresponds to the Y plane; the stride of the U and V planes can
-     * be calculated based on the color format, though it is generally undefined
-     * and depends on the device and release.
+     * be calculated based on the color format.
      * The associated value is an integer, representing number of bytes.
      */
     public static final String KEY_STRIDE = "stride";
 
     /**
      * A key describing the plane height of a multi-planar (YUV) video bytebuffer layout.
-     * Slice height (or plane height/vertical stride) is the number of rows that must be skipped
-     * to get from the top of the Y plane to the top of the U plane in the bytebuffer. In essence
+     * Slice height (or plane height) is the number of rows that must be skipped to get
+     * from the top of the Y plane to the top of the U plane in the bytebuffer. In essence
      * the offset of the U plane is sliceHeight * stride. The height of the U/V planes
-     * can be calculated based on the color format, though it is generally undefined
-     * and depends on the device and release.
+     * can be calculated based on the color format.
      * The associated value is an integer, representing number of rows.
      */
     public static final String KEY_SLICE_HEIGHT = "slice-height";
@@ -515,48 +324,21 @@ public final class MediaFormat {
      * The gain is derived as the difference between the Target Reference Level and the
      * Program Reference Level. The latter can be given in the bitstream and indicates the actual
      * loudness value of the program item.
-     * <p>The Target Reference Level controls loudness normalization for both MPEG-4 DRC and
-     * MPEG-D DRC.
      * <p>The value is given as an integer value between
-     * 40 and 127, and is calculated as -4 * Target Reference Level in LKFS.
-     * Therefore, it represents the range of -10 to -31.75 LKFS.
-     * <p>The default value on mobile devices is 64 (-16 LKFS).
+     * 0 and 127, and is calculated as -0.25 * Target Reference Level in dBFS.
+     * Therefore, it represents the range of Full Scale (0 dBFS) to -31.75 dBFS.
      * <p>This key is only used during decoding.
      */
     public static final String KEY_AAC_DRC_TARGET_REFERENCE_LEVEL = "aac-target-ref-level";
 
     /**
-     * A key describing for selecting the DRC effect type for MPEG-D DRC.
-     * The supported values are defined in ISO/IEC 23003-4:2015 and are described as follows:
-     * <table>
-     * <tr><th>Value</th><th>Effect</th></tr>
-     * <tr><th>-1</th><th>Off</th></tr>
-     * <tr><th>0</th><th>None</th></tr>
-     * <tr><th>1</th><th>Late night</th></tr>
-     * <tr><th>2</th><th>Noisy environment</th></tr>
-     * <tr><th>3</th><th>Limited playback range</th></tr>
-     * <tr><th>4</th><th>Low playback level</th></tr>
-     * <tr><th>5</th><th>Dialog enhancement</th></tr>
-     * <tr><th>6</th><th>General compression</th></tr>
-     * </table>
-     * <p>The value -1 (Off) disables DRC processing, while loudness normalization may still be
-     * active and dependent on KEY_AAC_DRC_TARGET_REFERENCE_LEVEL.<br>
-     * The value 0 (None) automatically enables DRC processing if necessary to prevent signal
-     * clipping<br>
-     * The value 6 (General compression) can be used for enabling MPEG-D DRC without particular
-     * DRC effect type request.<br>
-     * The default DRC effect type is 3 ("Limited playback range") on mobile devices.
-     * <p>This key is only used during decoding.
-     */
-    public static final String KEY_AAC_DRC_EFFECT_TYPE = "aac-drc-effect-type";
-
-    /**
      * A key describing the target reference level that was assumed at the encoder for
-     * calculation of attenuation gains for clipping prevention.
-     * <p>If it is known, this information can be provided as an integer value between
-     * 0 and 127, which is calculated as -4 * Encoded Target Level in LKFS.
-     * If the Encoded Target Level is unknown, the value can be set to -1.
-     * <p>The default value is -1 (unknown).
+     * calculation of attenuation gains for clipping prevention. This information can be provided
+     * if it is known, otherwise a worst-case assumption is used.
+     * <p>The value is given as an integer value between
+     * 0 and 127, and is calculated as -0.25 * Target Reference Level in dBFS.
+     * Therefore, it represents the range of Full Scale (0 dBFS) to -31.75 dBFS.
+     * The default value is the worst-case assumption of 127.
      * <p>The value is ignored when heavy compression is used (see
      * {@link #KEY_AAC_DRC_HEAVY_COMPRESSION}).
      * <p>This key is only used during decoding.
@@ -578,12 +360,11 @@ public final class MediaFormat {
      * factor is used to enable the negative gains, to prevent loud signal from surprising
      * the listener. In applications which generally need a low dynamic range, both the boost factor
      * and the attenuation factor are used in order to enable all DRC gains.
-     * <p>In order to prevent clipping, it is also recommended to apply the attenuation gains
+     * <p>In order to prevent clipping, it is also recommended to apply the attenuation factors
      * in case of a downmix and/or loudness normalization to high target reference levels.
      * <p>Both the boost and the attenuation factor parameters are given as integer values
      * between 0 and 127, representing the range of the factor of 0 (i.e. don't apply)
-     * to 1 (i.e. fully apply boost/attenuation gains respectively).
-     * <p>The default value is 127 (fully apply boost DRC gains).
+     * to 1 (i.e. fully apply boost/attenuation factors respectively).
      * <p>This key is only used during decoding.
      */
     public static final String KEY_AAC_DRC_BOOST_FACTOR = "aac-drc-boost-level";
@@ -593,7 +374,6 @@ public final class MediaFormat {
      * actual listening requirements.
      * See {@link #KEY_AAC_DRC_BOOST_FACTOR} for a description of the role of this attenuation
      * factor and the value range.
-     * <p>The default value is 127 (fully apply attenuation DRC gains).
      * <p>This key is only used during decoding.
      */
     public static final String KEY_AAC_DRC_ATTENUATION_FACTOR = "aac-drc-cut-level";
@@ -613,7 +393,7 @@ public final class MediaFormat {
      * Light compression usually contains clipping prevention for stereo downmixing while heavy
      * compression, if additionally provided in the bitstream, is usually stronger, and contains
      * clipping prevention for stereo and mono downmixing.
-     * <p>The default is 1 (heavy compression).
+     * <p>The default is light compression.
      * <p>This key is only used during decoding.
      */
     public static final String KEY_AAC_DRC_HEAVY_COMPRESSION = "aac-drc-heavy-compression";
@@ -640,6 +420,8 @@ public final class MediaFormat {
      * that are configured in constant-quality mode.  These values are device and
      * codec specific, but lower values generally result in more efficient
      * (smaller-sized) encoding.
+     *
+     * @hide
      *
      * @see MediaCodecInfo.EncoderCapabilities#getQualityRange()
      */
@@ -685,8 +467,7 @@ public final class MediaFormat {
      * The associated value is an integer.
      * Constants are declared in {@link MediaCodecInfo.CodecProfileLevel}.
      * This key is used as a hint, and is only supported for codecs
-     * that specify a profile. Note: Codecs are free to use all the available
-     * coding tools at the specified profile.
+     * that specify a profile.
      *
      * @see MediaCodecInfo.CodecCapabilities#profileLevels
      */
@@ -706,38 +487,9 @@ public final class MediaFormat {
     public static final String KEY_LEVEL = "level";
 
     /**
-    * An optional key describing the desired encoder latency in frames. This is an optional
-    * parameter that applies only to video encoders. If encoder supports it, it should ouput
-    * at least one output frame after being queued the specified number of frames. This key
-    * is ignored if the video encoder does not support the latency feature. Use the output
-    * format to verify that this feature was enabled and the actual value used by the encoder.
-    * <p>
-    * If the key is not specified, the default latency will be implenmentation specific.
-    * The associated value is an integer.
-    */
-    public static final String KEY_LATENCY = "latency";
-
-    /**
-     * An optional key describing the maximum number of non-display-order coded frames.
-     * This is an optional parameter that applies only to video encoders. Application should
-     * check the value for this key in the output format to see if codec will produce
-     * non-display-order coded frames. If encoder supports it, the output frames' order will be
-     * different from the display order and each frame's display order could be retrived from
-     * {@link MediaCodec.BufferInfo#presentationTimeUs}. Before API level 27, application may
-     * receive non-display-order coded frames even though the application did not request it.
-     * Note: Application should not rearrange the frames to display order before feeding them
-     * to {@link MediaMuxer#writeSampleData}.
-     * <p>
-     * The default value is 0.
-     */
-    public static final String KEY_OUTPUT_REORDER_DEPTH = "output-reorder-depth";
-
-    /**
      * A key describing the desired clockwise rotation on an output surface.
      * This key is only used when the codec is configured using an output surface.
-     * The associated value is an integer, representing degrees. Supported values
-     * are 0, 90, 180 or 270. This is an optional field; if not specified, rotation
-     * defaults to 0.
+     * The associated value is an integer, representing degrees.
      *
      * @see MediaCodecInfo.CodecCapabilities#profileLevels
      */
@@ -774,15 +526,13 @@ public final class MediaFormat {
     /**
      * A key for boolean DEFAULT behavior for the track. The track with DEFAULT=true is
      * selected in the absence of a specific user choice.
-     * This is currently used in two scenarios:
-     * 1) for subtitle tracks, when the user selected 'Default' for the captioning locale.
-     * 2) for a {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track, indicating the image is the
-     * primary item in the file.
-
+     * This is currently only used for subtitle tracks, when the user selected
+     * 'Default' for the captioning locale.
      * The associated value is an integer, where non-0 means TRUE.  This is an optional
      * field; if not specified, DEFAULT is considered to be FALSE.
      */
     public static final String KEY_IS_DEFAULT = "is-default";
+
 
     /**
      * A key for the FORCED field for subtitle tracks. True if it is a
@@ -796,144 +546,6 @@ public final class MediaFormat {
 
     /** @hide */
     public static final String KEY_IS_TIMED_TEXT = "is-timed-text";
-
-    // The following color aspect values must be in sync with the ones in HardwareAPI.h.
-    /**
-     * An optional key describing the color primaries, white point and
-     * luminance factors for video content.
-     *
-     * The associated value is an integer: 0 if unspecified, or one of the
-     * COLOR_STANDARD_ values.
-     */
-    public static final String KEY_COLOR_STANDARD = "color-standard";
-
-    /** BT.709 color chromacity coordinates with KR = 0.2126, KB = 0.0722. */
-    public static final int COLOR_STANDARD_BT709 = 1;
-
-    /** BT.601 625 color chromacity coordinates with KR = 0.299, KB = 0.114. */
-    public static final int COLOR_STANDARD_BT601_PAL = 2;
-
-    /** BT.601 525 color chromacity coordinates with KR = 0.299, KB = 0.114. */
-    public static final int COLOR_STANDARD_BT601_NTSC = 4;
-
-    /** BT.2020 color chromacity coordinates with KR = 0.2627, KB = 0.0593. */
-    public static final int COLOR_STANDARD_BT2020 = 6;
-
-    /** @hide */
-    @IntDef({
-        COLOR_STANDARD_BT709,
-        COLOR_STANDARD_BT601_PAL,
-        COLOR_STANDARD_BT601_NTSC,
-        COLOR_STANDARD_BT2020,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ColorStandard {}
-
-    /**
-     * An optional key describing the opto-electronic transfer function used
-     * for the video content.
-     *
-     * The associated value is an integer: 0 if unspecified, or one of the
-     * COLOR_TRANSFER_ values.
-     */
-    public static final String KEY_COLOR_TRANSFER = "color-transfer";
-
-    /** Linear transfer characteristic curve. */
-    public static final int COLOR_TRANSFER_LINEAR = 1;
-
-    /** SMPTE 170M transfer characteristic curve used by BT.601/BT.709/BT.2020. This is the curve
-     *  used by most non-HDR video content. */
-    public static final int COLOR_TRANSFER_SDR_VIDEO = 3;
-
-    /** SMPTE ST 2084 transfer function. This is used by some HDR video content. */
-    public static final int COLOR_TRANSFER_ST2084 = 6;
-
-    /** ARIB STD-B67 hybrid-log-gamma transfer function. This is used by some HDR video content. */
-    public static final int COLOR_TRANSFER_HLG = 7;
-
-    /** @hide */
-    @IntDef({
-        COLOR_TRANSFER_LINEAR,
-        COLOR_TRANSFER_SDR_VIDEO,
-        COLOR_TRANSFER_ST2084,
-        COLOR_TRANSFER_HLG,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ColorTransfer {}
-
-    /**
-     * An optional key describing the range of the component values of the video content.
-     *
-     * The associated value is an integer: 0 if unspecified, or one of the
-     * COLOR_RANGE_ values.
-     */
-    public static final String KEY_COLOR_RANGE = "color-range";
-
-    /** Limited range. Y component values range from 16 to 235 for 8-bit content.
-     *  Cr, Cy values range from 16 to 240 for 8-bit content.
-     *  This is the default for video content. */
-    public static final int COLOR_RANGE_LIMITED = 2;
-
-    /** Full range. Y, Cr and Cb component values range from 0 to 255 for 8-bit content. */
-    public static final int COLOR_RANGE_FULL = 1;
-
-    /** @hide */
-    @IntDef({
-        COLOR_RANGE_LIMITED,
-        COLOR_RANGE_FULL,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ColorRange {}
-
-    /**
-     * An optional key describing the static metadata of HDR (high-dynamic-range) video content.
-     *
-     * The associated value is a ByteBuffer. This buffer contains the raw contents of the
-     * Static Metadata Descriptor (including the descriptor ID) of an HDMI Dynamic Range and
-     * Mastering InfoFrame as defined by CTA-861.3. This key must be provided to video decoders
-     * for HDR video content unless this information is contained in the bitstream and the video
-     * decoder supports an HDR-capable profile. This key must be provided to video encoders for
-     * HDR video content.
-     */
-    public static final String KEY_HDR_STATIC_INFO = "hdr-static-info";
-
-    /**
-     * A key describing a unique ID for the content of a media track.
-     *
-     * <p>This key is used by {@link MediaExtractor}. Some extractors provide multiple encodings
-     * of the same track (e.g. float audio tracks for FLAC and WAV may be expressed as two
-     * tracks via MediaExtractor: a normal PCM track for backward compatibility, and a float PCM
-     * track for added fidelity. Similarly, Dolby Vision extractor may provide a baseline SDR
-     * version of a DV track.) This key can be used to identify which MediaExtractor tracks refer
-     * to the same underlying content.
-     * </p>
-     *
-     * The associated value is an integer.
-     */
-    public static final String KEY_TRACK_ID = "track-id";
-
-    /**
-     * A key describing the system id of the conditional access system used to scramble
-     * a media track.
-     * <p>
-     * This key is set by {@link MediaExtractor} if the track is scrambled with a conditional
-     * access system.
-     * <p>
-     * The associated value is an integer.
-     * @hide
-     */
-    public static final String KEY_CA_SYSTEM_ID = "ca-system-id";
-
-    /**
-     * A key describing the {@link MediaCas.Session} object associated with a media track.
-     * <p>
-     * This key is set by {@link MediaExtractor} if the track is scrambled with a conditional
-     * access system.
-     * <p>
-     * The associated value is a ByteBuffer.
-     * @hide
-     */
-    public static final String KEY_CA_SESSION_ID = "ca-session-id";
 
     /* package private */ MediaFormat(Map<String, Object> map) {
         mMap = map;

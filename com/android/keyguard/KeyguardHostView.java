@@ -34,7 +34,6 @@ import android.widget.FrameLayout;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.keyguard.KeyguardSecurityContainer.SecurityCallback;
 import com.android.keyguard.KeyguardSecurityModel.SecurityMode;
-import com.android.settingslib.Utils;
 
 import java.io.File;
 
@@ -89,7 +88,7 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
                         // the user proved presence via some other way to the trust agent.
                         Log.i(TAG, "TrustAgent dismissed Keyguard.");
                     }
-                    dismiss(false /* authenticated */, userId);
+                    dismiss(false /* authenticated */);
                 } else {
                     mViewMediatorCallback.playTrustedSound();
                 }
@@ -137,10 +136,6 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
         mCancelAction = cancelAction;
     }
 
-    public boolean hasDismissActions() {
-        return mDismissAction != null || mCancelAction != null;
-    }
-
     public void cancelDismissAction() {
         setOnDismissAction(null, null);
     }
@@ -148,11 +143,12 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     @Override
     protected void onFinishInflate() {
         mSecurityContainer =
-                findViewById(R.id.keyguard_security_container);
+                (KeyguardSecurityContainer) findViewById(R.id.keyguard_security_container);
         mLockPatternUtils = new LockPatternUtils(mContext);
         mSecurityContainer.setLockPatternUtils(mLockPatternUtils);
         mSecurityContainer.setSecurityCallback(this);
         mSecurityContainer.showPrimarySecurityScreen(false);
+        // mSecurityContainer.updateSecurityViews(false /* not bouncing */);
     }
 
     /**
@@ -167,37 +163,38 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
      * Show a string explaining why the security view needs to be solved.
      *
      * @param reason a flag indicating which string should be shown, see
-     *               {@link KeyguardSecurityView#PROMPT_REASON_NONE},
-     *               {@link KeyguardSecurityView#PROMPT_REASON_RESTART} and
-     *               {@link KeyguardSecurityView#PROMPT_REASON_TIMEOUT}.
+     *               {@link KeyguardSecurityView#PROMPT_REASON_NONE}
+     *               and {@link KeyguardSecurityView#PROMPT_REASON_RESTART}
      */
     public void showPromptReason(int reason) {
         mSecurityContainer.showPromptReason(reason);
     }
 
-    public void showMessage(CharSequence message, int color) {
-        mSecurityContainer.showMessage(message, color);
-    }
-
-    public void showErrorMessage(CharSequence message) {
-        showMessage(message, Utils.getColorError(mContext));
-    }
-
     /**
-     * Dismisses the keyguard by going to the next screen or making it gone.
-     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
-     * @return True if the keyguard is done.
+     *  Dismisses the keyguard by going to the next screen or making it gone.
+     *
+     *  @return True if the keyguard is done.
      */
-    public boolean dismiss(int targetUserId) {
-        return dismiss(false, targetUserId);
+    public boolean dismiss() {
+        return dismiss(false);
     }
 
     public boolean handleBackKey() {
         if (mSecurityContainer.getCurrentSecuritySelection() != SecurityMode.None) {
-            mSecurityContainer.dismiss(false, KeyguardUpdateMonitor.getCurrentUser());
+            mSecurityContainer.dismiss(false);
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            event.getText().add(mSecurityContainer.getCurrentSecurityModeContentDescription());
+            return true;
+        } else {
+            return super.dispatchPopulateAccessibilityEvent(event);
+        }
     }
 
     protected KeyguardSecurityContainer getSecurityContainer() {
@@ -205,20 +202,16 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     }
 
     @Override
-    public boolean dismiss(boolean authenticated, int targetUserId) {
-        return mSecurityContainer.showNextSecurityScreenOrFinish(authenticated, targetUserId);
+    public boolean dismiss(boolean authenticated) {
+        return mSecurityContainer.showNextSecurityScreenOrFinish(authenticated);
     }
 
     /**
      * Authentication has happened and it's time to dismiss keyguard. This function
      * should clean up and inform KeyguardViewMediator.
-     *
-     * @param strongAuth whether the user has authenticated with strong authentication like
-     *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
      */
     @Override
-    public void finish(boolean strongAuth, int targetUserId) {
+    public void finish() {
         // If there's a pending runnable because the user interacted with a widget
         // and we're leaving keyguard, then run it.
         boolean deferKeyguardDone = false;
@@ -229,9 +222,9 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
         }
         if (mViewMediatorCallback != null) {
             if (deferKeyguardDone) {
-                mViewMediatorCallback.keyguardDonePending(strongAuth, targetUserId);
+                mViewMediatorCallback.keyguardDonePending();
             } else {
-                mViewMediatorCallback.keyguardDone(strongAuth, targetUserId);
+                mViewMediatorCallback.keyguardDone(true);
             }
         }
     }
@@ -241,19 +234,11 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
         mViewMediatorCallback.resetKeyguard();
     }
 
-    public void resetSecurityContainer() {
-        mSecurityContainer.reset();
-    }
-
     @Override
     public void onSecurityModeChanged(SecurityMode securityMode, boolean needsInput) {
         if (mViewMediatorCallback != null) {
             mViewMediatorCallback.setNeedsInput(needsInput);
         }
-    }
-
-    public CharSequence getAccessibilityTitleForCurrentMode() {
-        return mSecurityContainer.getTitle();
     }
 
     public void userActivity() {
@@ -292,6 +277,32 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     public void startDisappearAnimation(Runnable finishRunnable) {
         if (!mSecurityContainer.startDisappearAnimation(finishRunnable) && finishRunnable != null) {
             finishRunnable.run();
+        }
+    }
+
+    /**
+     * Verify that the user can get past the keyguard securely.  This is called,
+     * for example, when the phone disables the keyguard but then wants to launch
+     * something else that requires secure access.
+     *
+     * The result will be propogated back via {@link KeyguardViewCallback#keyguardDone(boolean)}
+     */
+    public void verifyUnlock() {
+        SecurityMode securityMode = mSecurityContainer.getSecurityMode();
+        if (securityMode == KeyguardSecurityModel.SecurityMode.None) {
+            if (mViewMediatorCallback != null) {
+                mViewMediatorCallback.keyguardDone(true);
+            }
+        } else if (securityMode != KeyguardSecurityModel.SecurityMode.Pattern
+                && securityMode != KeyguardSecurityModel.SecurityMode.PIN
+                && securityMode != KeyguardSecurityModel.SecurityMode.Password) {
+            // can only verify unlock when in pattern/password mode
+            if (mViewMediatorCallback != null) {
+                mViewMediatorCallback.keyguardDone(false);
+            }
+        } else {
+            // otherwise, go to the unlock screen, see if they can verify it
+            mSecurityContainer.verifyUnlock();
         }
     }
 
@@ -420,12 +431,21 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
      * @return true if the menu key should be enabled
      */
     private static final String ENABLE_MENU_KEY_FILE = "/data/local/enable_menu_key";
-    public boolean shouldEnableMenuKey() {
+    private boolean shouldEnableMenuKey() {
         final Resources res = getResources();
         final boolean configDisabled = res.getBoolean(R.bool.config_disableMenuKeyInLockScreen);
         final boolean isTestHarness = ActivityManager.isRunningInTestHarness();
         final boolean fileOverride = (new File(ENABLE_MENU_KEY_FILE)).exists();
         return !configDisabled || isTestHarness || fileOverride;
+    }
+
+    public boolean handleMenuKey() {
+        // The following enables the MENU key to work for testing automation
+        if (shouldEnableMenuKey()) {
+            dismiss();
+            return true;
+        }
+        return false;
     }
 
     public void setViewMediatorCallback(ViewMediatorCallback viewMediatorCallback) {

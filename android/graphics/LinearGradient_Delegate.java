@@ -24,9 +24,6 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import android.graphics.Shader.TileMode;
 
 import java.awt.image.ColorModel;
-import java.awt.image.DataBufferInt;
-import java.awt.image.Raster;
-import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.LinearGradient
@@ -59,20 +56,21 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(LinearGradient thisGradient, long matrix,
+    /*package*/ static long nativeCreate1(LinearGradient thisGradient,
             float x0, float y0, float x1, float y1,
             int colors[], float positions[], int tileMode) {
-        LinearGradient_Delegate newDelegate = new LinearGradient_Delegate(matrix, x0, y0,
-                x1, y1, colors, positions, Shader_Delegate.getTileMode(tileMode));
+        LinearGradient_Delegate newDelegate = new LinearGradient_Delegate(x0, y0, x1, y1,
+                colors, positions, Shader_Delegate.getTileMode(tileMode));
         return sManager.addNewDelegate(newDelegate);
     }
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(LinearGradient thisGradient, long matrix,
+    /*package*/ static long nativeCreate2(LinearGradient thisGradient,
             float x0, float y0, float x1, float y1,
             int color0, int color1, int tileMode) {
-        return nativeCreate1(thisGradient, matrix, x0, y0, x1, y1, new int[] { color0, color1},
-                null /*positions*/, tileMode);
+        return nativeCreate1(thisGradient,
+                x0, y0, x1, y1, new int[] { color0, color1}, null /*positions*/,
+                tileMode);
     }
 
     // ---- Private delegate/helper methods ----
@@ -80,7 +78,6 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
     /**
      * Create a shader that draws a linear gradient along a line.
      *
-     * @param nativeMatrix reference to the shader's native transformation matrix
      * @param x0 The x-coordinate for the start of the gradient line
      * @param y0 The y-coordinate for the start of the gradient line
      * @param x1 The x-coordinate for the end of the gradient line
@@ -91,9 +88,9 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
      *            the colors are distributed evenly along the gradient line.
      * @param tile The Shader tiling mode
      */
-    private LinearGradient_Delegate(long nativeMatrix, float x0, float y0, float x1,
-            float y1, int colors[], float positions[], TileMode tile) {
-        super(nativeMatrix, colors, positions);
+    private LinearGradient_Delegate(float x0, float y0, float x1, float y1,
+            int colors[], float positions[], TileMode tile) {
+        super(colors, positions);
         mJavaPaint = new LinearGradientPaint(x0, y0, x1, y1, mColors, mPositions, tile);
     }
 
@@ -177,6 +174,10 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
 
             @Override
             public java.awt.image.Raster getRaster(int x, int y, int w, int h) {
+                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    mColorModel, mColorModel.createCompatibleWritableRaster(w, h),
+                    mColorModel.isAlphaPremultiplied(), null);
+
                 int[] data = new int[w*h];
 
                 int index = 0;
@@ -198,9 +199,9 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
         }
 

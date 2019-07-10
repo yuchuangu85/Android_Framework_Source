@@ -31,7 +31,7 @@ public class CountedCompleterTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(CountedCompleterTest.class);
+    //     return new TestSuite(...);
     // }
 
     // Runs with "mainPool" use > 1 thread. singletonPool tests use 1
@@ -53,7 +53,7 @@ public class CountedCompleterTest extends JSR166TestCase {
     }
 
     private void testInvokeOnPool(ForkJoinPool pool, ForkJoinTask a) {
-        try (PoolCleaner cleaner = cleaner(pool)) {
+        try {
             assertFalse(a.isDone());
             assertFalse(a.isCompletedNormally());
             assertFalse(a.isCompletedAbnormally());
@@ -69,6 +69,8 @@ public class CountedCompleterTest extends JSR166TestCase {
             assertFalse(a.isCancelled());
             assertNull(a.getException());
             assertNull(a.getRawResult());
+        } finally {
+            joinPool(pool);
         }
     }
 
@@ -97,17 +99,17 @@ public class CountedCompleterTest extends JSR166TestCase {
 
         {
             Thread.currentThread().interrupt();
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             assertNull(a.join());
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
             Thread.interrupted();
         }
 
         {
             Thread.currentThread().interrupt();
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
             Thread.interrupted();
         }
 
@@ -140,9 +142,9 @@ public class CountedCompleterTest extends JSR166TestCase {
         Thread.interrupted();
 
         {
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
         }
 
         try {
@@ -178,9 +180,9 @@ public class CountedCompleterTest extends JSR166TestCase {
         Thread.interrupted();
 
         {
-            long startTime = System.nanoTime();
+            long t0 = System.nanoTime();
             a.quietlyJoin();        // should be no-op
-            assertTrue(millisElapsedSince(startTime) < SMALL_DELAY_MS);
+            assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
         }
 
         try {
@@ -282,9 +284,6 @@ public class CountedCompleterTest extends JSR166TestCase {
     final class NoopCC extends CheckedCC {
         NoopCC() { super(); }
         NoopCC(CountedCompleter p) { super(p); }
-        NoopCC(CountedCompleter p, int initialPendingCount) {
-            super(p, initialPendingCount);
-        }
         protected void realCompute() {}
     }
 
@@ -303,7 +302,6 @@ public class CountedCompleterTest extends JSR166TestCase {
     void testComplete(NoopCC cc, Object x, int pendingCount) {
         cc.setPendingCount(pendingCount);
         cc.checkCompletes(x);
-        assertEquals(pendingCount, cc.getPendingCount());
     }
 
     /**
@@ -317,20 +315,14 @@ public class CountedCompleterTest extends JSR166TestCase {
     }
 
     /**
-     * completeExceptionally(null) surprisingly has the same effect as
-     * completeExceptionally(new RuntimeException())
+     * completeExceptionally(null) throws NullPointerException
      */
     public void testCompleteExceptionally_null() {
-        NoopCC a = new NoopCC();
-        a.completeExceptionally(null);
         try {
-            a.invoke();
+            new NoopCC()
+                .checkCompletesExceptionally(null);
             shouldThrow();
-        } catch (RuntimeException success) {
-            assertSame(success.getClass(), RuntimeException.class);
-            assertNull(success.getCause());
-            a.checkCompletedExceptionally(success);
-        }
+        } catch (NullPointerException success) {}
     }
 
     /**
@@ -339,15 +331,10 @@ public class CountedCompleterTest extends JSR166TestCase {
     public void testSetPendingCount() {
         NoopCC a = new NoopCC();
         assertEquals(0, a.getPendingCount());
-        int[] vals = {
-             -1, 0, 1,
-             Integer.MIN_VALUE,
-             Integer.MAX_VALUE,
-        };
-        for (int val : vals) {
-            a.setPendingCount(val);
-            assertEquals(val, a.getPendingCount());
-        }
+        a.setPendingCount(1);
+        assertEquals(1, a.getPendingCount());
+        a.setPendingCount(27);
+        assertEquals(27, a.getPendingCount());
     }
 
     /**
@@ -360,26 +347,21 @@ public class CountedCompleterTest extends JSR166TestCase {
         assertEquals(1, a.getPendingCount());
         a.addToPendingCount(27);
         assertEquals(28, a.getPendingCount());
-        a.addToPendingCount(-28);
-        assertEquals(0, a.getPendingCount());
     }
 
     /**
      * decrementPendingCountUnlessZero decrements reported pending
      * count unless zero
      */
-    public void testDecrementPendingCountUnlessZero() {
-        NoopCC a = new NoopCC(null, 2);
-        assertEquals(2, a.getPendingCount());
-        assertEquals(2, a.decrementPendingCountUnlessZero());
+    public void testDecrementPendingCount() {
+        NoopCC a = new NoopCC();
+        assertEquals(0, a.getPendingCount());
+        a.addToPendingCount(1);
         assertEquals(1, a.getPendingCount());
-        assertEquals(1, a.decrementPendingCountUnlessZero());
+        a.decrementPendingCountUnlessZero();
         assertEquals(0, a.getPendingCount());
-        assertEquals(0, a.decrementPendingCountUnlessZero());
+        a.decrementPendingCountUnlessZero();
         assertEquals(0, a.getPendingCount());
-        a.setPendingCount(-1);
-        assertEquals(-1, a.decrementPendingCountUnlessZero());
-        assertEquals(-2, a.getPendingCount());
     }
 
     /**
@@ -503,7 +485,7 @@ public class CountedCompleterTest extends JSR166TestCase {
     }
 
     /**
-     * quietlyCompleteRoot completes root task and only root task
+     * quietlyCompleteRoot completes root task
      */
     public void testQuietlyCompleteRoot() {
         NoopCC a = new NoopCC();

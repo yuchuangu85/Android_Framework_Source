@@ -15,11 +15,7 @@
  */
 package android.media;
 
-import android.annotation.IntDef;
 import android.media.session.MediaSession;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 
 /**
  * Handles requests to adjust or set the volume on a session. This is also used
@@ -30,14 +26,6 @@ import java.lang.annotation.RetentionPolicy;
  * {@link MediaSession#setPlaybackToRemote}.
  */
 public abstract class VolumeProvider {
-
-    /**
-     * @hide
-     */
-    @IntDef({VOLUME_CONTROL_FIXED, VOLUME_CONTROL_RELATIVE, VOLUME_CONTROL_ABSOLUTE})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ControlType {}
-
     /**
      * The volume is fixed and can not be modified. Requests to change volume
      * should be ignored.
@@ -73,7 +61,7 @@ public abstract class VolumeProvider {
      * @param maxVolume The maximum allowed volume.
      * @param currentVolume The current volume on the output.
      */
-    public VolumeProvider(@ControlType int volumeControl, int maxVolume, int currentVolume) {
+    public VolumeProvider(int volumeControl, int maxVolume, int currentVolume) {
         mControlType = volumeControl;
         mMaxVolume = maxVolume;
         mCurrentVolume = currentVolume;
@@ -84,7 +72,6 @@ public abstract class VolumeProvider {
      *
      * @return The volume control type for this volume provider
      */
-    @ControlType
     public final int getVolumeControl() {
         return mControlType;
     }

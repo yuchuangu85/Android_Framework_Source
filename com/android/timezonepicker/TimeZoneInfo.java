@@ -46,6 +46,7 @@ public class TimeZoneInfo implements Comparable<TimeZoneInfo> {
     TimeZone mTz;
     public String mTzId;
     int mRawoffset;
+    public int[] mTransitions; // may have trailing 0's.
     public String mCountry;
     public int groupId;
     public String mDisplayName;
@@ -58,6 +59,13 @@ public class TimeZoneInfo implements Comparable<TimeZoneInfo> {
         mTzId = tz.getID();
         mCountry = country;
         mRawoffset = tz.getRawOffset();
+
+        try {
+            mTransitions = getTransitions(tz, time);
+        } catch (NoSuchFieldException ignored) {
+        } catch (IllegalAccessException ignored) {
+            ignored.printStackTrace();
+        }
     }
 
     SparseArray<String> mLocalTimeCache = new SparseArray<String>();
@@ -186,8 +194,34 @@ public class TimeZoneInfo implements Comparable<TimeZoneInfo> {
         return displayName;
     }
 
+    private static int[] getTransitions(TimeZone tz, long time)
+            throws IllegalAccessException, NoSuchFieldException {
+        Class<?> zoneInfoClass = tz.getClass();
+        Field mTransitionsField = zoneInfoClass.getDeclaredField("mTransitions");
+        mTransitionsField.setAccessible(true);
+        int[] objTransitions = (int[]) mTransitionsField.get(tz);
+        int[] transitions = null;
+        if (objTransitions.length != 0) {
+            transitions = new int[NUM_OF_TRANSITIONS];
+            int numOfTransitions = 0;
+            for (int i = 0; i < objTransitions.length; ++i) {
+                if (objTransitions[i] < time) {
+                    continue;
+                }
+                transitions[numOfTransitions++] = objTransitions[i];
+                if (numOfTransitions == NUM_OF_TRANSITIONS) {
+                    break;
+                }
+            }
+        }
+        return transitions;
+    }
+
     public boolean hasSameRules(TimeZoneInfo tzi) {
-        return this.mTz.hasSameRules(tzi.mTz);
+        // this.mTz.hasSameRules(tzi.mTz)
+
+        return this.mRawoffset == tzi.mRawoffset
+                && Arrays.equals(this.mTransitions, tzi.mTransitions);
     }
 
     @Override
@@ -234,6 +268,33 @@ public class TimeZoneInfo implements Comparable<TimeZoneInfo> {
         sb.append(getLocalTime(1383307200000L));
         sb.append(SEPARATOR);
 
+        // if (this.mTransitions != null && this.mTransitions.length != 0) {
+        // sb.append('"');
+        // DateFormat df = new SimpleDateFormat("yyyy-MM-dd' 'HH:mm:ss Z",
+        // Locale.US);
+        // df.setTimeZone(tz);
+        // DateFormat weekdayFormat = new SimpleDateFormat("EEEE", Locale.US);
+        // weekdayFormat.setTimeZone(tz);
+        // Formatter f = new Formatter(sb);
+        // for (int i = 0; i < this.mTransitions.length; ++i) {
+        // if (this.mTransitions[i] < time) {
+        // continue;
+        // }
+        //
+        // String fromTime = formatTime(df, this.mTransitions[i] - 1);
+        // String toTime = formatTime(df, this.mTransitions[i]);
+        // f.format("%s -> %s (%d)", fromTime, toTime, this.mTransitions[i]);
+        //
+        // String weekday = weekdayFormat.format(new Date(1000L *
+        // this.mTransitions[i]));
+        // if (!weekday.equals("Sunday")) {
+        // f.format(" -- %s", weekday);
+        // }
+        // sb.append("##");
+        // }
+        // sb.append('"');
+        // }
+        // sb.append(SEPARATOR);
         sb.append('\n');
         return sb.toString();
     }
@@ -269,6 +330,11 @@ public class TimeZoneInfo implements Comparable<TimeZoneInfo> {
             if (diff != 0) {
                 return diff;
             }
+        }
+
+        if (Arrays.equals(this.mTransitions, other.mTransitions)) {
+            Log.e(TAG, "Not expected to be comparing tz with the same country, same offset," +
+                    " same dst, same transitions:\n" + this.toString() + "\n" + other.toString());
         }
 
         // Finally diff by display name

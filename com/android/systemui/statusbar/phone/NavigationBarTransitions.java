@@ -16,142 +16,91 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
-import android.os.Handler;
-import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.util.SparseArray;
-import android.view.Display;
-import android.view.IWallpaperVisibilityListener;
-import android.view.IWindowManager;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.View.OnLayoutChangeListener;
+import android.view.animation.AccelerateInterpolator;
 
 import com.android.internal.statusbar.IStatusBarService;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
 
 public final class NavigationBarTransitions extends BarTransitions {
 
     private final NavigationBarView mView;
     private final IStatusBarService mBarService;
-    private final LightBarTransitionsController mLightTransitionsController;
-    private final boolean mAllowAutoDimWallpaperNotVisible;
-    private boolean mWallpaperVisible;
 
     private boolean mLightsOut;
-    private boolean mAutoDim;
-    private View mNavButtons;
 
     public NavigationBarTransitions(NavigationBarView view) {
         super(view, R.drawable.nav_background);
         mView = view;
         mBarService = IStatusBarService.Stub.asInterface(
                 ServiceManager.getService(Context.STATUS_BAR_SERVICE));
-        mLightTransitionsController = new LightBarTransitionsController(view.getContext(),
-                this::applyDarkIntensity);
-        mAllowAutoDimWallpaperNotVisible = view.getContext().getResources()
-                .getBoolean(R.bool.config_navigation_bar_enable_auto_dim_no_visible_wallpaper);
-
-        IWindowManager windowManagerService = Dependency.get(IWindowManager.class);
-        Handler handler = Handler.getMain();
-        try {
-            mWallpaperVisible = windowManagerService.registerWallpaperVisibilityListener(
-                new IWallpaperVisibilityListener.Stub() {
-                    @Override
-                    public void onWallpaperVisibilityChanged(boolean newVisibility,
-                            int displayId) throws RemoteException {
-                        mWallpaperVisible = newVisibility;
-                        handler.post(() -> applyLightsOut(true, false));
-                    }
-                }, Display.DEFAULT_DISPLAY);
-        } catch (RemoteException e) {
-        }
-        mView.addOnLayoutChangeListener(
-                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                    View currentView = mView.getCurrentView();
-                    if (currentView != null) {
-                        mNavButtons = currentView.findViewById(R.id.nav_buttons);
-                        applyLightsOut(false, true);
-                    }
-                });
-        View currentView = mView.getCurrentView();
-        if (currentView != null) {
-            mNavButtons = currentView.findViewById(R.id.nav_buttons);
-        }
     }
 
     public void init() {
         applyModeBackground(-1, getMode(), false /*animate*/);
-        applyLightsOut(false /*animate*/, true /*force*/);
-    }
-
-    @Override
-    public void setAutoDim(boolean autoDim) {
-        if (mAutoDim == autoDim) return;
-        mAutoDim = autoDim;
-        applyLightsOut(true, false);
-    }
-
-    @Override
-    protected boolean isLightsOut(int mode) {
-        return super.isLightsOut(mode) || (mAllowAutoDimWallpaperNotVisible && mAutoDim
-                && !mWallpaperVisible && mode != MODE_WARNING);
-    }
-
-    public LightBarTransitionsController getLightTransitionsController() {
-        return mLightTransitionsController;
+        applyMode(getMode(), false /*animate*/, true /*force*/);
     }
 
     @Override
     protected void onTransition(int oldMode, int newMode, boolean animate) {
         super.onTransition(oldMode, newMode, animate);
-        applyLightsOut(animate, false /*force*/);
+        applyMode(newMode, animate, false /*force*/);
     }
 
-    private void applyLightsOut(boolean animate, boolean force) {
+    private void applyMode(int mode, boolean animate, boolean force) {
+
         // apply to lights out
-        applyLightsOut(isLightsOut(getMode()), animate, force);
+        applyLightsOut(isLightsOut(mode), animate, force);
     }
 
     private void applyLightsOut(boolean lightsOut, boolean animate, boolean force) {
         if (!force && lightsOut == mLightsOut) return;
 
         mLightsOut = lightsOut;
-        if (mNavButtons == null) return;
+
+        final View navButtons = mView.getCurrentView().findViewById(R.id.nav_buttons);
+        final View lowLights = mView.getCurrentView().findViewById(R.id.lights_out);
 
         // ok, everyone, stop it right there
-        mNavButtons.animate().cancel();
+        navButtons.animate().cancel();
+        lowLights.animate().cancel();
 
-        // Bump percentage by 10% if dark.
-        float darkBump = mLightTransitionsController.getCurrentDarkIntensity() / 10;
-        final float navButtonsAlpha = lightsOut ? 0.6f + darkBump : 1f;
+        final float navButtonsAlpha = lightsOut ? 0f : 1f;
+        final float lowLightsAlpha = lightsOut ? 1f : 0f;
 
         if (!animate) {
-            mNavButtons.setAlpha(navButtonsAlpha);
+            navButtons.setAlpha(navButtonsAlpha);
+            lowLights.setAlpha(lowLightsAlpha);
+            lowLights.setVisibility(lightsOut ? View.VISIBLE : View.GONE);
         } else {
             final int duration = lightsOut ? LIGHTS_OUT_DURATION : LIGHTS_IN_DURATION;
-            mNavButtons.animate()
+            navButtons.animate()
                 .alpha(navButtonsAlpha)
                 .setDuration(duration)
                 .start();
-        }
-    }
 
-    public void reapplyDarkIntensity() {
-        applyDarkIntensity(mLightTransitionsController.getCurrentDarkIntensity());
-    }
-
-    public void applyDarkIntensity(float darkIntensity) {
-        SparseArray<ButtonDispatcher> buttonDispatchers = mView.getButtonDispatchers();
-        for (int i = buttonDispatchers.size() - 1; i >= 0; i--) {
-            buttonDispatchers.valueAt(i).setDarkIntensity(darkIntensity);
+            lowLights.setOnTouchListener(mLightsOutListener);
+            if (lowLights.getVisibility() == View.GONE) {
+                lowLights.setAlpha(0f);
+                lowLights.setVisibility(View.VISIBLE);
+            }
+            lowLights.animate()
+                .alpha(lowLightsAlpha)
+                .setDuration(duration)
+                .setInterpolator(new AccelerateInterpolator(2.0f))
+                .setListener(lightsOut ? null : new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator _a) {
+                        lowLights.setVisibility(View.GONE);
+                    }
+                })
+                .start();
         }
-        if (mAutoDim) {
-            applyLightsOut(false, true);
-        }
-        mView.onDarkIntensityChange(darkIntensity);
     }
 
     private final View.OnTouchListener mLightsOutListener = new View.OnTouchListener() {

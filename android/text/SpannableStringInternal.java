@@ -26,134 +26,32 @@ import java.lang.reflect.Array;
 /* package */ abstract class SpannableStringInternal
 {
     /* package */ SpannableStringInternal(CharSequence source,
-                                          int start, int end, boolean ignoreNoCopySpan) {
+                                          int start, int end) {
         if (start == 0 && end == source.length())
             mText = source.toString();
         else
             mText = source.toString().substring(start, end);
 
         mSpans = EmptyArray.OBJECT;
-        // Invariant: mSpanData.length = mSpans.length * COLUMNS
         mSpanData = EmptyArray.INT;
 
         if (source instanceof Spanned) {
-            if (source instanceof SpannableStringInternal) {
-                copySpans((SpannableStringInternal) source, start, end, ignoreNoCopySpan);
-            } else {
-                copySpans((Spanned) source, start, end, ignoreNoCopySpan);
+            Spanned sp = (Spanned) source;
+            Object[] spans = sp.getSpans(start, end, Object.class);
+
+            for (int i = 0; i < spans.length; i++) {
+                int st = sp.getSpanStart(spans[i]);
+                int en = sp.getSpanEnd(spans[i]);
+                int fl = sp.getSpanFlags(spans[i]);
+
+                if (st < start)
+                    st = start;
+                if (en > end)
+                    en = end;
+
+                setSpan(spans[i], st - start, en - start, fl);
             }
         }
-    }
-
-    /**
-     * This unused method is left since this is listed in hidden api list.
-     *
-     * Due to backward compatibility reasons, we copy even NoCopySpan by default
-     */
-    /* package */ SpannableStringInternal(CharSequence source, int start, int end) {
-        this(source, start, end, false /* ignoreNoCopySpan */);
-    }
-
-    /**
-     * Copies another {@link Spanned} object's spans between [start, end] into this object.
-     *
-     * @param src Source object to copy from.
-     * @param start Start index in the source object.
-     * @param end End index in the source object.
-     * @param ignoreNoCopySpan whether to copy NoCopySpans in the {@code source}
-     */
-    private void copySpans(Spanned src, int start, int end, boolean ignoreNoCopySpan) {
-        Object[] spans = src.getSpans(start, end, Object.class);
-
-        for (int i = 0; i < spans.length; i++) {
-            if (ignoreNoCopySpan && spans[i] instanceof NoCopySpan) {
-                continue;
-            }
-            int st = src.getSpanStart(spans[i]);
-            int en = src.getSpanEnd(spans[i]);
-            int fl = src.getSpanFlags(spans[i]);
-
-            if (st < start)
-                st = start;
-            if (en > end)
-                en = end;
-
-            setSpan(spans[i], st - start, en - start, fl, false/*enforceParagraph*/);
-        }
-    }
-
-    /**
-     * Copies a {@link SpannableStringInternal} object's spans between [start, end] into this
-     * object.
-     *
-     * @param src Source object to copy from.
-     * @param start Start index in the source object.
-     * @param end End index in the source object.
-     * @param ignoreNoCopySpan copy NoCopySpan for backward compatible reasons.
-     */
-    private void copySpans(SpannableStringInternal src, int start, int end,
-            boolean ignoreNoCopySpan) {
-        int count = 0;
-        final int[] srcData = src.mSpanData;
-        final Object[] srcSpans = src.mSpans;
-        final int limit = src.mSpanCount;
-        boolean hasNoCopySpan = false;
-
-        for (int i = 0; i < limit; i++) {
-            int spanStart = srcData[i * COLUMNS + START];
-            int spanEnd = srcData[i * COLUMNS + END];
-            if (isOutOfCopyRange(start, end, spanStart, spanEnd)) continue;
-            if (srcSpans[i] instanceof NoCopySpan) {
-                hasNoCopySpan = true;
-                if (ignoreNoCopySpan) {
-                    continue;
-                }
-            }
-            count++;
-        }
-
-        if (count == 0) return;
-
-        if (!hasNoCopySpan && start == 0 && end == src.length()) {
-            mSpans = ArrayUtils.newUnpaddedObjectArray(src.mSpans.length);
-            mSpanData = new int[src.mSpanData.length];
-            mSpanCount = src.mSpanCount;
-            System.arraycopy(src.mSpans, 0, mSpans, 0, src.mSpans.length);
-            System.arraycopy(src.mSpanData, 0, mSpanData, 0, mSpanData.length);
-        } else {
-            mSpanCount = count;
-            mSpans = ArrayUtils.newUnpaddedObjectArray(mSpanCount);
-            mSpanData = new int[mSpans.length * COLUMNS];
-            for (int i = 0, j = 0; i < limit; i++) {
-                int spanStart = srcData[i * COLUMNS + START];
-                int spanEnd = srcData[i * COLUMNS + END];
-                if (isOutOfCopyRange(start, end, spanStart, spanEnd)
-                        || (ignoreNoCopySpan && srcSpans[i] instanceof NoCopySpan)) {
-                    continue;
-                }
-                if (spanStart < start) spanStart = start;
-                if (spanEnd > end) spanEnd = end;
-
-                mSpans[j] = srcSpans[i];
-                mSpanData[j * COLUMNS + START] = spanStart - start;
-                mSpanData[j * COLUMNS + END] = spanEnd - start;
-                mSpanData[j * COLUMNS + FLAGS] = srcData[i * COLUMNS + FLAGS];
-                j++;
-            }
-        }
-    }
-
-    /**
-     * Checks if [spanStart, spanEnd] interval is excluded from [start, end].
-     *
-     * @return True if excluded, false if included.
-     */
-    private final boolean isOutOfCopyRange(int start, int end, int spanStart, int spanEnd) {
-        if (spanStart > end || spanEnd < start) return true;
-        if (spanStart != spanEnd && start != end) {
-            if (spanStart == end || spanEnd == start) return true;
-        }
-        return false;
     }
 
     public final int length() {
@@ -175,36 +73,28 @@ import java.lang.reflect.Array;
     }
 
     /* package */ void setSpan(Object what, int start, int end, int flags) {
-        setSpan(what, start, end, flags, true/*enforceParagraph*/);
-    }
-
-    private boolean isIndexFollowsNextLine(int index) {
-        return index != 0 && index != length() && charAt(index - 1) != '\n';
-    }
-
-    private void setSpan(Object what, int start, int end, int flags, boolean enforceParagraph) {
         int nstart = start;
         int nend = end;
 
         checkRange("setSpan", start, end);
 
         if ((flags & Spannable.SPAN_PARAGRAPH) == Spannable.SPAN_PARAGRAPH) {
-            if (isIndexFollowsNextLine(start)) {
-                if (!enforceParagraph) {
-                    // do not set the span
-                    return;
-                }
-                throw new RuntimeException("PARAGRAPH span must start at paragraph boundary"
-                        + " (" + start + " follows " + charAt(start - 1) + ")");
+            if (start != 0 && start != length()) {
+                char c = charAt(start - 1);
+
+                if (c != '\n')
+                    throw new RuntimeException(
+                            "PARAGRAPH span must start at paragraph boundary" +
+                            " (" + start + " follows " + c + ")");
             }
 
-            if (isIndexFollowsNextLine(end)) {
-                if (!enforceParagraph) {
-                    // do not set the span
-                    return;
-                }
-                throw new RuntimeException("PARAGRAPH span must end at paragraph boundary"
-                        + " (" + end + " follows " + charAt(end - 1) + ")");
+            if (end != 0 && end != length()) {
+                char c = charAt(end - 1);
+
+                if (c != '\n')
+                    throw new RuntimeException(
+                            "PARAGRAPH span must end at paragraph boundary" +
+                            " (" + end + " follows " + c + ")");
             }
         }
 
@@ -249,13 +139,6 @@ import java.lang.reflect.Array;
     }
 
     /* package */ void removeSpan(Object what) {
-        removeSpan(what, 0 /* flags */);
-    }
-
-    /**
-     * @hide
-     */
-    public void removeSpan(Object what, int flags) {
         int count = mSpanCount;
         Object[] spans = mSpans;
         int[] data = mSpanData;
@@ -269,13 +152,11 @@ import java.lang.reflect.Array;
 
                 System.arraycopy(spans, i + 1, spans, i, c);
                 System.arraycopy(data, (i + 1) * COLUMNS,
-                        data, i * COLUMNS, c * COLUMNS);
+                                 data, i * COLUMNS, c * COLUMNS);
 
                 mSpanCount--;
 
-                if ((flags & Spanned.SPAN_INTERMEDIATE) == 0) {
-                    sendSpanRemoved(what, ostart, oend);
-                }
+                sendSpanRemoved(what, ostart, oend);
                 return;
             }
         }
@@ -353,7 +234,7 @@ import java.lang.reflect.Array;
             }
 
             // verify span class as late as possible, since it is expensive
-            if (kind != null && kind != Object.class && !kind.isInstance(spans[i])) {
+            if (kind != null && !kind.isInstance(spans[i])) {
                 continue;
             }
 
@@ -528,21 +409,6 @@ import java.lang.reflect.Array;
         }
         return hash;
     }
-
-    /**
-     * Following two unused methods are left since these are listed in hidden api list.
-     *
-     * Due to backward compatibility reasons, we copy even NoCopySpan by default
-     */
-    private void copySpans(Spanned src, int start, int end) {
-        copySpans(src, start, end, false);
-    }
-
-    private void copySpans(SpannableStringInternal src, int start, int end) {
-        copySpans(src, start, end, false);
-    }
-
-
 
     private String mText;
     private Object[] mSpans;

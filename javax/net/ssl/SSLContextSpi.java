@@ -1,199 +1,164 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.net.ssl;
 
-import java.security.*;
+import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.SecureRandom;
 
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the <code>SSLContext</code> class.
- *
- * <p> All the abstract methods in this class must be implemented by each
- * cryptographic service provider who wishes to supply the implementation
- * of a particular SSL context.
- *
- * @since 1.4
- * @see SSLContext
+ * The <i>Service Provider Interface</i> (SPI) for the {@code SSLContext} class.
  */
 public abstract class SSLContextSpi {
-    /**
-     * Initializes this context.
-     *
-     * @param km the sources of authentication keys
-     * @param tm the sources of peer authentication trust decisions
-     * @param sr the source of randomness
-     * @throws KeyManagementException if this operation fails
-     * @see SSLContext#init(KeyManager [], TrustManager [], SecureRandom)
-     */
-    protected abstract void engineInit(KeyManager[] km, TrustManager[] tm,
-        SecureRandom sr) throws KeyManagementException;
 
     /**
-     * Returns a <code>SocketFactory</code> object for this
-     * context.
+     * Creates a new {@code SSLContextSpi} instance.
+     */
+    public SSLContextSpi() {
+    }
+
+    /**
+     * Initializes this {@code SSLContext} instance. All of the arguments are
+     * optional, and the security providers will be searched for the required
+     * implementations of the needed algorithms.
      *
-     * @return the <code>SocketFactory</code> object
-     * @throws IllegalStateException if the SSLContextImpl requires
-     *         initialization and the <code>engineInit()</code>
-     *         has not been called
-     * @see javax.net.ssl.SSLContext#getSocketFactory()
+     * @param km
+     *            the key sources or {@code null}.
+     * @param tm
+     *            the trust decision sources or {@code null}.
+     * @param sr
+     *            the randomness source or {@code null.}
+     * @throws KeyManagementException
+     *             if initializing this instance fails.
+     */
+    protected abstract void engineInit(KeyManager[] km, TrustManager[] tm, SecureRandom sr)
+            throws KeyManagementException;
+
+    /**
+     * Returns a socket factory for this instance.
+     *
+     * @return a socket factory for this instance.
      */
     protected abstract SSLSocketFactory engineGetSocketFactory();
 
     /**
-     * Returns a <code>ServerSocketFactory</code> object for
-     * this context.
+     * Returns a server socket factory for this instance.
      *
-     * @return the <code>ServerSocketFactory</code> object
-     * @throws IllegalStateException if the SSLContextImpl requires
-     *         initialization and the <code>engineInit()</code>
-     *         has not been called
-     * @see javax.net.ssl.SSLContext#getServerSocketFactory()
+     * @return a server socket factory for this instance.
      */
     protected abstract SSLServerSocketFactory engineGetServerSocketFactory();
 
     /**
-     * Creates a new <code>SSLEngine</code> using this context.
-     * <P>
-     * Applications using this factory method are providing no hints
-     * for an internal session reuse strategy. If hints are desired,
-     * {@link #engineCreateSSLEngine(String, int)} should be used
-     * instead.
-     * <P>
-     * Some cipher suites (such as Kerberos) require remote hostname
-     * information, in which case this factory method should not be used.
+     * Creates an {@code SSLEngine} instance from this context with the
+     * specified hostname and port.
      *
-     * @return  the <code>SSLEngine</code> Object
-     * @throws IllegalStateException if the SSLContextImpl requires
-     *         initialization and the <code>engineInit()</code>
-     *         has not been called
-     *
-     * @see     SSLContext#createSSLEngine()
-     *
-     * @since   1.5
-     */
-    protected abstract SSLEngine engineCreateSSLEngine();
-
-    /**
-     * Creates a <code>SSLEngine</code> using this context.
-     * <P>
-     * Applications using this factory method are providing hints
-     * for an internal session reuse strategy.
-     * <P>
-     * Some cipher suites (such as Kerberos) require remote hostname
-     * information, in which case peerHost needs to be specified.
-     *
-     * @param host the non-authoritative name of the host
-     * @param port the non-authoritative port
-     * @return  the <code>SSLEngine</code> Object
-     * @throws IllegalStateException if the SSLContextImpl requires
-     *         initialization and the <code>engineInit()</code>
-     *         has not been called
-     *
-     * @see     SSLContext#createSSLEngine(String, int)
-     *
-     * @since   1.5
+     * @param host
+     *            the name of the host
+     * @param port
+     *            the port
+     * @return an {@code SSLEngine} instance from this context.
+     * @throws UnsupportedOperationException
+     *             if the provider does not support the operation.
      */
     protected abstract SSLEngine engineCreateSSLEngine(String host, int port);
 
     /**
-     * Returns a server <code>SSLSessionContext</code> object for
-     * this context.
+     * Creates an {@code SSLEngine} instance from this context.
      *
-     * @return the <code>SSLSessionContext</code> object
-     * @see javax.net.ssl.SSLContext#getServerSessionContext()
+     * @return an {@code SSLEngine} instance from this context.
+     * @throws UnsupportedOperationException
+     *             if the provider does not support the operation.
+     */
+    protected abstract SSLEngine engineCreateSSLEngine();
+
+    /**
+     * Returns the SSL session context that encapsulates the set of SSL sessions
+     * that can be used for the server side of the SSL handshake.
+     *
+     * @return the SSL server session context for this context or {@code null}
+     *         if the underlying provider does not provide an implementation of
+     *         the {@code SSLSessionContext} interface.
      */
     protected abstract SSLSessionContext engineGetServerSessionContext();
 
     /**
-     * Returns a client <code>SSLSessionContext</code> object for
-     * this context.
+     * Returns the SSL session context that encapsulates the set of SSL sessions
+     * that can be used for the client side of the SSL handshake.
      *
-     * @return the <code>SSLSessionContext</code> object
-     * @see javax.net.ssl.SSLContext#getClientSessionContext()
+     * @return the SSL client session context for this context or {@code null}
+     *         if the underlying provider does not provide an implementation of
+     *         the {@code SSLSessionContext} interface.
      */
     protected abstract SSLSessionContext engineGetClientSessionContext();
 
-    private SSLSocket getDefaultSocket() {
+
+    /**
+     * Returns a new SSLParameters instance that includes the default
+     * SSL handshake parameters values including cipher suites,
+     * protocols, and client authentication.
+     *
+     * <p>The default implementation returns an SSLParameters with values
+     * based an SSLSocket created from this instances SocketFactory.
+     *
+     * @since 1.6
+     */
+    protected javax.net.ssl.SSLParameters engineGetDefaultSSLParameters() {
+        return createSSLParameters(false);
+    }
+
+    /**
+     * Returns a new SSLParameters instance that includes all
+     * supported cipher suites and protocols.
+     *
+     * <p>The default implementation returns an SSLParameters with values
+     * based an SSLSocket created from this instances SocketFactory.
+     *
+     * @since 1.6
+     */
+    protected javax.net.ssl.SSLParameters engineGetSupportedSSLParameters() {
+        return createSSLParameters(true);
+    }
+
+    private javax.net.ssl.SSLParameters createSSLParameters(boolean supported) {
         try {
-            SSLSocketFactory factory = engineGetSocketFactory();
-            return (SSLSocket)factory.createSocket();
-        } catch (java.io.IOException e) {
-            throw new UnsupportedOperationException("Could not obtain parameters", e);
+            SSLSocket s = (SSLSocket) engineGetSocketFactory().createSocket();
+            javax.net.ssl.SSLParameters p = new javax.net.ssl.SSLParameters();
+            String[] cipherSuites;
+            String[] protocols;
+            if (supported) {
+                cipherSuites = s.getSupportedCipherSuites();
+                protocols = s.getSupportedProtocols();
+            } else {
+                cipherSuites = s.getEnabledCipherSuites();
+                protocols = s.getEnabledProtocols();
+            }
+            p.setCipherSuites(cipherSuites);
+            p.setProtocols(protocols);
+            p.setNeedClientAuth(s.getNeedClientAuth());
+            p.setWantClientAuth(s.getWantClientAuth());
+            return p;
+        } catch (IOException e) {
+            /*
+             * SSLContext.getDefaultSSLParameters specifies to throw
+             * UnsupportedOperationException if there is a problem getting the
+             * parameters
+             */
+            throw new UnsupportedOperationException("Could not access supported SSL parameters");
         }
     }
-
-    /**
-     * Returns a copy of the SSLParameters indicating the default
-     * settings for this SSL context.
-     *
-     * <p>The parameters will always have the ciphersuite and protocols
-     * arrays set to non-null values.
-     *
-     * <p>The default implementation obtains the parameters from an
-     * SSLSocket created by calling the
-     * {@linkplain javax.net.SocketFactory#createSocket
-     * SocketFactory.createSocket()} method of this context's SocketFactory.
-     *
-     * @return a copy of the SSLParameters object with the default settings
-     * @throws UnsupportedOperationException if the default SSL parameters
-     *   could not be obtained.
-     *
-     * @since 1.6
-     */
-    protected SSLParameters engineGetDefaultSSLParameters() {
-        SSLSocket socket = getDefaultSocket();
-        return socket.getSSLParameters();
-    }
-
-    /**
-     * Returns a copy of the SSLParameters indicating the maximum supported
-     * settings for this SSL context.
-     *
-     * <p>The parameters will always have the ciphersuite and protocols
-     * arrays set to non-null values.
-     *
-     * <p>The default implementation obtains the parameters from an
-     * SSLSocket created by calling the
-     * {@linkplain javax.net.SocketFactory#createSocket
-     * SocketFactory.createSocket()} method of this context's SocketFactory.
-     *
-     * @return a copy of the SSLParameters object with the maximum supported
-     *   settings
-     * @throws UnsupportedOperationException if the supported SSL parameters
-     *   could not be obtained.
-     *
-     * @since 1.6
-     */
-    protected SSLParameters engineGetSupportedSSLParameters() {
-        SSLSocket socket = getDefaultSocket();
-        SSLParameters params = new SSLParameters();
-        params.setCipherSuites(socket.getSupportedCipherSuites());
-        params.setProtocols(socket.getSupportedProtocols());
-        return params;
-    }
-
 }

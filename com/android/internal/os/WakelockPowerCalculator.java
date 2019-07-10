@@ -26,7 +26,7 @@ public class WakelockPowerCalculator extends PowerCalculator {
     private long mTotalAppWakelockTimeMs = 0;
 
     public WakelockPowerCalculator(PowerProfile profile) {
-        mPowerWakelock = profile.getAveragePower(PowerProfile.POWER_CPU_IDLE);
+        mPowerWakelock = profile.getAveragePower(PowerProfile.POWER_CPU_AWAKE);
     }
 
     @Override

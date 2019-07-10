@@ -21,8 +21,6 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.graphics.Shader.TileMode;
 
-import libcore.util.NativeAllocationRegistry_Delegate;
-
 /**
  * Delegate implementing the native methods of android.graphics.Shader
  *
@@ -43,7 +41,6 @@ public abstract class Shader_Delegate {
     // ---- delegate manager ----
     protected static final DelegateManager<Shader_Delegate> sManager =
             new DelegateManager<Shader_Delegate>(Shader_Delegate.class);
-    private static long sFinalizer = -1;
 
     // ---- delegate helper data ----
 
@@ -79,25 +76,23 @@ public abstract class Shader_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeGetFinalizer() {
-        synchronized (Shader_Delegate.class) {
-            if (sFinalizer == -1) {
-                sFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
-                        sManager::removeJavaReferenceFor);
-            }
+    /*package*/ static void nativeDestructor(long native_shader) {
+        sManager.removeJavaReferenceFor(native_shader);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static long nativeSetLocalMatrix(long native_shader, long matrix_instance) {
+        // get the delegate from the native int.
+        Shader_Delegate shaderDelegate = sManager.getDelegate(native_shader);
+        if (shaderDelegate == null) {
+            return native_shader;
         }
-        return sFinalizer;
+
+        shaderDelegate.mLocalMatrix = Matrix_Delegate.getDelegate(matrix_instance);
+        return native_shader;
     }
 
     // ---- Private delegate/helper methods ----
-
-    protected Shader_Delegate(long nativeMatrix) {
-        setLocalMatrix(nativeMatrix);
-    }
-
-    public void setLocalMatrix(long nativeMatrix) {
-        mLocalMatrix = Matrix_Delegate.getDelegate(nativeMatrix);
-    }
 
     protected java.awt.geom.AffineTransform getLocalMatrix() {
         if (mLocalMatrix != null) {

@@ -27,10 +27,7 @@ import android.webkit.WebView;
  * A fragment that displays a WebView.
  * <p>
  * The WebView is automically paused or resumed when the Fragment is paused or resumed.
- *
- * @deprecated Manually call {@link WebView#onPause()} and {@link WebView#onResume()}
  */
-@Deprecated
 public class WebViewFragment extends Fragment {
     private WebView mWebView;
     private boolean mIsWebViewAvailable;
@@ -47,7 +44,7 @@ public class WebViewFragment extends Fragment {
         if (mWebView != null) {
             mWebView.destroy();
         }
-        mWebView = new WebView(getContext());
+        mWebView = new WebView(getActivity());
         mIsWebViewAvailable = true;
         return mWebView;
     }

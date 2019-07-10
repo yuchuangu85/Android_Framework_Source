@@ -66,34 +66,12 @@ public class DisplayMetrics {
      * {@link #DENSITY_XHIGH} (320dpi). This is not a density that applications should target,
      * instead relying on the system to scale their {@link #DENSITY_XHIGH} assets for them.
      */
-    public static final int DENSITY_260 = 260;
-
-    /**
-     * Intermediate density for screens that sit between {@link #DENSITY_HIGH} (240dpi) and
-     * {@link #DENSITY_XHIGH} (320dpi). This is not a density that applications should target,
-     * instead relying on the system to scale their {@link #DENSITY_XHIGH} assets for them.
-     */
     public static final int DENSITY_280 = 280;
-
-    /**
-     * Intermediate density for screens that sit between {@link #DENSITY_HIGH} (240dpi) and
-     * {@link #DENSITY_XHIGH} (320dpi). This is not a density that applications should target,
-     * instead relying on the system to scale their {@link #DENSITY_XHIGH} assets for them.
-     */
-    public static final int DENSITY_300 = 300;
 
     /**
      * Standard quantized DPI for extra-high-density screens.
      */
     public static final int DENSITY_XHIGH = 320;
-
-    /**
-     * Intermediate density for screens that sit somewhere between
-     * {@link #DENSITY_XHIGH} (320 dpi) and {@link #DENSITY_XXHIGH} (480 dpi).
-     * This is not a density that applications should target, instead relying
-     * on the system to scale their {@link #DENSITY_XXHIGH} assets for them.
-     */
-    public static final int DENSITY_340 = 340;
 
     /**
      * Intermediate density for screens that sit somewhere between
@@ -118,14 +96,6 @@ public class DisplayMetrics {
      * on the system to scale their {@link #DENSITY_XXHIGH} assets for them.
      */
     public static final int DENSITY_420 = 420;
-
-    /**
-     * Intermediate density for screens that sit somewhere between
-     * {@link #DENSITY_XHIGH} (320 dpi) and {@link #DENSITY_XXHIGH} (480 dpi).
-     * This is not a density that applications should target, instead relying
-     * on the system to scale their {@link #DENSITY_XXHIGH} assets for them.
-     */
-    public static final int DENSITY_440 = 440;
 
     /**
      * Standard quantized DPI for extra-extra-high-density screens.
@@ -161,34 +131,21 @@ public class DisplayMetrics {
     public static final float DENSITY_DEFAULT_SCALE = 1.0f / DENSITY_DEFAULT;
 
     /**
-     * The device's current density.
-     * <p>
-     * This value reflects any changes made to the device density. To obtain
-     * the device's stable density, use {@link #DENSITY_DEVICE_STABLE}.
-     *
-     * @hide This value should not be used.
-     * @deprecated Use {@link #DENSITY_DEVICE_STABLE} to obtain the stable
-     *             device density or {@link #densityDpi} to obtain the current
-     *             density for a specific display.
+     * The device's density.
+     * @hide because eventually this should be able to change while
+     * running, so shouldn't be a constant.
+     * @deprecated There is no longer a static density; you can find the
+     * density for a display in {@link #densityDpi}.
      */
     @Deprecated
     public static int DENSITY_DEVICE = getDeviceDensity();
 
     /**
-     * The device's stable density.
-     * <p>
-     * This value is constant at run time and may not reflect the current
-     * display density. To obtain the current density for a specific display,
-     * use {@link #densityDpi}.
-     */
-    public static final int DENSITY_DEVICE_STABLE = getDeviceDensity();
-
-    /**
-     * The absolute width of the available display size in pixels.
+     * The absolute width of the display in pixels.
      */
     public int widthPixels;
     /**
-     * The absolute height of the available display size in pixels.
+     * The absolute height of the display in pixels.
      */
     public int heightPixels;
     /**
@@ -276,10 +233,6 @@ public class DisplayMetrics {
     }
     
     public void setTo(DisplayMetrics o) {
-        if (this == o) {
-            return;
-        }
-
         widthPixels = o.widthPixels;
         heightPixels = o.heightPixels;
         density = o.density;

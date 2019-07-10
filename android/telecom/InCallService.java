@@ -16,15 +16,12 @@
 
 package android.telecom;
 
-import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
 import android.app.Service;
-import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.hardware.camera2.CameraManager;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -51,35 +48,15 @@ import java.util.List;
  * {@code InCallService} implementation intends to replace the built-in in-call UI.
  * <pre>
  * {@code
- * <service android:name="your.package.YourInCallServiceImplementation"
- *          android:permission="android.permission.BIND_INCALL_SERVICE">
- *      <meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" />
- *      <intent-filter>
- *          <action android:name="android.telecom.InCallService"/>
- *      </intent-filter>
- * </service>
+ * &lt;service android:name="your.package.YourInCallServiceImplementation"
+ *          android:permission="android.permission.BIND_IN_CALL_SERVICE"&gt;
+ *      &lt;meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" /&gt;
+ *      &lt;intent-filter&gt;
+ *          &lt;action android:name="android.telecom.InCallService"/&gt;
+ *      &lt;/intent-filter&gt;
+ * &lt;/service&gt;
  * }
  * </pre>
- * <p>
- * In addition to implementing the {@link InCallService} API, you must also declare an activity in
- * your manifest which handles the {@link Intent#ACTION_DIAL} intent.  The example below illustrates
- * how this is done:
- * <pre>
- * {@code
- * <activity android:name="your.package.YourDialerActivity"
- *           android:label="@string/yourDialerActivityLabel">
- *      <intent-filter>
- *           <action android:name="android.intent.action.DIAL" />
- *           <category android:name="android.intent.category.DEFAULT" />
- *      </intent-filter>
- * </activity>
- * }
- * </pre>
- * <p>
- * When a user installs your application and runs it for the first time, you should prompt the user
- * to see if they would like your application to be the new default phone app.  See the
- * {@link TelecomManager#ACTION_CHANGE_DEFAULT_DIALER} intent documentation for more information on
- * how to do this.
  */
 public abstract class InCallService extends Service {
 
@@ -96,12 +73,6 @@ public abstract class InCallService extends Service {
     private static final int MSG_ON_CALL_AUDIO_STATE_CHANGED = 5;
     private static final int MSG_BRING_TO_FOREGROUND = 6;
     private static final int MSG_ON_CAN_ADD_CALL_CHANGED = 7;
-    private static final int MSG_SILENCE_RINGER = 8;
-    private static final int MSG_ON_CONNECTION_EVENT = 9;
-    private static final int MSG_ON_RTT_UPGRADE_REQUEST = 10;
-    private static final int MSG_ON_RTT_INITIATION_FAILURE = 11;
-    private static final int MSG_ON_HANDOVER_FAILED = 12;
-    private static final int MSG_ON_HANDOVER_COMPLETE = 13;
 
     /** Default Handler used to consolidate binder method calls onto a single thread. */
     private final Handler mHandler = new Handler(Looper.getMainLooper()) {
@@ -113,9 +84,7 @@ public abstract class InCallService extends Service {
 
             switch (msg.what) {
                 case MSG_SET_IN_CALL_ADAPTER:
-                    String callingPackage = getApplicationContext().getOpPackageName();
-                    mPhone = new Phone(new InCallAdapter((IInCallAdapter) msg.obj), callingPackage,
-                            getApplicationContext().getApplicationInfo().targetSdkVersion);
+                    mPhone = new Phone(new InCallAdapter((IInCallAdapter) msg.obj));
                     mPhone.addListener(mPhoneListener);
                     onPhoneCreated(mPhone);
                     break;
@@ -145,44 +114,6 @@ public abstract class InCallService extends Service {
                 case MSG_ON_CAN_ADD_CALL_CHANGED:
                     mPhone.internalSetCanAddCall(msg.arg1 == 1);
                     break;
-                case MSG_SILENCE_RINGER:
-                    mPhone.internalSilenceRinger();
-                    break;
-                case MSG_ON_CONNECTION_EVENT: {
-                    SomeArgs args = (SomeArgs) msg.obj;
-                    try {
-                        String callId = (String) args.arg1;
-                        String event = (String) args.arg2;
-                        Bundle extras = (Bundle) args.arg3;
-                        mPhone.internalOnConnectionEvent(callId, event, extras);
-                    } finally {
-                        args.recycle();
-                    }
-                    break;
-                }
-                case MSG_ON_RTT_UPGRADE_REQUEST: {
-                    String callId = (String) msg.obj;
-                    int requestId = msg.arg1;
-                    mPhone.internalOnRttUpgradeRequest(callId, requestId);
-                    break;
-                }
-                case MSG_ON_RTT_INITIATION_FAILURE: {
-                    String callId = (String) msg.obj;
-                    int reason = msg.arg1;
-                    mPhone.internalOnRttInitiationFailure(callId, reason);
-                    break;
-                }
-                case MSG_ON_HANDOVER_FAILED: {
-                    String callId = (String) msg.obj;
-                    int error = msg.arg1;
-                    mPhone.internalOnHandoverFailed(callId, error);
-                    break;
-                }
-                case MSG_ON_HANDOVER_COMPLETE: {
-                    String callId = (String) msg.obj;
-                    mPhone.internalOnHandoverComplete(callId);
-                    break;
-                }
                 default:
                     break;
             }
@@ -234,40 +165,6 @@ public abstract class InCallService extends Service {
             mHandler.obtainMessage(MSG_ON_CAN_ADD_CALL_CHANGED, canAddCall ? 1 : 0, 0)
                     .sendToTarget();
         }
-
-        @Override
-        public void silenceRinger() {
-            mHandler.obtainMessage(MSG_SILENCE_RINGER).sendToTarget();
-        }
-
-        @Override
-        public void onConnectionEvent(String callId, String event, Bundle extras) {
-            SomeArgs args = SomeArgs.obtain();
-            args.arg1 = callId;
-            args.arg2 = event;
-            args.arg3 = extras;
-            mHandler.obtainMessage(MSG_ON_CONNECTION_EVENT, args).sendToTarget();
-        }
-
-        @Override
-        public void onRttUpgradeRequest(String callId, int id) {
-            mHandler.obtainMessage(MSG_ON_RTT_UPGRADE_REQUEST, id, 0, callId).sendToTarget();
-        }
-
-        @Override
-        public void onRttInitiationFailure(String callId, int reason) {
-            mHandler.obtainMessage(MSG_ON_RTT_INITIATION_FAILURE, reason, 0, callId).sendToTarget();
-        }
-
-        @Override
-        public void onHandoverFailed(String callId, int error) {
-            mHandler.obtainMessage(MSG_ON_HANDOVER_FAILED, error, 0, callId).sendToTarget();
-        }
-
-        @Override
-        public void onHandoverComplete(String callId) {
-            mHandler.obtainMessage(MSG_ON_HANDOVER_COMPLETE, callId).sendToTarget();
-        }
     }
 
     private Phone.Listener mPhoneListener = new Phone.Listener() {
@@ -303,12 +200,6 @@ public abstract class InCallService extends Service {
         @Override
         public void onCanAddCallChanged(Phone phone, boolean canAddCall) {
             InCallService.this.onCanAddCallChanged(canAddCall);
-        }
-
-        /** ${inheritDoc} */
-        @Override
-        public void onSilenceRinger(Phone phone) {
-            InCallService.this.onSilenceRinger();
         }
 
     };
@@ -422,21 +313,6 @@ public abstract class InCallService extends Service {
     }
 
     /**
-     * Request audio routing to a specific bluetooth device. Calling this method may result in
-     * the device routing audio to a different bluetooth device than the one specified if the
-     * bluetooth stack is unable to route audio to the requested device.
-     * A list of available devices can be obtained via
-     * {@link CallAudioState#getSupportedBluetoothDevices()}
-     *
-     * @param bluetoothDevice The bluetooth device to connect to.
-     */
-    public final void requestBluetoothAudio(@NonNull BluetoothDevice bluetoothDevice) {
-        if (mPhone != null) {
-            mPhone.requestBluetoothAudio(bluetoothDevice.getAddress());
-        }
-    }
-
-    /**
      * Invoked when the {@code Phone} has been created. This is a signal to the in-call experience
      * to start displaying in-call information to the user. Each instance of {@code InCallService}
      * will have only one {@code Phone}, and this method will be called exactly once in the lifetime
@@ -526,25 +402,6 @@ public abstract class InCallService extends Service {
      * @param canAddCall Indicates whether an additional call can be added.
      */
     public void onCanAddCallChanged(boolean canAddCall) {
-    }
-
-    /**
-     * Called to silence the ringer if a ringing call exists.
-     */
-    public void onSilenceRinger() {
-    }
-
-    /**
-     * Unused; to handle connection events issued by a {@link ConnectionService}, implement the
-     * {@link android.telecom.Call.Callback#onConnectionEvent(Call, String, Bundle)} callback.
-     * <p>
-     * See {@link Connection#sendConnectionEvent(String, Bundle)}.
-     *
-     * @param call The call the event is associated with.
-     * @param event The event.
-     * @param extras Any associated extras.
-     */
-    public void onConnectionEvent(Call call, String event, Bundle extras) {
     }
 
     /**
@@ -750,8 +607,7 @@ public abstract class InCallService extends Service {
              *      {@link Connection.VideoProvider#SESSION_EVENT_TX_START},
              *      {@link Connection.VideoProvider#SESSION_EVENT_TX_STOP},
              *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_FAILURE},
-             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_READY},
-             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_PERMISSION_ERROR}.
+             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_READY}.
              */
             public abstract void onCallSessionEvent(int event);
 

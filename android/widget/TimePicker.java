@@ -16,31 +16,17 @@
 
 package android.widget;
 
-import android.annotation.IntDef;
-import android.annotation.IntRange;
 import android.annotation.NonNull;
-import android.annotation.TestApi;
+import android.annotation.Nullable;
 import android.annotation.Widget;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
-import android.icu.util.Calendar;
-import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
-import android.util.Log;
-import android.util.MathUtils;
-import android.view.View;
-import android.view.ViewStructure;
 import android.view.accessibility.AccessibilityEvent;
-import android.view.autofill.AutofillManager;
-import android.view.autofill.AutofillValue;
-
 import com.android.internal.R;
 
-import libcore.icu.LocaleData;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.Locale;
 
 /**
@@ -54,40 +40,10 @@ import java.util.Locale;
  */
 @Widget
 public class TimePicker extends FrameLayout {
-    private static final String LOG_TAG = TimePicker.class.getSimpleName();
-
-    /**
-     * Presentation mode for the Holo-style time picker that uses a set of
-     * {@link android.widget.NumberPicker}s.
-     *
-     * @see #getMode()
-     * @hide Visible for testing only.
-     */
-    @TestApi
-    public static final int MODE_SPINNER = 1;
-
-    /**
-     * Presentation mode for the Material-style time picker that uses a clock
-     * face.
-     *
-     * @see #getMode()
-     * @hide Visible for testing only.
-     */
-    @TestApi
-    public static final int MODE_CLOCK = 2;
-
-    /** @hide */
-    @IntDef(prefix = { "MODE_" }, value = {
-            MODE_SPINNER,
-            MODE_CLOCK
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface TimePickerMode {}
+    private static final int MODE_SPINNER = 1;
+    private static final int MODE_CLOCK = 2;
 
     private final TimePickerDelegate mDelegate;
-
-    @TimePickerMode
-    private final int mMode;
 
     /**
      * The callback interface used to indicate the time has been adjusted.
@@ -117,26 +73,12 @@ public class TimePicker extends FrameLayout {
     public TimePicker(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
-        // DatePicker is important by default, unless app developer overrode attribute.
-        if (getImportantForAutofill() == IMPORTANT_FOR_AUTOFILL_AUTO) {
-            setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_YES);
-        }
-
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.TimePicker, defStyleAttr, defStyleRes);
-        final boolean isDialogMode = a.getBoolean(R.styleable.TimePicker_dialogMode, false);
-        final int requestedMode = a.getInt(R.styleable.TimePicker_timePickerMode, MODE_SPINNER);
+        final int mode = a.getInt(R.styleable.TimePicker_timePickerMode, MODE_SPINNER);
         a.recycle();
 
-        if (requestedMode == MODE_CLOCK && isDialogMode) {
-            // You want MODE_CLOCK? YOU CAN'T HANDLE MODE_CLOCK! Well, maybe
-            // you can depending on your screen size. Let's check...
-            mMode = context.getResources().getInteger(R.integer.time_picker_mode);
-        } else {
-            mMode = requestedMode;
-        }
-
-        switch (mMode) {
+        switch (mode) {
             case MODE_CLOCK:
                 mDelegate = new TimePickerClockDelegate(
                         this, context, attrs, defStyleAttr, defStyleRes);
@@ -147,24 +89,6 @@ public class TimePicker extends FrameLayout {
                         this, context, attrs, defStyleAttr, defStyleRes);
                 break;
         }
-        mDelegate.setAutoFillChangeListener((v, h, m) -> {
-            final AutofillManager afm = context.getSystemService(AutofillManager.class);
-            if (afm != null) {
-                afm.notifyValueChanged(this);
-            }
-        });
-    }
-
-    /**
-     * @return the picker's presentation mode, one of {@link #MODE_CLOCK} or
-     *         {@link #MODE_SPINNER}
-     * @attr ref android.R.styleable#TimePicker_timePickerMode
-     * @hide Visible for testing only.
-     */
-    @TimePickerMode
-    @TestApi
-    public int getMode() {
-        return mMode;
     }
 
     /**
@@ -173,8 +97,8 @@ public class TimePicker extends FrameLayout {
      * @param hour the hour to set, in the range (0-23)
      * @see #getHour()
      */
-    public void setHour(@IntRange(from = 0, to = 23) int hour) {
-        mDelegate.setHour(MathUtils.constrain(hour, 0, 23));
+    public void setHour(int hour) {
+        mDelegate.setCurrentHour(hour);
     }
 
     /**
@@ -184,17 +108,17 @@ public class TimePicker extends FrameLayout {
      * @see #setHour(int)
      */
     public int getHour() {
-        return mDelegate.getHour();
+        return mDelegate.getCurrentHour();
     }
 
     /**
-     * Sets the currently selected minute.
+     * Sets the currently selected minute..
      *
      * @param minute the minute to set, in the range (0-59)
      * @see #getMinute()
      */
-    public void setMinute(@IntRange(from = 0, to = 59) int minute) {
-        mDelegate.setMinute(MathUtils.constrain(minute, 0, 59));
+    public void setMinute(int minute) {
+        mDelegate.setCurrentMinute(minute);
     }
 
     /**
@@ -204,13 +128,12 @@ public class TimePicker extends FrameLayout {
      * @see #setMinute(int)
      */
     public int getMinute() {
-        return mDelegate.getMinute();
+        return mDelegate.getCurrentMinute();
     }
 
     /**
-     * Sets the currently selected hour using 24-hour time.
+     * Sets the current hour.
      *
-     * @param currentHour the hour to set, in the range (0-23)
      * @deprecated Use {@link #setHour(int)}
      */
     @Deprecated
@@ -219,34 +142,33 @@ public class TimePicker extends FrameLayout {
     }
 
     /**
-     * @return the currently selected hour, in the range (0-23)
+     * @return the current hour in the range (0-23)
      * @deprecated Use {@link #getHour()}
      */
     @NonNull
     @Deprecated
     public Integer getCurrentHour() {
-        return getHour();
+        return mDelegate.getCurrentHour();
     }
 
     /**
-     * Sets the currently selected minute.
+     * Set the current minute (0-59).
      *
-     * @param currentMinute the minute to set, in the range (0-59)
      * @deprecated Use {@link #setMinute(int)}
      */
     @Deprecated
     public void setCurrentMinute(@NonNull Integer currentMinute) {
-        setMinute(currentMinute);
+        mDelegate.setCurrentMinute(currentMinute);
     }
 
     /**
-     * @return the currently selected minute, in the range (0-59)
+     * @return the current minute
      * @deprecated Use {@link #getMinute()}
      */
     @NonNull
     @Deprecated
     public Integer getCurrentMinute() {
-        return getMinute();
+        return mDelegate.getCurrentMinute();
     }
 
     /**
@@ -262,7 +184,7 @@ public class TimePicker extends FrameLayout {
             return;
         }
 
-        mDelegate.setIs24Hour(is24HourView);
+        mDelegate.setIs24HourView(is24HourView);
     }
 
     /**
@@ -271,7 +193,7 @@ public class TimePicker extends FrameLayout {
      * @see #setIs24HourView(Boolean)
      */
     public boolean is24HourView() {
-        return mDelegate.is24Hour();
+        return mDelegate.is24HourView();
     }
 
     /**
@@ -281,6 +203,16 @@ public class TimePicker extends FrameLayout {
      */
     public void setOnTimeChangedListener(OnTimeChangedListener onTimeChangedListener) {
         mDelegate.setOnTimeChangedListener(onTimeChangedListener);
+    }
+
+    /**
+     * Sets the callback that indicates the current time is valid.
+     *
+     * @param callback the callback, may be null
+     * @hide
+     */
+    public void setValidationCallback(@Nullable ValidationCallback callback) {
+        mDelegate.setValidationCallback(callback);
     }
 
     @Override
@@ -299,14 +231,10 @@ public class TimePicker extends FrameLayout {
         return mDelegate.getBaseline();
     }
 
-    /**
-     * Validates whether current input by the user is a valid time based on the locale. TimePicker
-     * will show an error message to the user if the time is not valid.
-     *
-     * @return {@code true} if the input is valid, {@code false} otherwise
-     */
-    public boolean validateInput() {
-        return mDelegate.validateInput();
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        mDelegate.onConfigurationChanged(newConfig);
     }
 
     @Override
@@ -333,248 +261,89 @@ public class TimePicker extends FrameLayout {
         return mDelegate.dispatchPopulateAccessibilityEvent(event);
     }
 
-    /** @hide */
-    @TestApi
-    public View getHourView() {
-        return mDelegate.getHourView();
-    }
-
-    /** @hide */
-    @TestApi
-    public View getMinuteView() {
-        return mDelegate.getMinuteView();
-    }
-
-    /** @hide */
-    @TestApi
-    public View getAmView() {
-        return mDelegate.getAmView();
-    }
-
-    /** @hide */
-    @TestApi
-    public View getPmView() {
-        return mDelegate.getPmView();
-    }
-
     /**
      * A delegate interface that defined the public API of the TimePicker. Allows different
      * TimePicker implementations. This would need to be implemented by the TimePicker delegates
      * for the real behavior.
      */
     interface TimePickerDelegate {
-        void setHour(@IntRange(from = 0, to = 23) int hour);
-        int getHour();
+        void setCurrentHour(int currentHour);
+        int getCurrentHour();
 
-        void setMinute(@IntRange(from = 0, to = 59) int minute);
-        int getMinute();
+        void setCurrentMinute(int currentMinute);
+        int getCurrentMinute();
 
-        void setDate(@IntRange(from = 0, to = 23) int hour,
-                @IntRange(from = 0, to = 59) int minute);
-
-        void autofill(AutofillValue value);
-        AutofillValue getAutofillValue();
-
-        void setIs24Hour(boolean is24Hour);
-        boolean is24Hour();
-
-        boolean validateInput();
+        void setIs24HourView(boolean is24HourView);
+        boolean is24HourView();
 
         void setOnTimeChangedListener(OnTimeChangedListener onTimeChangedListener);
-        void setAutoFillChangeListener(OnTimeChangedListener autoFillChangeListener);
+        void setValidationCallback(ValidationCallback callback);
 
         void setEnabled(boolean enabled);
         boolean isEnabled();
 
         int getBaseline();
 
+        void onConfigurationChanged(Configuration newConfig);
+
         Parcelable onSaveInstanceState(Parcelable superState);
         void onRestoreInstanceState(Parcelable state);
 
         boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event);
         void onPopulateAccessibilityEvent(AccessibilityEvent event);
-
-        /** @hide */
-        @TestApi View getHourView();
-
-        /** @hide */
-        @TestApi View getMinuteView();
-
-        /** @hide */
-        @TestApi View getAmView();
-
-        /** @hide */
-        @TestApi View getPmView();
     }
 
-    static String[] getAmPmStrings(Context context) {
-        final Locale locale = context.getResources().getConfiguration().locale;
-        final LocaleData d = LocaleData.get(locale);
-
-        final String[] result = new String[2];
-        result[0] = d.amPm[0].length() > 4 ? d.narrowAm : d.amPm[0];
-        result[1] = d.amPm[1].length() > 4 ? d.narrowPm : d.amPm[1];
-        return result;
+    /**
+     * A callback interface for updating input validity when the TimePicker
+     * when included into a Dialog.
+     *
+     * @hide
+     */
+    public static interface ValidationCallback {
+        void onValidationChanged(boolean valid);
     }
 
     /**
      * An abstract class which can be used as a start for TimePicker implementations
      */
     abstract static class AbstractTimePickerDelegate implements TimePickerDelegate {
-        protected final TimePicker mDelegator;
-        protected final Context mContext;
-        protected final Locale mLocale;
+        // The delegator
+        protected TimePicker mDelegator;
 
+        // The context
+        protected Context mContext;
+
+        // The current locale
+        protected Locale mCurrentLocale;
+
+        // Callbacks
         protected OnTimeChangedListener mOnTimeChangedListener;
-        protected OnTimeChangedListener mAutoFillChangeListener;
+        protected ValidationCallback mValidationCallback;
 
-        // The value that was passed to autofill() - it must be stored because it getAutofillValue()
-        // must return the exact same value that was autofilled, otherwise the widget will not be
-        // properly highlighted after autofill().
-        private long mAutofilledValue;
-
-        public AbstractTimePickerDelegate(@NonNull TimePicker delegator, @NonNull Context context) {
+        public AbstractTimePickerDelegate(TimePicker delegator, Context context) {
             mDelegator = delegator;
             mContext = context;
-            mLocale = context.getResources().getConfiguration().locale;
+
+            // initialization based on locale
+            setCurrentLocale(Locale.getDefault());
         }
 
-        @Override
-        public void setOnTimeChangedListener(OnTimeChangedListener callback) {
-            mOnTimeChangedListener = callback;
-        }
-
-        @Override
-        public void setAutoFillChangeListener(OnTimeChangedListener callback) {
-            mAutoFillChangeListener = callback;
-        }
-
-        @Override
-        public final void autofill(AutofillValue value) {
-            if (value == null || !value.isDate()) {
-                Log.w(LOG_TAG, value + " could not be autofilled into " + this);
+        public void setCurrentLocale(Locale locale) {
+            if (locale.equals(mCurrentLocale)) {
                 return;
             }
-
-            final long time = value.getDateValue();
-
-            final Calendar cal = Calendar.getInstance(mLocale);
-            cal.setTimeInMillis(time);
-            setDate(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE));
-
-            // Must set mAutofilledValue *after* calling subclass method to make sure the value
-            // returned by getAutofillValue() matches it.
-            mAutofilledValue = time;
+            mCurrentLocale = locale;
         }
 
         @Override
-        public final AutofillValue getAutofillValue() {
-            if (mAutofilledValue != 0) {
-                return AutofillValue.forDate(mAutofilledValue);
-            }
-
-            final Calendar cal = Calendar.getInstance(mLocale);
-            cal.set(Calendar.HOUR_OF_DAY, getHour());
-            cal.set(Calendar.MINUTE, getMinute());
-            return AutofillValue.forDate(cal.getTimeInMillis());
+        public void setValidationCallback(ValidationCallback callback) {
+            mValidationCallback = callback;
         }
 
-        /**
-         * This method must be called every time the value of the hour and/or minute is changed by
-         * a subclass method.
-         */
-        protected void resetAutofilledValue() {
-            mAutofilledValue = 0;
+        protected void onValidationChanged(boolean valid) {
+            if (mValidationCallback != null) {
+                mValidationCallback.onValidationChanged(valid);
+            }
         }
-
-        protected static class SavedState extends View.BaseSavedState {
-            private final int mHour;
-            private final int mMinute;
-            private final boolean mIs24HourMode;
-            private final int mCurrentItemShowing;
-
-            public SavedState(Parcelable superState, int hour, int minute, boolean is24HourMode) {
-                this(superState, hour, minute, is24HourMode, 0);
-            }
-
-            public SavedState(Parcelable superState, int hour, int minute, boolean is24HourMode,
-                    int currentItemShowing) {
-                super(superState);
-                mHour = hour;
-                mMinute = minute;
-                mIs24HourMode = is24HourMode;
-                mCurrentItemShowing = currentItemShowing;
-            }
-
-            private SavedState(Parcel in) {
-                super(in);
-                mHour = in.readInt();
-                mMinute = in.readInt();
-                mIs24HourMode = (in.readInt() == 1);
-                mCurrentItemShowing = in.readInt();
-            }
-
-            public int getHour() {
-                return mHour;
-            }
-
-            public int getMinute() {
-                return mMinute;
-            }
-
-            public boolean is24HourMode() {
-                return mIs24HourMode;
-            }
-
-            public int getCurrentItemShowing() {
-                return mCurrentItemShowing;
-            }
-
-            @Override
-            public void writeToParcel(Parcel dest, int flags) {
-                super.writeToParcel(dest, flags);
-                dest.writeInt(mHour);
-                dest.writeInt(mMinute);
-                dest.writeInt(mIs24HourMode ? 1 : 0);
-                dest.writeInt(mCurrentItemShowing);
-            }
-
-            @SuppressWarnings({"unused", "hiding"})
-            public static final Creator<SavedState> CREATOR = new Creator<SavedState>() {
-                public SavedState createFromParcel(Parcel in) {
-                    return new SavedState(in);
-                }
-
-                public SavedState[] newArray(int size) {
-                    return new SavedState[size];
-                }
-            };
-        }
-    }
-
-    @Override
-    public void dispatchProvideAutofillStructure(ViewStructure structure, int flags) {
-        // This view is self-sufficient for autofill, so it needs to call
-        // onProvideAutoFillStructure() to fill itself, but it does not need to call
-        // dispatchProvideAutoFillStructure() to fill its children.
-        structure.setAutofillId(getAutofillId());
-        onProvideAutofillStructure(structure, flags);
-    }
-
-    @Override
-    public void autofill(AutofillValue value) {
-        if (!isEnabled()) return;
-
-        mDelegate.autofill(value);
-    }
-
-    @Override
-    public @AutofillType int getAutofillType() {
-        return isEnabled() ? AUTOFILL_TYPE_DATE : AUTOFILL_TYPE_NONE;
-    }
-
-    @Override
-    public AutofillValue getAutofillValue() {
-        return isEnabled() ? mDelegate.getAutofillValue() : null;
     }
 }

@@ -19,16 +19,13 @@ package android.support.v4.media.session;
 import android.net.Uri;
 import android.os.Bundle;
 
-import androidx.annotation.RequiresApi;
-
-@RequiresApi(23)
 class MediaSessionCompatApi23 {
 
     public static Object createCallback(Callback callback) {
         return new CallbackProxy<Callback>(callback);
     }
 
-    public interface Callback extends MediaSessionCompatApi21.Callback {
+    public static interface Callback extends MediaSessionCompatApi21.Callback {
         public void onPlayFromUri(Uri uri, Bundle extras);
     }
 
@@ -41,8 +38,5 @@ class MediaSessionCompatApi23 {
         public void onPlayFromUri(Uri uri, Bundle extras) {
             mCallback.onPlayFromUri(uri, extras);
         }
-    }
-
-    private MediaSessionCompatApi23() {
     }
 }

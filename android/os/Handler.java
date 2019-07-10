@@ -16,8 +16,6 @@
 
 package android.os;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.util.Log;
 import android.util.Printer;
 
@@ -71,17 +69,15 @@ public class Handler {
      */
     private static final boolean FIND_POTENTIAL_LEAKS = false;
     private static final String TAG = "Handler";
-    private static Handler MAIN_THREAD_HANDLER = null;
 
     /**
      * Callback interface you can use when instantiating a Handler to avoid
      * having to implement your own subclass of Handler.
+     *
+     * @param msg A {@link android.os.Message Message} object
+     * @return True if no further handling is desired
      */
     public interface Callback {
-        /**
-         * @param msg A {@link android.os.Message Message} object
-         * @return True if no further handling is desired
-         */
         public boolean handleMessage(Message msg);
     }
     
@@ -93,8 +89,6 @@ public class Handler {
     
     /**
      * Handle system messages here.
-     *
-     * 在Looper.loop方法中被调用
      */
     public void dispatchMessage(Message msg) {
         if (msg.callback != null) {
@@ -115,8 +109,6 @@ public class Handler {
      *
      * If this thread does not have a looper, this handler won't be able to receive messages
      * so an exception is thrown.
-     *
-     * Handler与Looper绑定，而Looper与Thread绑定，因此Handler也区分主线程和子线程
      */
     public Handler() {
         this(null, false);
@@ -206,8 +198,7 @@ public class Handler {
         mLooper = Looper.myLooper();
         if (mLooper == null) {
             throw new RuntimeException(
-                "Can't create handler inside thread " + Thread.currentThread()
-                        + " that has not called Looper.prepare()");
+                "Can't create handler inside thread that has not called Looper.prepare()");
         }
         mQueue = mLooper.mQueue;
         mCallback = callback;
@@ -224,7 +215,7 @@ public class Handler {
      *
      * Asynchronous messages represent interrupts or events that do not require global ordering
      * with respect to synchronous messages.  Asynchronous messages are not subject to
-     * the synchronization barriers introduced by conditions such as display vsync.
+     * the synchronization barriers introduced by {@link MessageQueue#enqueueSyncBarrier(long)}.
      *
      * @param looper The looper, must not be null.
      * @param callback The callback interface in which to handle messages, or null.
@@ -238,70 +229,6 @@ public class Handler {
         mQueue = looper.mQueue;
         mCallback = callback;
         mAsynchronous = async;
-    }
-
-    /**
-     * Create a new Handler whose posted messages and runnables are not subject to
-     * synchronization barriers such as display vsync.
-     *
-     * <p>Messages sent to an async handler are guaranteed to be ordered with respect to one another,
-     * but not necessarily with respect to messages from other Handlers.</p>
-     *
-     * @see #createAsync(Looper, Callback) to create an async Handler with custom message handling.
-     *
-     * @param looper the Looper that the new Handler should be bound to
-     * @return a new async Handler instance
-     */
-    @NonNull
-    public static Handler createAsync(@NonNull Looper looper) {
-        if (looper == null) throw new NullPointerException("looper must not be null");
-        return new Handler(looper, null, true);
-    }
-
-    /**
-     * Create a new Handler whose posted messages and runnables are not subject to
-     * synchronization barriers such as display vsync.
-     *
-     * <p>Messages sent to an async handler are guaranteed to be ordered with respect to one another,
-     * but not necessarily with respect to messages from other Handlers.</p>
-     *
-     * @see #createAsync(Looper) to create an async Handler without custom message handling.
-     *
-     * @param looper the Looper that the new Handler should be bound to
-     * @return a new async Handler instance
-     */
-    @NonNull
-    public static Handler createAsync(@NonNull Looper looper, @NonNull Callback callback) {
-        if (looper == null) throw new NullPointerException("looper must not be null");
-        if (callback == null) throw new NullPointerException("callback must not be null");
-        return new Handler(looper, callback, true);
-    }
-
-    /** @hide */
-    @NonNull
-    public static Handler getMain() {
-        if (MAIN_THREAD_HANDLER == null) {
-            MAIN_THREAD_HANDLER = new Handler(Looper.getMainLooper());
-        }
-        return MAIN_THREAD_HANDLER;
-    }
-
-    /** @hide */
-    @NonNull
-    public static Handler mainIfNull(@Nullable Handler handler) {
-        return handler == null ? getMain() : handler;
-    }
-
-    /** {@hide} */
-    public String getTraceName(Message message) {
-        final StringBuilder sb = new StringBuilder();
-        sb.append(getClass().getName()).append(": ");
-        if (message.callback != null) {
-            sb.append(message.callback.getClass().getName());
-        } else {
-            sb.append("#").append(message.what);
-        }
-        return sb.toString();
     }
 
     /**
@@ -430,8 +357,6 @@ public class Handler {
      * The runnable will be run on the thread to which this handler is attached.
      *
      * @param r The Runnable that will be executed.
-     * @param token An instance which can be used to cancel {@code r} via
-     *         {@link #removeCallbacksAndMessages}.
      * @param uptimeMillis The absolute time at which the callback should run,
      *         using the {@link android.os.SystemClock#uptimeMillis} time-base.
      * 
@@ -473,32 +398,6 @@ public class Handler {
         return sendMessageDelayed(getPostMessage(r), delayMillis);
     }
     
-    /**
-     * Causes the Runnable r to be added to the message queue, to be run
-     * after the specified amount of time elapses.
-     * The runnable will be run on the thread to which this handler
-     * is attached.
-     * <b>The time-base is {@link android.os.SystemClock#uptimeMillis}.</b>
-     * Time spent in deep sleep will add an additional delay to execution.
-     *
-     * @param r The Runnable that will be executed.
-     * @param token An instance which can be used to cancel {@code r} via
-     *         {@link #removeCallbacksAndMessages}.
-     * @param delayMillis The delay (in milliseconds) until the Runnable
-     *        will be executed.
-     *
-     * @return Returns true if the Runnable was successfully placed in to the
-     *         message queue.  Returns false on failure, usually because the
-     *         looper processing the message queue is exiting.  Note that a
-     *         result of true does not mean the Runnable will be processed --
-     *         if the looper is quit before the delivery time of the message
-     *         occurs then the message will be dropped.
-     */
-    public final boolean postDelayed(Runnable r, Object token, long delayMillis)
-    {
-        return sendMessageDelayed(getPostMessage(r, token), delayMillis);
-    }
-
     /**
      * Posts a message to an object that implements Runnable.
      * Causes the Runnable r to executed on the next iteration through the
@@ -724,23 +623,6 @@ public class Handler {
         return enqueueMessage(queue, msg, 0);
     }
 
-    /**
-     * Executes the message synchronously if called on the same thread this handler corresponds to,
-     * or {@link #sendMessage pushes it to the queue} otherwise
-     *
-     * @return Returns true if the message was successfully ran or placed in to the
-     *         message queue.  Returns false on failure, usually because the
-     *         looper processing the message queue is exiting.
-     * @hide
-     */
-    public final boolean executeOrSendMessage(Message msg) {
-        if (mLooper == Looper.myLooper()) {
-            dispatchMessage(msg);
-            return true;
-        }
-        return sendMessage(msg);
-    }
-
     private boolean enqueueMessage(MessageQueue queue, Message msg, long uptimeMillis) {
         msg.target = this;
         if (mAsynchronous) {
@@ -784,14 +666,6 @@ public class Handler {
     }
 
     /**
-     * Return whether there are any messages or callbacks currently scheduled on this handler.
-     * @hide
-     */
-    public final boolean hasMessagesOrCallbacks() {
-        return mQueue.hasMessages(this);
-    }
-
-    /**
      * Check if there are any pending posts of messages with code 'what' and
      * whose obj is 'object' in the message queue.
      */
@@ -821,18 +695,6 @@ public class Handler {
             pw.println(prefix + "looper uninitialized");
         } else {
             mLooper.dump(pw, prefix + "  ");
-        }
-    }
-
-    /**
-     * @hide
-     */
-    public final void dumpMine(Printer pw, String prefix) {
-        pw.println(prefix + this + " @ " + SystemClock.uptimeMillis());
-        if (mLooper == null) {
-            pw.println(prefix + "looper uninitialized");
-        } else {
-            mLooper.dump(pw, prefix + "  ", this);
         }
     }
 
@@ -877,8 +739,8 @@ public class Handler {
         message.callback.run();
     }
 
-    final Looper mLooper;
     final MessageQueue mQueue;
+    final Looper mLooper;
     final Callback mCallback;
     final boolean mAsynchronous;
     IMessenger mMessenger;

@@ -1,201 +1,306 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import sun.nio.cs.StreamDecoder;
-
+import java.nio.charset.CoderResult;
+import java.nio.charset.CodingErrorAction;
+import java.util.Arrays;
 
 /**
- * An InputStreamReader is a bridge from byte streams to character streams: It
- * reads bytes and decodes them into characters using a specified {@link
- * java.nio.charset.Charset charset}.  The charset that it uses
- * may be specified by name or may be given explicitly, or the platform's
- * default charset may be accepted.
+ * A class for turning a byte stream into a character stream. Data read from the
+ * source input stream is converted into characters by either a default or a
+ * provided character converter. The default encoding is taken from the
+ * "file.encoding" system property. {@code InputStreamReader} contains a buffer
+ * of bytes read from the source stream and converts these into characters as
+ * needed. The buffer size is 8K.
  *
- * <p> Each invocation of one of an InputStreamReader's read() methods may
- * cause one or more bytes to be read from the underlying byte-input stream.
- * To enable the efficient conversion of bytes to characters, more bytes may
- * be read ahead from the underlying stream than are necessary to satisfy the
- * current read operation.
- *
- * <p> For top efficiency, consider wrapping an InputStreamReader within a
- * BufferedReader.  For example:
- *
- * <pre>
- * BufferedReader in
- *   = new BufferedReader(new InputStreamReader(System.in));
- * </pre>
- *
- * @see BufferedReader
- * @see InputStream
- * @see java.nio.charset.Charset
- *
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * @see OutputStreamWriter
  */
-
 public class InputStreamReader extends Reader {
+    private InputStream in;
 
-    private final StreamDecoder sd;
+    private boolean endOfInput = false;
+
+    private CharsetDecoder decoder;
+
+    private final ByteBuffer bytes = ByteBuffer.allocate(8192);
 
     /**
-     * Creates an InputStreamReader that uses the default charset.
+     * Constructs a new {@code InputStreamReader} on the {@link InputStream}
+     * {@code in}. This constructor sets the character converter to the encoding
+     * specified in the "file.encoding" property and falls back to ISO 8859_1
+     * (ISO-Latin-1) if the property doesn't exist.
      *
-     * @param  in   An InputStream
+     * @param in
+     *            the input stream from which to read characters.
      */
     public InputStreamReader(InputStream in) {
+        this(in, Charset.defaultCharset());
+    }
+
+    /**
+     * Constructs a new InputStreamReader on the InputStream {@code in}. The
+     * character converter that is used to decode bytes into characters is
+     * identified by name by {@code charsetName}. If the encoding cannot be found, an
+     * UnsupportedEncodingException error is thrown.
+     *
+     * @param in
+     *            the InputStream from which to read characters.
+     * @param charsetName
+     *            identifies the character converter to use.
+     * @throws NullPointerException
+     *             if {@code charsetName} is {@code null}.
+     * @throws UnsupportedEncodingException
+     *             if the encoding specified by {@code charsetName} cannot be found.
+     */
+    public InputStreamReader(InputStream in, final String charsetName)
+            throws UnsupportedEncodingException {
         super(in);
+        if (charsetName == null) {
+            throw new NullPointerException("charsetName == null");
+        }
+        this.in = in;
         try {
-            sd = StreamDecoder.forInputStreamReader(in, this, (String)null); // ## check lock object
-        } catch (UnsupportedEncodingException e) {
-            // The default encoding should always be available
-            throw new Error(e);
+            decoder = Charset.forName(charsetName).newDecoder().onMalformedInput(
+                    CodingErrorAction.REPLACE).onUnmappableCharacter(
+                    CodingErrorAction.REPLACE);
+        } catch (IllegalArgumentException e) {
+            throw (UnsupportedEncodingException)
+                    new UnsupportedEncodingException(charsetName).initCause(e);
+        }
+        bytes.limit(0);
+    }
+
+    /**
+     * Constructs a new InputStreamReader on the InputStream {@code in} and
+     * CharsetDecoder {@code dec}.
+     *
+     * @param in
+     *            the source InputStream from which to read characters.
+     * @param dec
+     *            the CharsetDecoder used by the character conversion.
+     */
+    public InputStreamReader(InputStream in, CharsetDecoder dec) {
+        super(in);
+        if (dec == null) {
+            throw new NullPointerException("dec == null");
+        }
+        this.in = in;
+        decoder = dec;
+        bytes.limit(0);
+    }
+
+    /**
+     * Constructs a new InputStreamReader on the InputStream {@code in} and
+     * Charset {@code charset}.
+     *
+     * @param in
+     *            the source InputStream from which to read characters.
+     * @param charset
+     *            the Charset that defines the character converter
+     */
+    public InputStreamReader(InputStream in, Charset charset) {
+        super(in);
+        this.in = in;
+        decoder = charset.newDecoder().onMalformedInput(
+                CodingErrorAction.REPLACE).onUnmappableCharacter(
+                CodingErrorAction.REPLACE);
+        bytes.limit(0);
+    }
+
+    /**
+     * Closes this reader. This implementation closes the source InputStream and
+     * releases all local storage.
+     *
+     * @throws IOException
+     *             if an error occurs attempting to close this reader.
+     */
+    @Override
+    public void close() throws IOException {
+        synchronized (lock) {
+            if (decoder != null) {
+                decoder.reset();
+            }
+            decoder = null;
+            if (in != null) {
+                in.close();
+                in = null;
+            }
         }
     }
 
     /**
-     * Creates an InputStreamReader that uses the named charset.
-     *
-     * @param  in
-     *         An InputStream
-     *
-     * @param  charsetName
-     *         The name of a supported
-     *         {@link java.nio.charset.Charset charset}
-     *
-     * @exception  UnsupportedEncodingException
-     *             If the named charset is not supported
-     */
-    public InputStreamReader(InputStream in, String charsetName)
-        throws UnsupportedEncodingException
-    {
-        super(in);
-        if (charsetName == null)
-            throw new NullPointerException("charsetName");
-        sd = StreamDecoder.forInputStreamReader(in, this, charsetName);
-    }
-
-    /**
-     * Creates an InputStreamReader that uses the given charset.
-     *
-     * @param  in       An InputStream
-     * @param  cs       A charset
-     *
-     * @since 1.4
-     * @spec JSR-51
-     */
-    public InputStreamReader(InputStream in, Charset cs) {
-        super(in);
-        if (cs == null)
-            throw new NullPointerException("charset");
-        sd = StreamDecoder.forInputStreamReader(in, this, cs);
-    }
-
-    /**
-     * Creates an InputStreamReader that uses the given charset decoder.
-     *
-     * @param  in       An InputStream
-     * @param  dec      A charset decoder
-     *
-     * @since 1.4
-     * @spec JSR-51
-     */
-    public InputStreamReader(InputStream in, CharsetDecoder dec) {
-        super(in);
-        if (dec == null)
-            throw new NullPointerException("charset decoder");
-        sd = StreamDecoder.forInputStreamReader(in, this, dec);
-    }
-
-    /**
-     * Returns the name of the character encoding being used by this stream.
-     *
-     * <p> If the encoding has an historical name then that name is returned;
-     * otherwise the encoding's canonical name is returned.
-     *
-     * <p> If this instance was created with the {@link
-     * #InputStreamReader(InputStream, String)} constructor then the returned
-     * name, being unique for the encoding, may differ from the name passed to
-     * the constructor. This method will return <code>null</code> if the
-     * stream has been closed.
-     * </p>
-     * @return The historical name of this encoding, or
-     *         <code>null</code> if the stream has been closed
-     *
-     * @see java.nio.charset.Charset
-     *
-     * @revised 1.4
-     * @spec JSR-51
+     * Returns the canonical name of the encoding used by this writer to convert characters to
+     * bytes, or null if this writer has been closed. Most callers should probably keep
+     * track of the String or Charset they passed in; this method may not return the same
+     * name.
      */
     public String getEncoding() {
-        return sd.getEncoding();
+        if (!isOpen()) {
+            return null;
+        }
+        return decoder.charset().name();
     }
 
     /**
-     * Reads a single character.
+     * Reads a single character from this reader and returns it as an integer
+     * with the two higher-order bytes set to 0. Returns -1 if the end of the
+     * reader has been reached. The byte value is either obtained from
+     * converting bytes in this reader's buffer or by first filling the buffer
+     * from the source InputStream and then reading from the buffer.
      *
-     * @return The character read, or -1 if the end of the stream has been
-     *         reached
-     *
-     * @exception  IOException  If an I/O error occurs
+     * @return the character read or -1 if the end of the reader has been
+     *         reached.
+     * @throws IOException
+     *             if this reader is closed or some other I/O error occurs.
      */
+    @Override
     public int read() throws IOException {
-        return sd.read();
+        synchronized (lock) {
+            if (!isOpen()) {
+                throw new IOException("InputStreamReader is closed");
+            }
+            char[] buf = new char[1];
+            return read(buf, 0, 1) != -1 ? buf[0] : -1;
+        }
     }
 
     /**
-     * Reads characters into a portion of an array.
+     * Reads up to {@code count} characters from this reader and stores them
+     * at position {@code offset} in the character array {@code buffer}. Returns
+     * the number of characters actually read or -1 if the end of the reader has
+     * been reached. The bytes are either obtained from converting bytes in this
+     * reader's buffer or by first filling the buffer from the source
+     * InputStream and then reading from the buffer.
      *
-     * @param      cbuf     Destination buffer
-     * @param      offset   Offset at which to start storing characters
-     * @param      length   Maximum number of characters to read
-     *
-     * @return     The number of characters read, or -1 if the end of the
-     *             stream has been reached
-     *
-     * @exception  IOException  If an I/O error occurs
+     * @throws IndexOutOfBoundsException
+     *     if {@code offset < 0 || count < 0 || offset + count > buffer.length}.
+     * @throws IOException
+     *             if this reader is closed or some other I/O error occurs.
      */
-    public int read(char cbuf[], int offset, int length) throws IOException {
-        return sd.read(cbuf, offset, length);
+    @Override
+    public int read(char[] buffer, int offset, int count) throws IOException {
+        synchronized (lock) {
+            if (!isOpen()) {
+                throw new IOException("InputStreamReader is closed");
+            }
+
+            Arrays.checkOffsetAndCount(buffer.length, offset, count);
+            if (count == 0) {
+                return 0;
+            }
+
+            CharBuffer out = CharBuffer.wrap(buffer, offset, count);
+            CoderResult result = CoderResult.UNDERFLOW;
+
+            // bytes.remaining() indicates number of bytes in buffer
+            // when 1-st time entered, it'll be equal to zero
+            boolean needInput = !bytes.hasRemaining();
+
+            while (out.hasRemaining()) {
+                // fill the buffer if needed
+                if (needInput) {
+                    try {
+                        if (in.available() == 0 && out.position() > offset) {
+                            // we could return the result without blocking read
+                            break;
+                        }
+                    } catch (IOException e) {
+                        // available didn't work so just try the read
+                    }
+
+                    int desiredByteCount = bytes.capacity() - bytes.limit();
+                    int off = bytes.arrayOffset() + bytes.limit();
+                    int actualByteCount = in.read(bytes.array(), off, desiredByteCount);
+
+                    if (actualByteCount == -1) {
+                        endOfInput = true;
+                        break;
+                    } else if (actualByteCount == 0) {
+                        break;
+                    }
+                    bytes.limit(bytes.limit() + actualByteCount);
+                    needInput = false;
+                }
+
+                // decode bytes
+                result = decoder.decode(bytes, out, false);
+
+                if (result.isUnderflow()) {
+                    // compact the buffer if no space left
+                    if (bytes.limit() == bytes.capacity()) {
+                        bytes.compact();
+                        bytes.limit(bytes.position());
+                        bytes.position(0);
+                    }
+                    needInput = true;
+                } else {
+                    break;
+                }
+            }
+
+            if (result == CoderResult.UNDERFLOW && endOfInput) {
+                result = decoder.decode(bytes, out, true);
+                if (result == CoderResult.UNDERFLOW) {
+                    result = decoder.flush(out);
+                }
+                decoder.reset();
+            }
+            if (result.isMalformed() || result.isUnmappable()) {
+                result.throwException();
+            }
+
+            return out.position() - offset == 0 ? -1 : out.position() - offset;
+        }
+    }
+
+    private boolean isOpen() {
+        return in != null;
     }
 
     /**
-     * Tells whether this stream is ready to be read.  An InputStreamReader is
-     * ready if its input buffer is not empty, or if bytes are available to be
-     * read from the underlying byte stream.
+     * Indicates whether this reader is ready to be read without blocking. If
+     * the result is {@code true}, the next {@code read()} will not block. If
+     * the result is {@code false} then this reader may or may not block when
+     * {@code read()} is called. This implementation returns {@code true} if
+     * there are bytes available in the buffer or the source stream has bytes
+     * available.
      *
-     * @exception  IOException  If an I/O error occurs
+     * @return {@code true} if the receiver will not block when {@code read()}
+     *         is called, {@code false} if unknown or blocking will occur.
+     * @throws IOException
+     *             if this reader is closed or some other I/O error occurs.
      */
+    @Override
     public boolean ready() throws IOException {
-        return sd.ready();
-    }
-
-    public void close() throws IOException {
-        sd.close();
+        synchronized (lock) {
+            if (in == null) {
+                throw new IOException("InputStreamReader is closed");
+            }
+            try {
+                return bytes.hasRemaining() || in.available() > 0;
+            } catch (IOException e) {
+                return false;
+            }
+        }
     }
 }

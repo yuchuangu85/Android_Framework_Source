@@ -24,9 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.annotation.processing.Messager;
 import javax.annotation.processing.ProcessingEnvironment;
-import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
@@ -39,7 +37,7 @@ public class AnnotationAnalyzer extends ModelAnalyzer {
 
     public static final Map<String, TypeKind> PRIMITIVE_TYPES;
     static {
-        PRIMITIVE_TYPES = new HashMap<String, TypeKind>();
+        PRIMITIVE_TYPES = new HashMap<>();
         PRIMITIVE_TYPES.put("boolean", TypeKind.BOOLEAN);
         PRIMITIVE_TYPES.put("byte", TypeKind.BYTE);
         PRIMITIVE_TYPES.put("short", TypeKind.SHORT);
@@ -57,13 +55,8 @@ public class AnnotationAnalyzer extends ModelAnalyzer {
         setInstance(this);
         L.setClient(new L.Client() {
             @Override
-            public void printMessage(Diagnostic.Kind kind, String message, Element element) {
-                Messager messager = mProcessingEnv.getMessager();
-                if (element != null) {
-                    messager.printMessage(kind, message, element);
-                } else {
-                    messager.printMessage(kind, message);
-                }
+            public void printMessage(Diagnostic.Kind kind, String message) {
+                mProcessingEnv.getMessager().printMessage(kind, message);
             }
         });
     }
@@ -84,7 +77,7 @@ public class AnnotationAnalyzer extends ModelAnalyzer {
     }
 
     @Override
-    public ModelClass findClassInternal(String className, Map<String, String> imports) {
+    public AnnotationClass findClass(String className, Map<String, String> imports) {
         className = className.trim();
         int numDimensions = 0;
         while (className.endsWith("[]")) {
@@ -94,9 +87,6 @@ public class AnnotationAnalyzer extends ModelAnalyzer {
         AnnotationClass primitive = loadPrimitive(className);
         if (primitive != null) {
             return addDimension(primitive.mTypeMirror, numDimensions);
-        }
-        if ("void".equals(className.toLowerCase())) {
-            return addDimension(getTypeUtils().getNoType(TypeKind.VOID), numDimensions);
         }
         int templateOpenIndex = className.indexOf('<');
         DeclaredType declaredType;
@@ -120,8 +110,7 @@ public class AnnotationAnalyzer extends ModelAnalyzer {
             ArrayList<String> templateParameters = splitTemplateParameters(paramStr);
             TypeMirror[] typeArgs = new TypeMirror[templateParameters.size()];
             for (int i = 0; i < typeArgs.length; i++) {
-                final AnnotationClass clazz = (AnnotationClass)
-                        findClass(templateParameters.get(i), imports);
+                final AnnotationClass clazz = findClass(templateParameters.get(i), imports);
                 if (clazz == null) {
                     L.e("cannot find type argument for %s in %s", templateParameters.get(i),
                             baseClassName);

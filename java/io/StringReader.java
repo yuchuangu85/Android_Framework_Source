@@ -1,201 +1,238 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
+import java.util.Arrays;
 
 /**
- * A character stream whose source is a string.
+ * A specialized {@link Reader} that reads characters from a {@code String} in
+ * a sequential manner.
  *
- * @author      Mark Reinhold
- * @since       JDK1.1
+ * @see StringWriter
  */
-
 public class StringReader extends Reader {
-
     private String str;
-    private int length;
-    private int next = 0;
-    private int mark = 0;
+
+    private int markpos = -1;
+
+    private int pos;
+
+    private int count;
 
     /**
-     * Creates a new string reader.
+     * Construct a new {@code StringReader} with {@code str} as source. The size
+     * of the reader is set to the {@code length()} of the string and the Object
+     * to synchronize access through is set to {@code str}.
      *
-     * @param s  String providing the character stream.
+     * @param str
+     *            the source string for this reader.
      */
-    public StringReader(String s) {
-        this.str = s;
-        this.length = s.length();
-    }
-
-    /** Check to make sure that the stream has not been closed */
-    private void ensureOpen() throws IOException {
-        if (str == null)
-            throw new IOException("Stream closed");
+    public StringReader(String str) {
+        this.str = str;
+        this.count = str.length();
     }
 
     /**
-     * Reads a single character.
-     *
-     * @return     The character read, or -1 if the end of the stream has been
-     *             reached
-     *
-     * @exception  IOException  If an I/O error occurs
+     * Closes this reader. Once it is closed, read operations on this reader
+     * will throw an {@code IOException}. Only the first invocation of this
+     * method has any effect.
      */
-    public int read() throws IOException {
+    @Override
+    public void close() {
+        str = null;
+    }
+
+    /**
+     * Returns a boolean indicating whether this reader is closed.
+     *
+     * @return {@code true} if closed, otherwise {@code false}.
+     */
+    private boolean isClosed() {
+        return str == null;
+    }
+
+    /**
+     * Sets a mark position in this reader. The parameter {@code readLimit} is
+     * ignored for this class. Calling {@code reset()} will reposition the
+     * reader back to the marked position.
+     *
+     * @param readLimit
+     *            ignored for {@code StringReader} instances.
+     * @throws IllegalArgumentException
+     *             if {@code readLimit < 0}.
+     * @throws IOException
+     *             if this reader is closed.
+     * @see #markSupported()
+     * @see #reset()
+     */
+    @Override
+    public void mark(int readLimit) throws IOException {
+        if (readLimit < 0) {
+            throw new IllegalArgumentException("readLimit < 0: " + readLimit);
+        }
+
         synchronized (lock) {
-            ensureOpen();
-            if (next >= length)
-                return -1;
-            return str.charAt(next++);
+            checkNotClosed();
+            markpos = pos;
+        }
+    }
+
+    private void checkNotClosed() throws IOException {
+        if (isClosed()) {
+            throw new IOException("StringReader is closed");
         }
     }
 
     /**
-     * Reads characters into a portion of an array.
+     * Indicates whether this reader supports the {@code mark()} and {@code
+     * reset()} methods. This implementation returns {@code true}.
      *
-     * @param      cbuf  Destination buffer
-     * @param      off   Offset at which to start writing characters
-     * @param      len   Maximum number of characters to read
-     *
-     * @return     The number of characters read, or -1 if the end of the
-     *             stream has been reached
-     *
-     * @exception  IOException  If an I/O error occurs
+     * @return always {@code true}.
      */
-    public int read(char cbuf[], int off, int len) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            if ((off < 0) || (off > cbuf.length) || (len < 0) ||
-                ((off + len) > cbuf.length) || ((off + len) < 0)) {
-                throw new IndexOutOfBoundsException();
-            } else if (len == 0) {
-                return 0;
-            }
-            if (next >= length)
-                return -1;
-            int n = Math.min(length - next, len);
-            str.getChars(next, next + n, cbuf, off);
-            next += n;
-            return n;
-        }
-    }
-
-    /**
-     * Skips the specified number of characters in the stream. Returns
-     * the number of characters that were skipped.
-     *
-     * <p>The <code>ns</code> parameter may be negative, even though the
-     * <code>skip</code> method of the {@link Reader} superclass throws
-     * an exception in this case. Negative values of <code>ns</code> cause the
-     * stream to skip backwards. Negative return values indicate a skip
-     * backwards. It is not possible to skip backwards past the beginning of
-     * the string.
-     *
-     * <p>If the entire string has been read or skipped, then this method has
-     * no effect and always returns 0.
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public long skip(long ns) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            if (next >= length)
-                return 0;
-            // Bound skip by beginning and end of the source
-            long n = Math.min(length - next, ns);
-            n = Math.max(-next, n);
-            next += n;
-            return n;
-        }
-    }
-
-    /**
-     * Tells whether this stream is ready to be read.
-     *
-     * @return True if the next read() is guaranteed not to block for input
-     *
-     * @exception  IOException  If the stream is closed
-     */
-    public boolean ready() throws IOException {
-        synchronized (lock) {
-        ensureOpen();
-        return true;
-        }
-    }
-
-    /**
-     * Tells whether this stream supports the mark() operation, which it does.
-     */
+    @Override
     public boolean markSupported() {
         return true;
     }
 
     /**
-     * Marks the present position in the stream.  Subsequent calls to reset()
-     * will reposition the stream to this point.
+     * Reads a single character from the source string and returns it as an
+     * integer with the two higher-order bytes set to 0. Returns -1 if the end
+     * of the source string has been reached.
      *
-     * @param  readAheadLimit  Limit on the number of characters that may be
-     *                         read while still preserving the mark.  Because
-     *                         the stream's input comes from a string, there
-     *                         is no actual limit, so this argument must not
-     *                         be negative, but is otherwise ignored.
-     *
-     * @exception  IllegalArgumentException  If {@code readAheadLimit < 0}
-     * @exception  IOException  If an I/O error occurs
+     * @return the character read or -1 if the end of the source string has been
+     *         reached.
+     * @throws IOException
+     *             if this reader is closed.
      */
-    public void mark(int readAheadLimit) throws IOException {
-        if (readAheadLimit < 0){
-            throw new IllegalArgumentException("Read-ahead limit < 0");
-        }
+    @Override
+    public int read() throws IOException {
         synchronized (lock) {
-            ensureOpen();
-            mark = next;
+            checkNotClosed();
+            if (pos != count) {
+                return str.charAt(pos++);
+            }
+            return -1;
         }
     }
 
     /**
-     * Resets the stream to the most recent mark, or to the beginning of the
-     * string if it has never been marked.
+     * Reads up to {@code count} characters from the source string and stores
+     * them at {@code offset} in the character array {@code buffer}. Returns the
+     * number of characters actually read or -1 if the end of the source string
+     * has been reached.
      *
-     * @exception  IOException  If an I/O error occurs
+     * @throws IndexOutOfBoundsException
+                if {@code offset < 0 || count < 0 || offset + count > buffer.length}.
+     * @throws IOException
+     *             if this reader is closed.
      */
+    @Override
+    public int read(char[] buffer, int offset, int count) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            Arrays.checkOffsetAndCount(buffer.length, offset, count);
+            if (count == 0) {
+                return 0;
+            }
+            if (pos == this.count) {
+                return -1;
+            }
+            int end = pos + count > this.count ? this.count : pos + count;
+            str.getChars(pos, end, buffer, offset);
+            int read = end - pos;
+            pos = end;
+            return read;
+        }
+    }
+
+    /**
+     * Indicates whether this reader is ready to be read without blocking. This
+     * implementation always returns {@code true}.
+     *
+     * @return always {@code true}.
+     * @throws IOException
+     *             if this reader is closed.
+     * @see #read()
+     * @see #read(char[], int, int)
+     */
+    @Override
+    public boolean ready() throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            return true;
+        }
+    }
+
+    /**
+     * Resets this reader's position to the last {@code mark()} location.
+     * Invocations of {@code read()} and {@code skip()} will occur from this new
+     * location. If this reader has not been marked, it is reset to the
+     * beginning of the source string.
+     *
+     * @throws IOException
+     *             if this reader is closed.
+     * @see #mark(int)
+     * @see #markSupported()
+     */
+    @Override
     public void reset() throws IOException {
         synchronized (lock) {
-            ensureOpen();
-            next = mark;
+            checkNotClosed();
+            pos = markpos != -1 ? markpos : 0;
         }
     }
 
     /**
-     * Closes the stream and releases any system resources associated with
-     * it. Once the stream has been closed, further read(),
-     * ready(), mark(), or reset() invocations will throw an IOException.
-     * Closing a previously closed stream has no effect.
+     * Moves {@code charCount} characters in the source string. Unlike the {@link
+     * Reader#skip(long) overridden method}, this method may skip negative skip
+     * distances: this rewinds the input so that characters may be read again.
+     * When the end of the source string has been reached, the input cannot be
+     * rewound.
+     *
+     * @param charCount
+     *            the maximum number of characters to skip. Positive values skip
+     *            forward; negative values skip backward.
+     * @return the number of characters actually skipped. This is bounded below
+     *            by the number of characters already read and above by the
+     *            number of characters remaining:<br> {@code -(num chars already
+     *            read) <= distance skipped <= num chars remaining}.
+     * @throws IOException
+     *             if this reader is closed.
+     * @see #mark(int)
+     * @see #markSupported()
+     * @see #reset()
      */
-    public void close() {
-        str = null;
+    @Override
+    public long skip(long charCount) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+
+            int minSkip = -pos;
+            int maxSkip = count - pos;
+
+            if (maxSkip == 0 || charCount > maxSkip) {
+                charCount = maxSkip; // no rewinding if we're at the end
+            } else if (charCount < minSkip) {
+                charCount = minSkip;
+            }
+
+            pos += charCount;
+            return charCount;
+        }
     }
 }

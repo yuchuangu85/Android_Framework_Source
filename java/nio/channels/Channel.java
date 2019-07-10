@@ -1,84 +1,57 @@
-/*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio.channels;
 
-import java.io.IOException;
 import java.io.Closeable;
-
+import java.io.IOException;
 
 /**
- * A nexus for I/O operations.
- *
- * <p> A channel represents an open connection to an entity such as a hardware
- * device, a file, a network socket, or a program component that is capable of
- * performing one or more distinct I/O operations, for example reading or
- * writing.
- *
- * <p> A channel is either open or closed.  A channel is open upon creation,
- * and once closed it remains closed.  Once a channel is closed, any attempt to
- * invoke an I/O operation upon it will cause a {@link ClosedChannelException}
- * to be thrown.  Whether or not a channel is open may be tested by invoking
- * its {@link #isOpen isOpen} method.
- *
- * <p> Channels are, in general, intended to be safe for multithreaded access
- * as described in the specifications of the interfaces and classes that extend
- * and implement this interface.
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * A channel is a conduit to I/O services covering such items as files, sockets,
+ * hardware devices, I/O ports or some software component.
+ * <p>
+ * Channels are open upon creation, and can be closed explicitly. Once a channel
+ * is closed it cannot be re-opened, and any attempts to perform I/O operations
+ * on the closed channel result in a <code>ClosedChannelException</code>.
+ * <p>
+ * Particular implementations or sub-interfaces of {@code Channel} dictate
+ * whether they are thread-safe or not.
  */
-
 public interface Channel extends Closeable {
 
     /**
-     * Tells whether or not this channel is open.
-     *
-     * @return <tt>true</tt> if, and only if, this channel is open
+     * Returns true if this channel is open.
      */
     public boolean isOpen();
 
     /**
-     * Closes this channel.
+     * Closes an open channel. If the channel is already closed then this method
+     * has no effect. If there is a problem with closing the channel then the
+     * method throws an IOException and the exception contains reasons for the
+     * failure.
+     * <p>
+     * If an attempt is made to perform an operation on a closed channel then a
+     * {@link ClosedChannelException} will be thrown on that attempt.
+     * <p>
+     * If multiple threads attempt to simultaneously close a channel, then only
+     * one thread will run the closure code, and others will be blocked until
+     * the first returns.
      *
-     * <p> After a channel is closed, any further attempt to invoke I/O
-     * operations upon it will cause a {@link ClosedChannelException} to be
-     * thrown.
-     *
-     * <p> If this channel is already closed then invoking this method has no
-     * effect.
-     *
-     * <p> This method may be invoked at any time.  If some other thread has
-     * already invoked it, however, then another invocation will block until
-     * the first invocation is complete, after which it will return without
-     * effect. </p>
-     *
-     * @throws  IOException  If an I/O error occurs
+     * @throws IOException
+     *             if a problem occurs closing the channel.
      */
     public void close() throws IOException;
-
 }

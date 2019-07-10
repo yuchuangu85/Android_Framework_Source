@@ -76,7 +76,6 @@ public class Program extends BaseObj {
 
     Program(long id, RenderScript rs) {
         super(id, rs);
-        guard.open("destroy");
     }
 
     /**

@@ -19,7 +19,6 @@ package android.view;
 import android.annotation.IntDef;
 import android.content.res.CompatibilityInfo.Translator;
 import android.graphics.Canvas;
-import android.graphics.GraphicBuffer;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
@@ -27,34 +26,20 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 
-import dalvik.system.CloseGuard;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
+import dalvik.system.CloseGuard;
+
 /**
  * Handle onto a raw buffer that is being managed by the screen compositor.
- *
- * <p>A Surface is generally created by or from a consumer of image buffers (such as a
- * {@link android.graphics.SurfaceTexture}, {@link android.media.MediaRecorder}, or
- * {@link android.renderscript.Allocation}), and is handed to some kind of producer (such as
- * {@link android.opengl.EGL14#eglCreateWindowSurface(android.opengl.EGLDisplay,android.opengl.EGLConfig,java.lang.Object,int[],int) OpenGL},
- * {@link android.media.MediaPlayer#setSurface MediaPlayer}, or
- * {@link android.hardware.camera2.CameraDevice#createCaptureSession CameraDevice}) to draw
- * into.</p>
- *
- * <p><strong>Note:</strong> A Surface acts like a
- * {@link java.lang.ref.WeakReference weak reference} to the consumer it is associated with. By
- * itself it will not keep its parent consumer from being reclaimed.</p>
  */
 public class Surface implements Parcelable {
     private static final String TAG = "Surface";
 
     private static native long nativeCreateFromSurfaceTexture(SurfaceTexture surfaceTexture)
             throws OutOfResourcesException;
-
     private static native long nativeCreateFromSurfaceControl(long surfaceControlNativeObject);
-    private static native long nativeGetFromSurfaceControl(long surfaceControlNativeObject);
 
     private static native long nativeLockCanvas(long nativeObject, Canvas canvas, Rect dirty)
             throws OutOfResourcesException;
@@ -70,14 +55,6 @@ public class Surface implements Parcelable {
 
     private static native int nativeGetWidth(long nativeObject);
     private static native int nativeGetHeight(long nativeObject);
-
-    private static native long nativeGetNextFrameNumber(long nativeObject);
-    private static native int nativeSetScalingMode(long nativeObject, int scalingMode);
-    private static native int nativeForceScopedDisconnect(long nativeObject);
-    private static native int nativeAttachAndQueueBuffer(long nativeObject, GraphicBuffer buffer);
-
-    private static native int nativeSetSharedBufferModeEnabled(long nativeObject, boolean enabled);
-    private static native int nativeSetAutoRefreshEnabled(long nativeObject, boolean enabled);
 
     public static final Parcelable.Creator<Surface> CREATOR =
             new Parcelable.Creator<Surface>() {
@@ -115,36 +92,8 @@ public class Surface implements Parcelable {
 
     private HwuiContext mHwuiContext;
 
-    private boolean mIsSingleBuffered;
-    private boolean mIsSharedBufferModeEnabled;
-    private boolean mIsAutoRefreshEnabled;
-
     /** @hide */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "SCALING_MODE_" }, value = {
-            SCALING_MODE_FREEZE,
-            SCALING_MODE_SCALE_TO_WINDOW,
-            SCALING_MODE_SCALE_CROP,
-            SCALING_MODE_NO_SCALE_CROP
-    })
-    public @interface ScalingMode {}
-    // From system/window.h
-    /** @hide */
-    public static final int SCALING_MODE_FREEZE = 0;
-    /** @hide */
-    public static final int SCALING_MODE_SCALE_TO_WINDOW = 1;
-    /** @hide */
-    public static final int SCALING_MODE_SCALE_CROP = 2;
-    /** @hide */
-    public static final int SCALING_MODE_NO_SCALE_CROP = 3;
-
-    /** @hide */
-    @IntDef(prefix = { "ROTATION_" }, value = {
-            ROTATION_0,
-            ROTATION_90,
-            ROTATION_180,
-            ROTATION_270
-    })
+    @IntDef({ROTATION_0, ROTATION_90, ROTATION_180, ROTATION_270})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Rotation {}
 
@@ -182,11 +131,6 @@ public class Surface implements Parcelable {
      * SurfaceTexture}, which can attach them to an OpenGL ES texture via {@link
      * SurfaceTexture#updateTexImage}.
      *
-     * Please note that holding onto the Surface created here is not enough to
-     * keep the provided SurfaceTexture from being reclaimed.  In that sense,
-     * the Surface will act like a
-     * {@link java.lang.ref.WeakReference weak reference} to the SurfaceTexture.
-     *
      * @param surfaceTexture The {@link SurfaceTexture} that is updated by this
      * Surface.
      * @throws OutOfResourcesException if the surface could not be created.
@@ -195,7 +139,7 @@ public class Surface implements Parcelable {
         if (surfaceTexture == null) {
             throw new IllegalArgumentException("surfaceTexture must not be null");
         }
-        mIsSingleBuffered = surfaceTexture.isSingleBuffered();
+
         synchronized (mLock) {
             mName = surfaceTexture.toString();
             setNativeObjectLocked(nativeCreateFromSurfaceTexture(surfaceTexture));
@@ -250,18 +194,6 @@ public class Surface implements Parcelable {
     }
 
     /**
-     * Destroys the HwuiContext without completely
-     * releasing the Surface.
-     * @hide
-     */
-    public void hwuiDestroy() {
-        if (mHwuiContext != null) {
-            mHwuiContext.destroy();
-            mHwuiContext = null;
-        }
-    }
-
-    /**
      * Returns true if this object holds a valid surface.
      *
      * @return True if it holds a physical surface, so lockCanvas() will succeed.
@@ -284,19 +216,6 @@ public class Surface implements Parcelable {
     public int getGenerationId() {
         synchronized (mLock) {
             return mGenerationId;
-        }
-    }
-
-    /**
-     * Returns the next frame number which will be dequeued for rendering.
-     * Intended for use with SurfaceFlinger's deferred transactions API.
-     *
-     * @hide
-     */
-    public long getNextFrameNumber() {
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            return nativeGetNextFrameNumber(mNativeObject);
         }
     }
 
@@ -408,44 +327,7 @@ public class Surface implements Parcelable {
         synchronized (mLock) {
             checkNotReleasedLocked();
             if (mHwuiContext == null) {
-                mHwuiContext = new HwuiContext(false);
-            }
-            return mHwuiContext.lockCanvas(
-                    nativeGetWidth(mNativeObject),
-                    nativeGetHeight(mNativeObject));
-        }
-    }
-
-    /**
-     * Gets a {@link Canvas} for drawing into this surface that supports wide color gamut.
-     *
-     * After drawing into the provided {@link Canvas}, the caller must
-     * invoke {@link #unlockCanvasAndPost} to post the new contents to the surface.
-     *
-     * Unlike {@link #lockCanvas(Rect)} and {@link #lockHardwareCanvas()},
-     * this will return a hardware-accelerated canvas that supports wide color gamut.
-     * See the <a href="{@docRoot}guide/topics/graphics/hardware-accel.html#unsupported">
-     * unsupported drawing operations</a> for a list of what is and isn't
-     * supported in a hardware-accelerated canvas. It is also required to
-     * fully cover the surface every time {@link #lockHardwareCanvas()} is
-     * called as the buffer is not preserved between frames. Partial updates
-     * are not supported.
-     *
-     * @return A canvas for drawing into the surface.
-     *
-     * @throws IllegalStateException If the canvas cannot be locked.
-     *
-     * @hide
-     */
-    public Canvas lockHardwareWideColorGamutCanvas() {
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            if (mHwuiContext != null && !mHwuiContext.isWideColorGamut()) {
-                mHwuiContext.destroy();
-                mHwuiContext = null;
-            }
-            if (mHwuiContext == null) {
-                mHwuiContext = new HwuiContext(true);
+                mHwuiContext = new HwuiContext();
             }
             return mHwuiContext.lockCanvas(
                     nativeGetWidth(mNativeObject),
@@ -480,9 +362,6 @@ public class Surface implements Parcelable {
      * back from a client, converting it from the representation being managed
      * by the window manager to the representation the client uses to draw
      * in to it.
-     *
-     * @param other {@link SurfaceControl} to copy from.
-     *
      * @hide
      */
     public void copyFrom(SurfaceControl other) {
@@ -493,39 +372,7 @@ public class Surface implements Parcelable {
         long surfaceControlPtr = other.mNativeObject;
         if (surfaceControlPtr == 0) {
             throw new NullPointerException(
-                    "null SurfaceControl native object. Are you using a released SurfaceControl?");
-        }
-        long newNativeObject = nativeGetFromSurfaceControl(surfaceControlPtr);
-
-        synchronized (mLock) {
-            if (mNativeObject != 0) {
-                nativeRelease(mNativeObject);
-            }
-            setNativeObjectLocked(newNativeObject);
-        }
-    }
-
-    /**
-     * Gets a reference a surface created from this one.  This surface now holds a reference
-     * to the same data as the original surface, and is -not- the owner.
-     * This is for use by the window manager when returning a window surface
-     * back from a client, converting it from the representation being managed
-     * by the window manager to the representation the client uses to draw
-     * in to it.
-     *
-     * @param other {@link SurfaceControl} to create surface from.
-     *
-     * @hide
-     */
-    public void createFrom(SurfaceControl other) {
-        if (other == null) {
-            throw new IllegalArgumentException("other must not be null");
-        }
-
-        long surfaceControlPtr = other.mNativeObject;
-        if (surfaceControlPtr == 0) {
-            throw new NullPointerException(
-                    "null SurfaceControl native object. Are you using a released SurfaceControl?");
+                    "SurfaceControl native object is null. Are you using a released SurfaceControl?");
         }
         long newNativeObject = nativeCreateFromSurfaceControl(surfaceControlPtr);
 
@@ -579,10 +426,7 @@ public class Surface implements Parcelable {
             // create a new native Surface and return it after reducing
             // the reference count on mNativeObject.  Either way, it is
             // not necessary to call nativeRelease() here.
-            // NOTE: This must be kept synchronized with the native parceling code
-            // in frameworks/native/libs/Surface.cpp
             mName = source.readString();
-            mIsSingleBuffered = source.readInt() != 0;
             setNativeObjectLocked(nativeReadFromParcel(mNativeObject, source));
         }
     }
@@ -593,10 +437,7 @@ public class Surface implements Parcelable {
             throw new IllegalArgumentException("dest must not be null");
         }
         synchronized (mLock) {
-            // NOTE: This must be kept synchronized with the native parceling code
-            // in frameworks/native/libs/Surface.cpp
             dest.writeString(mName);
-            dest.writeInt(mIsSingleBuffered ? 1 : 0);
             nativeWriteToParcel(mNativeObject, dest);
         }
         if ((flags & Parcelable.PARCELABLE_WRITE_RETURN_VALUE) != 0) {
@@ -645,152 +486,6 @@ public class Surface implements Parcelable {
     }
 
     /**
-     * Set the scaling mode to be used for this surfaces buffers
-     * @hide
-     */
-    void setScalingMode(@ScalingMode int scalingMode) {
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            int err = nativeSetScalingMode(mNativeObject, scalingMode);
-            if (err != 0) {
-                throw new IllegalArgumentException("Invalid scaling mode: " + scalingMode);
-            }
-        }
-    }
-
-    void forceScopedDisconnect() {
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            int err = nativeForceScopedDisconnect(mNativeObject);
-            if (err != 0) {
-                throw new RuntimeException("Failed to disconnect Surface instance (bad object?)");
-            }
-        }
-    }
-
-    /**
-     * Transfer ownership of buffer and present it on the Surface.
-     * @hide
-     */
-    public void attachAndQueueBuffer(GraphicBuffer buffer) {
-        synchronized (mLock) {
-            checkNotReleasedLocked();
-            int err = nativeAttachAndQueueBuffer(mNativeObject, buffer);
-            if (err != 0) {
-                throw new RuntimeException(
-                        "Failed to attach and queue buffer to Surface (bad object?)");
-            }
-        }
-    }
-
-    /**
-     * Returns whether or not this Surface is backed by a single-buffered SurfaceTexture
-     * @hide
-     */
-    public boolean isSingleBuffered() {
-        return mIsSingleBuffered;
-    }
-
-    /**
-     * <p>The shared buffer mode allows both the application and the surface compositor
-     * (SurfaceFlinger) to concurrently access this surface's buffer. While the
-     * application is still required to issue a present request
-     * (see {@link #unlockCanvasAndPost(Canvas)}) to the compositor when an update is required,
-     * the compositor may trigger an update at any time. Since the surface's buffer is shared
-     * between the application and the compositor, updates triggered by the compositor may
-     * cause visible tearing.</p>
-     *
-     * <p>The shared buffer mode can be used with
-     * {@link #setAutoRefreshEnabled(boolean) auto-refresh} to avoid the overhead of
-     * issuing present requests.</p>
-     *
-     * <p>If the application uses the shared buffer mode to reduce latency, it is
-     * recommended to use software rendering (see {@link #lockCanvas(Rect)} to ensure
-     * the graphics workloads are not affected by other applications and/or the system
-     * using the GPU. When using software rendering, the application should update the
-     * smallest possible region of the surface required.</p>
-     *
-     * <p class="note">The shared buffer mode might not be supported by the underlying
-     * hardware. Enabling shared buffer mode on hardware that does not support it will
-     * not yield an error but the application will not benefit from lower latency (and
-     * tearing will not be visible).</p>
-     *
-     * <p class="note">Depending on how many and what kind of surfaces are visible, the
-     * surface compositor may need to copy the shared buffer before it is displayed. When
-     * this happens, the latency benefits of shared buffer mode will be reduced.</p>
-     *
-     * @param enabled True to enable the shared buffer mode on this surface, false otherwise
-     *
-     * @see #isSharedBufferModeEnabled()
-     * @see #setAutoRefreshEnabled(boolean)
-     *
-     * @hide
-     */
-    public void setSharedBufferModeEnabled(boolean enabled) {
-        if (mIsSharedBufferModeEnabled != enabled) {
-            int error = nativeSetSharedBufferModeEnabled(mNativeObject, enabled);
-            if (error != 0) {
-                throw new RuntimeException(
-                        "Failed to set shared buffer mode on Surface (bad object?)");
-            } else {
-                mIsSharedBufferModeEnabled = enabled;
-            }
-        }
-    }
-
-    /**
-     * @return True if shared buffer mode is enabled on this surface, false otherwise
-     *
-     * @see #setSharedBufferModeEnabled(boolean)
-     *
-     * @hide
-     */
-    public boolean isSharedBufferModeEnabled() {
-        return mIsSharedBufferModeEnabled;
-    }
-
-    /**
-     * <p>When auto-refresh is enabled, the surface compositor (SurfaceFlinger)
-     * automatically updates the display on a regular refresh cycle. The application
-     * can continue to issue present requests but it is not required. Enabling
-     * auto-refresh may result in visible tearing.</p>
-     *
-     * <p>Auto-refresh has no effect if the {@link #setSharedBufferModeEnabled(boolean)
-     * shared buffer mode} is not enabled.</p>
-     *
-     * <p>Because auto-refresh will trigger continuous updates of the display, it is
-     * recommended to turn it on only when necessary. For example, in a drawing/painting
-     * application auto-refresh should be enabled on finger/pen down and disabled on
-     * finger/pen up.</p>
-     *
-     * @param enabled True to enable auto-refresh on this surface, false otherwise
-     *
-     * @see #isAutoRefreshEnabled()
-     * @see #setSharedBufferModeEnabled(boolean)
-     *
-     * @hide
-     */
-    public void setAutoRefreshEnabled(boolean enabled) {
-        if (mIsAutoRefreshEnabled != enabled) {
-            int error = nativeSetAutoRefreshEnabled(mNativeObject, enabled);
-            if (error != 0) {
-                throw new RuntimeException("Failed to set auto refresh on Surface (bad object?)");
-            } else {
-                mIsAutoRefreshEnabled = enabled;
-            }
-        }
-    }
-
-    /**
-     * @return True if auto-refresh is enabled on this surface, false otherwise
-     *
-     * @hide
-     */
-    public boolean isAutoRefreshEnabled() {
-        return mIsAutoRefreshEnabled;
-    }
-
-    /**
      * Exception thrown when a Canvas couldn't be locked with {@link Surface#lockCanvas}, or
      * when a SurfaceTexture could not successfully be allocated.
      */
@@ -817,16 +512,16 @@ public class Surface implements Parcelable {
                 return "ROTATION_0";
             }
             case Surface.ROTATION_90: {
-                return "ROTATION_90";
+                return "ROATATION_90";
             }
             case Surface.ROTATION_180: {
-                return "ROTATION_180";
+                return "ROATATION_180";
             }
             case Surface.ROTATION_270: {
-                return "ROTATION_270";
+                return "ROATATION_270";
             }
             default: {
-                return Integer.toString(rotation);
+                throw new IllegalArgumentException("Invalid rotation: " + rotation);
             }
         }
     }
@@ -878,14 +573,11 @@ public class Surface implements Parcelable {
         private final RenderNode mRenderNode;
         private long mHwuiRenderer;
         private DisplayListCanvas mCanvas;
-        private final boolean mIsWideColorGamut;
 
-        HwuiContext(boolean isWideColorGamut) {
+        HwuiContext() {
             mRenderNode = RenderNode.create("HwuiCanvas", null);
             mRenderNode.setClipToBounds(false);
-            mIsWideColorGamut = isWideColorGamut;
-            mHwuiRenderer = nHwuiCreate(mRenderNode.mNativeRenderNode, mNativeObject,
-                    isWideColorGamut);
+            mHwuiRenderer = nHwuiCreate(mRenderNode.mNativeRenderNode, mNativeObject);
         }
 
         Canvas lockCanvas(int width, int height) {
@@ -916,13 +608,9 @@ public class Surface implements Parcelable {
                 mHwuiRenderer = 0;
             }
         }
-
-        boolean isWideColorGamut() {
-            return mIsWideColorGamut;
-        }
     }
 
-    private static native long nHwuiCreate(long rootNode, long surface, boolean isWideColorGamut);
+    private static native long nHwuiCreate(long rootNode, long surface);
     private static native void nHwuiSetSurface(long renderer, long surface);
     private static native void nHwuiDraw(long renderer);
     private static native void nHwuiDestroy(long renderer);

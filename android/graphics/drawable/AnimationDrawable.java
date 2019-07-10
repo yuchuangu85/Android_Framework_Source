@@ -40,8 +40,8 @@ import android.util.AttributeSet;
  * animation.
  * <p>
  * An AnimationDrawable defined in XML consists of a single
- * {@code <animation-list>} element and a series of nested
- * {@code <item>} tags. Each item defines a frame of the animation. See
+ * {@code &lt;animation-list&gt;} element and a series of nested
+ * {@code &lt;item&gt;} tags. Each item defines a frame of the animation. See
  * the example below.
  * <p>
  * spin_animation.xml file in res/drawable/ folder:
@@ -105,12 +105,10 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
     /**
      * Sets whether this AnimationDrawable is visible.
      * <p>
-     * When the drawable becomes invisible, it will pause its animation. A subsequent change to
-     * visible with <code>restart</code> set to true will restart the animation from the
-     * first frame. If <code>restart</code> is false, the drawable will resume from the most recent
-     * frame. If the drawable has already reached the last frame, it will then loop back to the
-     * first frame, unless it's a one shot drawable (set through {@link #setOneShot(boolean)}),
-     * in which case, it will stay on the last frame.
+     * When the drawable becomes invisible, it will pause its animation. A
+     * subsequent change to visible with <code>restart</code> set to true will
+     * restart the animation from the first frame. If <code>restart</code> is
+     * false, the animation will resume from the most recent frame.
      *
      * @param visible true if visible, false otherwise
      * @param restart when visible, true to force the animation to restart
@@ -122,7 +120,7 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
         final boolean changed = super.setVisible(visible, restart);
         if (visible) {
             if (restart || changed) {
-                boolean startFromZero = restart || (!mRunning && !mAnimationState.mOneShot) ||
+                boolean startFromZero = restart || !mRunning ||
                         mCurFrame >= mAnimationState.getChildCount();
                 setFrame(startFromZero ? 0 : mCurFrame, true, mAnimating);
             }
@@ -133,7 +131,7 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
     }
 
     /**
-     * Starts the animation from the first frame, looping if necessary. This method has no effect
+     * Starts the animation, looping if necessary. This method has no effect
      * if the animation is running.
      * <p>
      * <strong>Note:</strong> Do not call this in the
@@ -160,7 +158,7 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
     }
 
     /**
-     * Stops the animation at the current frame. This method has no effect if the animation is not
+     * Stops the animation. This method has no effect if the animation is not
      * running.
      *
      * @see #isRunning()
@@ -171,7 +169,6 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
         mAnimating = false;
 
         if (isRunning()) {
-            mCurFrame = 0;
             unscheduleSelf(this);
         }
     }
@@ -199,6 +196,7 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
 
     @Override
     public void unscheduleSelf(Runnable what) {
+        mCurFrame = 0;
         mRunning = false;
         super.unscheduleSelf(what);
     }
@@ -291,7 +289,6 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
         final TypedArray a = obtainAttributes(r, theme, attrs, R.styleable.AnimationDrawable);
         super.inflateWithAttributes(r, parser, a, R.styleable.AnimationDrawable_visible);
         updateStateFromTypedArray(a);
-        updateDensity(r);
         a.recycle();
 
         inflateChildElements(r, parser, attrs, theme);

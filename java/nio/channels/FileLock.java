@@ -1,26 +1,18 @@
 /*
- * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.nio.channels;
@@ -28,131 +20,86 @@ package java.nio.channels;
 import java.io.IOException;
 
 /**
- * A token representing a lock on a region of a file.
- *
- * <p> A file-lock object is created each time a lock is acquired on a file via
- * one of the {@link FileChannel#lock(long,long,boolean) lock} or {@link
- * FileChannel#tryLock(long,long,boolean) tryLock} methods of the
- * {@link FileChannel} class, or the {@link
- * AsynchronousFileChannel#lock(long,long,boolean,Object,CompletionHandler) lock}
- * or {@link AsynchronousFileChannel#tryLock(long,long,boolean) tryLock}
- * methods of the {@link AsynchronousFileChannel} class.
- *
- * <p> A file-lock object is initially valid.  It remains valid until the lock
- * is released by invoking the {@link #release release} method, by closing the
- * channel that was used to acquire it, or by the termination of the Java
- * virtual machine, whichever comes first.  The validity of a lock may be
- * tested by invoking its {@link #isValid isValid} method.
- *
- * <p> A file lock is either <i>exclusive</i> or <i>shared</i>.  A shared lock
- * prevents other concurrently-running programs from acquiring an overlapping
- * exclusive lock, but does allow them to acquire overlapping shared locks.  An
- * exclusive lock prevents other programs from acquiring an overlapping lock of
- * either type.  Once it is released, a lock has no further effect on the locks
- * that may be acquired by other programs.
- *
- * <p> Whether a lock is exclusive or shared may be determined by invoking its
- * {@link #isShared isShared} method.  Some platforms do not support shared
- * locks, in which case a request for a shared lock is automatically converted
- * into a request for an exclusive lock.
- *
- * <p> The locks held on a particular file by a single Java virtual machine do
- * not overlap.  The {@link #overlaps overlaps} method may be used to test
- * whether a candidate lock range overlaps an existing lock.
- *
- * <p> A file-lock object records the file channel upon whose file the lock is
- * held, the type and validity of the lock, and the position and size of the
- * locked region.  Only the validity of a lock is subject to change over time;
- * all other aspects of a lock's state are immutable.
- *
- * <p> File locks are held on behalf of the entire Java virtual machine.
- * They are not suitable for controlling access to a file by multiple
- * threads within the same virtual machine.
- *
- * <p> File-lock objects are safe for use by multiple concurrent threads.
- *
- *
- * <a name="pdep"></a><h2> Platform dependencies </h2>
- *
- * <p> This file-locking API is intended to map directly to the native locking
- * facility of the underlying operating system.  Thus the locks held on a file
- * should be visible to all programs that have access to the file, regardless
- * of the language in which those programs are written.
- *
- * <p> Whether or not a lock actually prevents another program from accessing
- * the content of the locked region is system-dependent and therefore
- * unspecified.  The native file-locking facilities of some systems are merely
- * <i>advisory</i>, meaning that programs must cooperatively observe a known
- * locking protocol in order to guarantee data integrity.  On other systems
- * native file locks are <i>mandatory</i>, meaning that if one program locks a
- * region of a file then other programs are actually prevented from accessing
- * that region in a way that would violate the lock.  On yet other systems,
- * whether native file locks are advisory or mandatory is configurable on a
- * per-file basis.  To ensure consistent and correct behavior across platforms,
- * it is strongly recommended that the locks provided by this API be used as if
- * they were advisory locks.
- *
- * <p> On some systems, acquiring a mandatory lock on a region of a file
- * prevents that region from being {@link java.nio.channels.FileChannel#map
- * <i>mapped into memory</i>}, and vice versa.  Programs that combine
- * locking and mapping should be prepared for this combination to fail.
- *
- * <p> On some systems, closing a channel releases all locks held by the Java
- * virtual machine on the underlying file regardless of whether the locks were
- * acquired via that channel or via another channel open on the same file.  It
- * is strongly recommended that, within a program, a unique channel be used to
- * acquire all locks on any given file.
- *
- * <p> Some network filesystems permit file locking to be used with
- * memory-mapped files only when the locked regions are page-aligned and a
- * whole multiple of the underlying hardware's page size.  Some network
- * filesystems do not implement file locks on regions that extend past a
- * certain position, often 2<sup>30</sup> or 2<sup>31</sup>.  In general, great
- * care should be taken when locking files that reside on network filesystems.
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * A {@code FileLock} represents a locked region of a file.
+ * <p>
+ * Locks have certain properties that enable collaborating processes to avoid
+ * the lost update problem or reading inconsistent data. Logically, a file lock
+ * can be <em>exclusive</em> or <em>shared</em>. Multiple processes can hold
+ * shared locks on the same region of a file, but only a single process can hold
+ * an exclusive lock on a given region of a file and no other process can
+ * simultaneously hold a shared lock overlapping the exclusive lock. An
+ * application can determine whether a {@code FileLock} is shared or exclusive
+ * via the {@code isShared()} method.
+ * <p>
+ * Locks held by a particular process cannot overlap one another. Applications
+ * can determine whether a proposed lock will overlap by using the {@code
+ * overlaps(long, long)}) method. Locks held in other processes may overlap
+ * locks held in this process. Locks are shared amongst all threads in the
+ * acquiring process, and are therefore unsuitable for intra-process
+ * synchronization.
+ * <p>
+ * Once a lock is acquired, it is immutable in all its state except {@code
+ * isValid()}. The lock will initially be valid, but may be rendered invalid by
+ * explicit removal of the lock, using {@code release()}, or implicitly by
+ * closing the channel or exiting the process (terminating the VM).
+ * <h3>Platform dependencies</h3>
+ * <p>
+ * Locks are intended to be true platform operating system file locks, and
+ * therefore locks held by the VM will be visible to other
+ * operating system processes.
+ * <p>
+ * The characteristics of the underlying operating system locks will show
+ * through in the Java implementation. For example, some platforms' locks are
+ * 'mandatory' -- meaning the operating system enforces the locks on processes
+ * that attempt to access locked regions of files; whereas other platforms'
+ * locks are only 'advisory' -- meaning that processes are required to
+ * collaborate to ensure locks are acquired and there is a potential for
+ * processes to not play well. To be on the safe side, it is best to assume that
+ * the platform is adopting advisory locks and always acquire shared locks when
+ * reading a region of a file.
+ * <p>
+ * On some platforms, the presence of a lock will prevent the file from being
+ * memory-mapped. On some platforms, closing a channel on a given file handle
+ * will release all the locks held on that file -- even if there are other
+ * channels open on the same file; their locks will also be released. The safe
+ * option here is to ensure that you only acquire locks on a single channel for
+ * a particular file and that becomes the synchronization point.
+ * <p>
+ * Further care should be exercised when locking files maintained on network
+ * file systems, since they often have further limitations.
  */
-
 public abstract class FileLock implements AutoCloseable {
 
-    private final Channel channel;
+    // The underlying file channel.
+    private final FileChannel channel;
+
+    // The lock starting position.
     private final long position;
+
+    // The lock length in bytes
     private final long size;
+
+    // If true then shared, if false then exclusive
     private final boolean shared;
 
     /**
-     * Initializes a new instance of this class.
+     * Constructs a new file lock instance for a given channel. The constructor
+     * enforces the starting position, length and sharing mode of the lock.
      *
-     * @param  channel
-     *         The file channel upon whose file this lock is held
-     *
-     * @param  position
-     *         The position within the file at which the locked region starts;
-     *         must be non-negative
-     *
-     * @param  size
-     *         The size of the locked region; must be non-negative, and the sum
-     *         <tt>position</tt>&nbsp;+&nbsp;<tt>size</tt> must be non-negative
-     *
-     * @param  shared
-     *         <tt>true</tt> if this lock is shared,
-     *         <tt>false</tt> if it is exclusive
-     *
-     * @throws IllegalArgumentException
-     *         If the preconditions on the parameters do not hold
+     * @param channel
+     *            the underlying file channel that holds the lock.
+     * @param position
+     *            the starting point for the lock.
+     * @param size
+     *            the length of the lock in number of bytes.
+     * @param shared
+     *            the lock's sharing mode of lock; {@code true} is shared,
+     *            {@code false} is exclusive.
      */
-    protected FileLock(FileChannel channel,
-                       long position, long size, boolean shared)
-    {
-        if (position < 0)
-            throw new IllegalArgumentException("Negative position");
-        if (size < 0)
-            throw new IllegalArgumentException("Negative size");
-        if (position + size < 0)
-            throw new IllegalArgumentException("Negative position + size");
+    protected FileLock(FileChannel channel, long position, long size, boolean shared) {
+        if (position < 0 || size < 0 || position + size < 0) {
+            throw new IllegalArgumentException("position=" + position + " size=" + size);
+        }
         this.channel = channel;
         this.position = position;
         this.size = size;
@@ -160,153 +107,83 @@ public abstract class FileLock implements AutoCloseable {
     }
 
     /**
-     * Initializes a new instance of this class.
-     *
-     * @param  channel
-     *         The channel upon whose file this lock is held
-     *
-     * @param  position
-     *         The position within the file at which the locked region starts;
-     *         must be non-negative
-     *
-     * @param  size
-     *         The size of the locked region; must be non-negative, and the sum
-     *         <tt>position</tt>&nbsp;+&nbsp;<tt>size</tt> must be non-negative
-     *
-     * @param  shared
-     *         <tt>true</tt> if this lock is shared,
-     *         <tt>false</tt> if it is exclusive
-     *
-     * @throws IllegalArgumentException
-     *         If the preconditions on the parameters do not hold
-     *
-     * @since 1.7
-     */
-    protected FileLock(AsynchronousFileChannel channel,
-                       long position, long size, boolean shared)
-    {
-        if (position < 0)
-            throw new IllegalArgumentException("Negative position");
-        if (size < 0)
-            throw new IllegalArgumentException("Negative size");
-        if (position + size < 0)
-            throw new IllegalArgumentException("Negative position + size");
-        this.channel = channel;
-        this.position = position;
-        this.size = size;
-        this.shared = shared;
-    }
-
-    /**
-     * Returns the file channel upon whose file this lock was acquired.
-     *
-     * <p> This method has been superseded by the {@link #acquiredBy acquiredBy}
-     * method.
-     *
-     * @return  The file channel, or {@code null} if the file lock was not
-     *          acquired by a file channel.
+     * Returns the lock's {@link FileChannel}.
      */
     public final FileChannel channel() {
-        return (channel instanceof FileChannel) ? (FileChannel)channel : null;
-    }
-
-    /**
-     * Returns the channel upon whose file this lock was acquired.
-     *
-     * @return  The channel upon whose file this lock was acquired.
-     *
-     * @since 1.7
-     */
-    public Channel acquiredBy() {
         return channel;
     }
 
     /**
-     * Returns the position within the file of the first byte of the locked
-     * region.
+     * Returns the lock's starting position in the file.
      *
-     * <p> A locked region need not be contained within, or even overlap, the
-     * actual underlying file, so the value returned by this method may exceed
-     * the file's current size.  </p>
-     *
-     * @return  The position
+     * @return the lock position.
      */
     public final long position() {
         return position;
     }
 
     /**
-     * Returns the size of the locked region in bytes.
+     * Returns the length of the file lock in bytes.
      *
-     * <p> A locked region need not be contained within, or even overlap, the
-     * actual underlying file, so the value returned by this method may exceed
-     * the file's current size.  </p>
-     *
-     * @return  The size of the locked region
+     * @return the size of the file lock in bytes.
      */
     public final long size() {
         return size;
     }
 
     /**
-     * Tells whether this lock is shared.
+     * Indicates if the file lock is shared with other processes or if it is
+     * exclusive.
      *
-     * @return <tt>true</tt> if lock is shared,
-     *         <tt>false</tt> if it is exclusive
+     * @return {@code true} if the lock is a shared lock, {@code false} if it is
+     *         exclusive.
      */
     public final boolean isShared() {
         return shared;
     }
 
     /**
-     * Tells whether or not this lock overlaps the given lock range.
+     * Indicates if the receiver's lock region overlaps the region described
+     * in the parameter list.
      *
-     * @param   position
-     *          The starting position of the lock range
-     * @param   size
-     *          The size of the lock range
-     *
-     * @return  <tt>true</tt> if, and only if, this lock and the given lock
-     *          range overlap by at least one byte
+     * @param start
+     *            the starting position for the comparative lock.
+     * @param length
+     *            the length of the comparative lock.
+     * @return {@code true} if there is an overlap, {@code false} otherwise.
      */
-    public final boolean overlaps(long position, long size) {
-        if (position + size <= this.position)
-            return false;               // That is below this
-        if (this.position + this.size <= position)
-            return false;               // This is below that
+    public final boolean overlaps(long start, long length) {
+        final long end = position + size - 1;
+        final long newEnd = start + length - 1;
+        if (end < start || position > newEnd) {
+            return false;
+        }
         return true;
     }
 
     /**
-     * Tells whether or not this lock is valid.
+     * Indicates whether this lock is a valid file lock. The lock is
+     * valid unless the underlying channel has been closed or it has been
+     * explicitly released.
      *
-     * <p> A lock object remains valid until it is released or the associated
-     * file channel is closed, whichever comes first.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if, this lock is valid
+     * @return {@code true} if the lock is valid, {@code false} otherwise.
      */
     public abstract boolean isValid();
 
     /**
-     * Releases this lock.
+     * Releases this particular lock on the file. If the lock is invalid then
+     * this method has no effect. Once released, the lock becomes invalid.
      *
-     * <p> If this lock object is valid then invoking this method releases the
-     * lock and renders the object invalid.  If this lock object is invalid
-     * then invoking this method has no effect.  </p>
-     *
-     * @throws  ClosedChannelException
-     *          If the channel that was used to acquire this lock
-     *          is no longer open
-     *
-     * @throws  IOException
-     *          If an I/O error occurs
+     * @throws ClosedChannelException
+     *             if the channel is already closed when an attempt to release
+     *             the lock is made.
+     * @throws IOException
+     *             if another I/O error occurs.
      */
     public abstract void release() throws IOException;
 
     /**
-     * This method invokes the {@link #release} method. It was added
-     * to the class so that it could be used in conjunction with the
-     * automatic resource management block construct.
+     * Calls {@link #release} for {@code AutoCloseable}.
      *
      * @since 1.7
      */
@@ -315,17 +192,10 @@ public abstract class FileLock implements AutoCloseable {
     }
 
     /**
-     * Returns a string describing the range, type, and validity of this lock.
-     *
-     * @return  A descriptive string
+     * Returns a string that shows the details of the lock suitable for debugging.
      */
+    @Override
     public final String toString() {
-        return (this.getClass().getName()
-                + "[" + position
-                + ":" + size
-                + " " + (shared ? "shared" : "exclusive")
-                + " " + (isValid() ? "valid" : "invalid")
-                + "]");
+        return "FileLock[position=" + position + ", size=" + size + ", shared=" + shared + "]";
     }
-
 }

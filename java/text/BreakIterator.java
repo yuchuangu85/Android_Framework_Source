@@ -1,207 +1,199 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * (C) Copyright Taligent, Inc. 1996, 1997 - All Rights Reserved
- * (C) Copyright IBM Corp. 1996 - 1998 - All Rights Reserved
- *
- * The original version of this source code and documentation
- * is copyrighted and owned by Taligent, Inc., a wholly-owned
- * subsidiary of IBM. These materials are provided under terms
- * of a License Agreement between Taligent and Sun. This technology
- * is protected by multiple US and International patents.
- *
- * This notice and attribution to Taligent may not be removed.
- * Taligent is a registered trademark of Taligent, Inc.
- *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.text;
 
 import java.util.Locale;
 
-
-// Android-changed: Discourage modification on CharacterIterator after setText. http://b/80456574
 /**
- * The <code>BreakIterator</code> class implements methods for finding
- * the location of boundaries in text. Instances of <code>BreakIterator</code>
- * maintain a current position and scan over text
- * returning the index of characters where boundaries occur.
- * Internally, <code>BreakIterator</code> scans text using a
- * <code>CharacterIterator</code>, and is thus able to scan text held
- * by any object implementing that protocol. A <code>StringCharacterIterator</code>
- * is used to scan <code>String</code> objects passed to <code>setText</code>.
- * The <code>CharacterIterator</code> object must not be modified after having been
- * passed to <code>setText</code>. If the text in the <code>CharacterIterator</code> object
- * is changed, the caller must reset <code>BreakIterator</code> by calling
- * <code>setText</code>.
- *
+ * Locates boundaries in text. This class defines a protocol for objects that
+ * break up a piece of natural-language text according to a set of criteria.
+ * Instances or subclasses of {@code BreakIterator} can be provided, for
+ * example, to break a piece of text into words, sentences, or logical
+ * characters according to the conventions of some language or group of
+ * languages. We provide four built-in types of {@code BreakIterator}:
+ * <ul>
+ * <li>{@link #getSentenceInstance()} returns a {@code BreakIterator} that
+ * locates boundaries between sentences. This is useful for triple-click
+ * selection, for example.</li>
+ * <li>{@link #getWordInstance()} returns a {@code BreakIterator} that locates
+ * boundaries between words. This is useful for double-click selection or "find
+ * whole words" searches. This type of {@code BreakIterator} makes sure there is
+ * a boundary position at the beginning and end of each legal word (numbers
+ * count as words, too). Whitespace and punctuation are kept separate from real
+ * words.</li>
+ * <li>{@code getLineInstance()} returns a {@code BreakIterator} that locates
+ * positions where it is legal for a text editor to wrap lines. This is similar
+ * to word breaking, but not the same: punctuation and whitespace are generally
+ * kept with words (you don't want a line to start with whitespace, for
+ * example), and some special characters can force a position to be considered a
+ * line break position or prevent a position from being a line break position.</li>
+ * <li>{@code getCharacterInstance()} returns a {@code BreakIterator} that
+ * locates boundaries between logical characters. Because of the structure of
+ * the Unicode encoding, a logical character may be stored internally as more
+ * than one Unicode code point. (A with an umlaut may be stored as an a followed
+ * by a separate combining umlaut character, for example, but the user still
+ * thinks of it as one character.) This iterator allows various processes
+ * (especially text editors) to treat as characters the units of text that a
+ * user would think of as characters, rather than the units of text that the
+ * computer sees as "characters".</li>
+ * </ul> {@code BreakIterator}'s interface follows an "iterator" model (hence
+ * the name), meaning it has a concept of a "current position" and methods like
+ * {@code first()}, {@code last()}, {@code next()}, and {@code previous()} that
+ * update the current position. All {@code BreakIterator}s uphold the following
+ * invariants:
+ * <ul>
+ * <li>The beginning and end of the text are always treated as boundary
+ * positions.</li>
+ * <li>The current position of the iterator is always a boundary position
+ * (random- access methods move the iterator to the nearest boundary position
+ * before or after the specified position, not <i>to</i> the specified
+ * position).</li>
+ * <li>{@code DONE} is used as a flag to indicate when iteration has stopped.
+ * {@code DONE} is only returned when the current position is the end of the
+ * text and the user calls {@code next()}, or when the current position is the
+ * beginning of the text and the user calls {@code previous()}.</li>
+ * <li>Break positions are numbered by the positions of the characters that
+ * follow them. Thus, under normal circumstances, the position before the first
+ * character is 0, the position after the first character is 1, and the position
+ * after the last character is 1 plus the length of the string.</li>
+ * <li>The client can change the position of an iterator, or the text it
+ * analyzes, at will, but cannot change the behavior. If the user wants
+ * different behavior, he must instantiate a new iterator.</li>
+ * </ul>
  * <p>
- * You use the factory methods provided by this class to create
- * instances of various types of break iterators. In particular,
- * use <code>getWordInstance</code>, <code>getLineInstance</code>,
- * <code>getSentenceInstance</code>, and <code>getCharacterInstance</code>
- * to create <code>BreakIterator</code>s that perform
- * word, line, sentence, and character boundary analysis respectively.
- * A single <code>BreakIterator</code> can work only on one unit
- * (word, line, sentence, and so on). You must use a different iterator
- * for each unit boundary analysis you wish to perform.
- *
- * <p><a name="line"></a>
- * Line boundary analysis determines where a text string can be
- * broken when line-wrapping. The mechanism correctly handles
- * punctuation and hyphenated words. Actual line breaking needs
- * to also consider the available line width and is handled by
- * higher-level software.
- *
- * <p><a name="sentence"></a>
- * Sentence boundary analysis allows selection with correct interpretation
- * of periods within numbers and abbreviations, and trailing punctuation
- * marks such as quotation marks and parentheses.
- *
- * <p><a name="word"></a>
- * Word boundary analysis is used by search and replace functions, as
- * well as within text editing applications that allow the user to
- * select words with a double click. Word selection provides correct
- * interpretation of punctuation marks within and following
- * words. Characters that are not part of a word, such as symbols
- * or punctuation marks, have word-breaks on both sides.
- *
- * <p><a name="character"></a>
- * Character boundary analysis allows users to interact with characters
- * as they expect to, for example, when moving the cursor through a text
- * string. Character boundary analysis provides correct navigation
- * through character strings, regardless of how the character is stored.
- * The boundaries returned may be those of supplementary characters,
- * combining character sequences, or ligature clusters.
- * For example, an accented character might be stored as a base character
- * and a diacritical mark. What users consider to be a character can
- * differ between languages.
- *
+ * {@code BreakIterator} accesses the text it analyzes through a
+ * {@link CharacterIterator}, which makes it possible to use {@code
+ * BreakIterator} to analyze text in any text-storage vehicle that provides a
+ * {@code CharacterIterator} interface.
  * <p>
- * The <code>BreakIterator</code> instances returned by the factory methods
- * of this class are intended for use with natural languages only, not for
- * programming language text. It is however possible to define subclasses
- * that tokenize a programming language.
- *
- * <P>
- * <strong>Examples</strong>:<P>
+ * <em>Note:</em> Some types of {@code BreakIterator} can take a long time to
+ * create, and instances of {@code BreakIterator} are not currently cached by
+ * the system. For optimal performance, keep instances of {@code BreakIterator}
+ * around as long as it makes sense. For example, when word-wrapping a document,
+ * don't create and destroy a new {@code BreakIterator} for each line. Create
+ * one break iterator for the whole document (or whatever stretch of text you're
+ * wrapping) and use it to do the whole job of wrapping the text.
+ * <p>
+ * <em>Examples</em>:
+ * <p>
  * Creating and using text boundaries:
  * <blockquote>
+ *
  * <pre>
  * public static void main(String args[]) {
- *      if (args.length == 1) {
- *          String stringToExamine = args[0];
- *          //print each word in order
- *          BreakIterator boundary = BreakIterator.getWordInstance();
- *          boundary.setText(stringToExamine);
- *          printEachForward(boundary, stringToExamine);
- *          //print each sentence in reverse order
- *          boundary = BreakIterator.getSentenceInstance(Locale.US);
- *          boundary.setText(stringToExamine);
- *          printEachBackward(boundary, stringToExamine);
- *          printFirst(boundary, stringToExamine);
- *          printLast(boundary, stringToExamine);
- *      }
+ *     if (args.length == 1) {
+ *         String stringToExamine = args[0];
+ *         //print each word in order
+ *         BreakIterator boundary = BreakIterator.getWordInstance();
+ *         boundary.setText(stringToExamine);
+ *         printEachForward(boundary, stringToExamine);
+ *         //print each sentence in reverse order
+ *         boundary = BreakIterator.getSentenceInstance(Locale.US);
+ *         boundary.setText(stringToExamine);
+ *         printEachBackward(boundary, stringToExamine);
+ *         printFirst(boundary, stringToExamine);
+ *         printLast(boundary, stringToExamine);
+ *     }
  * }
  * </pre>
- * </blockquote>
  *
+ * </blockquote>
+ * <p>
  * Print each element in order:
  * <blockquote>
+ *
  * <pre>
  * public static void printEachForward(BreakIterator boundary, String source) {
  *     int start = boundary.first();
- *     for (int end = boundary.next();
- *          end != BreakIterator.DONE;
- *          start = end, end = boundary.next()) {
- *          System.out.println(source.substring(start,end));
+ *     for (int end = boundary.next(); end != BreakIterator.DONE; start = end, end = boundary.next()) {
+ *         System.out.println(source.substring(start, end));
  *     }
  * }
  * </pre>
- * </blockquote>
  *
+ * </blockquote>
+ * <p>
  * Print each element in reverse order:
  * <blockquote>
+ *
  * <pre>
  * public static void printEachBackward(BreakIterator boundary, String source) {
  *     int end = boundary.last();
- *     for (int start = boundary.previous();
- *          start != BreakIterator.DONE;
- *          end = start, start = boundary.previous()) {
- *         System.out.println(source.substring(start,end));
+ *     for (int start = boundary.previous(); start != BreakIterator.DONE; end = start, start = boundary
+ *             .previous()) {
+ *         System.out.println(source.substring(start, end));
  *     }
  * }
  * </pre>
- * </blockquote>
  *
- * Print first element:
+ * </blockquote>
+ * <p>
+ * Print the first element:
  * <blockquote>
+ *
  * <pre>
  * public static void printFirst(BreakIterator boundary, String source) {
  *     int start = boundary.first();
  *     int end = boundary.next();
- *     System.out.println(source.substring(start,end));
+ *     System.out.println(source.substring(start, end));
  * }
  * </pre>
- * </blockquote>
  *
- * Print last element:
+ * </blockquote>
+ * <p>
+ * Print the last element:
  * <blockquote>
+ *
  * <pre>
  * public static void printLast(BreakIterator boundary, String source) {
  *     int end = boundary.last();
  *     int start = boundary.previous();
- *     System.out.println(source.substring(start,end));
+ *     System.out.println(source.substring(start, end));
  * }
  * </pre>
- * </blockquote>
  *
+ * </blockquote>
+ * <p>
  * Print the element at a specified position:
  * <blockquote>
+ *
  * <pre>
  * public static void printAt(BreakIterator boundary, int pos, String source) {
  *     int end = boundary.following(pos);
  *     int start = boundary.previous();
- *     System.out.println(source.substring(start,end));
+ *     System.out.println(source.substring(start, end));
  * }
  * </pre>
- * </blockquote>
  *
+ * </blockquote>
+ * <p>
  * Find the next word:
  * <blockquote>
- * <pre>{@code
+ *
+ * <pre>
  * public static int nextWordStartAfter(int pos, String text) {
  *     BreakIterator wb = BreakIterator.getWordInstance();
  *     wb.setText(text);
  *     int last = wb.following(pos);
  *     int current = wb.next();
  *     while (current != BreakIterator.DONE) {
- *         for (int p = last; p < current; p++) {
- *             if (Character.isLetter(text.codePointAt(p)))
+ *         for (int p = last; p &lt; current; p++) {
+ *             if (Character.isLetter(text.charAt(p)))
  *                 return last;
  *         }
  *         last = current;
@@ -209,346 +201,262 @@ import java.util.Locale;
  *     }
  *     return BreakIterator.DONE;
  * }
- * }</pre>
- * (The iterator returned by BreakIterator.getWordInstance() is unique in that
- * the break positions it returns don't represent both the start and end of the
- * thing being iterated over.  That is, a sentence-break iterator returns breaks
- * that each represent the end of one sentence and the beginning of the next.
- * With the word-break iterator, the characters between two boundaries might be a
- * word, or they might be the punctuation or whitespace between two words.  The
- * above code uses a simple heuristic to determine which boundary is the beginning
- * of a word: If the characters between this boundary and the next boundary
- * include at least one letter (this can be an alphabetical letter, a CJK ideograph,
- * a Hangul syllable, a Kana character, etc.), then the text between this boundary
- * and the next is a word; otherwise, it's the material between words.)
+ * </pre>
+ *
  * </blockquote>
+ * <p>
+ * The iterator returned by {@code BreakIterator.getWordInstance()} is unique in
+ * that the break positions it returns don't represent both the start and end of
+ * the thing being iterated over. That is, a sentence-break iterator returns
+ * breaks that each represent the end of one sentence and the beginning of the
+ * next. With the word-break iterator, the characters between two boundaries
+ * might be a word, or they might be the punctuation or whitespace between two
+ * words. The above code uses a simple heuristic to determine which boundary is
+ * the beginning of a word: If the characters between this boundary and the next
+ * boundary include at least one letter (this can be an alphabetical letter, a
+ * CJK ideograph, a Hangul syllable, a Kana character, etc.), then the text
+ * between this boundary and the next is a word; otherwise, it's the material
+ * between words.)
  *
  * @see CharacterIterator
- *
  */
-
-public abstract class BreakIterator implements Cloneable
-{
-    /**
-     * Constructor. BreakIterator is stateless and has no default behavior.
-     */
-    protected BreakIterator()
-    {
-    }
+public abstract class BreakIterator implements Cloneable {
 
     /**
-     * Create a copy of this iterator
-     * @return A copy of this
-     */
-    @Override
-    public Object clone()
-    {
-        try {
-            return super.clone();
-        }
-        catch (CloneNotSupportedException e) {
-            throw new InternalError(e);
-        }
-    }
-
-    /**
-     * DONE is returned by previous(), next(), next(int), preceding(int)
-     * and following(int) when either the first or last text boundary has been
-     * reached.
+     * This constant is returned by iterate methods like {@code previous()} or
+     * {@code next()} if they have returned all valid boundaries.
      */
     public static final int DONE = -1;
 
     /**
-     * Returns the first boundary. The iterator's current position is set
-     * to the first text boundary.
-     * @return The character index of the first text boundary.
+     * Default constructor, for use by subclasses.
      */
-    public abstract int first();
-
-    /**
-     * Returns the last boundary. The iterator's current position is set
-     * to the last text boundary.
-     * @return The character index of the last text boundary.
-     */
-    public abstract int last();
-
-    /**
-     * Returns the nth boundary from the current boundary. If either
-     * the first or last text boundary has been reached, it returns
-     * <code>BreakIterator.DONE</code> and the current position is set to either
-     * the first or last text boundary depending on which one is reached. Otherwise,
-     * the iterator's current position is set to the new boundary.
-     * For example, if the iterator's current position is the mth text boundary
-     * and three more boundaries exist from the current boundary to the last text
-     * boundary, the next(2) call will return m + 2. The new text position is set
-     * to the (m + 2)th text boundary. A next(4) call would return
-     * <code>BreakIterator.DONE</code> and the last text boundary would become the
-     * new text position.
-     * @param n which boundary to return.  A value of 0
-     * does nothing.  Negative values move to previous boundaries
-     * and positive values move to later boundaries.
-     * @return The character index of the nth boundary from the current position
-     * or <code>BreakIterator.DONE</code> if either first or last text boundary
-     * has been reached.
-     */
-    public abstract int next(int n);
-
-    /**
-     * Returns the boundary following the current boundary. If the current boundary
-     * is the last text boundary, it returns <code>BreakIterator.DONE</code> and
-     * the iterator's current position is unchanged. Otherwise, the iterator's
-     * current position is set to the boundary following the current boundary.
-     * @return The character index of the next text boundary or
-     * <code>BreakIterator.DONE</code> if the current boundary is the last text
-     * boundary.
-     * Equivalent to next(1).
-     * @see #next(int)
-     */
-    public abstract int next();
-
-    /**
-     * Returns the boundary preceding the current boundary. If the current boundary
-     * is the first text boundary, it returns <code>BreakIterator.DONE</code> and
-     * the iterator's current position is unchanged. Otherwise, the iterator's
-     * current position is set to the boundary preceding the current boundary.
-     * @return The character index of the previous text boundary or
-     * <code>BreakIterator.DONE</code> if the current boundary is the first text
-     * boundary.
-     */
-    public abstract int previous();
-
-    /**
-     * Returns the first boundary following the specified character offset. If the
-     * specified offset equals to the last text boundary, it returns
-     * <code>BreakIterator.DONE</code> and the iterator's current position is unchanged.
-     * Otherwise, the iterator's current position is set to the returned boundary.
-     * The value returned is always greater than the offset or the value
-     * <code>BreakIterator.DONE</code>.
-     * @param offset the character offset to begin scanning.
-     * @return The first boundary after the specified offset or
-     * <code>BreakIterator.DONE</code> if the last text boundary is passed in
-     * as the offset.
-     * @exception  IllegalArgumentException if the specified offset is less than
-     * the first text boundary or greater than the last text boundary.
-     */
-    public abstract int following(int offset);
-
-    /**
-     * Returns the last boundary preceding the specified character offset. If the
-     * specified offset equals to the first text boundary, it returns
-     * <code>BreakIterator.DONE</code> and the iterator's current position is unchanged.
-     * Otherwise, the iterator's current position is set to the returned boundary.
-     * The value returned is always less than the offset or the value
-     * <code>BreakIterator.DONE</code>.
-     * @param offset the character offset to begin scanning.
-     * @return The last boundary before the specified offset or
-     * <code>BreakIterator.DONE</code> if the first text boundary is passed in
-     * as the offset.
-     * @exception   IllegalArgumentException if the specified offset is less than
-     * the first text boundary or greater than the last text boundary.
-     * @since 1.2
-     */
-    public int preceding(int offset) {
-        // NOTE:  This implementation is here solely because we can't add new
-        // abstract methods to an existing class.  There is almost ALWAYS a
-        // better, faster way to do this.
-        int pos = following(offset);
-        while (pos >= offset && pos != DONE) {
-            pos = previous();
-        }
-        return pos;
+    protected BreakIterator() {
     }
 
     /**
-     * Returns true if the specified character offset is a text boundary.
-     * @param offset the character offset to check.
-     * @return <code>true</code> if "offset" is a boundary position,
-     * <code>false</code> otherwise.
-     * @exception   IllegalArgumentException if the specified offset is less than
-     * the first text boundary or greater than the last text boundary.
-     * @since 1.2
+     * Returns an array of locales for which custom {@code BreakIterator} instances
+     * are available.
+     * <p>Note that Android does not support user-supplied locale service providers.
      */
-    public boolean isBoundary(int offset) {
-        // NOTE: This implementation probably is wrong for most situations
-        // because it fails to take into account the possibility that a
-        // CharacterIterator passed to setText() may not have a begin offset
-        // of 0.  But since the abstract BreakIterator doesn't have that
-        // knowledge, it assumes the begin offset is 0.  If you subclass
-        // BreakIterator, copy the SimpleTextBoundary implementation of this
-        // function into your subclass.  [This should have been abstract at
-        // this level, but it's too late to fix that now.]
-        if (offset == 0) {
-            return true;
-        }
-        int boundary = following(offset - 1);
-        if (boundary == DONE) {
-            throw new IllegalArgumentException();
-        }
-        return boundary == offset;
+    public static Locale[] getAvailableLocales() {
+        return com.ibm.icu.text.BreakIterator.getAvailableLocales();
     }
 
     /**
-     * Returns character index of the text boundary that was most
-     * recently returned by next(), next(int), previous(), first(), last(),
-     * following(int) or preceding(int). If any of these methods returns
-     * <code>BreakIterator.DONE</code> because either first or last text boundary
-     * has been reached, it returns the first or last text boundary depending on
-     * which one is reached.
-     * @return The text boundary returned from the above methods, first or last
-     * text boundary.
-     * @see #next()
-     * @see #next(int)
-     * @see #previous()
-     * @see #first()
-     * @see #last()
-     * @see #following(int)
-     * @see #preceding(int)
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * characters using the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     * @return a new instance of {@code BreakIterator} using the default locale.
      */
-    public abstract int current();
-
-    /**
-     * Get the text being scanned
-     * @return the text being scanned
-     */
-    public abstract CharacterIterator getText();
-
-    /**
-     * Set a new text string to be scanned.  The current scan
-     * position is reset to first().
-     * @param newText new text to scan.
-     */
-    public void setText(String newText)
-    {
-        setText(new StringCharacterIterator(newText));
-    }
-
-    /**
-     * Set a new text for scanning.  The current scan
-     * position is reset to first().
-     * @param newText new text to scan.
-     */
-    public abstract void setText(CharacterIterator newText);
-
-    // Android-removed: Removed code related to BreakIteratorProvider support.
-
-    /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#word">word breaks</a>
-     * for the {@linkplain Locale#getDefault() default locale}.
-     * @return A break iterator for word breaks
-     */
-    public static BreakIterator getWordInstance()
-    {
-        return getWordInstance(Locale.getDefault());
-    }
-
-    /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#word">word breaks</a>
-     * for the given locale.
-     * @param locale the desired locale
-     * @return A break iterator for word breaks
-     * @exception NullPointerException if <code>locale</code> is null
-     */
-    public static BreakIterator getWordInstance(Locale locale)
-    {
-        // Android-changed: Switched to ICU.
-        return new IcuIteratorWrapper(
-                android.icu.text.BreakIterator.getWordInstance(locale));
-    }
-
-    /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#line">line breaks</a>
-     * for the {@linkplain Locale#getDefault() default locale}.
-     * @return A break iterator for line breaks
-     */
-    public static BreakIterator getLineInstance()
-    {
-        return getLineInstance(Locale.getDefault());
-    }
-
-    /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#line">line breaks</a>
-     * for the given locale.
-     * @param locale the desired locale
-     * @return A break iterator for line breaks
-     * @exception NullPointerException if <code>locale</code> is null
-     */
-    public static BreakIterator getLineInstance(Locale locale)
-    {
-        // Android-changed: Switched to ICU.
-        return new IcuIteratorWrapper(
-                android.icu.text.BreakIterator.getLineInstance(locale));
-    }
-
-    /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#character">character breaks</a>
-     * for the {@linkplain Locale#getDefault() default locale}.
-     * @return A break iterator for character breaks
-     */
-    public static BreakIterator getCharacterInstance()
-    {
+    public static BreakIterator getCharacterInstance() {
         return getCharacterInstance(Locale.getDefault());
     }
 
     /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#character">character breaks</a>
-     * for the given locale.
-     * @param locale the desired locale
-     * @return A break iterator for character breaks
-     * @exception NullPointerException if <code>locale</code> is null
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * characters using the given locale.
      */
-    public static BreakIterator getCharacterInstance(Locale locale)
-    {
-        // Android-changed: Switched to ICU.
+    public static BreakIterator getCharacterInstance(Locale locale) {
         return new IcuIteratorWrapper(
-                android.icu.text.BreakIterator.getCharacterInstance(locale));
+                com.ibm.icu.text.BreakIterator.getCharacterInstance(locale));
     }
 
     /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#sentence">sentence breaks</a>
-     * for the {@linkplain Locale#getDefault() default locale}.
-     * @return A break iterator for sentence breaks
+     * Returns a new instance of {{@code BreakIterator} to iterate over
+     * line breaks using the user's default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     * @return a new instance of {@code BreakIterator} using the default locale.
      */
-    public static BreakIterator getSentenceInstance()
-    {
+    public static BreakIterator getLineInstance() {
+        return getLineInstance(Locale.getDefault());
+    }
+
+    /**
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * line breaks using the given locale.
+     */
+    public static BreakIterator getLineInstance(Locale locale) {
+        return new IcuIteratorWrapper(
+                com.ibm.icu.text.BreakIterator.getLineInstance(locale));
+    }
+
+    /**
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * sentence-breaks using the default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     * @return a new instance of {@code BreakIterator} using the default locale.
+     */
+    public static BreakIterator getSentenceInstance() {
         return getSentenceInstance(Locale.getDefault());
     }
 
     /**
-     * Returns a new <code>BreakIterator</code> instance
-     * for <a href="BreakIterator.html#sentence">sentence breaks</a>
-     * for the given locale.
-     * @param locale the desired locale
-     * @return A break iterator for sentence breaks
-     * @exception NullPointerException if <code>locale</code> is null
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * sentence-breaks using the given locale.
      */
-    public static BreakIterator getSentenceInstance(Locale locale)
-    {
-        // Android-changed: Switched to ICU.
+    public static BreakIterator getSentenceInstance(Locale locale) {
         return new IcuIteratorWrapper(
-                android.icu.text.BreakIterator.getSentenceInstance(locale));
+                com.ibm.icu.text.BreakIterator.getSentenceInstance(locale));
     }
 
-    // Android-removed: Removed code related to BreakIteratorProvider support.
-
-    // Android-changed: Removed references to BreakIteratorProvider from JavaDoc.
     /**
-     * Returns an array of all locales for which the
-     * <code>get*Instance</code> methods of this class can return
-     * localized instances.
-     *
-     * @return An array of locales for which localized
-     *         <code>BreakIterator</code> instances are available.
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * word-breaks using the default locale.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     * @return a new instance of {@code BreakIterator} using the default locale.
      */
-    public static synchronized Locale[] getAvailableLocales()
-    {
-        // Android-changed: Switched to ICU.
-        return android.icu.text.BreakIterator.getAvailableLocales();
+    public static BreakIterator getWordInstance() {
+        return getWordInstance(Locale.getDefault());
+    }
+
+    /**
+     * Returns a new instance of {@code BreakIterator} to iterate over
+     * word-breaks using the given locale.
+     */
+    public static BreakIterator getWordInstance(Locale locale) {
+        return new IcuIteratorWrapper(
+                com.ibm.icu.text.BreakIterator.getWordInstance(locale));
+    }
+
+    /**
+     * Indicates whether the given offset is a boundary position. If this method
+     * returns true, the current iteration position is set to the given
+     * position; if the function returns false, the current iteration position
+     * is set as though {@link #following(int)} had been called.
+     *
+     * @param offset
+     *            the given offset to check.
+     * @return {@code true} if the given offset is a boundary position; {@code
+     *         false} otherwise.
+     */
+    public boolean isBoundary(int offset) {
+        return false;
+    }
+
+    /**
+     * Returns the position of last boundary preceding the given offset, and
+     * sets the current position to the returned value, or {@code DONE} if the
+     * given offset specifies the starting position.
+     *
+     * @param offset
+     *            the given start position to be searched for.
+     * @return the position of the last boundary preceding the given offset.
+     * @throws IllegalArgumentException
+     *            if the offset is invalid.
+     */
+    public int preceding(int offset) {
+        return 0;
+    }
+
+    /**
+     * Sets the new text string to be analyzed, the current position will be
+     * reset to the beginning of this new string, and the old string will be
+     * lost.
+     *
+     * @param newText
+     *            the new text string to be analyzed.
+     */
+    public void setText(String newText) {
+    }
+
+    /**
+     * Returns this iterator's current position.
+     *
+     * @return this iterator's current position.
+     */
+    public abstract int current();
+
+    /**
+     * Sets this iterator's current position to the first boundary and returns
+     * that position.
+     *
+     * @return the position of the first boundary.
+     */
+    public abstract int first();
+
+    /**
+     * Sets the position of the first boundary to the one following the given
+     * offset and returns this position. Returns {@code DONE} if there is no
+     * boundary after the given offset.
+     *
+     * @param offset
+     *            the given position to be searched for.
+     * @return the position of the first boundary following the given offset.
+     * @throws IllegalArgumentException
+     *            if the offset is invalid.
+     */
+    public abstract int following(int offset);
+
+    /**
+     * Returns a {@code CharacterIterator} which represents the text being
+     * analyzed. Please note that the returned value is probably the internal
+     * iterator used by this object. If the invoker wants to modify the status
+     * of the returned iterator, it is recommended to first create a clone of
+     * the iterator returned.
+     *
+     * @return a {@code CharacterIterator} which represents the text being
+     *         analyzed.
+     */
+    public abstract CharacterIterator getText();
+
+    /**
+     * Sets this iterator's current position to the last boundary and returns
+     * that position.
+     *
+     * @return the position of last boundary.
+     */
+    public abstract int last();
+
+    /**
+     * Sets this iterator's current position to the next boundary after the
+     * current position, and returns this position. Returns {@code DONE} if no
+     * boundary was found after the current position.
+     *
+     * @return the position of last boundary.
+     */
+    public abstract int next();
+
+    /**
+     * Sets this iterator's current position to the next boundary after the
+     * given position, and returns that position. Returns {@code DONE} if no
+     * boundary was found after the given position.
+     *
+     * @param n
+     *            the given position.
+     * @return the position of last boundary.
+     */
+    public abstract int next(int n);
+
+    /**
+     * Sets this iterator's current position to the previous boundary before the
+     * current position and returns that position. Returns {@code DONE} if
+     * no boundary was found before the current position.
+     *
+     * @return the position of last boundary.
+     */
+    public abstract int previous();
+
+    /**
+     * Sets the new text to be analyzed by the given {@code CharacterIterator}.
+     * The position will be reset to the beginning of the new text, and other
+     * status information of this iterator will be kept.
+     *
+     * @param newText
+     *            the {@code CharacterIterator} referring to the text to be
+     *            analyzed.
+     */
+    public abstract void setText(CharacterIterator newText);
+
+    /**
+     * Returns a copy of this iterator.
+     */
+    @Override
+    public Object clone() {
+        try {
+            return (BreakIterator) super.clone();
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError(e);
+        }
     }
 }

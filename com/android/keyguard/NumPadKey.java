@@ -23,7 +23,6 @@ import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -54,7 +53,8 @@ public class NumPadKey extends ViewGroup {
             if (mTextView != null && mTextView.isEnabled()) {
                 mTextView.append(Character.forDigit(mDigit, 10));
             }
-            userActivity();;
+            userActivity();
+            doHapticKeyClick();
         }
     };
 
@@ -71,10 +71,6 @@ public class NumPadKey extends ViewGroup {
     }
 
     public NumPadKey(Context context, AttributeSet attrs, int defStyle) {
-        this(context, attrs, defStyle, R.layout.keyguard_num_pad_key);
-    }
-
-    protected NumPadKey(Context context, AttributeSet attrs, int defStyle, int contentResource) {
         super(context, attrs, defStyle);
         setFocusable(true);
 
@@ -89,13 +85,14 @@ public class NumPadKey extends ViewGroup {
 
         setOnClickListener(mListener);
         setOnHoverListener(new LiftToActivateListener(context));
+        setAccessibilityDelegate(new ObscureSpeechDelegate(context));
 
         mEnableHaptics = new LockPatternUtils(context).isTactileFeedbackEnabled();
 
         mPM = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
         LayoutInflater inflater = (LayoutInflater) getContext().getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
-        inflater.inflate(contentResource, this, true);
+        inflater.inflate(R.layout.keyguard_num_pad_key, this, true);
 
         mDigitText = (TextView) findViewById(R.id.digit_text);
         mDigitText.setText(Integer.toString(mDigit));
@@ -116,20 +113,16 @@ public class NumPadKey extends ViewGroup {
             }
         }
 
-        a = context.obtainStyledAttributes(attrs, android.R.styleable.View);
-        if (!a.hasValueOrEmpty(android.R.styleable.View_background)) {
-            setBackground(mContext.getDrawable(R.drawable.ripple_drawable));
-        }
-        a.recycle();
+        setBackground(mContext.getDrawable(R.drawable.ripple_drawable));
         setContentDescription(mDigitText.getText().toString());
     }
 
     @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            doHapticKeyClick();
-        }
-        return super.onTouchEvent(event);
+    public void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+
+        // Reset the "announced headset" flag when detached.
+        ObscureSpeechDelegate.sAnnouncedHeadset = false;
     }
 
     @Override

@@ -16,7 +16,7 @@
 
 package com.android.server.am;
 
-import com.android.internal.app.procstats.ServiceState;
+import com.android.internal.app.ProcessStats;
 import com.android.internal.os.BatteryStatsImpl;
 import com.android.server.LocalServices;
 import com.android.server.notification.NotificationManagerInternal;
@@ -33,7 +33,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Binder;
-import android.os.Build;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -42,8 +41,6 @@ import android.provider.Settings;
 import android.util.ArrayMap;
 import android.util.Slog;
 import android.util.TimeUtils;
-import android.util.proto.ProtoOutputStream;
-import android.util.proto.ProtoUtils;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -56,7 +53,7 @@ import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NA
 /**
  * A running application service.
  */
-final class ServiceRecord extends Binder implements ComponentName.WithComponentName {
+final class ServiceRecord extends Binder {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ServiceRecord" : TAG_AM;
 
     // Maximum number of delivery attempts before giving up.
@@ -73,7 +70,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                             // original intent used to find service.
     final ServiceInfo serviceInfo;
                             // all information about the service.
-    ApplicationInfo appInfo;
+    final ApplicationInfo appInfo;
                             // information about service's app.
     final int userId;       // user that this service is running as
     final String packageName; // the package implementing intent's component
@@ -81,7 +78,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     final String permission;// permission needed to access service
     final boolean exported; // from ServiceInfo.exported
     final Runnable restarter; // used to schedule retries of starting the service
-    final long createRealTime;  // when this service was created
+    final long createTime;  // when this service was created
     final ArrayMap<Intent.FilterComparison, IntentBindRecord> bindings
             = new ArrayMap<Intent.FilterComparison, IntentBindRecord>();
                             // All active bindings to the service.
@@ -91,12 +88,9 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
 
     ProcessRecord app;      // where this service is running or null.
     ProcessRecord isolatedProc; // keep track of isolated process, if requested
-    ServiceState tracker; // tracking service execution, may be null
-    ServiceState restartTracker; // tracking service restart
-    boolean whitelistManager; // any bindings to this service have BIND_ALLOW_WHITELIST_MANAGEMENT?
+    ProcessStats.ServiceState tracker; // tracking service execution, may be null
+    ProcessStats.ServiceState restartTracker; // tracking service restart
     boolean delayed;        // are we waiting to start this service in the background?
-    boolean fgRequired;     // is the service required to go foreground after starting?
-    boolean fgWaiting;      // is a timeout for going foreground already scheduled?
     boolean isForeground;   // is service currently in foreground mode?
     int foregroundId;       // Notification ID of last foreground req.
     Notification foregroundNoti; // Notification record of foreground state.
@@ -105,7 +99,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     boolean startRequested; // someone explicitly called start?
     boolean delayedStop;    // service has been stopped but is in a delayed start?
     boolean stopIfKilled;   // last onStart() said to stop if service killed?
-    boolean callStart;      // last onStart() has asked to always be called on restart.
+    boolean callStart;      // last onStart() has asked to alway be called on restart.
     int executeNesting;     // number of outstanding operations keeping foreground.
     boolean executeFg;      // should we be executing in the foreground?
     long executingStart;    // start time of last execute request.
@@ -120,14 +114,13 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     long destroyTime;       // time at which destory was initiated.
 
     String stringName;      // caching of toString
-
+    
     private int lastStartId;    // identifier of most recent start request.
 
     static class StartItem {
         final ServiceRecord sr;
         final boolean taskRemoved;
         final int id;
-        final int callingId;
         final Intent intent;
         final ActivityManagerService.NeededUriGrants neededGrants;
         long deliveredTime;
@@ -138,13 +131,12 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         String stringName;      // caching of toString
 
         StartItem(ServiceRecord _sr, boolean _taskRemoved, int _id, Intent _intent,
-                ActivityManagerService.NeededUriGrants _neededGrants, int _callingId) {
+                ActivityManagerService.NeededUriGrants _neededGrants) {
             sr = _sr;
             taskRemoved = _taskRemoved;
             id = _id;
             intent = _intent;
             neededGrants = _neededGrants;
-            callingId = _callingId;
         }
 
         UriPermissionOwner getUriPermissionsLocked() {
@@ -159,26 +151,6 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                 uriPermissions.removeUriPermissionsLocked();
                 uriPermissions = null;
             }
-        }
-
-        public void writeToProto(ProtoOutputStream proto, long fieldId, long now) {
-            long token = proto.start(fieldId);
-            proto.write(ServiceRecordProto.StartItem.ID, id);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.StartItem.DURATION, deliveredTime, now);
-            proto.write(ServiceRecordProto.StartItem.DELIVERY_COUNT, deliveryCount);
-            proto.write(ServiceRecordProto.StartItem.DONE_EXECUTING_COUNT, doneExecutingCount);
-            if (intent != null) {
-                intent.writeToProto(proto, ServiceRecordProto.StartItem.INTENT, true, true,
-                        true, false);
-            }
-            if (neededGrants != null) {
-                neededGrants.writeToProto(proto, ServiceRecordProto.StartItem.NEEDED_GRANTS);
-            }
-            if (uriPermissions != null) {
-                uriPermissions.writeToProto(proto, ServiceRecordProto.StartItem.URI_PERMISSIONS);
-            }
-            proto.end(token);
         }
 
         public String toString() {
@@ -230,116 +202,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
             }
         }
     }
-
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
-        long token = proto.start(fieldId);
-        proto.write(ServiceRecordProto.SHORT_NAME, this.shortName);
-        proto.write(ServiceRecordProto.IS_RUNNING, app != null);
-        if (app != null) {
-            proto.write(ServiceRecordProto.PID, app.pid);
-        }
-        if (intent != null) {
-            intent.getIntent().writeToProto(proto, ServiceRecordProto.INTENT, false, true, false,
-                    true);
-        }
-        proto.write(ServiceRecordProto.PACKAGE_NAME, packageName);
-        proto.write(ServiceRecordProto.PROCESS_NAME, processName);
-        proto.write(ServiceRecordProto.PERMISSION, permission);
-
-        long now = SystemClock.uptimeMillis();
-        long nowReal = SystemClock.elapsedRealtime();
-        if (appInfo != null) {
-            long appInfoToken = proto.start(ServiceRecordProto.APPINFO);
-            proto.write(ServiceRecordProto.AppInfo.BASE_DIR, appInfo.sourceDir);
-            if (!Objects.equals(appInfo.sourceDir, appInfo.publicSourceDir)) {
-                proto.write(ServiceRecordProto.AppInfo.RES_DIR, appInfo.publicSourceDir);
-            }
-            proto.write(ServiceRecordProto.AppInfo.DATA_DIR, appInfo.dataDir);
-            proto.end(appInfoToken);
-        }
-        if (app != null) {
-            app.writeToProto(proto, ServiceRecordProto.APP);
-        }
-        if (isolatedProc != null) {
-            isolatedProc.writeToProto(proto, ServiceRecordProto.ISOLATED_PROC);
-        }
-        proto.write(ServiceRecordProto.WHITELIST_MANAGER, whitelistManager);
-        proto.write(ServiceRecordProto.DELAYED, delayed);
-        if (isForeground || foregroundId != 0) {
-            long fgToken = proto.start(ServiceRecordProto.FOREGROUND);
-            proto.write(ServiceRecordProto.Foreground.ID, foregroundId);
-            foregroundNoti.writeToProto(proto, ServiceRecordProto.Foreground.NOTIFICATION);
-            proto.end(fgToken);
-        }
-        ProtoUtils.toDuration(proto, ServiceRecordProto.CREATE_REAL_TIME, createRealTime, nowReal);
-        ProtoUtils.toDuration(proto,
-                ServiceRecordProto.STARTING_BG_TIMEOUT, startingBgTimeout, now);
-        ProtoUtils.toDuration(proto, ServiceRecordProto.LAST_ACTIVITY_TIME, lastActivity, now);
-        ProtoUtils.toDuration(proto, ServiceRecordProto.RESTART_TIME, restartTime, now);
-        proto.write(ServiceRecordProto.CREATED_FROM_FG, createdFromFg);
-
-        if (startRequested || delayedStop || lastStartId != 0) {
-            long startToken = proto.start(ServiceRecordProto.START);
-            proto.write(ServiceRecordProto.Start.START_REQUESTED, startRequested);
-            proto.write(ServiceRecordProto.Start.DELAYED_STOP, delayedStop);
-            proto.write(ServiceRecordProto.Start.STOP_IF_KILLED, stopIfKilled);
-            proto.write(ServiceRecordProto.Start.LAST_START_ID, lastStartId);
-            proto.end(startToken);
-        }
-
-        if (executeNesting != 0) {
-            long executNestingToken = proto.start(ServiceRecordProto.EXECUTE);
-            proto.write(ServiceRecordProto.ExecuteNesting.EXECUTE_NESTING, executeNesting);
-            proto.write(ServiceRecordProto.ExecuteNesting.EXECUTE_FG, executeFg);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.ExecuteNesting.EXECUTING_START, executingStart, now);
-            proto.end(executNestingToken);
-        }
-        if (destroying || destroyTime != 0) {
-            ProtoUtils.toDuration(proto, ServiceRecordProto.DESTORY_TIME, destroyTime, now);
-        }
-        if (crashCount != 0 || restartCount != 0 || restartDelay != 0 || nextRestartTime != 0) {
-            long crashToken = proto.start(ServiceRecordProto.CRASH);
-            proto.write(ServiceRecordProto.Crash.RESTART_COUNT, restartCount);
-            ProtoUtils.toDuration(proto, ServiceRecordProto.Crash.RESTART_DELAY, restartDelay, now);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.Crash.NEXT_RESTART_TIME, nextRestartTime, now);
-            proto.write(ServiceRecordProto.Crash.CRASH_COUNT, crashCount);
-            proto.end(crashToken);
-        }
-
-        if (deliveredStarts.size() > 0) {
-            final int N = deliveredStarts.size();
-            for (int i = 0; i < N; i++) {
-                deliveredStarts.get(i).writeToProto(proto,
-                        ServiceRecordProto.DELIVERED_STARTS, now);
-            }
-        }
-        if (pendingStarts.size() > 0) {
-            final int N = pendingStarts.size();
-            for (int i = 0; i < N; i++) {
-                pendingStarts.get(i).writeToProto(proto, ServiceRecordProto.PENDING_STARTS, now);
-            }
-        }
-        if (bindings.size() > 0) {
-            final int N = bindings.size();
-            for (int i=0; i<N; i++) {
-                IntentBindRecord b = bindings.valueAt(i);
-                b.writeToProto(proto, ServiceRecordProto.BINDINGS);
-            }
-        }
-        if (connections.size() > 0) {
-            final int N = connections.size();
-            for (int conni=0; conni<N; conni++) {
-                ArrayList<ConnectionRecord> c = connections.valueAt(conni);
-                for (int i=0; i<c.size(); i++) {
-                    c.get(i).writeToProto(proto, ServiceRecordProto.CONNECTIONS);
-                }
-            }
-        }
-        proto.end(token);
-    }
-
+    
     void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("intent={");
                 pw.print(intent.getIntent().toShortString(false, true, false, true));
@@ -362,9 +225,6 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         if (isolatedProc != null) {
             pw.print(prefix); pw.print("isolatedProc="); pw.println(isolatedProc);
         }
-        if (whitelistManager) {
-            pw.print(prefix); pw.print("whitelistManager="); pw.println(whitelistManager);
-        }
         if (delayed) {
             pw.print(prefix); pw.print("delayed="); pw.println(delayed);
         }
@@ -374,7 +234,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                     pw.print(" foregroundNoti="); pw.println(foregroundNoti);
         }
         pw.print(prefix); pw.print("createTime=");
-                TimeUtils.formatDuration(createRealTime, nowReal, pw);
+                TimeUtils.formatDuration(createTime, nowReal, pw);
                 pw.print(" startingBgTimeout=");
                 TimeUtils.formatDuration(startingBgTimeout, now, pw);
                 pw.println();
@@ -460,13 +320,13 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         permission = sInfo.permission;
         exported = sInfo.exported;
         this.restarter = restarter;
-        createRealTime = SystemClock.elapsedRealtime();
+        createTime = SystemClock.elapsedRealtime();
         lastActivity = SystemClock.uptimeMillis();
         userId = UserHandle.getUserId(appInfo.uid);
         createdFromFg = callerIsFg;
     }
 
-    public ServiceState getTracker() {
+    public ProcessStats.ServiceState getTracker() {
         if (tracker != null) {
             return tracker;
         }
@@ -500,26 +360,14 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         restartTracker.setRestarting(true, memFactor, now);
     }
 
-    // 当一个应用程序进程绑定一个Service组件之后，用来描述这个应用程序进程的一个ProcessRecord对象就会
-    // 被保存在这个被绑定Service组件的一个ServiceRecord对象的成员变量bindings中，由于一个Service组件
-    // 可能被多个应用程序绑定，因此，用来描述Service组件的一个ServiceRecord独显过就会使用一个
-    // IntentBindRecord对象来描述这些应用的进程，并且以一个FilterComparison对象为关键字保存在该
-    // ServiceRecord对象的成员变量bindings中
     public AppBindRecord retrieveAppBindingLocked(Intent intent,
             ProcessRecord app) {
-        // 首先根据Intent创建一个FilterComparison对象filter
         Intent.FilterComparison filter = new Intent.FilterComparison(intent);
-
-        // 查找bindings中是否存在一个以FilterComparison对象filter为关键字的IntentBindRecord对象i
         IntentBindRecord i = bindings.get(filter);
-        if (i == null) {// 如果不存在创建一个，并且保存起来
+        if (i == null) {
             i = new IntentBindRecord(this, filter);
             bindings.put(filter, i);
         }
-        // 在IntentBindRecord对象i的成员变量apps中查找是否存在一个以ProcessRecord对象app为关键字的
-        // AppBindRecord对象a，如果存在，说明ProcessRecord对象app描述的应用程序进程以前已经绑定过使用
-        // Intent来描述的一个Service组件，此时直接返回，如果不存在创建一个，并将其保存在IntentBindRecord
-        // 对象i的成员变量apps中
         AppBindRecord a = i.apps.get(app);
         if (a != null) {
             return a;
@@ -543,38 +391,25 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         return false;
     }
 
-    public void updateWhitelistManager() {
-        whitelistManager = false;
-        for (int conni=connections.size()-1; conni>=0; conni--) {
-            ArrayList<ConnectionRecord> cr = connections.valueAt(conni);
-            for (int i=0; i<cr.size(); i++) {
-                if ((cr.get(i).flags&Context.BIND_ALLOW_WHITELIST_MANAGEMENT) != 0) {
-                    whitelistManager = true;
-                    return;
-                }
-            }
-        }
-    }
-
     public void resetRestartCounter() {
         restartCount = 0;
         restartDelay = 0;
         restartTime = 0;
     }
-
-    public StartItem findDeliveredStart(int id, boolean taskRemoved, boolean remove) {
+    
+    public StartItem findDeliveredStart(int id, boolean remove) {
         final int N = deliveredStarts.size();
         for (int i=0; i<N; i++) {
             StartItem si = deliveredStarts.get(i);
-            if (si.id == id && si.taskRemoved == taskRemoved) {
+            if (si.id == id) {
                 if (remove) deliveredStarts.remove(i);
                 return si;
             }
         }
-
+        
         return null;
     }
-
+    
     public int getLastStartId() {
         return lastStartId;
     }
@@ -606,7 +441,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                     Notification localForegroundNoti = _foregroundNoti;
                     try {
                         if (localForegroundNoti.getSmallIcon() == null) {
-                            // It is not correct for the caller to not supply a notification
+                            // It is not correct for the caller to supply a notification
                             // icon, but this used to be able to slip through, so for
                             // those dirty apps we will create a notification clearly
                             // blaming the app.
@@ -623,11 +458,10 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                             }
                             Context ctx = null;
                             try {
-                                ctx = ams.mContext.createPackageContextAsUser(
-                                        appInfo.packageName, 0, new UserHandle(userId));
+                                ctx = ams.mContext.createPackageContext(
+                                        appInfo.packageName, 0);
 
-                                Notification.Builder notiBuilder = new Notification.Builder(ctx,
-                                        localForegroundNoti.getChannelId());
+                                Notification.Builder notiBuilder = new Notification.Builder(ctx);
 
                                 // it's ugly, but it clearly identifies the app
                                 notiBuilder.setSmallIcon(appInfo.icon);
@@ -635,13 +469,15 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                                 // mark as foreground
                                 notiBuilder.setFlag(Notification.FLAG_FOREGROUND_SERVICE, true);
 
+                                // we are doing the app a kindness here
+                                notiBuilder.setPriority(Notification.PRIORITY_MIN);
+
                                 Intent runningIntent = new Intent(
                                         Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                                 runningIntent.setData(Uri.fromParts("package",
                                         appInfo.packageName, null));
-                                PendingIntent pi = PendingIntent.getActivityAsUser(ams.mContext, 0,
-                                        runningIntent, PendingIntent.FLAG_UPDATE_CURRENT, null,
-                                        UserHandle.of(userId));
+                                PendingIntent pi = PendingIntent.getActivity(ams.mContext, 0,
+                                        runningIntent, PendingIntent.FLAG_UPDATE_CURRENT);
                                 notiBuilder.setColor(ams.mContext.getColor(
                                         com.android.internal
                                                 .R.color.system_notification_accent_color));
@@ -661,22 +497,6 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                             } catch (PackageManager.NameNotFoundException e) {
                             }
                         }
-                        if (nm.getNotificationChannel(localPackageName, appUid,
-                                localForegroundNoti.getChannelId()) == null) {
-                            int targetSdkVersion = Build.VERSION_CODES.O_MR1;
-                            try {
-                                final ApplicationInfo applicationInfo =
-                                        ams.mContext.getPackageManager().getApplicationInfoAsUser(
-                                                appInfo.packageName, 0, userId);
-                                targetSdkVersion = applicationInfo.targetSdkVersion;
-                            } catch (PackageManager.NameNotFoundException e) {
-                            }
-                            if (targetSdkVersion >= Build.VERSION_CODES.O_MR1) {
-                                throw new RuntimeException(
-                                        "invalid channel for service notification: "
-                                                + foregroundNoti);
-                            }
-                        }
                         if (localForegroundNoti.getSmallIcon() == null) {
                             // Notifications whose icon is 0 are defined to not show
                             // a notification, silently ignoring it.  We don't want to
@@ -685,9 +505,10 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                             throw new RuntimeException("invalid service notification: "
                                     + foregroundNoti);
                         }
+                        int[] outId = new int[1];
                         nm.enqueueNotification(localPackageName, localPackageName,
                                 appUid, appPid, null, localForegroundId, localForegroundNoti,
-                                userId);
+                                outId, userId);
 
                         foregroundNoti = localForegroundNoti; // save it for amending next time
                     } catch (RuntimeException e) {
@@ -695,35 +516,37 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                         // If it gave us a garbage notification, it doesn't
                         // get to be foreground.
                         ams.setServiceForeground(name, ServiceRecord.this,
-                                0, null, 0);
-                        ams.crashApplication(appUid, appPid, localPackageName, -1,
+                                0, null, true);
+                        ams.crashApplication(appUid, appPid, localPackageName,
                                 "Bad notification for startForeground: " + e);
                     }
                 }
             });
         }
     }
-
+    
     public void cancelNotification() {
-        // Do asynchronous communication with notification manager to
-        // avoid deadlocks.
-        final String localPackageName = packageName;
-        final int localForegroundId = foregroundId;
-        ams.mHandler.post(new Runnable() {
-            public void run() {
-                INotificationManager inm = NotificationManager.getService();
-                if (inm == null) {
-                    return;
+        if (foregroundId != 0) {
+            // Do asynchronous communication with notification manager to
+            // avoid deadlocks.
+            final String localPackageName = packageName;
+            final int localForegroundId = foregroundId;
+            ams.mHandler.post(new Runnable() {
+                public void run() {
+                    INotificationManager inm = NotificationManager.getService();
+                    if (inm == null) {
+                        return;
+                    }
+                    try {
+                        inm.cancelNotificationWithTag(localPackageName, null,
+                                localForegroundId, userId);
+                    } catch (RuntimeException e) {
+                        Slog.w(TAG, "Error canceling notification for service", e);
+                    } catch (RemoteException e) {
+                    }
                 }
-                try {
-                    inm.cancelNotificationWithTag(localPackageName, null,
-                            localForegroundId, userId);
-                } catch (RuntimeException e) {
-                    Slog.w(TAG, "Error canceling notification for service", e);
-                } catch (RemoteException e) {
-                }
-            }
-        });
+            });
+        }
     }
 
     public void stripForegroundServiceFlagFromNotification() {
@@ -750,7 +573,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
             }
         });
     }
-
+    
     public void clearDeliveredStartsLocked() {
         for (int i=deliveredStarts.size()-1; i>=0; i--) {
             deliveredStarts.get(i).removeUriPermissionsLocked();
@@ -768,9 +591,5 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
             .append(" u").append(userId)
             .append(' ').append(shortName).append('}');
         return stringName = sb.toString();
-    }
-
-    public ComponentName getComponentName() {
-        return name;
     }
 }

@@ -22,7 +22,7 @@ public class AtomicLongArrayTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(AtomicLongArrayTest.class);
+    //     return new TestSuite(...);
     // }
 
     /**
@@ -290,7 +290,7 @@ public class AtomicLongArrayTest extends JSR166TestCase {
                     assertTrue(v >= 0);
                     if (v != 0) {
                         done = false;
-                        if (aa.compareAndSet(i, v, v - 1))
+                        if (aa.compareAndSet(i, v, v-1))
                             ++counts;
                     }
                 }

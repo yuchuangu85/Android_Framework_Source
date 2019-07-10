@@ -70,6 +70,14 @@ public abstract class Call {
 
     public ArrayList<Connection> mConnections = new ArrayList<Connection>();
 
+    // Flag to indicate if the current calling/caller information
+    // is accurate. If false the information is known to be accurate.
+    //
+    // For CDMA, during call waiting/3 way, there is no network response
+    // if call waiting is answered, network timed out, dropped, 3 way
+    // merged, etc.
+    protected boolean mIsGeneric = false;
+
     /* Instance Methods */
 
     /** Do not modify the List result!!! This list is not yours to keep
@@ -246,6 +254,21 @@ public abstract class Call {
     }
 
     /**
+     * To indicate if the connection information is accurate
+     * or not. false means accurate. Only used for CDMA.
+     */
+    public boolean isGeneric() {
+        return mIsGeneric;
+    }
+
+    /**
+     * Set the generic instance variable
+     */
+    public void setGeneric(boolean generic) {
+        mIsGeneric = generic;
+    }
+
+    /**
      * Hangup call if it is alive
      */
     public void hangupIfAlive() {
@@ -256,25 +279,5 @@ public abstract class Call {
                 Rlog.w(LOG_TAG, " hangupIfActive: caught " + ex);
             }
         }
-    }
-
-    /**
-     * Called when it's time to clean up disconnected Connection objects
-     */
-    public void clearDisconnected() {
-        for (int i = mConnections.size() - 1 ; i >= 0 ; i--) {
-            Connection c = mConnections.get(i);
-            if (c.getState() == State.DISCONNECTED) {
-                mConnections.remove(i);
-            }
-        }
-
-        if (mConnections.size() == 0) {
-            setState(State.IDLE);
-        }
-    }
-
-    protected void setState(State newState) {
-        mState = newState;
     }
 }

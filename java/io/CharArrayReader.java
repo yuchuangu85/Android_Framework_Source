@@ -1,238 +1,276 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.io;
 
+import java.util.Arrays;
+
 /**
- * This class implements a character buffer that can be used as a
- * character-input stream.
+ * A specialized {@link Reader} for reading the contents of a char array.
  *
- * @author      Herb Jellinek
- * @since       JDK1.1
+ * @see CharArrayWriter
  */
 public class CharArrayReader extends Reader {
-    /** The character buffer. */
-    protected char buf[];
-
-    /** The current buffer position. */
-    protected int pos;
-
-    /** The position of mark in buffer. */
-    protected int markedPos = 0;
+    /**
+     * The buffer for characters.
+     */
+    protected char[] buf;
 
     /**
-     *  The index of the end of this buffer.  There is not valid
-     *  data at or beyond this index.
+     * The current buffer position.
+     */
+    protected int pos;
+
+    /**
+     * The current mark position.
+     */
+    protected int markedPos = -1;
+
+    /**
+     * The ending index of the buffer.
      */
     protected int count;
 
     /**
-     * Creates a CharArrayReader from the specified array of chars.
-     * @param buf       Input buffer (not copied)
+     * Constructs a CharArrayReader on the char array {@code buf}. The size of
+     * the reader is set to the length of the buffer and the object to to read
+     * from is set to {@code buf}.
+     *
+     * @param buf
+     *            the char array from which to read.
      */
-    public CharArrayReader(char buf[]) {
+    public CharArrayReader(char[] buf) {
         this.buf = buf;
-        this.pos = 0;
         this.count = buf.length;
     }
 
     /**
-     * Creates a CharArrayReader from the specified array of chars.
+     * Constructs a CharArrayReader on the char array {@code buf}. The size of
+     * the reader is set to {@code length} and the start position from which to
+     * read the buffer is set to {@code offset}.
      *
-     * <p> The resulting reader will start reading at the given
-     * <tt>offset</tt>.  The total number of <tt>char</tt> values that can be
-     * read from this reader will be either <tt>length</tt> or
-     * <tt>buf.length-offset</tt>, whichever is smaller.
-     *
+     * @param buf
+     *            the char array from which to read.
+     * @param offset
+     *            the index of the first character in {@code buf} to read.
+     * @param length
+     *            the number of characters that can be read from {@code buf}.
      * @throws IllegalArgumentException
-     *         If <tt>offset</tt> is negative or greater than
-     *         <tt>buf.length</tt>, or if <tt>length</tt> is negative, or if
-     *         the sum of these two values is negative.
-     *
-     * @param buf       Input buffer (not copied)
-     * @param offset    Offset of the first char to read
-     * @param length    Number of chars to read
+     *             if {@code offset < 0} or {@code length < 0}, or if
+     *             {@code offset} is greater than the size of {@code buf} .
      */
-    public CharArrayReader(char buf[], int offset, int length) {
-        if ((offset < 0) || (offset > buf.length) || (length < 0) ||
-            ((offset + length) < 0)) {
+    public CharArrayReader(char[] buf, int offset, int length) {
+        /*
+         * The spec of this constructor is broken. In defining the legal values
+         * of offset and length, it doesn't consider buffer's length. And to be
+         * compatible with the broken spec, we must also test whether
+         * (offset + length) overflows.
+         */
+        if (offset < 0 || offset > buf.length || length < 0 || offset + length < 0) {
             throw new IllegalArgumentException();
         }
         this.buf = buf;
         this.pos = offset;
-        this.count = Math.min(offset + length, buf.length);
         this.markedPos = offset;
-    }
 
-    /** Checks to make sure that the stream has not been closed */
-    private void ensureOpen() throws IOException {
-        if (buf == null)
-            throw new IOException("Stream closed");
+        /* This is according to spec */
+        int bufferLength = buf.length;
+        this.count = offset + length < bufferLength ? length : bufferLength;
     }
 
     /**
-     * Reads a single character.
-     *
-     * @exception   IOException  If an I/O error occurs
+     * This method closes this CharArrayReader. Once it is closed, you can no
+     * longer read from it. Only the first invocation of this method has any
+     * effect.
      */
-    public int read() throws IOException {
+    @Override
+    public void close() {
         synchronized (lock) {
-            ensureOpen();
-            if (pos >= count)
-                return -1;
-            else
-                return buf[pos++];
+            if (isOpen()) {
+                buf = null;
+            }
         }
     }
 
     /**
-     * Reads characters into a portion of an array.
-     * @param b  Destination buffer
-     * @param off  Offset at which to start storing characters
-     * @param len   Maximum number of characters to read
-     * @return  The actual number of characters read, or -1 if
-     *          the end of the stream has been reached
+     * Indicates whether this reader is open.
      *
-     * @exception   IOException  If an I/O error occurs
+     * @return {@code true} if the reader is open, {@code false} otherwise.
      */
-    public int read(char b[], int off, int len) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            if ((off < 0) || (off > b.length) || (len < 0) ||
-                ((off + len) > b.length) || ((off + len) < 0)) {
-                throw new IndexOutOfBoundsException();
-            } else if (len == 0) {
-                return 0;
-            }
+    private boolean isOpen() {
+        return buf != null;
+    }
 
-            if (pos >= count) {
-                return -1;
-            }
-            // BEGIN Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
-            int avail = count - pos;
-            if (len > avail) {
-                len = avail;
-            }
-            // END Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
-            if (len <= 0) {
-                return 0;
-            }
-            System.arraycopy(buf, pos, b, off, len);
-            pos += len;
-            return len;
+    /**
+     * Indicates whether this reader is closed.
+     *
+     * @return {@code true} if the reader is closed, {@code false} otherwise.
+     */
+    private boolean isClosed() {
+        return buf == null;
+    }
+
+    /**
+     * Sets a mark position in this reader. The parameter {@code readLimit} is
+     * ignored for CharArrayReaders. Calling {@code reset()} will reposition the
+     * reader back to the marked position provided the mark has not been
+     * invalidated.
+     *
+     * @param readLimit
+     *            ignored for CharArrayReaders.
+     * @throws IOException
+     *             if this reader is closed.
+     */
+    @Override
+    public void mark(int readLimit) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            markedPos = pos;
+        }
+    }
+
+    private void checkNotClosed() throws IOException {
+        if (isClosed()) {
+            throw new IOException("CharArrayReader is closed");
         }
     }
 
     /**
-     * Skips characters.  Returns the number of characters that were skipped.
+     * Indicates whether this reader supports the {@code mark()} and
+     * {@code reset()} methods.
      *
-     * <p>The <code>n</code> parameter may be negative, even though the
-     * <code>skip</code> method of the {@link Reader} superclass throws
-     * an exception in this case. If <code>n</code> is negative, then
-     * this method does nothing and returns <code>0</code>.
-     *
-     * @param n The number of characters to skip
-     * @return       The number of characters actually skipped
-     * @exception  IOException If the stream is closed, or an I/O error occurs
+     * @return {@code true} for CharArrayReader.
+     * @see #mark(int)
+     * @see #reset()
      */
-    public long skip(long n) throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            // BEGIN Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
-            long avail = count - pos;
-            if (n > avail) {
-                n = avail;
-            }
-            // END Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
-            if (n < 0) {
-                return 0;
-            }
-            pos += n;
-            return n;
-        }
-    }
-
-    /**
-     * Tells whether this stream is ready to be read.  Character-array readers
-     * are always ready to be read.
-     *
-     * @exception  IOException  If an I/O error occurs
-     */
-    public boolean ready() throws IOException {
-        synchronized (lock) {
-            ensureOpen();
-            return (count - pos) > 0;
-        }
-    }
-
-    /**
-     * Tells whether this stream supports the mark() operation, which it does.
-     */
+    @Override
     public boolean markSupported() {
         return true;
     }
 
     /**
-     * Marks the present position in the stream.  Subsequent calls to reset()
-     * will reposition the stream to this point.
+     * Reads a single character from this reader and returns it as an integer
+     * with the two higher-order bytes set to 0. Returns -1 if no more
+     * characters are available from this reader.
      *
-     * @param  readAheadLimit  Limit on the number of characters that may be
-     *                         read while still preserving the mark.  Because
-     *                         the stream's input comes from a character array,
-     *                         there is no actual limit; hence this argument is
-     *                         ignored.
-     *
-     * @exception  IOException  If an I/O error occurs
+     * @return the character read as an int or -1 if the end of the reader has
+     *         been reached.
+     * @throws IOException
+     *             if this reader is closed.
      */
-    public void mark(int readAheadLimit) throws IOException {
+    @Override
+    public int read() throws IOException {
         synchronized (lock) {
-            ensureOpen();
-            markedPos = pos;
+            checkNotClosed();
+            if (pos == count) {
+                return -1;
+            }
+            return buf[pos++];
         }
     }
 
     /**
-     * Resets the stream to the most recent mark, or to the beginning if it has
-     * never been marked.
+     * Reads up to {@code count} characters from this CharArrayReader and
+     * stores them at {@code offset} in the character array {@code buffer}.
+     * Returns the number of characters actually read or -1 if the end of reader
+     * was encountered.
      *
-     * @exception  IOException  If an I/O error occurs
+     * @throws IndexOutOfBoundsException
+     * if {@code offset < 0 || count < 0 || offset + count > buffer.length}.
+     * @throws IOException
+     *             if this reader is closed.
      */
+    @Override
+    public int read(char[] buffer, int offset, int count) throws IOException {
+        Arrays.checkOffsetAndCount(buffer.length, offset, count);
+        synchronized (lock) {
+            checkNotClosed();
+            if (pos < this.count) {
+                int bytesRead = pos + count > this.count ? this.count - pos : count;
+                System.arraycopy(this.buf, pos, buffer, offset, bytesRead);
+                pos += bytesRead;
+                return bytesRead;
+            }
+            return -1;
+        }
+    }
+
+    /**
+     * Indicates whether this reader is ready to be read without blocking.
+     * Returns {@code true} if the next {@code read} will not block. Returns
+     * {@code false} if this reader may or may not block when {@code read} is
+     * called. The implementation in CharArrayReader always returns {@code true}
+     * even when it has been closed.
+     *
+     * @return {@code true} if this reader will not block when {@code read} is
+     *         called, {@code false} if unknown or blocking will occur.
+     * @throws IOException
+     *             if this reader is closed.
+     */
+    @Override
+    public boolean ready() throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            return pos != count;
+        }
+    }
+
+    /**
+     * Resets this reader's position to the last {@code mark()} location.
+     * Invocations of {@code read()} and {@code skip()} will occur from this new
+     * location. If this reader has not been marked, it is reset to the
+     * beginning of the string.
+     *
+     * @throws IOException
+     *             if this reader is closed.
+     */
+    @Override
     public void reset() throws IOException {
         synchronized (lock) {
-            ensureOpen();
-            pos = markedPos;
+            checkNotClosed();
+            pos = markedPos != -1 ? markedPos : 0;
         }
     }
 
     /**
-     * Closes the stream and releases any system resources associated with
-     * it.  Once the stream has been closed, further read(), ready(),
-     * mark(), reset(), or skip() invocations will throw an IOException.
-     * Closing a previously closed stream has no effect.
+     * Skips {@code charCount} characters in this reader. Subsequent calls to
+     * {@code read} will not return these characters unless {@code reset}
+     * is used. This method does nothing and returns 0 if {@code charCount <= 0}.
+     *
+     * @return the number of characters actually skipped.
+     * @throws IOException
+     *             if this reader is closed.
      */
-    public void close() {
-        buf = null;
+    @Override
+    public long skip(long charCount) throws IOException {
+        synchronized (lock) {
+            checkNotClosed();
+            if (charCount <= 0) {
+                return 0;
+            }
+            long skipped = 0;
+            if (charCount < this.count - pos) {
+                pos = pos + (int) charCount;
+                skipped = charCount;
+            } else {
+                skipped = this.count - pos;
+                pos = this.count;
+            }
+            return skipped;
+        }
     }
 }

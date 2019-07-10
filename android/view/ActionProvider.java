@@ -80,7 +80,6 @@ public abstract class ActionProvider {
      *
      * @deprecated use {@link #onCreateActionView(MenuItem)}
      */
-    @Deprecated
     public abstract View onCreateActionView();
 
     /**

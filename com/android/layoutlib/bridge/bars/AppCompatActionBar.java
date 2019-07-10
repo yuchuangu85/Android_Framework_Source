@@ -16,17 +16,13 @@
 
 package com.android.layoutlib.bridge.bars;
 
-import com.android.ide.common.rendering.api.LayoutLog;
-import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.ide.common.rendering.api.StyleResourceValue;
-import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
-import com.android.tools.layoutlib.annotations.NotNull;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -34,18 +30,11 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuInflater;
 import android.view.View;
 import android.widget.FrameLayout;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.List;
-
-import static com.android.SdkConstants.ANDROID_NS_NAME_PREFIX;
-import static com.android.resources.ResourceType.MENU;
 
 
 /**
@@ -55,12 +44,7 @@ import static com.android.resources.ResourceType.MENU;
 public class AppCompatActionBar extends BridgeActionBar {
 
     private Object mWindowDecorActionBar;
-    private static final String[] WINDOW_ACTION_BAR_CLASS_NAMES = {
-            "android.support.v7.internal.app.WindowDecorActionBar",
-            "android.support.v7.app.WindowDecorActionBar",     // This is used on v23.1.1 and later.
-            "androidx.app.WindowDecorActionBar"                // User from v27
-    };
-
+    private static final String WINDOW_ACTION_BAR_CLASS = "android.support.v7.internal.app.WindowDecorActionBar";
     private Class<?> mWindowActionBarClass;
 
     /**
@@ -86,29 +70,14 @@ public class AppCompatActionBar extends BridgeActionBar {
         try {
             Class[] constructorParams = {View.class};
             Object[] constructorArgs = {getDecorContent()};
-            LayoutlibCallback callback = params.getLayoutlibCallback();
-
-            // Find the correct WindowActionBar class
-            String actionBarClass = null;
-            for  (int i = WINDOW_ACTION_BAR_CLASS_NAMES.length - 1; i >= 0; i--) {
-                actionBarClass = WINDOW_ACTION_BAR_CLASS_NAMES[i];
-                try {
-                    callback.findClass(actionBarClass);
-
-                    break;
-                } catch (ClassNotFoundException ignore) {
-                }
-            }
-
-            mWindowDecorActionBar = callback.loadView(actionBarClass,
+            mWindowDecorActionBar = params.getLayoutlibCallback().loadView(WINDOW_ACTION_BAR_CLASS,
                     constructorParams, constructorArgs);
+
             mWindowActionBarClass = mWindowDecorActionBar == null ? null :
                     mWindowDecorActionBar.getClass();
-            inflateMenus();
             setupActionBar();
         } catch (Exception e) {
-            Bridge.getLog().warning(LayoutLog.TAG_BROKEN,
-                    "Failed to load AppCompat ActionBar with unknown error.", e);
+            e.printStackTrace();
         }
     }
 
@@ -180,51 +149,6 @@ public class AppCompatActionBar extends BridgeActionBar {
         }
     }
 
-    private void inflateMenus() {
-        List<String> menuNames = getCallBack().getMenuIdNames();
-        if (menuNames.isEmpty()) {
-            return;
-        }
-
-        if (menuNames.size() > 1) {
-            // Supporting multiple menus means that we would need to instantiate our own supportlib
-            // MenuInflater instances using reflection
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                    "Support Toolbar does not currently support multiple menus in the preview.",
-                    null, null, null);
-        }
-
-        String name = menuNames.get(0);
-        int id;
-        if (name.startsWith(ANDROID_NS_NAME_PREFIX)) {
-            // Framework menu.
-            name = name.substring(ANDROID_NS_NAME_PREFIX.length());
-            id = mBridgeContext.getFrameworkResourceValue(MENU, name, -1);
-        } else {
-            // Project menu.
-            id = mBridgeContext.getProjectResourceValue(MENU, name, -1);
-        }
-        if (id < 1) {
-            return;
-        }
-        // Get toolbar decorator
-        Object mDecorToolbar = getFieldValue(mWindowDecorActionBar, "mDecorToolbar");
-        if (mDecorToolbar == null) {
-            return;
-        }
-
-        Class<?> mDecorToolbarClass = mDecorToolbar.getClass();
-        Context themedContext = (Context)invoke(
-                getMethod(mWindowActionBarClass, "getThemedContext"),
-                mWindowDecorActionBar);
-        MenuInflater inflater = new MenuInflater(themedContext);
-        Menu menuBuilder = (Menu)invoke(getMethod(mDecorToolbarClass, "getMenu"), mDecorToolbar);
-        inflater.inflate(id, menuBuilder);
-
-        // Set the actual menu
-        invoke(findMethod(mDecorToolbarClass, "setMenu"), mDecorToolbar, menuBuilder, null);
-    }
-
     @Override
     public void createMenuPopup() {
         // it's hard to add menus to appcompat's actionbar, since it'll use a lot of reflection.
@@ -241,53 +165,13 @@ public class AppCompatActionBar extends BridgeActionBar {
         return null;
     }
 
-    /**
-     * Same as getMethod but doesn't require the parameterTypes. This allows us to call methods
-     * without having to get all the types for the parameters when we do not need them
-     */
     @Nullable
-    private static Method findMethod(@Nullable Class<?> owner, @NotNull String name) {
-        if (owner == null) {
-            return null;
-        }
-        for (Method method : owner.getMethods()) {
-            if (name.equals(method.getName())) {
-                return method;
-            }
-        }
-
-        return null;
-    }
-
-    @Nullable
-    private static Object getFieldValue(@Nullable Object instance, @NotNull String name) {
-        if (instance == null) {
-            return null;
-        }
-
-        Class<?> instanceClass = instance.getClass();
-        try {
-            Field field = instanceClass.getDeclaredField(name);
-            boolean accesible = field.isAccessible();
-            if (!accesible) {
-                field.setAccessible(true);
-            }
-            try {
-                return field.get(instance);
-            } finally {
-                field.setAccessible(accesible);
-            }
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    @Nullable
-    private static Object invoke(@Nullable Method method, Object owner, Object... args) {
+    private static Object invoke(Method method, Object owner, Object... args) {
         try {
             return method == null ? null : method.invoke(owner, args);
-        } catch (InvocationTargetException | IllegalAccessException e) {
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
         return null;

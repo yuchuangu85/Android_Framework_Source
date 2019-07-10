@@ -16,29 +16,23 @@
 
 package android.databinding.annotationprocessor;
 
-import com.google.common.base.Joiner;
-
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import android.databinding.BindingBuildInfo;
 import android.databinding.tool.CompilerChef;
-import android.databinding.tool.LayoutXmlProcessor;
 import android.databinding.tool.reflection.SdkUtil;
 import android.databinding.tool.store.ResourceBundle;
 import android.databinding.tool.util.GenerationalClassUtil;
 import android.databinding.tool.util.L;
-import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.util.StringUtils;
 
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,55 +49,30 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
 
     @Override
     public boolean onHandleStep(RoundEnvironment roundEnvironment,
-            ProcessingEnvironment processingEnvironment, BindingBuildInfo buildInfo)
-            throws JAXBException {
+            ProcessingEnvironment processingEnvironment, BindingBuildInfo buildInfo) {
         ResourceBundle resourceBundle;
         SdkUtil.initialize(buildInfo.minSdk(), new File(buildInfo.sdkRoot()));
         resourceBundle = new ResourceBundle(buildInfo.modulePackage());
-        List<IntermediateV2> intermediateList = loadDependencyIntermediates();
-        for (Intermediate intermediate : intermediateList) {
-            try {
-                intermediate.appendTo(resourceBundle);
-            } catch (Throwable throwable) {
-                L.e(throwable, "unable to prepare resource bundle");
-            }
-        }
-
-        IntermediateV2 mine = createIntermediateFromLayouts(buildInfo.layoutInfoDir(),
-                intermediateList);
+        List<Intermediate> intermediateList =
+                GenerationalClassUtil.loadObjects(
+                        GenerationalClassUtil.ExtensionFilter.LAYOUT);
+        IntermediateV1 mine = createIntermediateFromLayouts(buildInfo.layoutInfoDir());
         if (mine != null) {
-            mine.updateOverridden(resourceBundle);
+            mine.removeOverridden(intermediateList);
             intermediateList.add(mine);
             saveIntermediate(processingEnvironment, buildInfo, mine);
-            mine.appendTo(resourceBundle);
         }
         // generate them here so that bindable parser can read
         try {
-            writeResourceBundle(resourceBundle, buildInfo.isLibrary(), buildInfo.minSdk(),
-                    buildInfo.exportClassListTo());
+            generateBinders(resourceBundle, buildInfo, intermediateList);
         } catch (Throwable t) {
             L.e(t, "cannot generate view binders");
         }
         return true;
     }
 
-    private List<IntermediateV2> loadDependencyIntermediates() {
-        final List<Intermediate> original = GenerationalClassUtil.loadObjects(
-                GenerationalClassUtil.ExtensionFilter.LAYOUT);
-        final List<IntermediateV2> upgraded = new ArrayList<IntermediateV2>(original.size());
-        for (Intermediate intermediate : original) {
-            final Intermediate updatedIntermediate = intermediate.upgrade();
-            Preconditions.check(updatedIntermediate instanceof IntermediateV2, "Incompatible data"
-                    + " binding dependency. Please update your dependencies or recompile them with"
-                    + " application module's data binding version.");
-            //noinspection ConstantConditions
-            upgraded.add((IntermediateV2) updatedIntermediate);
-        }
-        return upgraded;
-    }
-
     private void saveIntermediate(ProcessingEnvironment processingEnvironment,
-            BindingBuildInfo buildInfo, IntermediateV2 intermediate) {
+            BindingBuildInfo buildInfo, IntermediateV1 intermediate) {
         GenerationalClassUtil.writeIntermediateFile(processingEnvironment,
                 buildInfo.modulePackage(), buildInfo.modulePackage() +
                         GenerationalClassUtil.ExtensionFilter.LAYOUT.getExtension(),
@@ -115,22 +84,27 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
             ProcessingEnvironment processingEnvironment, BindingBuildInfo buildInfo) {
     }
 
-    private IntermediateV2 createIntermediateFromLayouts(String layoutInfoFolderPath,
-            List<IntermediateV2> intermediateList) {
-        final Set<String> excludeList = new HashSet<String>();
-        for (IntermediateV2 lib : intermediateList) {
-            excludeList.addAll(lib.mLayoutInfoMap.keySet());
+    private void generateBinders(ResourceBundle resourceBundle, BindingBuildInfo buildInfo,
+            List<Intermediate> intermediates)
+            throws Throwable {
+        for (Intermediate intermediate : intermediates) {
+            intermediate.appendTo(resourceBundle);
         }
+        writeResourceBundle(resourceBundle, buildInfo.isLibrary(), buildInfo.minSdk(),
+                buildInfo.exportClassListTo());
+    }
+
+    private IntermediateV1 createIntermediateFromLayouts(String layoutInfoFolderPath) {
         final File layoutInfoFolder = new File(layoutInfoFolderPath);
         if (!layoutInfoFolder.isDirectory()) {
             L.d("layout info folder does not exist, skipping for %s", layoutInfoFolderPath);
             return null;
         }
-        IntermediateV2 result = new IntermediateV2();
+        IntermediateV1 result = new IntermediateV1();
         for (File layoutFile : layoutInfoFolder.listFiles(new FilenameFilter() {
             @Override
             public boolean accept(File dir, String name) {
-                return name.endsWith(".xml") && !excludeList.contains(name);
+                return name.endsWith(".xml");
             }
         })) {
             try {
@@ -159,7 +133,7 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
         }
         if (forLibraryModule) {
             Set<String> classNames = compilerChef.getWrittenClassNames();
-            String out = Joiner.on(StringUtils.LINE_SEPARATOR).join(classNames);
+            String out = StringUtils.join(classNames, System.getProperty("line.separator"));
             L.d("Writing list of classes to %s . \nList:%s", exportClassNamesTo, out);
             try {
                 //noinspection ConstantConditions
@@ -171,11 +145,11 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
         mCallback.onChefReady(compilerChef, forLibraryModule, minSdk);
     }
 
-    public interface Intermediate extends Serializable {
+    public static interface Intermediate extends Serializable {
 
         Intermediate upgrade();
 
-        void appendTo(ResourceBundle resourceBundle) throws Throwable;
+        public void appendTo(ResourceBundle resourceBundle) throws Throwable;
     }
 
     public static class IntermediateV1 implements Intermediate {
@@ -187,10 +161,7 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
 
         @Override
         public Intermediate upgrade() {
-            final IntermediateV2 updated = new IntermediateV2();
-            updated.mLayoutInfoMap = mLayoutInfoMap;
-            updated.mUnmarshaller = mUnmarshaller;
-            return updated;
+            return this;
         }
 
         @Override
@@ -217,53 +188,19 @@ public class ProcessExpressions extends ProcessDataBinding.ProcessingStep {
             mLayoutInfoMap.put(name, contents);
         }
 
-        // keeping the method to match deserialized structure
-        @SuppressWarnings("unused")
         public void removeOverridden(List<Intermediate> existing) {
-        }
-    }
-
-    public static class IntermediateV2 extends IntermediateV1 {
-        // specify so that we can define updates ourselves.
-        private static final long serialVersionUID = 2L;
-        @Override
-        public void appendTo(ResourceBundle resourceBundle) throws JAXBException {
-            for (Map.Entry<String, String> entry : mLayoutInfoMap.entrySet()) {
-                final InputStream is = IOUtils.toInputStream(entry.getValue());
-                try {
-                    final ResourceBundle.LayoutFileBundle bundle = ResourceBundle.LayoutFileBundle
-                            .fromXML(is);
-                    resourceBundle.addLayoutBundle(bundle);
-                    L.d("loaded layout info file %s", bundle);
-                } finally {
-                    IOUtils.closeQuietly(is);
-                }
-            }
-        }
-
-        /**
-         * if a layout is overridden from a module (which happens when layout is auto-generated),
-         * we need to update its contents from the class that overrides it.
-         * This must be done before this bundle is saved, otherwise, it will not be recognized
-         * when it is used in another project.
-         */
-        public void updateOverridden(ResourceBundle bundle) throws JAXBException {
-            // When a layout is copied from inherited module, it is eleminated while reading
-            // info files. (createIntermediateFromLayouts).
-            // Build process may also duplicate some files at compile time. This is where
-            // we detect those copies and force inherit their module and classname information.
-            final HashMap<String, List<ResourceBundle.LayoutFileBundle>> bundles = bundle
-                    .getLayoutBundles();
-            for (Map.Entry<String, String> info : mLayoutInfoMap.entrySet()) {
-                String key = LayoutXmlProcessor.exportLayoutNameFromInfoFileName(info.getKey());
-                final List<ResourceBundle.LayoutFileBundle> existingList = bundles.get(key);
-                if (existingList != null && !existingList.isEmpty()) {
-                    ResourceBundle.LayoutFileBundle myBundle = ResourceBundle.LayoutFileBundle
-                            .fromXML(IOUtils.toInputStream(info.getValue()));
-                    final ResourceBundle.LayoutFileBundle inheritFrom = existingList.get(0);
-                    myBundle.inheritConfigurationFrom(inheritFrom);
-                    L.d("inheriting data for %s (%s) from %s", info.getKey(), key, inheritFrom);
-                    mLayoutInfoMap.put(info.getKey(), myBundle.toXML());
+            // this is the way we get rid of files that are copied from previous modules
+            // it is important to do this before saving the intermediate file
+            for (Intermediate old : existing) {
+                if (old instanceof IntermediateV1) {
+                    IntermediateV1 other = (IntermediateV1) old;
+                    for (String key : other.mLayoutInfoMap.keySet()) {
+                        // TODO we should consider the original file as the key here
+                        // but aapt probably cannot provide that information
+                        if (mLayoutInfoMap.remove(key) != null) {
+                            L.d("removing %s from bundle because it came from another module", key);
+                        }
+                    }
                 }
             }
         }

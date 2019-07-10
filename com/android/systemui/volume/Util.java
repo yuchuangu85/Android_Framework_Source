@@ -78,7 +78,6 @@ class Util {
     }
 
     public static String mediaMetadataToString(MediaMetadata metadata) {
-        if (metadata == null) return null;
         return metadata.getDescription().toString();
     }
 

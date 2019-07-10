@@ -18,7 +18,6 @@ package android.drm;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
 
 /**
  * An entity class that wraps the license information retrieved from the online DRM server.
@@ -104,7 +103,7 @@ public class DrmRights {
         mMimeType = mimeType;
         if (!isValid()) {
             final String msg = "mimeType: " + mMimeType + "," +
-                               "data: " + Arrays.toString(mData);
+                               "data: " + mData;
             throw new IllegalArgumentException(msg);
         }
     }
@@ -128,7 +127,7 @@ public class DrmRights {
 
         if (!isValid()) {
             final String msg = "mimeType: " + mMimeType + "," +
-                               "data: " + Arrays.toString(mData);
+                               "data: " + mData;
             throw new IllegalArgumentException(msg);
         }
     }

@@ -17,6 +17,7 @@
 package benchmarks.regression;
 
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import com.google.mockwebserver.Dispatcher;
 import com.google.mockwebserver.MockResponse;
 import com.google.mockwebserver.MockWebServer;
@@ -25,8 +26,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLConnection;
 
-public final class URLConnectionBenchmark {
+public final class URLConnectionBenchmark extends SimpleBenchmark {
 
     @Param({"0", "1024", "1048576"}) private int bodySize;
     @Param({"2048"}) private int chunkSize;

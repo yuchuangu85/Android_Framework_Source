@@ -21,6 +21,8 @@ import static android.os.UserHandle.PER_USER_RANGE;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import java.lang.IllegalArgumentException;
+
 /**
  * An inclusive range of UIDs.
  *
@@ -44,24 +46,6 @@ public final class UidRange implements Parcelable {
 
     public int getStartUser() {
         return start / PER_USER_RANGE;
-    }
-
-    public boolean contains(int uid) {
-        return start <= uid && uid <= stop;
-    }
-
-    /**
-     * Returns the count of UIDs in this range.
-     */
-    public int count() {
-        return 1 + stop - start;
-    }
-
-    /**
-     * @return {@code true} if this range contains every UID contained by the {@param other} range.
-     */
-    public boolean containsRange(UidRange other) {
-        return start <= other.start && other.stop <= stop;
     }
 
     @Override

@@ -19,9 +19,7 @@ package android.app;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.IAccessibilityServiceClient;
 import android.content.Context;
-import android.content.pm.IPackageManager;
 import android.graphics.Bitmap;
-import android.graphics.Rect;
 import android.hardware.input.InputManager;
 import android.os.Binder;
 import android.os.IBinder;
@@ -29,7 +27,6 @@ import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.UserHandle;
 import android.view.IWindowManager;
 import android.view.InputEvent;
 import android.view.SurfaceControl;
@@ -37,11 +34,8 @@ import android.view.WindowAnimationFrameStats;
 import android.view.WindowContentFrameStats;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.IAccessibilityManager;
-import android.util.Log;
-
 import libcore.io.IoUtils;
 
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -58,8 +52,6 @@ import java.io.OutputStream;
  */
 public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
 
-    private static final String TAG = "UiAutomationConnection";
-
     private static final int INITIAL_FROZEN_ROTATION_UNSPECIFIED = -1;
 
     private final IWindowManager mWindowManager = IWindowManager.Stub.asInterface(
@@ -67,9 +59,6 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
 
     private final IAccessibilityManager mAccessibilityManager = IAccessibilityManager.Stub
             .asInterface(ServiceManager.getService(Service.ACCESSIBILITY_SERVICE));
-
-    private final IPackageManager mPackageManager = IPackageManager.Stub
-            .asInterface(ServiceManager.getService("package"));
 
     private final Object mLock = new Object();
 
@@ -83,8 +72,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
 
     private int mOwningUid;
 
-    @Override
-    public void connect(IAccessibilityServiceClient client, int flags) {
+    public void connect(IAccessibilityServiceClient client) {
         if (client == null) {
             throw new IllegalArgumentException("Client cannot be null!");
         }
@@ -94,7 +82,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
                 throw new IllegalStateException("Already connected.");
             }
             mOwningUid = Binder.getCallingUid();
-            registerUiTestAutomationServiceLocked(client, flags);
+            registerUiTestAutomationServiceLocked(client);
             storeRotationStateLocked();
         }
     }
@@ -154,7 +142,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
     }
 
     @Override
-    public Bitmap takeScreenshot(Rect crop, int rotation) {
+    public Bitmap takeScreenshot(int width, int height) {
         synchronized (mLock) {
             throwIfCalledByNotTrustedUidLocked();
             throwIfShutdownLocked();
@@ -162,9 +150,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
         }
         final long identity = Binder.clearCallingIdentity();
         try {
-            int width = crop.width();
-            int height = crop.height();
-            return SurfaceControl.screenshot(crop, width, height, rotation);
+            return SurfaceControl.screenshot(width, height);
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -177,10 +163,9 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
             throwIfShutdownLocked();
             throwIfNotConnectedLocked();
         }
-        int callingUserId = UserHandle.getCallingUserId();
         final long identity = Binder.clearCallingIdentity();
         try {
-            IBinder token = mAccessibilityManager.getWindowToken(windowId, callingUserId);
+            IBinder token = mAccessibilityManager.getWindowToken(windowId);
             if (token == null) {
                 return false;
             }
@@ -197,10 +182,9 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
             throwIfShutdownLocked();
             throwIfNotConnectedLocked();
         }
-        int callingUserId = UserHandle.getCallingUserId();
         final long identity = Binder.clearCallingIdentity();
         try {
-            IBinder token = mAccessibilityManager.getWindowToken(windowId, callingUserId);
+            IBinder token = mAccessibilityManager.getWindowToken(windowId);
             if (token == null) {
                 return null;
             }
@@ -243,126 +227,46 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
     }
 
     @Override
-    public void grantRuntimePermission(String packageName, String permission, int userId)
+    public void executeShellCommand(final String command, final ParcelFileDescriptor sink)
             throws RemoteException {
         synchronized (mLock) {
             throwIfCalledByNotTrustedUidLocked();
             throwIfShutdownLocked();
             throwIfNotConnectedLocked();
         }
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            mPackageManager.grantRuntimePermission(packageName, permission, userId);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-    }
 
-    @Override
-    public void revokeRuntimePermission(String packageName, String permission, int userId)
-            throws RemoteException {
-        synchronized (mLock) {
-            throwIfCalledByNotTrustedUidLocked();
-            throwIfShutdownLocked();
-            throwIfNotConnectedLocked();
-        }
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            mPackageManager.revokeRuntimePermission(packageName, permission, userId);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-    }
-
-    public class Repeater implements Runnable {
-        // Continuously read readFrom and write back to writeTo until EOF is encountered
-        private final InputStream readFrom;
-        private final OutputStream writeTo;
-        public Repeater (InputStream readFrom, OutputStream writeTo) {
-            this.readFrom = readFrom;
-            this.writeTo = writeTo;
-        }
-        @Override
-        public void run() {
-            try {
-                final byte[] buffer = new byte[8192];
-                int readByteCount;
-                while (true) {
-                    readByteCount = readFrom.read(buffer);
-                    if (readByteCount < 0) {
-                        break;
-                    }
-                    writeTo.write(buffer, 0, readByteCount);
-                    writeTo.flush();
-                }
-            } catch (IOException ioe) {
-                throw new RuntimeException("Error while reading/writing ", ioe);
-            } finally {
-                IoUtils.closeQuietly(readFrom);
-                IoUtils.closeQuietly(writeTo);
-            }
-        }
-    }
-
-    @Override
-    public void executeShellCommand(final String command, final ParcelFileDescriptor sink,
-            final ParcelFileDescriptor source) throws RemoteException {
-        synchronized (mLock) {
-            throwIfCalledByNotTrustedUidLocked();
-            throwIfShutdownLocked();
-            throwIfNotConnectedLocked();
-        }
-        final java.lang.Process process;
-
-        try {
-            process = Runtime.getRuntime().exec(command);
-        } catch (IOException exc) {
-            throw new RuntimeException("Error running shell command '" + command + "'", exc);
-        }
-
-        // Read from process and write to pipe
-        final Thread readFromProcess;
-        if (sink != null) {
-            InputStream sink_in = process.getInputStream();;
-            OutputStream sink_out = new FileOutputStream(sink.getFileDescriptor());
-
-            readFromProcess = new Thread(new Repeater(sink_in, sink_out));
-            readFromProcess.start();
-        } else {
-            readFromProcess = null;
-        }
-
-        // Read from pipe and write to process
-        final Thread writeToProcess;
-        if (source != null) {
-            OutputStream source_out = process.getOutputStream();
-            InputStream source_in = new FileInputStream(source.getFileDescriptor());
-
-            writeToProcess = new Thread(new Repeater(source_in, source_out));
-            writeToProcess.start();
-        } else {
-            writeToProcess = null;
-        }
-
-        Thread cleanup = new Thread(new Runnable() {
-            @Override
+        Thread streamReader = new Thread() {
             public void run() {
+                InputStream in = null;
+                OutputStream out = null;
+                java.lang.Process process = null;
+
                 try {
-                    if (writeToProcess != null) {
-                        writeToProcess.join();
+                    process = Runtime.getRuntime().exec(command);
+
+                    in = process.getInputStream();
+                    out = new FileOutputStream(sink.getFileDescriptor());
+
+                    final byte[] buffer = new byte[8192];
+                    while (true) {
+                        final int readByteCount = in.read(buffer);
+                        if (readByteCount < 0) {
+                            break;
+                        }
+                        out.write(buffer, 0, readByteCount);
                     }
-                    if (readFromProcess != null) {
-                        readFromProcess.join();
+                } catch (IOException ioe) {
+                    throw new RuntimeException("Error running shell command", ioe);
+                } finally {
+                    if (process != null) {
+                        process.destroy();
                     }
-                } catch (InterruptedException exc) {
-                    Log.e(TAG, "At least one of the threads was interrupted");
+                    IoUtils.closeQuietly(out);
+                    IoUtils.closeQuietly(sink);
                 }
-                IoUtils.closeQuietly(sink);
-                IoUtils.closeQuietly(source);
-                process.destroy();
-                }
-            });
-        cleanup.start();
+            };
+        };
+        streamReader.start();
     }
 
     @Override
@@ -379,16 +283,14 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
         }
     }
 
-    private void registerUiTestAutomationServiceLocked(IAccessibilityServiceClient client,
-            int flags) {
+    private void registerUiTestAutomationServiceLocked(IAccessibilityServiceClient client) {
         IAccessibilityManager manager = IAccessibilityManager.Stub.asInterface(
                 ServiceManager.getService(Context.ACCESSIBILITY_SERVICE));
-        final AccessibilityServiceInfo info = new AccessibilityServiceInfo();
+        AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.flags |= AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-                | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                | AccessibilityServiceInfo.FLAG_FORCE_DIRECT_BOOT_AWARE;
+                | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
         info.setCapabilities(AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT
                 | AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_TOUCH_EXPLORATION
                 | AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_ENHANCED_WEB_ACCESSIBILITY
@@ -396,7 +298,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
         try {
             // Calling out with a lock held is fine since if the system
             // process is gone the client calling in will be killed.
-            manager.registerUiTestAutomationService(mToken, client, info, flags);
+            manager.registerUiTestAutomationService(mToken, client, info);
             mClient = client;
         } catch (RemoteException re) {
             throw new IllegalStateException("Error while registering UiTestAutomationService.", re);
@@ -422,7 +324,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
             if (mWindowManager.isRotationFrozen()) {
                 // Calling out with a lock held is fine since if the system
                 // process is gone the client calling in will be killed.
-                mInitialFrozenRotation = mWindowManager.getDefaultDisplayRotation();
+                mInitialFrozenRotation = mWindowManager.getRotation();
             }
         } catch (RemoteException re) {
             /* ignore */

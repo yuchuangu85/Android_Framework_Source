@@ -15,14 +15,13 @@
  */
 
 package android.databinding.tool.store;
-
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
+import org.apache.commons.lang3.StringUtils;
 
 import android.databinding.tool.processing.scopes.LocationScopeProvider;
-import android.databinding.tool.util.StringUtils;
 
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.xml.bind.annotation.XmlAccessType;
@@ -75,7 +74,7 @@ public class Location {
         } else {
             endLine = end.getLine() - 1; // token lines start from 1
             String endText = end.getText();
-            int lastLineStart = endText.lastIndexOf(StringUtils.LINE_SEPARATOR);
+            int lastLineStart = endText.lastIndexOf(System.lineSeparator());
             String lastLine = lastLineStart < 0 ? endText : endText.substring(lastLineStart + 1);
             endOffset = end.getCharPositionInLine() + lastLine.length() - 1;//end is inclusive
         }
@@ -131,9 +130,12 @@ public class Location {
         if (startOffset != location.startOffset) {
             return false;
         }
-        return !(parentLocation != null ? !parentLocation.equals(location.parentLocation)
-                : location.parentLocation != null);
+        if (parentLocation != null ? !parentLocation.equals(location.parentLocation)
+                : location.parentLocation != null) {
+            return false;
+        }
 
+        return true;
     }
 
     @Override
@@ -159,7 +161,10 @@ public class Location {
         if (endLine < other.endLine) {
             return false;
         }
-        return !(endLine == other.endLine && endOffset < other.endOffset);
+        if (endLine == other.endLine && endOffset < other.endOffset) {
+            return false;
+        }
+        return true;
     }
 
     private Location getValidParentAbsoluteLocation() {
@@ -228,7 +233,7 @@ public class Location {
         return new LocationScopeProvider() {
             @Override
             public List<Location> provideScopeLocation() {
-                return Collections.singletonList(Location.this);
+                return Arrays.asList(Location.this);
             }
         };
     }

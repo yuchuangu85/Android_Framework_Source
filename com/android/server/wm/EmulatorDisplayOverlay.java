@@ -17,9 +17,6 @@
 package com.android.server.wm;
 
 
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
-
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -35,7 +32,7 @@ import android.view.SurfaceControl;
 import android.view.SurfaceSession;
 
 class EmulatorDisplayOverlay {
-    private static final String TAG = TAG_WITH_CLASS_NAME ? "EmulatorDisplayOverlay" : TAG_WM;
+    private static final String TAG = "EmulatorDisplayOverlay";
 
     // Display dimensions
     private Point mScreenSize;
@@ -49,19 +46,22 @@ class EmulatorDisplayOverlay {
     private int mRotation;
     private boolean mVisible;
 
-    public EmulatorDisplayOverlay(Context context, DisplayContent dc,
+    public EmulatorDisplayOverlay(Context context, Display display, SurfaceSession session,
             int zOrder) {
-        final Display display = dc.getDisplay();
         mScreenSize = new Point();
         display.getSize(mScreenSize);
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = dc.makeOverlay()
-                    .setName("EmulatorDisplayOverlay")
-                    .setSize(mScreenSize.x, mScreenSize.y)
-                    .setFormat(PixelFormat.TRANSLUCENT)
-                    .build();
+            if (WindowManagerService.DEBUG_SURFACE_TRACE) {
+                ctrl = new WindowStateAnimator.SurfaceTrace(session, "EmulatorDisplayOverlay",
+                        mScreenSize.x, mScreenSize.y, PixelFormat.TRANSLUCENT,
+                        SurfaceControl.HIDDEN);
+            } else {
+                ctrl = new SurfaceControl(session, "EmulatorDisplayOverlay", mScreenSize.x,
+                        mScreenSize.y, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            }
+            ctrl.setLayerStack(display.getLayerStack());
             ctrl.setLayer(zOrder);
             ctrl.setPosition(0, 0);
             ctrl.show();

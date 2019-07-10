@@ -16,9 +16,6 @@
 
 package android.os;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-
 import java.io.FileDescriptor;
 
 /**
@@ -106,12 +103,6 @@ public interface IBinder {
     int DUMP_TRANSACTION        = ('_'<<24)|('D'<<16)|('M'<<8)|'P';
     
     /**
-     * IBinder protocol transaction code: execute a shell command.
-     * @hide
-     */
-    int SHELL_COMMAND_TRANSACTION = ('_'<<24)|('C'<<16)|('M'<<8)|'D';
-
-    /**
      * IBinder protocol transaction code: interrogate the recipient side
      * of the transaction for its canonical interface descriptor.
      */
@@ -156,14 +147,6 @@ public interface IBinder {
      * caller returns immediately, without waiting for a result from the
      * callee. Applies only if the caller and callee are in different
      * processes.
-     *
-     * <p>The system provides special ordering semantics for multiple oneway calls
-     * being made to the same IBinder object: these calls will be dispatched in the
-     * other process one at a time, with the same order as the original calls.  These
-     * are still dispatched by the IPC thread pool, so may execute on different threads,
-     * but the next one will not be dispatched until the previous one completes.  This
-     * ordering is not guaranteed for calls on different IBinder objects or when mixing
-     * oneway and non-oneway calls on the same IBinder object.</p>
      */
     int FLAG_ONEWAY             = 0x00000001;
 
@@ -177,7 +160,7 @@ public interface IBinder {
     /**
      * Get the canonical name of the interface supported by this binder.
      */
-    public @Nullable String getInterfaceDescriptor() throws RemoteException;
+    public String getInterfaceDescriptor() throws RemoteException;
 
     /**
      * Check to see if the object still exists.
@@ -203,16 +186,16 @@ public interface IBinder {
      * to instantiate a proxy class to marshall calls through
      * the transact() method.
      */
-    public @Nullable IInterface queryLocalInterface(@NonNull String descriptor);
-
+    public IInterface queryLocalInterface(String descriptor);
+    
     /**
      * Print the object's state into the given stream.
      * 
      * @param fd The raw file descriptor that the dump is being sent to.
      * @param args additional arguments to the dump request.
      */
-    public void dump(@NonNull FileDescriptor fd, @Nullable String[] args) throws RemoteException;
-
+    public void dump(FileDescriptor fd, String[] args) throws RemoteException;
+    
     /**
      * Like {@link #dump(FileDescriptor, String[])} but always executes
      * asynchronously.  If the object is local, a new thread is created
@@ -221,25 +204,7 @@ public interface IBinder {
      * @param fd The raw file descriptor that the dump is being sent to.
      * @param args additional arguments to the dump request.
      */
-    public void dumpAsync(@NonNull FileDescriptor fd, @Nullable String[] args)
-            throws RemoteException;
-
-    /**
-     * Execute a shell command on this object.  This may be performed asynchrously from the caller;
-     * the implementation must always call resultReceiver when finished.
-     *
-     * @param in The raw file descriptor that an input data stream can be read from.
-     * @param out The raw file descriptor that normal command messages should be written to.
-     * @param err The raw file descriptor that command error messages should be written to.
-     * @param args Command-line arguments.
-     * @param shellCallback Optional callback to the caller's shell to perform operations in it.
-     * @param resultReceiver Called when the command has finished executing, with the result code.
-     * @hide
-     */
-    public void shellCommand(@Nullable FileDescriptor in, @Nullable FileDescriptor out,
-            @Nullable FileDescriptor err,
-            @NonNull String[] args, @Nullable ShellCallback shellCallback,
-            @NonNull ResultReceiver resultReceiver) throws RemoteException;
+    public void dumpAsync(FileDescriptor fd, String[] args) throws RemoteException;
 
     /**
      * Perform a generic operation with the object.
@@ -254,12 +219,8 @@ public interface IBinder {
      * null if you are not interested in the return value.
      * @param flags Additional operation flags.  Either 0 for a normal
      * RPC, or {@link #FLAG_ONEWAY} for a one-way RPC.
-     *
-     * @return Returns the result from {@link Binder#onTransact}.  A successful call
-     * generally returns true; false generally means the transaction code was not
-     * understood.
      */
-    public boolean transact(int code, @NonNull Parcel data, @Nullable Parcel reply, int flags)
+    public boolean transact(int code, Parcel data, Parcel reply, int flags)
         throws RemoteException;
 
     /**
@@ -288,7 +249,7 @@ public interface IBinder {
      * 
      * @see #unlinkToDeath
      */
-    public void linkToDeath(@NonNull DeathRecipient recipient, int flags)
+    public void linkToDeath(DeathRecipient recipient, int flags)
             throws RemoteException;
 
     /**
@@ -309,5 +270,5 @@ public interface IBinder {
      * exception will <em>not</em> be thrown, and you will receive a false
      * return value instead.
      */
-    public boolean unlinkToDeath(@NonNull DeathRecipient recipient, int flags);
+    public boolean unlinkToDeath(DeathRecipient recipient, int flags);
 }

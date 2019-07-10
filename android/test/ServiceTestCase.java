@@ -23,7 +23,6 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.test.mock.MockApplication;
 
-import android.test.mock.MockService;
 import java.util.Random;
 
 /**
@@ -93,13 +92,7 @@ import java.util.Random;
  *      {@link android.test.RenamingDelegatingContext RenamingDelegatingContext},
  *      {@link android.content.ContextWrapper ContextWrapper}, and
  *      {@link android.test.IsolatedContext}.
- *
- * @deprecated Use
- * <a href="{@docRoot}reference/android/support/test/rule/ServiceTestRule.html">
- * ServiceTestRule</a> instead. New tests should be written using the
- * <a href="{@docRoot}tools/testing-support-library/index.html">Android Testing Support Library</a>.
  */
-@Deprecated
 public abstract class ServiceTestCase<T extends Service> extends AndroidTestCase {
 
     Class<T> mServiceClass;
@@ -164,8 +157,14 @@ public abstract class ServiceTestCase<T extends Service> extends AndroidTestCase
         if (getApplication() == null) {
             setApplication(new MockApplication());
         }
-        MockService.attachForTesting(
-                mService, getContext(), mServiceClass.getName(), getApplication());
+        mService.attach(
+                getContext(),
+                null,               // ActivityThread not actually used in Service
+                mServiceClass.getName(),
+                null,               // token not needed when not talking with the activity manager
+                getApplication(),
+                null                // mocked services don't talk with the activity manager
+                );
 
         assertNotNull(mService);
 

@@ -50,7 +50,7 @@ public class PathMeasure {
     public PathMeasure(Path path, boolean forceClosed) {
         // The native implementation does not copy the path, prevent it from being GC'd
         mPath = path;
-        native_instance = native_create(path != null ? path.readOnlyNI() : 0,
+        native_instance = native_create(path != null ? path.ni() : 0,
                                         forceClosed);
     }
 
@@ -60,7 +60,7 @@ public class PathMeasure {
     public void setPath(Path path, boolean forceClosed) {
         mPath = path;
         native_setPath(native_instance,
-                       path != null ? path.readOnlyNI() : 0,
+                       path != null ? path.ni() : 0,
                        forceClosed);
     }
 
@@ -79,7 +79,7 @@ public class PathMeasure {
      * are unchanged.
      *
      * @param distance The distance along the current contour to sample
-     * @param pos If not null, returns the sampled position (x==[0], y==[1])
+     * @param pos If not null, eturns the sampled position (x==[0], y==[1])
      * @param tan If not null, returns the sampled tangent (x==[0], y==[1])
      * @return false if there was no path associated with this measure object
     */
@@ -112,7 +112,7 @@ public class PathMeasure {
      * Given a start and stop distance, return in dst the intervening
      * segment(s). If the segment is zero-length, return false, else return
      * true. startD and stopD are pinned to legal values (0..getLength()).
-     * If startD >= stopD then return false (and leave dst untouched).
+     * If startD <= stopD then return false (and leave dst untouched).
      * Begin the segment with a moveTo if startWithMoveTo is true.
      *
      * <p>On {@link android.os.Build.VERSION_CODES#KITKAT} and earlier
@@ -121,20 +121,8 @@ public class PathMeasure {
      * such as <code>dst.rLineTo(0, 0)</code>.</p>
      */
     public boolean getSegment(float startD, float stopD, Path dst, boolean startWithMoveTo) {
-        // Skia used to enforce this as part of it's API, but has since relaxed that restriction
-        // so to maintain consistency in our API we enforce the preconditions here.
-        float length = getLength();
-        if (startD < 0) {
-            startD = 0;
-        }
-        if (stopD > length) {
-            stopD = length;
-        }
-        if (startD >= stopD) {
-            return false;
-        }
-
-        return native_getSegment(native_instance, startD, stopD, dst.mutateNI(), startWithMoveTo);
+        dst.isSimplePath = false;
+        return native_getSegment(native_instance, startD, stopD, dst.ni(), startWithMoveTo);
     }
 
     /**
@@ -154,7 +142,6 @@ public class PathMeasure {
 
     protected void finalize() throws Throwable {
         native_destroy(native_instance);
-        native_instance = 0;  // Other finalizers can still call us.
     }
 
     private static native long native_create(long native_path, boolean forceClosed);
@@ -167,6 +154,6 @@ public class PathMeasure {
     private static native boolean native_nextContour(long native_instance);
     private static native void native_destroy(long native_instance);
 
-    /* package */private long native_instance;
+    /* package */private final long native_instance;
 }
 

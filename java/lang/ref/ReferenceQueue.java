@@ -1,103 +1,128 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.lang.ref;
 
-import sun.misc.Cleaner;
-
 /**
- * Reference queues, to which registered reference objects are appended by the
- * garbage collector after the appropriate reachability changes are detected.
+ * The {@code ReferenceQueue} is the container on which reference objects are
+ * enqueued when the garbage collector detects the reachability type specified
+ * for the referent.
  *
- * @author   Mark Reinhold
- * @since    1.2
+ * @since 1.2
  */
 public class ReferenceQueue<T> {
+    private static final int NANOS_PER_MILLI = 1000000;
 
-    // Reference.queueNext will be set to sQueueNextUnenqueued to indicate
-    // when a reference has been enqueued and removed from its queue.
-    private static final Reference sQueueNextUnenqueued = new PhantomReference(null, null);
-
-    // NOTE: This implementation of ReferenceQueue is FIFO (queue-like) whereas
-    // the OpenJdk implementation is LIFO (stack-like).
-    private Reference<? extends T> head = null;
-    private Reference<? extends T> tail = null;
-
-    private final Object lock = new Object();
+    private Reference<? extends T> head;
+    private Reference<? extends T> tail;
 
     /**
-     * Constructs a new reference-object queue.
+     * Constructs a new instance of this class.
      */
-    public ReferenceQueue() { }
-
-    /**
-     * Enqueue the given reference onto this queue.
-     * The caller is responsible for ensuring the lock is held on this queue,
-     * and for calling notifyAll on this queue after the reference has been
-     * enqueued. Returns true if the reference was enqueued successfully,
-     * false if the reference had already been enqueued.
-     * @GuardedBy("lock")
-     */
-    private boolean enqueueLocked(Reference<? extends T> r) {
-        // Verify the reference has not already been enqueued.
-        if (r.queueNext != null) {
-            return false;
-        }
-
-        if (r instanceof Cleaner) {
-            // If this reference is a Cleaner, then simply invoke the clean method instead
-            // of enqueueing it in the queue. Cleaners are associated with dummy queues that
-            // are never polled and objects are never enqueued on them.
-            Cleaner cl = (sun.misc.Cleaner) r;
-            cl.clean();
-
-            // Update queueNext to indicate that the reference has been
-            // enqueued, but is now removed from the queue.
-            r.queueNext = sQueueNextUnenqueued;
-            return true;
-        }
-
-        if (tail == null) {
-            head = r;
-        } else {
-            tail.queueNext = r;
-        }
-        tail = r;
-        tail.queueNext = r;
-        return true;
+    public ReferenceQueue() {
     }
 
     /**
-     * Test if the given reference object has been enqueued but not yet
-     * removed from the queue, assuming this is the reference object's queue.
+     * Returns the next available reference from the queue, removing it in the
+     * process. Does not wait for a reference to become available.
+     *
+     * @return the next available reference, or {@code null} if no reference is
+     *         immediately available
      */
-    boolean isEnqueued(Reference<? extends T> reference) {
-        synchronized (lock) {
-            return reference.queueNext != null && reference.queueNext != sQueueNextUnenqueued;
+    @SuppressWarnings("unchecked")
+    public synchronized Reference<? extends T> poll() {
+        if (head == null) {
+            return null;
         }
+
+        Reference<? extends T> ret = head;
+
+        if (head == tail) {
+            tail = null;
+            head = null;
+        } else {
+            head = head.queueNext;
+        }
+
+        ret.queueNext = null;
+        return ret;
+    }
+
+    /**
+     * Returns the next available reference from the queue, removing it in the
+     * process. Waits indefinitely for a reference to become available.
+     *
+     * @throws InterruptedException if the blocking call was interrupted
+     */
+    public Reference<? extends T> remove() throws InterruptedException {
+        return remove(0L);
+    }
+
+    /**
+     * Returns the next available reference from the queue, removing it in the
+     * process. Waits for a reference to become available or the given timeout
+     * period to elapse, whichever happens first.
+     *
+     * @param timeoutMillis maximum time to spend waiting for a reference object
+     *     to become available. A value of {@code 0} results in the method
+     *     waiting indefinitely.
+     * @return the next available reference, or {@code null} if no reference
+     *     becomes available within the timeout period
+     * @throws IllegalArgumentException if {@code timeoutMillis < 0}.
+     * @throws InterruptedException if the blocking call was interrupted
+     */
+    public synchronized Reference<? extends T> remove(long timeoutMillis)
+            throws InterruptedException {
+        if (timeoutMillis < 0) {
+            throw new IllegalArgumentException("timeout < 0: " + timeoutMillis);
+        }
+
+        if (head != null) {
+            return poll();
+        }
+
+        // avoid overflow: if total > 292 years, just wait forever
+        if (timeoutMillis == 0 || (timeoutMillis > Long.MAX_VALUE / NANOS_PER_MILLI)) {
+            do {
+                wait(0);
+            } while (head == null);
+            return poll();
+        }
+
+        // guaranteed to not overflow
+        long nanosToWait = timeoutMillis * NANOS_PER_MILLI;
+        int timeoutNanos = 0;
+
+        // wait until notified or the timeout has elapsed
+        long startTime = System.nanoTime();
+        while (true) {
+            wait(timeoutMillis, timeoutNanos);
+            if (head != null) {
+                break;
+            }
+            long nanosElapsed = System.nanoTime() - startTime;
+            long nanosRemaining = nanosToWait - nanosElapsed;
+            if (nanosRemaining <= 0) {
+                break;
+            }
+            timeoutMillis = nanosRemaining / NANOS_PER_MILLI;
+            timeoutNanos = (int) (nanosRemaining - timeoutMillis * NANOS_PER_MILLI);
+        }
+        return poll();
     }
 
     /**
@@ -105,155 +130,22 @@ public class ReferenceQueue<T> {
      *
      * @param reference
      *            reference object to be enqueued.
-     * @return true if the reference was enqueued.
      */
-    boolean enqueue(Reference<? extends T> reference) {
-        synchronized (lock) {
-            if (enqueueLocked(reference)) {
-                lock.notifyAll();
-                return true;
-            }
-            return false;
-        }
-    }
-
-    // @GuardedBy("lock")
-    private Reference<? extends T> reallyPollLocked() {
-        if (head != null) {
-            Reference<? extends T> r = head;
-            if (head == tail) {
-                tail = null;
-                head = null;
-            } else {
-                head = head.queueNext;
-            }
-
-            // Update queueNext to indicate that the reference has been
-            // enqueued, but is now removed from the queue.
-            r.queueNext = sQueueNextUnenqueued;
-            return r;
+    synchronized void enqueue(Reference<? extends T> reference) {
+        if (tail == null) {
+            head = reference;
+        } else {
+            tail.queueNext = reference;
         }
 
-        return null;
+        // The newly enqueued reference becomes the new tail, and always
+        // points to itself.
+        tail = reference;
+        tail.queueNext = reference;
+        notify();
     }
 
-    /**
-     * Polls this queue to see if a reference object is available.  If one is
-     * available without further delay then it is removed from the queue and
-     * returned.  Otherwise this method immediately returns <tt>null</tt>.
-     *
-     * @return  A reference object, if one was immediately available,
-     *          otherwise <code>null</code>
-     */
-    public Reference<? extends T> poll() {
-        synchronized (lock) {
-            if (head == null)
-                return null;
-
-            return reallyPollLocked();
-        }
-    }
-
-    /**
-     * Removes the next reference object in this queue, blocking until either
-     * one becomes available or the given timeout period expires.
-     *
-     * <p> This method does not offer real-time guarantees: It schedules the
-     * timeout as if by invoking the {@link Object#wait(long)} method.
-     *
-     * @param  timeout  If positive, block for up to <code>timeout</code>
-     *                  milliseconds while waiting for a reference to be
-     *                  added to this queue.  If zero, block indefinitely.
-     *
-     * @return  A reference object, if one was available within the specified
-     *          timeout period, otherwise <code>null</code>
-     *
-     * @throws  IllegalArgumentException
-     *          If the value of the timeout argument is negative
-     *
-     * @throws  InterruptedException
-     *          If the timeout wait is interrupted
-     */
-    public Reference<? extends T> remove(long timeout)
-        throws IllegalArgumentException, InterruptedException
-    {
-        if (timeout < 0) {
-            throw new IllegalArgumentException("Negative timeout value");
-        }
-        synchronized (lock) {
-            Reference<? extends T> r = reallyPollLocked();
-            if (r != null) return r;
-            long start = (timeout == 0) ? 0 : System.nanoTime();
-            for (;;) {
-                lock.wait(timeout);
-                r = reallyPollLocked();
-                if (r != null) return r;
-                if (timeout != 0) {
-                    long end = System.nanoTime();
-                    timeout -= (end - start) / 1000_000;
-                    if (timeout <= 0) return null;
-                    start = end;
-                }
-            }
-        }
-    }
-
-    /**
-     * Removes the next reference object in this queue, blocking until one
-     * becomes available.
-     *
-     * @return A reference object, blocking until one becomes available
-     * @throws  InterruptedException  If the wait is interrupted
-     */
-    public Reference<? extends T> remove() throws InterruptedException {
-        return remove(0);
-    }
-
-    /**
-     * Enqueue the given list of currently pending (unenqueued) references.
-     *
-     * @hide
-     */
-    public static void enqueuePending(Reference<?> list) {
-        Reference<?> start = list;
-        do {
-            ReferenceQueue queue = list.queue;
-            if (queue == null) {
-                Reference<?> next = list.pendingNext;
-
-                // Make pendingNext a self-loop to preserve the invariant that
-                // once enqueued, pendingNext is non-null -- without leaking
-                // the object pendingNext was previously pointing to.
-                list.pendingNext = list;
-                list = next;
-            } else {
-                // To improve performance, we try to avoid repeated
-                // synchronization on the same queue by batching enqueue of
-                // consecutive references in the list that have the same
-                // queue.
-                synchronized (queue.lock) {
-                    do {
-                        Reference<?> next = list.pendingNext;
-
-                        // Make pendingNext a self-loop to preserve the
-                        // invariant that once enqueued, pendingNext is
-                        // non-null -- without leaking the object pendingNext
-                        // was previously pointing to.
-                        list.pendingNext = list;
-                        queue.enqueueLocked(list);
-                        list = next;
-                    } while (list != start && list.queue == queue);
-                    queue.lock.notifyAll();
-                }
-            }
-        } while (list != start);
-    }
-
-    /**
-     * List of references that the GC says need to be enqueued.
-     * Protected by ReferenceQueue.class lock.
-     * @hide
-     */
+    /** @hide */
     public static Reference<?> unenqueued = null;
 
     static void add(Reference<?> list) {

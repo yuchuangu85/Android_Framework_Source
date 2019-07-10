@@ -16,8 +16,8 @@
 
 package benchmarks.regression;
 
-import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Param;
+import com.google.caliper.SimpleBenchmark;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,7 +27,7 @@ import java.net.URL;
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLContext;
 
-public class SSLSocketBenchmark {
+public class SSLSocketBenchmark extends SimpleBenchmark {
 
     private static final int BUFFER_SIZE = 8192;
 
@@ -71,8 +71,7 @@ public class SSLSocketBenchmark {
 
     private SocketFactory sf;
 
-    @BeforeExperiment
-    protected void setUp() throws Exception {
+    @Override protected void setUp() throws Exception {
         SSLContext sslContext = SSLContext.getInstance("SSL");
         sslContext.init(null, null, null);
         this.sf = sslContext.getSocketFactory();

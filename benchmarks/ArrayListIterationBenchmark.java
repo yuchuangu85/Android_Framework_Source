@@ -16,12 +16,16 @@
 
 package benchmarks;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 import java.util.ArrayList;
 
 /**
  * Is a hand-coded counted loop through an ArrayList cheaper than enhanced for?
  */
-public class ArrayListIterationBenchmark {
+public class ArrayListIterationBenchmark extends SimpleBenchmark {
     ArrayList<Foo> mList = new ArrayList<Foo>();
     {
         for (int i = 0; i < 27; ++i) mList.add(new Foo());

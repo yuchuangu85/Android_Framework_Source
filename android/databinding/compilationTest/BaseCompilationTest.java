@@ -25,15 +25,15 @@ import org.junit.rules.TestName;
 
 import android.databinding.tool.store.Location;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -52,7 +52,7 @@ import static org.junit.Assert.assertTrue;
 public class BaseCompilationTest {
 
     private static final String PRINT_ENCODED_ERRORS_PROPERTY
-            = "android.injected.invoked.from.ide";
+            = "android.databinding.injected.print.encoded.errors";
     @Rule
     public TestName name = new TestName();
     static Pattern VARIABLES = Pattern.compile("!@\\{([A-Za-z0-9_-]*)}");
@@ -147,7 +147,7 @@ public class BaseCompilationTest {
 
     protected static Map<String, String> toMap(String... keysAndValues) {
         assertEquals(0, keysAndValues.length % 2);
-        Map<String, String> map = new HashMap<String, String>();
+        Map<String, String> map = new HashMap<>();
         for (int i = 0; i < keysAndValues.length; i += 2) {
             map.put(keysAndValues[i], keysAndValues[i + 1]);
         }
@@ -191,7 +191,7 @@ public class BaseCompilationTest {
 
     private Map<String, String> addDefaults(Map<String, String> map) {
         if (map == null) {
-            map = new HashMap<String, String>();
+            map = new HashMap<>();
         }
         if (!map.containsKey(KEY_MANIFEST_PACKAGE)) {
             map.put(KEY_MANIFEST_PACKAGE, DEFAULT_APP_PACKAGE);
@@ -216,8 +216,7 @@ public class BaseCompilationTest {
         if (localProperties.exists()) {
             FileUtils.copyFile(localProperties, new File(testFolder, "local.properties"));
         }
-        FileUtils.copyFile(new File("../propLoader.gradle"),
-                new File(testFolder, "propLoaderClone.gradle"));
+        FileUtils.copyFile(new File("../propLoader.gradle"), new File(testFolder, "propLoaderClone.gradle"));
         FileUtils.copyFile(new File("../gradlew"), new File(testFolder, "gradlew"));
         FileUtils.copyDirectory(new File("../gradle"), new File(testFolder, "gradle"));
     }
@@ -241,15 +240,9 @@ public class BaseCompilationTest {
             throws IOException, InterruptedException {
         setExecutable();
         File pathToExecutable = new File(testFolder, "gradlew");
-        List<String> args = new ArrayList<String>();
+        List<String> args = new ArrayList<>();
         args.add(pathToExecutable.getAbsolutePath());
         args.add("-P" + PRINT_ENCODED_ERRORS_PROPERTY + "=true");
-        if ("true".equals(System.getProperties().getProperty("useReleaseVersion", "false"))) {
-            args.add("-PuseReleaseVersion=true");
-        }
-        if ("true".equals(System.getProperties().getProperty("addRemoteRepos", "false"))) {
-            args.add("-PaddRemoteRepos=true");
-        }
         args.add("--project-cache-dir");
         args.add(new File("../.caches/", name.getMethodName()).getAbsolutePath());
         Collections.addAll(args, params);
@@ -261,27 +254,25 @@ public class BaseCompilationTest {
         }
         builder.directory(testFolder);
         Process process = builder.start();
-        String output = collect(process.getInputStream());
-        String error = collect(process.getErrorStream());
+        String output = IOUtils.toString(process.getInputStream());
+        String error = IOUtils.toString(process.getErrorStream());
         int result = process.waitFor();
         return new CompilationResult(result, output, error);
     }
 
     private void setExecutable() throws IOException {
-        File gw = new File(testFolder, "gradlew");
-        gw.setExecutable(true);
+        Set<PosixFilePermission> perms = new HashSet<PosixFilePermission>();
+        //add owners permission
+        perms.add(PosixFilePermission.OWNER_READ);
+        perms.add(PosixFilePermission.OWNER_WRITE);
+        perms.add(PosixFilePermission.OWNER_EXECUTE);
+        //add group permissions
+        perms.add(PosixFilePermission.GROUP_READ);
+        //add others permissions
+        perms.add(PosixFilePermission.OTHERS_READ);
+        Files.setPosixFilePermissions(Paths.get(new File(testFolder, "gradlew").getAbsolutePath()),
+                perms);
     }
 
-    /**
-     * Use this instead of IO utils so that we can easily log the output when necessary
-     */
-    private static String collect(InputStream stream) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        String line;
-        final BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-        while ((line = reader.readLine()) != null) {
-            sb.append(line).append("\n");
-        }
-        return sb.toString();
-    }
+
 }

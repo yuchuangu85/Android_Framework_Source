@@ -17,15 +17,11 @@
 package android.graphics;
 
 import android.content.res.AssetManager;
-
-import java.io.FileInputStream;
 import java.io.InputStream;
+import java.io.FileInputStream;
 
-/**
- * @deprecated Prefer {@link android.graphics.drawable.AnimatedImageDrawable}.
- */
 public class Movie {
-    private long mNativeMovie;
+    private final long mNativeMovie;
 
     private Movie(long nativeMovie) {
         if (nativeMovie == 0) {
@@ -86,7 +82,6 @@ public class Movie {
     protected void finalize() throws Throwable {
         try {
             nativeDestructor(mNativeMovie);
-            mNativeMovie = 0;
         } finally {
             super.finalize();
         }

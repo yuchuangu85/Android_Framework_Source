@@ -34,9 +34,8 @@ import java.util.ArrayList;
  * Typically, the returned type is a PointF, but the individual components can be extracted
  * as either an IntKeyframes or FloatKeyframes.
  * </p>
- * @hide
  */
-public class PathKeyframes implements Keyframes {
+class PathKeyframes implements Keyframes {
     private static final int FRACTION_OFFSET = 0;
     private static final int X_OFFSET = 1;
     private static final int Y_OFFSET = 2;
@@ -115,6 +114,10 @@ public class PathKeyframes implements Keyframes {
 
         mTempPointF.set(x, y);
         return mTempPointF;
+    }
+
+    @Override
+    public void invalidateCache() {
     }
 
     @Override
@@ -210,6 +213,10 @@ public class PathKeyframes implements Keyframes {
         }
 
         @Override
+        public void invalidateCache() {
+        }
+
+        @Override
         public ArrayList<Keyframe> getKeyframes() {
             return EMPTY_KEYFRAMES;
         }
@@ -224,7 +231,7 @@ public class PathKeyframes implements Keyframes {
         }
     }
 
-    abstract static class IntKeyframesBase extends SimpleKeyframes implements IntKeyframes {
+    private abstract static class IntKeyframesBase extends SimpleKeyframes implements IntKeyframes {
         @Override
         public Class getType() {
             return Integer.class;
@@ -236,7 +243,7 @@ public class PathKeyframes implements Keyframes {
         }
     }
 
-    abstract static class FloatKeyframesBase extends SimpleKeyframes
+    private abstract static class FloatKeyframesBase extends SimpleKeyframes
             implements FloatKeyframes {
         @Override
         public Class getType() {

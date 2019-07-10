@@ -16,41 +16,30 @@
 
 package com.android.setupwizardlib.test;
 
-import static com.google.common.truth.Truth.assertThat;
-
-import static org.junit.Assert.assertEquals;
-
 import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.annotation.UiThreadTest;
-import android.support.test.filters.SmallTest;
-import android.support.test.rule.UiThreadTestRule;
-import android.support.test.runner.AndroidJUnit4;
-import android.view.ContextThemeWrapper;
+import android.os.Bundle;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
+import android.view.InputQueue;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.SurfaceHolder.Callback2;
 import android.view.View;
+import android.view.ViewGroup.LayoutParams;
 import android.view.Window;
 import android.view.WindowManager;
 
-import com.android.setupwizardlib.test.util.MockWindow;
 import com.android.setupwizardlib.util.SystemBarHelper;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class SystemBarHelperTest {
-
-    @Rule
-    public UiThreadTestRule mUiThreadTestRule = new UiThreadTestRule();
+public class SystemBarHelperTest extends AndroidTestCase {
 
     private static final int STATUS_BAR_DISABLE_BACK = 0x00400000;
 
@@ -66,8 +55,7 @@ public class SystemBarHelperTest {
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testAddVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(view, 0x1400);
@@ -77,8 +65,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testRemoveVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(view, 0x1400);
@@ -88,8 +75,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testAddVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(window, 0x1400);
@@ -100,8 +86,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testRemoveVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(window, 0x1400);
@@ -112,8 +97,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testHideSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.hideSystemBars(window);
@@ -125,60 +109,12 @@ public class SystemBarHelperTest {
                     "DEFAULT_IMMERSIVE_FLAGS should be added to decorView's systemUiVisibility",
                     DEFAULT_IMMERSIVE_FLAGS | 0x456,
                     window.getDecorView().getSystemUiVisibility());
-            assertEquals("Navigation bar should be transparent", window.getNavigationBarColor(), 0);
-            assertEquals("Status bar should be transparent", window.getStatusBarColor(), 0);
         }
     }
 
-    @UiThreadTest
-    @Test
-    public void testShowSystemBarsWindow() {
-        final Window window = createWindowWithSystemUiVisibility(0x456);
-        Context context = new ContextThemeWrapper(
-                InstrumentationRegistry.getContext(), android.R.style.Theme);
-        SystemBarHelper.showSystemBars(window, context);
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            assertEquals(
-                    "DEFAULT_IMMERSIVE_FLAGS should be removed from window's systemUiVisibility",
-                    0x456 & ~DEFAULT_IMMERSIVE_FLAGS,
-                    window.getAttributes().systemUiVisibility);
-            assertEquals(
-                    "DEFAULT_IMMERSIVE_FLAGS should be removed from decorView's systemUiVisibility",
-                    0x456 & ~DEFAULT_IMMERSIVE_FLAGS,
-                    window.getDecorView().getSystemUiVisibility());
-            assertEquals("Navigation bar should not be transparent",
-                    window.getNavigationBarColor(), 0xff000000);
-            assertEquals("Status bar should not be transparent",
-                    window.getStatusBarColor(), 0xff000000);
-        }
-    }
-
-    @UiThreadTest
-    @Test
-    public void testHideSystemBarsNoInfiniteLoop() throws InterruptedException {
-        final TestWindow window = new TestWindow(InstrumentationRegistry.getContext(), null);
-        final HandlerThread thread = new HandlerThread("SystemBarHelperTest");
-        thread.start();
-        final Handler handler = new Handler(thread.getLooper());
-        handler.post(new Runnable() {
-            @Override
-            public void run() {
-                SystemBarHelper.hideSystemBars(window);
-            }
-        });
-        SystemClock.sleep(500);  // Wait for the looper to drain all the messages
-        thread.quit();
-        // Initial peek + 3 retries = 4 tries total
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            assertEquals("Peek decor view should give up after 4 tries", 4,
-                    window.peekDecorViewCount);
-        }
-    }
-
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testHideSystemBarsDialog() {
-        final Dialog dialog = new Dialog(InstrumentationRegistry.getContext());
+        final Dialog dialog = new Dialog(mContext);
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             final WindowManager.LayoutParams attrs = dialog.getWindow().getAttributes();
             attrs.systemUiVisibility = 0x456;
@@ -193,38 +129,28 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testSetBackButtonVisibleTrue() {
-        final Window window = createWindowWithSystemUiVisibility(STATUS_BAR_DISABLE_BACK | 0x456);
+        final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, true);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertThat(window.getAttributes().systemUiVisibility)
-                    .named("window sysUiVisibility")
-                    .isEqualTo(0x456);
-            assertThat(window.getDecorView().getSystemUiVisibility())
-                    .named("decor view sysUiVisibility")
-                    .isEqualTo(0x456);
+            assertEquals("View visibility should be 0x456", 0x456,
+                    window.getAttributes().systemUiVisibility);
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testSetBackButtonVisibleFalse() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, false);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertThat(window.getAttributes().systemUiVisibility)
-                    .named("window sysUiVisibility")
-                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
-            assertThat(window.getDecorView().getSystemUiVisibility())
-                    .named("decor view sysUiVisibility")
-                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
+            assertEquals("STATUS_BAR_DISABLE_BACK should be added to systemUiVisibility",
+                    0x456 | STATUS_BAR_DISABLE_BACK, window.getAttributes().systemUiVisibility);
         }
     }
 
     private View createViewWithSystemUiVisibility(int vis) {
-        final View view = new View(InstrumentationRegistry.getContext());
+        final View view = new View(getContext());
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             view.setSystemUiVisibility(vis);
         }
@@ -232,8 +158,7 @@ public class SystemBarHelperTest {
     }
 
     private Window createWindowWithSystemUiVisibility(int vis) {
-        final Window window = new TestWindow(InstrumentationRegistry.getContext(),
-                createViewWithSystemUiVisibility(vis));
+        final Window window = new TestWindow(getContext(), createViewWithSystemUiVisibility(vis));
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             WindowManager.LayoutParams attrs = window.getAttributes();
             attrs.systemUiVisibility = vis;
@@ -242,17 +167,173 @@ public class SystemBarHelperTest {
         return window;
     }
 
-    private static class TestWindow extends MockWindow {
+    private static class TestWindow extends Window {
 
         private View mDecorView;
-        public int peekDecorViewCount = 0;
 
-        private int mNavigationBarColor = -1;
-        private int mStatusBarColor = -1;
-
-        TestWindow(Context context, View decorView) {
+        public TestWindow(Context context, View decorView) {
             super(context);
             mDecorView = decorView;
+        }
+
+        @Override
+        public void takeSurface(Callback2 callback2) {
+
+        }
+
+        @Override
+        public void takeInputQueue(InputQueue.Callback callback) {
+
+        }
+
+        @Override
+        public boolean isFloating() {
+            return false;
+        }
+
+        @Override
+        public void setContentView(int i) {
+
+        }
+
+        @Override
+        public void setContentView(View view) {
+
+        }
+
+        @Override
+        public void setContentView(View view, LayoutParams layoutParams) {
+
+        }
+
+        @Override
+        public void addContentView(View view, LayoutParams layoutParams) {
+
+        }
+
+        @Override
+        public View getCurrentFocus() {
+            return null;
+        }
+
+        @Override
+        public LayoutInflater getLayoutInflater() {
+            return LayoutInflater.from(getContext());
+        }
+
+        @Override
+        public void setTitle(CharSequence charSequence) {
+
+        }
+
+        @Override
+        public void setTitleColor(int i) {
+
+        }
+
+        @Override
+        public void openPanel(int i, KeyEvent keyEvent) {
+
+        }
+
+        @Override
+        public void closePanel(int i) {
+
+        }
+
+        @Override
+        public void togglePanel(int i, KeyEvent keyEvent) {
+
+        }
+
+        @Override
+        public void invalidatePanelMenu(int i) {
+
+        }
+
+        @Override
+        public boolean performPanelShortcut(int i, int i2, KeyEvent keyEvent, int i3) {
+            return false;
+        }
+
+        @Override
+        public boolean performPanelIdentifierAction(int i, int i2, int i3) {
+            return false;
+        }
+
+        @Override
+        public void closeAllPanels() {
+
+        }
+
+        @Override
+        public boolean performContextMenuIdentifierAction(int i, int i2) {
+            return false;
+        }
+
+        @Override
+        public void onConfigurationChanged(Configuration configuration) {
+
+        }
+
+        @Override
+        public void setBackgroundDrawable(Drawable drawable) {
+
+        }
+
+        @Override
+        public void setFeatureDrawableResource(int i, int i2) {
+
+        }
+
+        @Override
+        public void setFeatureDrawableUri(int i, Uri uri) {
+
+        }
+
+        @Override
+        public void setFeatureDrawable(int i, Drawable drawable) {
+
+        }
+
+        @Override
+        public void setFeatureDrawableAlpha(int i, int i2) {
+
+        }
+
+        @Override
+        public void setFeatureInt(int i, int i2) {
+
+        }
+
+        @Override
+        public void takeKeyEvents(boolean b) {
+
+        }
+
+        @Override
+        public boolean superDispatchKeyEvent(KeyEvent keyEvent) {
+            return false;
+        }
+
+        @Override
+        public boolean superDispatchKeyShortcutEvent(KeyEvent keyEvent) {
+            return false;
+        }
+
+        @Override
+        public boolean superDispatchTouchEvent(MotionEvent motionEvent) {
+            return false;
+        }
+
+        @Override
+        public boolean superDispatchTrackballEvent(MotionEvent motionEvent) {
+            return false;
+        }
+
+        @Override
+        public boolean superDispatchGenericMotionEvent(MotionEvent motionEvent) {
+            return false;
         }
 
         @Override
@@ -262,28 +343,67 @@ public class SystemBarHelperTest {
 
         @Override
         public View peekDecorView() {
-            peekDecorViewCount++;
             return mDecorView;
         }
 
         @Override
-        public void setNavigationBarColor(int i) {
-            mNavigationBarColor = i;
+        public Bundle saveHierarchyState() {
+            return null;
         }
 
         @Override
-        public int getNavigationBarColor() {
-            return mNavigationBarColor;
+        public void restoreHierarchyState(Bundle bundle) {
+
         }
 
         @Override
-        public void setStatusBarColor(int i) {
-            mStatusBarColor = i;
+        protected void onActive() {
+
+        }
+
+        @Override
+        public void setChildDrawable(int i, Drawable drawable) {
+
+        }
+
+        @Override
+        public void setChildInt(int i, int i2) {
+
+        }
+
+        @Override
+        public boolean isShortcutKey(int i, KeyEvent keyEvent) {
+            return false;
+        }
+
+        @Override
+        public void setVolumeControlStream(int i) {
+
+        }
+
+        @Override
+        public int getVolumeControlStream() {
+            return 0;
         }
 
         @Override
         public int getStatusBarColor() {
-            return mStatusBarColor;
+            return 0;
+        }
+
+        @Override
+        public void setStatusBarColor(int i) {
+
+        }
+
+        @Override
+        public int getNavigationBarColor() {
+            return 0;
+        }
+
+        @Override
+        public void setNavigationBarColor(int i) {
+
         }
     }
 }

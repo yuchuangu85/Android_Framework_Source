@@ -20,23 +20,20 @@ import android.hardware.SensorManager;
 import android.os.BatteryStats;
 import android.util.SparseArray;
 
-import com.android.internal.location.gnssmetrics.GnssMetrics;
-
 import java.util.List;
 
 public class SensorPowerCalculator extends PowerCalculator {
     private final List<Sensor> mSensors;
-    private final double mGpsPower;
+    private final double mGpsPowerOn;
 
-    public SensorPowerCalculator(PowerProfile profile, SensorManager sensorManager,
-            BatteryStats stats, long rawRealtimeUs, int statsType) {
+    public SensorPowerCalculator(PowerProfile profile, SensorManager sensorManager) {
         mSensors = sensorManager.getSensorList(Sensor.TYPE_ALL);
-        mGpsPower = getAverageGpsPower(profile, stats, rawRealtimeUs, statsType);
+        mGpsPowerOn = profile.getAveragePower(PowerProfile.POWER_GPS_ON);
     }
 
     @Override
     public void calculateApp(BatterySipper app, BatteryStats.Uid u, long rawRealtimeUs,
-            long rawUptimeUs, int statsType) {
+                             long rawUptimeUs, int statsType) {
         // Process Sensor usage
         final SparseArray<? extends BatteryStats.Uid.Sensor> sensorStats = u.getSensorStats();
         final int NSE = sensorStats.size();
@@ -45,11 +42,10 @@ public class SensorPowerCalculator extends PowerCalculator {
             final int sensorHandle = sensorStats.keyAt(ise);
             final BatteryStats.Timer timer = sensor.getSensorTime();
             final long sensorTime = timer.getTotalTimeLocked(rawRealtimeUs, statsType) / 1000;
-
             switch (sensorHandle) {
                 case BatteryStats.Uid.Sensor.GPS:
                     app.gpsTimeMs = sensorTime;
-                    app.gpsPowerMah = (app.gpsTimeMs * mGpsPower) / (1000*60*60);
+                    app.gpsPowerMah = (app.gpsTimeMs * mGpsPowerOn) / (1000*60*60);
                     break;
                 default:
                     final int sensorsCount = mSensors.size();
@@ -63,27 +59,5 @@ public class SensorPowerCalculator extends PowerCalculator {
                     break;
             }
         }
-    }
-
-    private double getAverageGpsPower(PowerProfile profile, BatteryStats stats, long rawRealtimeUs,
-            int statsType) {
-        double averagePower =
-                profile.getAveragePowerOrDefault(PowerProfile.POWER_GPS_ON, -1);
-        if (averagePower != -1) {
-            return averagePower;
-        }
-        averagePower = 0;
-        long totalTime = 0;
-        double totalPower = 0;
-        for (int i = 0; i < GnssMetrics.NUM_GPS_SIGNAL_QUALITY_LEVELS; i++) {
-            long timePerLevel = stats.getGpsSignalQualityTime(i, rawRealtimeUs, statsType);
-            totalTime += timePerLevel;
-            totalPower += profile.getAveragePower(PowerProfile.POWER_GPS_SIGNAL_QUALITY_BASED, i)
-                    * timePerLevel;
-        }
-        if (totalTime != 0) {
-            averagePower = totalPower / totalTime;
-        }
-        return averagePower;
     }
 }

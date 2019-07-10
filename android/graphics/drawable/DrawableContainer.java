@@ -17,22 +17,23 @@
 package android.graphics.drawable;
 
 import android.annotation.NonNull;
-import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff.Mode;
 import android.graphics.Rect;
+import android.graphics.PorterDuff.Mode;
 import android.os.SystemClock;
-import android.util.DisplayMetrics;
 import android.util.LayoutDirection;
 import android.util.SparseArray;
 import android.view.View;
+
+import java.util.Collection;
 
 /**
  * A helper class that contains several {@link Drawable}s and selects which one to use.
@@ -72,9 +73,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     private long mEnterAnimationEnd;
     private long mExitAnimationEnd;
 
-    /** Callback that blocks invalidation. Used for drawable initialization. */
-    private BlockInvalidateCallback mBlockInvalidateCallback;
-
     // overrides from Drawable
 
     @Override
@@ -88,7 +86,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public @Config int getChangingConfigurations() {
+    public int getChangingConfigurations() {
         return super.getChangingConfigurations()
                 | mDrawableContainerState.getChangingConfigurations();
     }
@@ -145,7 +143,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             mAlpha = alpha;
             if (mCurrDrawable != null) {
                 if (mEnterAnimationEnd == 0) {
-                    mCurrDrawable.setAlpha(alpha);
+                    mCurrDrawable.mutate().setAlpha(alpha);
                 } else {
                     animate(false);
                 }
@@ -163,7 +161,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         if (mDrawableContainerState.mDither != dither) {
             mDrawableContainerState.mDither = dither;
             if (mCurrDrawable != null) {
-                mCurrDrawable.setDither(mDrawableContainerState.mDither);
+                mCurrDrawable.mutate().setDither(mDrawableContainerState.mDither);
             }
         }
     }
@@ -176,7 +174,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             mDrawableContainerState.mColorFilter = colorFilter;
 
             if (mCurrDrawable != null) {
-                mCurrDrawable.setColorFilter(colorFilter);
+                mCurrDrawable.mutate().setColorFilter(colorFilter);
             }
         }
     }
@@ -189,7 +187,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             mDrawableContainerState.mTintList = tint;
 
             if (mCurrDrawable != null) {
-                mCurrDrawable.setTintList(tint);
+                mCurrDrawable.mutate().setTintList(tint);
             }
         }
     }
@@ -202,7 +200,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             mDrawableContainerState.mTintMode = tintMode;
 
             if (mCurrDrawable != null) {
-                mCurrDrawable.setTintMode(tintMode);
+                mCurrDrawable.mutate().setTintMode(tintMode);
             }
         }
     }
@@ -210,7 +208,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     /**
      * Change the global fade duration when a new drawable is entering
      * the scene.
-     *
      * @param ms The amount of time to fade in milliseconds.
      */
     public void setEnterFadeDuration(int ms) {
@@ -220,7 +217,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     /**
      * Change the global fade duration when a new drawable is leaving
      * the scene.
-     *
      * @param ms The amount of time to fade in milliseconds.
      */
     public void setExitFadeDuration(int ms) {
@@ -242,24 +238,12 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         return mDrawableContainerState.isStateful();
     }
 
-    /** @hide */
-    @Override
-    public boolean hasFocusStateSpecified() {
-        if (mCurrDrawable != null) {
-            return mCurrDrawable.hasFocusStateSpecified();
-        }
-        if (mLastDrawable != null) {
-            return mLastDrawable.hasFocusStateSpecified();
-        }
-        return false;
-    }
-
     @Override
     public void setAutoMirrored(boolean mirrored) {
         if (mDrawableContainerState.mAutoMirrored != mirrored) {
             mDrawableContainerState.mAutoMirrored = mirrored;
             if (mCurrDrawable != null) {
-                mCurrDrawable.setAutoMirrored(mDrawableContainerState.mAutoMirrored);
+                mCurrDrawable.mutate().setAutoMirrored(mDrawableContainerState.mAutoMirrored);
             }
         }
     }
@@ -281,7 +265,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         if (mCurrDrawable != null) {
             mCurrDrawable.jumpToCurrentState();
             if (mHasAlpha) {
-                mCurrDrawable.setAlpha(mAlpha);
+                mCurrDrawable.mutate().setAlpha(mAlpha);
             }
         }
         if (mExitAnimationEnd != 0) {
@@ -388,28 +372,21 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public void invalidateDrawable(@NonNull Drawable who) {
-        // This may have been called as the result of a tint changing, in
-        // which case we may need to refresh the cached statefulness or
-        // opacity.
-        if (mDrawableContainerState != null) {
-            mDrawableContainerState.invalidateCache();
-        }
-
+    public void invalidateDrawable(Drawable who) {
         if (who == mCurrDrawable && getCallback() != null) {
             getCallback().invalidateDrawable(this);
         }
     }
 
     @Override
-    public void scheduleDrawable(@NonNull Drawable who, @NonNull Runnable what, long when) {
+    public void scheduleDrawable(Drawable who, Runnable what, long when) {
         if (who == mCurrDrawable && getCallback() != null) {
             getCallback().scheduleDrawable(this, what, when);
         }
     }
 
     @Override
-    public void unscheduleDrawable(@NonNull Drawable who, @NonNull Runnable what) {
+    public void unscheduleDrawable(Drawable who, Runnable what) {
         if (who == mCurrDrawable && getCallback() != null) {
             getCallback().unscheduleDrawable(this, what);
         }
@@ -443,23 +420,14 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         return mCurIndex;
     }
 
-    /**
-     * Sets the currently displayed drawable by index.
-     * <p>
-     * If an invalid index is specified, the current drawable will be set to
-     * {@code null} and the index will be set to {@code -1}.
-     *
-     * @param index the index of the drawable to display
-     * @return {@code true} if the drawable changed, {@code false} otherwise
-     */
-    public boolean selectDrawable(int index) {
-        if (index == mCurIndex) {
+    public boolean selectDrawable(int idx) {
+        if (idx == mCurIndex) {
             return false;
         }
 
         final long now = SystemClock.uptimeMillis();
 
-        if (DEBUG) android.util.Log.i(TAG, toString() + " from " + mCurIndex + " to " + index
+        if (DEBUG) android.util.Log.i(TAG, toString() + " from " + mCurIndex + " to " + idx
                 + ": exit=" + mDrawableContainerState.mExitFadeDuration
                 + " enter=" + mDrawableContainerState.mEnterFadeDuration);
 
@@ -480,10 +448,10 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             mCurrDrawable.setVisible(false, false);
         }
 
-        if (index >= 0 && index < mDrawableContainerState.mNumChildren) {
-            final Drawable d = mDrawableContainerState.getChild(index);
+        if (idx >= 0 && idx < mDrawableContainerState.mNumChildren) {
+            final Drawable d = mDrawableContainerState.getChild(idx);
             mCurrDrawable = d;
-            mCurIndex = index;
+            mCurIndex = idx;
             if (d != null) {
                 if (mDrawableContainerState.mEnterFadeDuration > 0) {
                     mEnterAnimationEnd = now + mDrawableContainerState.mEnterFadeDuration;
@@ -521,47 +489,36 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
      * @param d The drawable to initialize.
      */
     private void initializeDrawableForDisplay(Drawable d) {
-        if (mBlockInvalidateCallback == null) {
-            mBlockInvalidateCallback = new BlockInvalidateCallback();
+        d.mutate();
+
+        if (mDrawableContainerState.mEnterFadeDuration <= 0 && mHasAlpha) {
+            d.setAlpha(mAlpha);
         }
 
-        // Temporary fix for suspending callbacks during initialization. We
-        // don't want any of these setters causing an invalidate() since that
-        // may call back into DrawableContainer.
-        d.setCallback(mBlockInvalidateCallback.wrap(d.getCallback()));
-
-        try {
-            if (mDrawableContainerState.mEnterFadeDuration <= 0 && mHasAlpha) {
-                d.setAlpha(mAlpha);
+        if (mDrawableContainerState.mHasColorFilter) {
+            // Color filter always overrides tint.
+            d.setColorFilter(mDrawableContainerState.mColorFilter);
+        } else {
+            if (mDrawableContainerState.mHasTintList) {
+                d.setTintList(mDrawableContainerState.mTintList);
             }
-
-            if (mDrawableContainerState.mHasColorFilter) {
-                // Color filter always overrides tint.
-                d.setColorFilter(mDrawableContainerState.mColorFilter);
-            } else {
-                if (mDrawableContainerState.mHasTintList) {
-                    d.setTintList(mDrawableContainerState.mTintList);
-                }
-                if (mDrawableContainerState.mHasTintMode) {
-                    d.setTintMode(mDrawableContainerState.mTintMode);
-                }
+            if (mDrawableContainerState.mHasTintMode) {
+                d.setTintMode(mDrawableContainerState.mTintMode);
             }
+        }
 
-            d.setVisible(isVisible(), true);
-            d.setDither(mDrawableContainerState.mDither);
-            d.setState(getState());
-            d.setLevel(getLevel());
-            d.setBounds(getBounds());
-            d.setLayoutDirection(getLayoutDirection());
-            d.setAutoMirrored(mDrawableContainerState.mAutoMirrored);
+        d.setVisible(isVisible(), true);
+        d.setDither(mDrawableContainerState.mDither);
+        d.setState(getState());
+        d.setLevel(getLevel());
+        d.setBounds(getBounds());
+        d.setLayoutDirection(getLayoutDirection());
+        d.setAutoMirrored(mDrawableContainerState.mAutoMirrored);
 
-            final Rect hotspotBounds = mHotspotBounds;
-            if (hotspotBounds != null) {
-                d.setHotspotBounds(hotspotBounds.left, hotspotBounds.top,
-                        hotspotBounds.right, hotspotBounds.bottom);
-            }
-        } finally {
-            d.setCallback(mBlockInvalidateCallback.unwrap());
+        final Rect hotspotBounds = mHotspotBounds;
+        if (hotspotBounds != null) {
+            d.setHotspotBounds(hotspotBounds.left, hotspotBounds.top,
+                    hotspotBounds.right, hotspotBounds.bottom);
         }
     }
 
@@ -573,12 +530,13 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         if (mCurrDrawable != null) {
             if (mEnterAnimationEnd != 0) {
                 if (mEnterAnimationEnd <= now) {
-                    mCurrDrawable.setAlpha(mAlpha);
+                    mCurrDrawable.mutate().setAlpha(mAlpha);
                     mEnterAnimationEnd = 0;
                 } else {
                     int animAlpha = (int)((mEnterAnimationEnd-now)*255)
                             / mDrawableContainerState.mEnterFadeDuration;
-                    mCurrDrawable.setAlpha(((255-animAlpha)*mAlpha)/255);
+                    if (DEBUG) android.util.Log.i(TAG, toString() + " cur alpha " + animAlpha);
+                    mCurrDrawable.mutate().setAlpha(((255-animAlpha)*mAlpha)/255);
                     animating = true;
                 }
             }
@@ -595,7 +553,8 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 } else {
                     int animAlpha = (int)((mExitAnimationEnd-now)*255)
                             / mDrawableContainerState.mExitFadeDuration;
-                    mLastDrawable.setAlpha((animAlpha*mAlpha)/255);
+                    if (DEBUG) android.util.Log.i(TAG, toString() + " last alpha " + animAlpha);
+                    mLastDrawable.mutate().setAlpha((animAlpha*mAlpha)/255);
                     animating = true;
                 }
             }
@@ -611,18 +570,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
     @Override
     public Drawable getCurrent() {
         return mCurrDrawable;
-    }
-
-    /**
-     * Updates the source density based on the resources used to inflate
-     * density-dependent values. Implementing classes should call this method
-     * during inflation.
-     *
-     * @param res the resources used to inflate density-dependent values
-     * @hide
-     */
-    protected final void updateDensity(Resources res) {
-        mDrawableContainerState.updateDensity(res);
     }
 
     @Override
@@ -682,22 +629,22 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
      */
     public abstract static class DrawableContainerState extends ConstantState {
         final DrawableContainer mOwner;
+        final Resources mRes;
 
-        Resources mSourceRes;
-        int mDensity = DisplayMetrics.DENSITY_DEFAULT;
-        @Config int mChangingConfigurations;
-        @Config int mChildrenChangingConfigurations;
+        SparseArray<ConstantStateFuture> mDrawableFutures;
 
-        SparseArray<ConstantState> mDrawableFutures;
+        int mChangingConfigurations;
+        int mChildrenChangingConfigurations;
+
         Drawable[] mDrawables;
         int mNumChildren;
 
         boolean mVariablePadding = false;
-        boolean mCheckedPadding;
+        boolean mPaddingChecked;
         Rect mConstantPadding;
 
         boolean mConstantSize = false;
-        boolean mCheckedConstantSize;
+        boolean mComputedConstantSize;
         int mConstantWidth;
         int mConstantHeight;
         int mConstantMinimumWidth;
@@ -730,14 +677,10 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         boolean mHasTintList;
         boolean mHasTintMode;
 
-        /**
-         * @hide
-         */
-        protected DrawableContainerState(DrawableContainerState orig, DrawableContainer owner,
+        DrawableContainerState(DrawableContainerState orig, DrawableContainer owner,
                 Resources res) {
             mOwner = owner;
-            mSourceRes = res != null ? res : (orig != null ? orig.mSourceRes : null);
-            mDensity = Drawable.resolveDensity(res, orig != null ? orig.mDensity : 0);
+            mRes = res != null ? res : orig != null ? orig.mRes : null;
 
             if (orig != null) {
                 mChangingConfigurations = orig.mChangingConfigurations;
@@ -761,30 +704,21 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 mHasTintList = orig.mHasTintList;
                 mHasTintMode = orig.mHasTintMode;
 
-                if (orig.mDensity == mDensity) {
-                    if (orig.mCheckedPadding) {
-                        mConstantPadding = new Rect(orig.mConstantPadding);
-                        mCheckedPadding = true;
-                    }
+                // Cloning the following values may require creating futures.
+                mConstantPadding = orig.getConstantPadding();
+                mPaddingChecked = true;
 
-                    if (orig.mCheckedConstantSize) {
-                        mConstantWidth = orig.mConstantWidth;
-                        mConstantHeight = orig.mConstantHeight;
-                        mConstantMinimumWidth = orig.mConstantMinimumWidth;
-                        mConstantMinimumHeight = orig.mConstantMinimumHeight;
-                        mCheckedConstantSize = true;
-                    }
-                }
+                mConstantWidth = orig.getConstantWidth();
+                mConstantHeight = orig.getConstantHeight();
+                mConstantMinimumWidth = orig.getConstantMinimumWidth();
+                mConstantMinimumHeight = orig.getConstantMinimumHeight();
+                mComputedConstantSize = true;
 
-                if (orig.mCheckedOpacity) {
-                    mOpacity = orig.mOpacity;
-                    mCheckedOpacity = true;
-                }
+                mOpacity = orig.getOpacity();
+                mCheckedOpacity = true;
 
-                if (orig.mCheckedStateful) {
-                    mStateful = orig.mStateful;
-                    mCheckedStateful = true;
-                }
+                mStateful = orig.isStateful();
+                mCheckedStateful = true;
 
                 // Postpone cloning children and futures until we're absolutely
                 // sure that we're done computing values for the original state.
@@ -792,7 +726,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 mDrawables = new Drawable[origDr.length];
                 mNumChildren = orig.mNumChildren;
 
-                final SparseArray<ConstantState> origDf = orig.mDrawableFutures;
+                final SparseArray<ConstantStateFuture> origDf = orig.mDrawableFutures;
                 if (origDf != null) {
                     mDrawableFutures = origDf.clone();
                 } else {
@@ -805,9 +739,8 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 final int N = mNumChildren;
                 for (int i = 0; i < N; i++) {
                     if (origDr[i] != null) {
-                        final ConstantState cs = origDr[i].getConstantState();
-                        if (cs != null) {
-                            mDrawableFutures.put(i, cs);
+                        if (origDr[i].getConstantState() != null) {
+                            mDrawableFutures.put(i, new ConstantStateFuture(origDr[i]));
                         } else {
                             mDrawables[i] = origDr[i];
                         }
@@ -820,70 +753,47 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         @Override
-        public @Config int getChangingConfigurations() {
+        public int getChangingConfigurations() {
             return mChangingConfigurations | mChildrenChangingConfigurations;
         }
 
-        /**
-         * Adds the drawable to the end of the list of contained drawables.
-         *
-         * @param dr the drawable to add
-         * @return the position of the drawable within the container
-         */
         public final int addChild(Drawable dr) {
             final int pos = mNumChildren;
+
             if (pos >= mDrawables.length) {
                 growArray(pos, pos+10);
             }
 
-            dr.mutate();
             dr.setVisible(false, true);
             dr.setCallback(mOwner);
 
             mDrawables[pos] = dr;
             mNumChildren++;
             mChildrenChangingConfigurations |= dr.getChangingConfigurations();
-
-            invalidateCache();
+            mCheckedStateful = false;
+            mCheckedOpacity = false;
 
             mConstantPadding = null;
-            mCheckedPadding = false;
-            mCheckedConstantSize = false;
-            mCheckedConstantState = false;
+            mPaddingChecked = false;
+            mComputedConstantSize = false;
 
             return pos;
-        }
-
-        /**
-         * Invalidates the cached opacity and statefulness.
-         */
-        void invalidateCache() {
-            mCheckedOpacity = false;
-            mCheckedStateful = false;
         }
 
         final int getCapacity() {
             return mDrawables.length;
         }
 
-        private void createAllFutures() {
+        private final void createAllFutures() {
             if (mDrawableFutures != null) {
                 final int futureCount = mDrawableFutures.size();
                 for (int keyIndex = 0; keyIndex < futureCount; keyIndex++) {
                     final int index = mDrawableFutures.keyAt(keyIndex);
-                    final ConstantState cs = mDrawableFutures.valueAt(keyIndex);
-                    mDrawables[index] = prepareDrawable(cs.newDrawable(mSourceRes));
+                    mDrawables[index] = mDrawableFutures.valueAt(keyIndex).get(this);
                 }
 
                 mDrawableFutures = null;
             }
-        }
-
-        private Drawable prepareDrawable(Drawable child) {
-            child.setLayoutDirection(mLayoutDirection);
-            child = child.mutate();
-            child.setCallback(mOwner);
-            return child;
         }
 
         public final int getChildCount() {
@@ -910,8 +820,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             if (mDrawableFutures != null) {
                 final int keyIndex = mDrawableFutures.indexOfKey(index);
                 if (keyIndex >= 0) {
-                    final ConstantState cs = mDrawableFutures.valueAt(keyIndex);
-                    final Drawable prepared = prepareDrawable(cs.newDrawable(mSourceRes));
+                    final Drawable prepared = mDrawableFutures.valueAt(keyIndex).get(this);
                     mDrawables[index] = prepared;
                     mDrawableFutures.removeAt(keyIndex);
                     if (mDrawableFutures.size() == 0) {
@@ -945,29 +854,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             return changed;
         }
 
-        /**
-         * Updates the source density based on the resources used to inflate
-         * density-dependent values.
-         *
-         * @param res the resources used to inflate density-dependent values
-         */
-        final void updateDensity(Resources res) {
-            if (res != null) {
-                mSourceRes = res;
-
-                // The density may have changed since the last update (if any). Any
-                // dimension-type attributes will need their default values scaled.
-                final int targetDensity = Drawable.resolveDensity(res, mDensity);
-                final int sourceDensity = mDensity;
-                mDensity = targetDensity;
-
-                if (sourceDensity != targetDensity) {
-                    mCheckedConstantSize = false;
-                    mCheckedPadding = false;
-                }
-            }
-        }
-
         final void applyTheme(Theme theme) {
             if (theme != null) {
                 createAllFutures();
@@ -982,8 +868,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                         mChildrenChangingConfigurations |= drawables[i].getChangingConfigurations();
                     }
                 }
-
-                updateDensity(theme.getResources());
             }
         }
 
@@ -998,7 +882,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                         return true;
                     }
                 } else {
-                    final ConstantState future = mDrawableFutures.get(i);
+                    final ConstantStateFuture future = mDrawableFutures.get(i);
                     if (future != null && future.canApplyTheme()) {
                         return true;
                     }
@@ -1048,7 +932,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 return null;
             }
 
-            if ((mConstantPadding != null) || mCheckedPadding) {
+            if ((mConstantPadding != null) || mPaddingChecked) {
                 return mConstantPadding;
             }
 
@@ -1068,7 +952,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
                 }
             }
 
-            mCheckedPadding = true;
+            mPaddingChecked = true;
             return (mConstantPadding = r);
         }
 
@@ -1081,7 +965,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         public final int getConstantWidth() {
-            if (!mCheckedConstantSize) {
+            if (!mComputedConstantSize) {
                 computeConstantSize();
             }
 
@@ -1089,7 +973,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         public final int getConstantHeight() {
-            if (!mCheckedConstantSize) {
+            if (!mComputedConstantSize) {
                 computeConstantSize();
             }
 
@@ -1097,7 +981,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         public final int getConstantMinimumWidth() {
-            if (!mCheckedConstantSize) {
+            if (!mComputedConstantSize) {
                 computeConstantSize();
             }
 
@@ -1105,7 +989,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         public final int getConstantMinimumHeight() {
-            if (!mCheckedConstantSize) {
+            if (!mComputedConstantSize) {
                 computeConstantSize();
             }
 
@@ -1113,7 +997,7 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         }
 
         protected void computeConstantSize() {
-            mCheckedConstantSize = true;
+            mComputedConstantSize = true;
 
             createAllFutures();
 
@@ -1157,6 +1041,8 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
 
             createAllFutures();
 
+            mCheckedOpacity = true;
+
             final int N = mNumChildren;
             final Drawable[] drawables = mDrawables;
             int op = (N > 0) ? drawables[0].getOpacity() : PixelFormat.TRANSPARENT;
@@ -1165,7 +1051,6 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             }
 
             mOpacity = op;
-            mCheckedOpacity = true;
             return op;
         }
 
@@ -1176,19 +1061,19 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
 
             createAllFutures();
 
+            mCheckedStateful = true;
+
             final int N = mNumChildren;
             final Drawable[] drawables = mDrawables;
-            boolean isStateful = false;
             for (int i = 0; i < N; i++) {
                 if (drawables[i].isStateful()) {
-                    isStateful = true;
-                    break;
+                    mStateful = true;
+                    return true;
                 }
             }
 
-            mStateful = isStateful;
-            mCheckedStateful = true;
-            return isStateful;
+            mStateful = false;
+            return false;
         }
 
         public void growArray(int oldSize, int newSize) {
@@ -1219,6 +1104,62 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
             return true;
         }
 
+        /** @hide */
+        @Override
+        public int addAtlasableBitmaps(Collection<Bitmap> atlasList) {
+            final int N = mNumChildren;
+            int pixelCount = 0;
+            for (int i = 0; i < N; i++) {
+                final ConstantState state = getChild(i).getConstantState();
+                if (state != null) {
+                    pixelCount += state.addAtlasableBitmaps(atlasList);
+                }
+            }
+            return pixelCount;
+        }
+
+        /**
+         * Class capable of cloning a Drawable from another Drawable's
+         * ConstantState.
+         */
+        private static class ConstantStateFuture {
+            private final ConstantState mConstantState;
+
+            private ConstantStateFuture(Drawable source) {
+                mConstantState = source.getConstantState();
+            }
+
+            /**
+             * Obtains and prepares the Drawable represented by this future.
+             *
+             * @param state the container into which this future will be placed
+             * @return a prepared Drawable
+             */
+            public Drawable get(DrawableContainerState state) {
+                final Drawable result;
+                if (state.mRes == null) {
+                    result = mConstantState.newDrawable();
+                } else {
+                    result = mConstantState.newDrawable(state.mRes);
+                }
+                result.setLayoutDirection(state.mLayoutDirection);
+                result.setCallback(state.mOwner);
+
+                if (state.mMutated) {
+                    result.mutate();
+                }
+
+                return result;
+            }
+
+            /**
+             * Whether the constant state wrapped by this future can apply a
+             * theme.
+             */
+            public boolean canApplyTheme() {
+                return mConstantState.canApplyTheme();
+            }
+        }
     }
 
     protected void setConstantState(DrawableContainerState state) {
@@ -1236,42 +1177,5 @@ public class DrawableContainer extends Drawable implements Drawable.Callback {
         // propagate local state from the past.
         mLastIndex = -1;
         mLastDrawable = null;
-    }
-
-    /**
-     * Callback that blocks drawable invalidation.
-     */
-    private static class BlockInvalidateCallback implements Drawable.Callback {
-        private Drawable.Callback mCallback;
-
-        public BlockInvalidateCallback wrap(Drawable.Callback callback) {
-            mCallback = callback;
-            return this;
-        }
-
-        public Drawable.Callback unwrap() {
-            final Drawable.Callback callback = mCallback;
-            mCallback = null;
-            return callback;
-        }
-
-        @Override
-        public void invalidateDrawable(@NonNull Drawable who) {
-            // Ignore invalidation.
-        }
-
-        @Override
-        public void scheduleDrawable(@NonNull Drawable who, @NonNull Runnable what, long when) {
-            if (mCallback != null) {
-                mCallback.scheduleDrawable(who, what, when);
-            }
-        }
-
-        @Override
-        public void unscheduleDrawable(@NonNull Drawable who, @NonNull Runnable what) {
-            if (mCallback != null) {
-                mCallback.unscheduleDrawable(who, what);
-            }
-        }
     }
 }

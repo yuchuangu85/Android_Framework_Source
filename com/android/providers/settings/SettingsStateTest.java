@@ -15,7 +15,6 @@
  */
 package com.android.providers.settings;
 
-import android.os.Looper;
 import android.test.AndroidTestCase;
 import android.util.Xml;
 
@@ -98,11 +97,11 @@ public class SettingsStateTest extends AndroidTestCase {
         checkWriteSingleSetting(serializer, null, null);
         checkWriteSingleSetting(serializer, CRAZY_STRING, null);
         SettingsState.writeSingleSetting(
-                SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, null, "k", "v", null, "package", null, false);
+                SettingsState.SETTINGS_VERSOIN_NEW_ENCODING,
+                serializer, null, "k", "v", "package");
         SettingsState.writeSingleSetting(
-                SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", "k", "v", null, null, null, false);
+                SettingsState.SETTINGS_VERSOIN_NEW_ENCODING,
+                serializer, "1", "k", "v", null);
     }
 
     private void checkWriteSingleSetting(XmlSerializer serializer, String key, String value)
@@ -114,8 +113,8 @@ public class SettingsStateTest extends AndroidTestCase {
             String key, String value) throws Exception {
         // Make sure the XML serializer won't crash.
         SettingsState.writeSingleSetting(
-                SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", key, value, null, "package", null, false);
+                SettingsState.SETTINGS_VERSOIN_NEW_ENCODING,
+                serializer, "1", key, value, "package");
     }
 
     /**
@@ -126,20 +125,20 @@ public class SettingsStateTest extends AndroidTestCase {
         file.delete();
         final Object lock = new Object();
 
-        final SettingsState ssWriter = new SettingsState(getContext(), lock, file, 1,
-                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED, Looper.getMainLooper());
-        ssWriter.setVersionLocked(SettingsState.SETTINGS_VERSION_NEW_ENCODING);
+        final SettingsState ssWriter = new SettingsState(lock, file, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED);
+        ssWriter.setVersionLocked(SettingsState.SETTINGS_VERSOIN_NEW_ENCODING);
 
-        ssWriter.insertSettingLocked("k1", "\u0000", null, false, "package");
-        ssWriter.insertSettingLocked("k2", "abc", null, false, "p2");
-        ssWriter.insertSettingLocked("k3", null, null, false, "p2");
-        ssWriter.insertSettingLocked("k4", CRAZY_STRING, null, false, "p3");
+        ssWriter.insertSettingLocked("k1", "\u0000", "package");
+        ssWriter.insertSettingLocked("k2", "abc", "p2");
+        ssWriter.insertSettingLocked("k3", null, "p2");
+        ssWriter.insertSettingLocked("k4", CRAZY_STRING, "p3");
         synchronized (lock) {
             ssWriter.persistSyncLocked();
         }
 
-        final SettingsState ssReader = new SettingsState(getContext(), lock, file, 1,
-                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED, Looper.getMainLooper());
+        final SettingsState ssReader = new SettingsState(lock, file, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED);
         synchronized (lock) {
             assertEquals("\u0000", ssReader.getSettingLocked("k1").getValue());
             assertEquals("abc", ssReader.getSettingLocked("k2").getValue());
@@ -165,8 +164,8 @@ public class SettingsStateTest extends AndroidTestCase {
                 "</settings>");
         os.close();
 
-        final SettingsState ss = new SettingsState(getContext(), lock, file, 1,
-                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED, Looper.getMainLooper());
+        final SettingsState ss = new SettingsState(lock, file, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED);
         synchronized (lock) {
             SettingsState.Setting s;
             s = ss.getSettingLocked("k0");

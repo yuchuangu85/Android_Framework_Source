@@ -16,7 +16,9 @@
 
 package android.view.inputmethod;
 
-import android.annotation.NonNull;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -36,18 +38,17 @@ import android.util.Printer;
 import android.util.Slog;
 import android.util.Xml;
 import android.view.inputmethod.InputMethodSubtype.InputMethodSubtypeBuilder;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
+import android.view.inputmethod.InputMethodSubtypeArray;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This class is used to specify meta information of an input method.
  *
- * <p>It should be defined in an XML resource file with an {@code <input-method>} element.
+ * <p>It should be defined in an XML resource file with an {@code &lt;input-method>} element.
  * For more information, see the guide to
  * <a href="{@docRoot}guide/topics/text/creating-input-method.html">
  * Creating an Input Method</a>.</p>
@@ -65,11 +66,6 @@ public final class InputMethodInfo implements Parcelable {
      * The Service that implements this input method component.
      */
     final ResolveInfo mService;
-
-    /**
-     * IME only supports VR mode.
-     */
-    final boolean mIsVrOnly;
 
     /**
      * The unique string Id to identify the input method.  This is generated
@@ -109,19 +105,6 @@ public final class InputMethodInfo implements Parcelable {
     private final boolean mSupportsSwitchingToNextInputMethod;
 
     /**
-     * @param service the {@link ResolveInfo} corresponds in which the IME is implemented.
-     * @return a unique ID to be returned by {@link #getId()}. We have used
-     *         {@link ComponentName#flattenToShortString()} for this purpose (and it is already
-     *         unrealistic to switch to a different scheme as it is already implicitly assumed in
-     *         many places).
-     * @hide
-     */
-    public static String computeId(@NonNull ResolveInfo service) {
-        final ServiceInfo si = service.serviceInfo;
-        return new ComponentName(si.packageName, si.name).flattenToShortString();
-    }
-
-    /**
      * Constructor.
      *
      * @param context The Context in which we are parsing the input method.
@@ -143,18 +126,17 @@ public final class InputMethodInfo implements Parcelable {
      * @hide
      */
     public InputMethodInfo(Context context, ResolveInfo service,
-            List<InputMethodSubtype> additionalSubtypes)
+            Map<String, List<InputMethodSubtype>> additionalSubtypesMap)
             throws XmlPullParserException, IOException {
         mService = service;
         ServiceInfo si = service.serviceInfo;
-        mId = computeId(service);
+        mId = new ComponentName(si.packageName, si.name).flattenToShortString();
         boolean isAuxIme = true;
         boolean supportsSwitchingToNextInputMethod = false; // false as default
         mForceDefault = false;
 
         PackageManager pm = context.getPackageManager();
         String settingsActivityComponent = null;
-        boolean isVrOnly;
         int isDefaultResId = 0;
 
         XmlResourceParser parser = null;
@@ -185,7 +167,6 @@ public final class InputMethodInfo implements Parcelable {
                     com.android.internal.R.styleable.InputMethod);
             settingsActivityComponent = sa.getString(
                     com.android.internal.R.styleable.InputMethod_settingsActivity);
-            isVrOnly = sa.getBoolean(com.android.internal.R.styleable.InputMethod_isVrOnly, false);
             isDefaultResId = sa.getResourceId(
                     com.android.internal.R.styleable.InputMethod_isDefault, 0);
             supportsSwitchingToNextInputMethod = sa.getBoolean(
@@ -210,8 +191,6 @@ public final class InputMethodInfo implements Parcelable {
                                     .InputMethod_Subtype_label, 0))
                             .setSubtypeIconResId(a.getResourceId(com.android.internal.R.styleable
                                     .InputMethod_Subtype_icon, 0))
-                            .setLanguageTag(a.getString(com.android.internal.R.styleable
-                                    .InputMethod_Subtype_languageTag))
                             .setSubtypeLocale(a.getString(com.android.internal.R.styleable
                                     .InputMethod_Subtype_imeSubtypeLocale))
                             .setSubtypeMode(a.getString(com.android.internal.R.styleable
@@ -233,7 +212,7 @@ public final class InputMethodInfo implements Parcelable {
                     subtypes.add(subtype);
                 }
             }
-        } catch (NameNotFoundException | IndexOutOfBoundsException | NumberFormatException e) {
+        } catch (NameNotFoundException e) {
             throw new XmlPullParserException(
                     "Unable to create context for: " + si.packageName);
         } finally {
@@ -244,7 +223,8 @@ public final class InputMethodInfo implements Parcelable {
             isAuxIme = false;
         }
 
-        if (additionalSubtypes != null) {
+        if (additionalSubtypesMap != null && additionalSubtypesMap.containsKey(mId)) {
+            final List<InputMethodSubtype> additionalSubtypes = additionalSubtypesMap.get(mId);
             final int N = additionalSubtypes.size();
             for (int i = 0; i < N; ++i) {
                 final InputMethodSubtype subtype = additionalSubtypes.get(i);
@@ -261,7 +241,6 @@ public final class InputMethodInfo implements Parcelable {
         mIsDefaultResId = isDefaultResId;
         mIsAuxIme = isAuxIme;
         mSupportsSwitchingToNextInputMethod = supportsSwitchingToNextInputMethod;
-        mIsVrOnly = isVrOnly;
     }
 
     InputMethodInfo(Parcel source) {
@@ -270,7 +249,6 @@ public final class InputMethodInfo implements Parcelable {
         mIsDefaultResId = source.readInt();
         mIsAuxIme = source.readInt() == 1;
         mSupportsSwitchingToNextInputMethod = source.readInt() == 1;
-        mIsVrOnly = source.readBoolean();
         mService = ResolveInfo.CREATOR.createFromParcel(source);
         mSubtypes = new InputMethodSubtypeArray(source);
         mForceDefault = false;
@@ -281,10 +259,8 @@ public final class InputMethodInfo implements Parcelable {
      */
     public InputMethodInfo(String packageName, String className,
             CharSequence label, String settingsActivity) {
-        this(buildDummyResolveInfo(packageName, className, label), false /* isAuxIme */,
-                settingsActivity, null /* subtypes */, 0 /* isDefaultResId */,
-                false /* forceDefault */, true /* supportsSwitchingToNextInputMethod */,
-                false /* isVrOnly */);
+        this(buildDummyResolveInfo(packageName, className, label), false, settingsActivity, null,
+                0, false /* forceDefault */, true /* supportsSwitchingToNextInputMethod */);
     }
 
     /**
@@ -294,17 +270,17 @@ public final class InputMethodInfo implements Parcelable {
     public InputMethodInfo(ResolveInfo ri, boolean isAuxIme,
             String settingsActivity, List<InputMethodSubtype> subtypes, int isDefaultResId,
             boolean forceDefault) {
-        this(ri, isAuxIme, settingsActivity, subtypes, isDefaultResId, forceDefault,
-                true /* supportsSwitchingToNextInputMethod */, false /* isVrOnly */);
+        this(ri, isAuxIme, settingsActivity, subtypes, isDefaultResId,
+                forceDefault, true /* supportsSwitchingToNextInputMethod */);
     }
 
     /**
      * Temporary API for creating a built-in input method for test.
      * @hide
      */
-    public InputMethodInfo(ResolveInfo ri, boolean isAuxIme, String settingsActivity,
-            List<InputMethodSubtype> subtypes, int isDefaultResId, boolean forceDefault,
-            boolean supportsSwitchingToNextInputMethod, boolean isVrOnly) {
+    public InputMethodInfo(ResolveInfo ri, boolean isAuxIme,
+            String settingsActivity, List<InputMethodSubtype> subtypes, int isDefaultResId,
+            boolean forceDefault, boolean supportsSwitchingToNextInputMethod) {
         final ServiceInfo si = ri.serviceInfo;
         mService = ri;
         mId = new ComponentName(si.packageName, si.name).flattenToShortString();
@@ -314,7 +290,6 @@ public final class InputMethodInfo implements Parcelable {
         mSubtypes = new InputMethodSubtypeArray(subtypes);
         mForceDefault = forceDefault;
         mSupportsSwitchingToNextInputMethod = supportsSwitchingToNextInputMethod;
-        mIsVrOnly = isVrOnly;
     }
 
     private static ResolveInfo buildDummyResolveInfo(String packageName, String className,
@@ -409,14 +384,6 @@ public final class InputMethodInfo implements Parcelable {
     }
 
     /**
-     * Returns true if IME supports VR mode only.
-     * @hide
-     */
-    public boolean isVrOnly() {
-        return mIsVrOnly;
-    }
-
-    /**
      * Return the count of the subtypes of Input Method.
      */
     public int getSubtypeCount() {
@@ -462,9 +429,7 @@ public final class InputMethodInfo implements Parcelable {
 
     public void dump(Printer pw, String prefix) {
         pw.println(prefix + "mId=" + mId
-                + " mSettingsActivityName=" + mSettingsActivityName
-                + " mIsVrOnly=" + mIsVrOnly
-                + " mSupportsSwitchingToNextInputMethod=" + mSupportsSwitchingToNextInputMethod);
+                + " mSettingsActivityName=" + mSettingsActivityName);
         pw.println(prefix + "mIsDefaultResId=0x"
                 + Integer.toHexString(mIsDefaultResId));
         pw.println(prefix + "Service:");
@@ -529,7 +494,6 @@ public final class InputMethodInfo implements Parcelable {
         dest.writeInt(mIsDefaultResId);
         dest.writeInt(mIsAuxIme ? 1 : 0);
         dest.writeInt(mSupportsSwitchingToNextInputMethod ? 1 : 0);
-        dest.writeBoolean(mIsVrOnly);
         mService.writeToParcel(dest, flags);
         mSubtypes.writeToParcel(dest);
     }

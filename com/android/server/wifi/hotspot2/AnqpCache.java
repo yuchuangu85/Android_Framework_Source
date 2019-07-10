@@ -1,25 +1,9 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.android.server.wifi.hotspot2;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.wifi.Clock;
-import com.android.server.wifi.hotspot2.anqp.ANQPElement;
-import com.android.server.wifi.hotspot2.anqp.Constants;
+import android.util.Log;
+
+import com.android.server.wifi.anqp.ANQPElement;
+import com.android.server.wifi.anqp.Constants;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -27,77 +11,180 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Cache for storing ANQP data.  This is simply a data cache, all the logic related to
- * ANQP data query will be handled elsewhere (e.g. the consumer of the cache).
- */
 public class AnqpCache {
-    @VisibleForTesting
-    public static final long CACHE_SWEEP_INTERVAL_MILLISECONDS = 60000L;
-
+    private static final long CACHE_RECHECK = 60000L;
+    private static final boolean STANDARD_ESS = true;  // Regular AP keying; see CacheKey below.
     private long mLastSweep;
-    private Clock mClock;
 
-    private final Map<ANQPNetworkKey, ANQPData> mANQPCache;
+    private final HashMap<CacheKey, ANQPData> mANQPCache;
 
-    public AnqpCache(Clock clock) {
-        mClock = clock;
+    public AnqpCache() {
         mANQPCache = new HashMap<>();
-        mLastSweep = mClock.getElapsedSinceBootMillis();
+        mLastSweep = System.currentTimeMillis();
     }
 
-    /**
-     * Add an ANQP entry associated with the given key.
-     *
-     * @param key The key that's associated with the entry
-     * @param anqpElements The ANQP elements from the AP
-     */
-    public void addEntry(ANQPNetworkKey key,
-            Map<Constants.ANQPElementType, ANQPElement> anqpElements) {
-        ANQPData data = new ANQPData(mClock, anqpElements);
-        mANQPCache.put(key, data);
-    }
+    private static class CacheKey {
+        private final String mSSID;
+        private final long mBSSID;
+        private final long mHESSID;
 
-    /**
-     * Get the ANQP data associated with the given AP.
-     *
-     * @param key The key that's associated with the entry
-     * @return {@link ANQPData}
-     */
-    public ANQPData getEntry(ANQPNetworkKey key) {
-        return mANQPCache.get(key);
-    }
-
-    /**
-     * Go through the cache to remove any expired entries.
-     */
-    public void sweep() {
-        long now = mClock.getElapsedSinceBootMillis();
-        // Check if it is time to perform the sweep.
-        if (now < mLastSweep + CACHE_SWEEP_INTERVAL_MILLISECONDS) {
-            return;
+        private CacheKey(String ssid, long bssid, long hessid) {
+            mSSID = ssid;
+            mBSSID = bssid;
+            mHESSID = hessid;
         }
 
-        // Get all expired keys.
-        List<ANQPNetworkKey> expiredKeys = new ArrayList<>();
-        for (Map.Entry<ANQPNetworkKey, ANQPData> entry : mANQPCache.entrySet()) {
-            if (entry.getValue().expired(now)) {
-                expiredKeys.add(entry.getKey());
+        /**
+         * Build an ANQP cache key suitable for the granularity of the key space as follows:
+         *
+         * HESSID   domainID    standardESS     Key content Rationale
+         * -------- ----------- --------------- ----------- --------------------
+         * n/a      zero        n/a             SSID/BSSID  Domain ID indicates unique AP info
+         * not set  set         false           SSID/BSSID  Strict per AP keying override
+         * not set  set         true            SSID        Standard definition of an ESS
+         * set      set         n/a             HESSID      The ESS is defined by the HESSID
+         *
+         * @param network The network to build the key for.
+         * @param standardESS If this parameter is set the "standard" paradigm for an ESS is used
+         *                    for the cache, i.e. all APs with identical SSID is considered an ESS,
+         *                    otherwise caching is performed per AP.
+         * @return A CacheKey.
+         */
+        private static CacheKey buildKey(NetworkDetail network, boolean standardESS) {
+            String ssid;
+            long bssid;
+            long hessid;
+            if (network.getAnqpDomainID() == 0L || (network.getHESSID() == 0L && !standardESS)) {
+                ssid = network.getSSID();
+                bssid = network.getBSSID();
+                hessid = 0L;
+            }
+            else if (network.getHESSID() != 0L && network.getAnqpDomainID() > 0) {
+                ssid = null;
+                bssid = 0L;
+                hessid = network.getHESSID();
+            }
+            else {
+                ssid = network.getSSID();
+                bssid = 0L;
+                hessid = 0L;
+            }
+
+            return new CacheKey(ssid, bssid, hessid);
+        }
+
+        @Override
+        public int hashCode() {
+            if (mHESSID != 0) {
+                return (int)((mHESSID >>> 32) * 31 + mHESSID);
+            }
+            else if (mBSSID != 0) {
+                return (int)((mSSID.hashCode() * 31 + (mBSSID >>> 32)) * 31 + mBSSID);
+            }
+            else {
+                return mSSID.hashCode();
             }
         }
 
-        // Remove all expired entries.
-        for (ANQPNetworkKey key : expiredKeys) {
-            mANQPCache.remove(key);
+        @Override
+        public boolean equals(Object thatObject) {
+            if (thatObject == this) {
+                return true;
+            }
+            else if (thatObject == null || thatObject.getClass() != CacheKey.class) {
+                return false;
+            }
+            CacheKey that = (CacheKey) thatObject;
+            return Utils.compare(that.mSSID, mSSID) == 0 &&
+                    that.mBSSID == mBSSID &&
+                    that.mHESSID == mHESSID;
         }
-        mLastSweep = now;
+
+        @Override
+        public String toString() {
+            if (mHESSID != 0L) {
+                return "HESSID:" + NetworkDetail.toMACString(mHESSID);
+            }
+            else if (mBSSID != 0L) {
+                return NetworkDetail.toMACString(mBSSID) +
+                        ":<" + Utils.toUnicodeEscapedString(mSSID) + ">";
+            }
+            else {
+                return '<' + Utils.toUnicodeEscapedString(mSSID) + '>';
+            }
+        }
+    }
+
+    public boolean initiate(NetworkDetail network) {
+        CacheKey key = CacheKey.buildKey(network, STANDARD_ESS);
+
+        synchronized (mANQPCache) {
+            ANQPData data = mANQPCache.get(key);
+            if (data == null || data.expired()) {
+                mANQPCache.put(key, new ANQPData(network, data));
+                return true;
+            }
+            else {
+                Log.d(Utils.hs2LogTag(getClass()),
+                      String.format("BSSID %012x already in cache: %s", network.getBSSID(), data));
+                return false;
+            }
+        }
+    }
+
+    public void update(NetworkDetail network,
+                       Map<Constants.ANQPElementType, ANQPElement> anqpElements) {
+
+        CacheKey key = CacheKey.buildKey(network, STANDARD_ESS);
+
+        // Networks with a 0 ANQP Domain ID are still cached, but with a very short expiry, just
+        // long enough to prevent excessive re-querying.
+        synchronized (mANQPCache) {
+            ANQPData data = new ANQPData(network, anqpElements);
+            mANQPCache.put(key, data);
+        }
+    }
+
+    public ANQPData getEntry(NetworkDetail network) {
+        ANQPData data;
+
+        CacheKey key = CacheKey.buildKey(network, STANDARD_ESS);
+        synchronized (mANQPCache) {
+            data = mANQPCache.get(key);
+        }
+
+        return data != null && data.isValid(network) ? data : null;
+    }
+
+    public void clear(boolean all, boolean debug) {
+        long now = System.currentTimeMillis();
+        synchronized (mANQPCache) {
+            if (all) {
+                mANQPCache.clear();
+                mLastSweep = now;
+            }
+            else if (now > mLastSweep + CACHE_RECHECK) {
+                List<CacheKey> retirees = new ArrayList<>();
+                for (Map.Entry<CacheKey, ANQPData> entry : mANQPCache.entrySet()) {
+                    if (entry.getValue().expired(now)) {
+                        retirees.add(entry.getKey());
+                    }
+                }
+                for (CacheKey key : retirees) {
+                    mANQPCache.remove(key);
+                    if (debug) {
+                        Log.d(Utils.hs2LogTag(getClass()), "Retired " + key);
+                    }
+                }
+                mLastSweep = now;
+            }
+        }
     }
 
     public void dump(PrintWriter out) {
-        out.println("Last sweep " + Utils.toHMS(mClock.getElapsedSinceBootMillis() - mLastSweep)
-                + " ago.");
-        for (Map.Entry<ANQPNetworkKey, ANQPData> entry : mANQPCache.entrySet()) {
-            out.println(entry.getKey() + ": " + entry.getValue());
+        out.println("Last sweep " + Utils.toHMS(System.currentTimeMillis() - mLastSweep) + " ago.");
+        for (ANQPData anqpData : mANQPCache.values()) {
+            out.println(anqpData.toString(false));
         }
     }
 }

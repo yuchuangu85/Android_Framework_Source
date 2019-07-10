@@ -22,24 +22,22 @@ import android.content.SharedPreferences;
 /**
  * Preferences related to bug reports.
  */
-final class BugreportPrefs {
-    static final String PREFS_BUGREPORT = "bugreports";
+public class BugreportPrefs {
+    private static final String PREFS_BUGREPORT = "bugreports";
 
     private static final String KEY_WARNING_STATE = "warning-state";
 
-    static final int STATE_UNKNOWN = 0;
-    // Shows the warning dialog.
-    static final int STATE_SHOW = 1;
-    // Skips the warning dialog.
-    static final int STATE_HIDE = 2;
+    public static final int STATE_UNKNOWN = 0;
+    public static final int STATE_SHOW = 1;
+    public static final int STATE_HIDE = 2;
 
-    static int getWarningState(Context context, int def) {
+    public static int getWarningState(Context context, int def) {
         final SharedPreferences prefs = context.getSharedPreferences(
                 PREFS_BUGREPORT, Context.MODE_PRIVATE);
         return prefs.getInt(KEY_WARNING_STATE, def);
     }
 
-    static void setWarningState(Context context, int value) {
+    public static void setWarningState(Context context, int value) {
         final SharedPreferences prefs = context.getSharedPreferences(
                 PREFS_BUGREPORT, Context.MODE_PRIVATE);
         prefs.edit().putInt(KEY_WARNING_STATE, value).apply();

@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -120,7 +91,7 @@ public class AtomicStampedReference<V> {
      * @param newReference the new value for the reference
      * @param expectedStamp the expected value of the stamp
      * @param newStamp the new value for the stamp
-     * @return {@code true} if successful
+     * @return true if successful
      */
     public boolean weakCompareAndSet(V   expectedReference,
                                      V   newReference,
@@ -140,7 +111,7 @@ public class AtomicStampedReference<V> {
      * @param newReference the new value for the reference
      * @param expectedStamp the expected value of the stamp
      * @param newStamp the new value for the stamp
-     * @return {@code true} if successful
+     * @return true if successful
      */
     public boolean compareAndSet(V   expectedReference,
                                  V   newReference,
@@ -178,7 +149,7 @@ public class AtomicStampedReference<V> {
      *
      * @param expectedReference the expected value of the reference
      * @param newStamp the new value for the stamp
-     * @return {@code true} if successful
+     * @return true if successful
      */
     public boolean attemptStamp(V expectedReference, int newStamp) {
         Pair<V> current = pair;
@@ -190,18 +161,23 @@ public class AtomicStampedReference<V> {
 
     // Unsafe mechanics
 
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long PAIR;
-    static {
-        try {
-            PAIR = U.objectFieldOffset
-                (AtomicStampedReference.class.getDeclaredField("pair"));
-        } catch (ReflectiveOperationException e) {
-            throw new Error(e);
-        }
-    }
+    private static final sun.misc.Unsafe UNSAFE = sun.misc.Unsafe.getUnsafe();
+    private static final long pairOffset =
+        objectFieldOffset(UNSAFE, "pair", AtomicStampedReference.class);
 
     private boolean casPair(Pair<V> cmp, Pair<V> val) {
-        return U.compareAndSwapObject(this, PAIR, cmp, val);
+        return UNSAFE.compareAndSwapObject(this, pairOffset, cmp, val);
+    }
+
+    static long objectFieldOffset(sun.misc.Unsafe UNSAFE,
+                                  String field, Class<?> klazz) {
+        try {
+            return UNSAFE.objectFieldOffset(klazz.getDeclaredField(field));
+        } catch (NoSuchFieldException e) {
+            // Convert Exception to corresponding Error
+            NoSuchFieldError error = new NoSuchFieldError(field);
+            error.initCause(e);
+            throw error;
+        }
     }
 }

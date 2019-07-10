@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea, Bill Scherer, and Michael Scott with
  * assistance from members of JCP JSR-166 Expert Group and released to
  * the public domain, as explained at
@@ -50,9 +21,9 @@ package java.util.concurrent;
  * to swap buffers between threads so that the thread filling the
  * buffer gets a freshly emptied one when it needs it, handing off the
  * filled one to the thread emptying the buffer.
- * <pre> {@code
+ *  <pre> {@code
  * class FillAndEmpty {
- *   Exchanger<DataBuffer> exchanger = new Exchanger<>();
+ *   Exchanger<DataBuffer> exchanger = new Exchanger<DataBuffer>();
  *   DataBuffer initialEmptyBuffer = ... a made-up type
  *   DataBuffer initialFullBuffer = ...
  *
@@ -154,10 +125,9 @@ public class Exchanger<V> {
      * writing, there is no way to determine cacheline size, we define
      * a value that is enough for common platforms.  Additionally,
      * extra care elsewhere is taken to avoid other false/unintended
-     * sharing and to enhance locality, including adding padding (via
-     * @Contended) to Nodes, embedding "bound" as an Exchanger field,
-     * and reworking some park/unpark mechanics compared to
-     * LockSupport versions.
+     * sharing and to enhance locality, including adding padding to
+     * Nodes, embedding "bound" as an Exchanger field, and reworking
+     * some park/unpark mechanics compared to LockSupport versions.
      *
      * The arena starts out with only one used slot. We expand the
      * effective arena size by tracking collisions; i.e., failed CASes
@@ -304,9 +274,8 @@ public class Exchanger<V> {
 
     /**
      * Nodes hold partially exchanged data, plus other per-thread
-     * bookkeeping. Padded via @Contended to reduce memory contention.
+     * bookkeeping.
      */
-    //@jdk.internal.vm.annotation.Contended // Android-removed
     static final class Node {
         int index;              // Arena index
         int bound;              // Last recorded value of Exchanger.bound
@@ -315,6 +284,10 @@ public class Exchanger<V> {
         Object item;            // This thread's current item
         volatile Object match;  // Item provided by releasing thread
         volatile Thread parked; // Set to this thread when parked, else null
+
+        // Padding to ameliorate unfortunate memory placements
+        Object p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, pa, pb, pc, pd, pe, pf;
+        Object q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, qa, qb, qc, qd, qe, qf;
     }
 
     /** The corresponding thread local class */
@@ -323,7 +296,7 @@ public class Exchanger<V> {
     }
 
     /**
-     * Per-thread state.
+     * Per-thread state
      */
     private final Participant participant;
 
@@ -625,33 +598,37 @@ public class Exchanger<V> {
     }
 
     // Unsafe mechanics
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
+    private static final sun.misc.Unsafe U;
     private static final long BOUND;
     private static final long SLOT;
     private static final long MATCH;
     private static final long BLOCKER;
     private static final int ABASE;
     static {
+        int s;
         try {
+            U = sun.misc.Unsafe.getUnsafe();
+            Class<?> ek = Exchanger.class;
+            Class<?> nk = Node.class;
+            Class<?> ak = Node[].class;
+            Class<?> tk = Thread.class;
             BOUND = U.objectFieldOffset
-                (Exchanger.class.getDeclaredField("bound"));
+                (ek.getDeclaredField("bound"));
             SLOT = U.objectFieldOffset
-                (Exchanger.class.getDeclaredField("slot"));
-
+                (ek.getDeclaredField("slot"));
             MATCH = U.objectFieldOffset
-                (Node.class.getDeclaredField("match"));
-
+                (nk.getDeclaredField("match"));
             BLOCKER = U.objectFieldOffset
-                (Thread.class.getDeclaredField("parkBlocker"));
-
-            int scale = U.arrayIndexScale(Node[].class);
-            if ((scale & (scale - 1)) != 0 || scale > (1 << ASHIFT))
-                throw new Error("Unsupported array scale");
+                (tk.getDeclaredField("parkBlocker"));
+            s = U.arrayIndexScale(ak);
             // ABASE absorbs padding in front of element 0
-            ABASE = U.arrayBaseOffset(Node[].class) + (1 << ASHIFT);
-        } catch (ReflectiveOperationException e) {
+            ABASE = U.arrayBaseOffset(ak) + (1 << ASHIFT);
+
+        } catch (Exception e) {
             throw new Error(e);
         }
+        if ((s & (s-1)) != 0 || s > (1 << ASHIFT))
+            throw new Error("Unsupported array scale");
     }
 
 }

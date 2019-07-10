@@ -16,8 +16,6 @@
 
 package android.content;
 
-import android.annotation.IntDef;
-import android.annotation.SystemApi;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -26,7 +24,6 @@ import android.text.TextUtils;
 import android.util.AndroidException;
 import android.util.Log;
 import android.util.Printer;
-import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.XmlUtils;
 
@@ -35,8 +32,6 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
@@ -129,7 +124,7 @@ import java.util.Set;
  * <em>Note that authority matching here is <b>case sensitive</b>, unlike
  * formal RFC host names!</em>  You should thus always use lower case letters
  * for your authority.
- *
+ * 
  * <p><strong>Data Path</strong> matches if any of the given values match the
  * Intent's data path <em>and</em> both a scheme and authority in the filter
  * has matched against the Intent, <em>or</em> no paths were supplied in the
@@ -143,7 +138,6 @@ import java.util.Set;
  * will only match an Intent that does not have any categories.
  */
 public class IntentFilter implements Parcelable {
-    private static final String AGLOB_STR = "aglob";
     private static final String SGLOB_STR = "sglob";
     private static final String PREFIX_STR = "prefix";
     private static final String LITERAL_STR = "literal";
@@ -271,7 +265,6 @@ public class IntentFilter implements Parcelable {
     public static final String SCHEME_HTTPS = "https";
 
     private int mPriority;
-    private int mOrder;
     private final ArrayList<String> mActions;
     private ArrayList<String> mCategories = null;
     private ArrayList<String> mDataSchemes = null;
@@ -287,22 +280,7 @@ public class IntentFilter implements Parcelable {
     private static final int STATE_VERIFIED            = 0x00001000;
 
     private int mVerifyState;
-    /** @hide */
-    public static final int VISIBILITY_NONE = 0;
-    /** @hide */
-    public static final int VISIBILITY_EXPLICIT = 1;
-    /** @hide */
-    public static final int VISIBILITY_IMPLICIT = 2;
-    /** @hide */
-    @IntDef(prefix = { "VISIBILITY_" }, value = {
-            VISIBILITY_NONE,
-            VISIBILITY_EXPLICIT,
-            VISIBILITY_IMPLICIT,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface InstantAppVisibility {}
-    /** Whether or not the intent filter is visible to instant apps. */
-    private @InstantAppVisibility int mInstantAppVisibility;
+
     // These functions are the start of more optimized code for managing
     // the string sets...  not yet implemented.
 
@@ -380,8 +358,8 @@ public class IntentFilter implements Parcelable {
      * the {@link MalformedMimeTypeException} exception that the constructor
      * can call and turns it into a runtime exception.
      *
-     * @param action The action to match, such as Intent.ACTION_VIEW.
-     * @param dataType The type to match, such as "vnd.android.cursor.dir/person".
+     * @param action The action to match, i.e. Intent.ACTION_VIEW.
+     * @param dataType The type to match, i.e. "vnd.android.cursor.dir/person".
      *
      * @return A new IntentFilter for the given action and type.
      *
@@ -408,7 +386,7 @@ public class IntentFilter implements Parcelable {
      * no data characteristics are subsequently specified, then the
      * filter will only match intents that contain no data.
      *
-     * @param action The action to match, such as Intent.ACTION_MAIN.
+     * @param action The action to match, i.e. Intent.ACTION_MAIN.
      */
     public IntentFilter(String action) {
         mPriority = 0;
@@ -428,8 +406,8 @@ public class IntentFilter implements Parcelable {
      * <p>Throws {@link MalformedMimeTypeException} if the given MIME type is
      * not syntactically correct.
      *
-     * @param action The action to match, such as Intent.ACTION_VIEW.
-     * @param dataType The type to match, such as "vnd.android.cursor.dir/person".
+     * @param action The action to match, i.e. Intent.ACTION_VIEW.
+     * @param dataType The type to match, i.e. "vnd.android.cursor.dir/person".
      *
      */
     public IntentFilter(String action, String dataType)
@@ -447,7 +425,6 @@ public class IntentFilter implements Parcelable {
      */
     public IntentFilter(IntentFilter o) {
         mPriority = o.mPriority;
-        mOrder = o.mOrder;
         mActions = new ArrayList<String>(o.mActions);
         if (o.mCategories != null) {
             mCategories = new ArrayList<String>(o.mCategories);
@@ -469,16 +446,14 @@ public class IntentFilter implements Parcelable {
         }
         mHasPartialTypes = o.mHasPartialTypes;
         mVerifyState = o.mVerifyState;
-        mInstantAppVisibility = o.mInstantAppVisibility;
     }
 
     /**
-     * Modify priority of this filter.  This only affects receiver filters.
-     * The priority of activity filters are set in XML and cannot be changed
-     * programatically. The default priority is 0. Positive values will be
-     * before the default, lower values will be after it. Applications should
-     * use a value that is larger than {@link #SYSTEM_LOW_PRIORITY} and
-     * smaller than {@link #SYSTEM_HIGH_PRIORITY} .
+     * Modify priority of this filter.  The default priority is 0. Positive
+     * values will be before the default, lower values will be after it.
+     * Applications must use a value that is larger than
+     * {@link #SYSTEM_LOW_PRIORITY} and smaller than
+     * {@link #SYSTEM_HIGH_PRIORITY} .
      *
      * @param priority The new priority value.
      *
@@ -499,18 +474,6 @@ public class IntentFilter implements Parcelable {
      */
     public final int getPriority() {
         return mPriority;
-    }
-
-    /** @hide */
-    @SystemApi
-    public final void setOrder(int order) {
-        mOrder = order;
-    }
-
-    /** @hide */
-    @SystemApi
-    public final int getOrder() {
-        return mOrder;
     }
 
     /**
@@ -551,7 +514,7 @@ public class IntentFilter implements Parcelable {
      * @hide
      */
     public final boolean getAutoVerify() {
-        return ((mVerifyState & STATE_VERIFY_AUTO) == STATE_VERIFY_AUTO);
+        return ((mVerifyState & STATE_VERIFY_AUTO) == 1);
     }
 
     /**
@@ -671,33 +634,12 @@ public class IntentFilter implements Parcelable {
         if (verified) mVerifyState |= STATE_VERIFIED;
     }
 
-    /** @hide */
-    public void setVisibilityToInstantApp(@InstantAppVisibility int visibility) {
-        mInstantAppVisibility = visibility;
-    }
-    /** @hide */
-    public @InstantAppVisibility int getVisibilityToInstantApp() {
-        return mInstantAppVisibility;
-    }
-    /** @hide */
-    public boolean isVisibleToInstantApp() {
-        return mInstantAppVisibility != VISIBILITY_NONE;
-    }
-    /** @hide */
-    public boolean isExplicitlyVisibleToInstantApp() {
-        return mInstantAppVisibility == VISIBILITY_EXPLICIT;
-    }
-    /** @hide */
-    public boolean isImplicitlyVisibleToInstantApp() {
-        return mInstantAppVisibility == VISIBILITY_IMPLICIT;
-    }
-
     /**
      * Add a new Intent action to match against.  If any actions are included
      * in the filter, then an Intent's action must be one of those values for
      * it to match.  If no actions are included, the Intent action is ignored.
      *
-     * @param action Name of the action to match, such as Intent.ACTION_VIEW.
+     * @param action Name of the action to match, i.e. Intent.ACTION_VIEW.
      */
     public final void addAction(String action) {
         if (!mActions.contains(action)) {
@@ -766,7 +708,7 @@ public class IntentFilter implements Parcelable {
      * <p>Throws {@link MalformedMimeTypeException} if the given MIME type is
      * not syntactically correct.
      *
-     * @param type Name of the data type to match, such as "vnd.android.cursor.dir/person".
+     * @param type Name of the data type to match, i.e. "vnd.android.cursor.dir/person".
      *
      * @see #matchData
      */
@@ -843,7 +785,7 @@ public class IntentFilter implements Parcelable {
      * and any schemes you receive from outside of Android should be
      * converted to lower case before supplying them here.</em></p>
      *
-     * @param scheme Name of the scheme to match, such as "http".
+     * @param scheme Name of the scheme to match, i.e. "http".
      *
      * @see #matchData
      */
@@ -919,15 +861,6 @@ public class IntentFilter implements Parcelable {
             dest.writeInt(mPort);
         }
 
-        void writeToProto(ProtoOutputStream proto, long fieldId) {
-            long token = proto.start(fieldId);
-            // The original host information is already contained in host and wild, no output now.
-            proto.write(AuthorityEntryProto.HOST, mHost);
-            proto.write(AuthorityEntryProto.WILD, mWild);
-            proto.write(AuthorityEntryProto.PORT, mPort);
-            proto.end(token);
-        }
-
         public String getHost() {
             return mOrigHost;
         }
@@ -950,20 +883,11 @@ public class IntentFilter implements Parcelable {
             return true;
         }
 
-        @Override
-        public boolean equals(Object obj) {
-            if (obj instanceof AuthorityEntry) {
-                final AuthorityEntry other = (AuthorityEntry)obj;
-                return match(other);
-            }
-            return false;
-        }
-
         /**
          * Determine whether this AuthorityEntry matches the given data Uri.
          * <em>Note that this comparison is case-sensitive, unlike formal
          * RFC host names.  You thus should always normalize to lower-case.</em>
-         *
+         * 
          * @param data The Uri to match.
          * @return Returns either {@link IntentFilter#NO_MATCH_DATA},
          * {@link IntentFilter#MATCH_CATEGORY_PORT}, or
@@ -993,7 +917,7 @@ public class IntentFilter implements Parcelable {
             }
             return MATCH_CATEGORY_HOST;
         }
-    }
+    };
 
     /**
      * Add a new Intent data "scheme specific part" to match against.  The filter must
@@ -1418,7 +1342,7 @@ public class IntentFilter implements Parcelable {
      * filter has no impact on matching unless that category is specified in
      * the intent.
      *
-     * @param category Name of category to match, such as Intent.CATEGORY_EMBED.
+     * @param category Name of category to match, i.e. Intent.CATEGORY_EMBED.
      */
     public final void addCategory(String category) {
         if (mCategories == null) mCategories = new ArrayList<String>();
@@ -1637,9 +1561,6 @@ public class IntentFilter implements Parcelable {
                 case PatternMatcher.PATTERN_SIMPLE_GLOB:
                     serializer.attribute(null, SGLOB_STR, pe.getPath());
                     break;
-                case PatternMatcher.PATTERN_ADVANCED_GLOB:
-                    serializer.attribute(null, AGLOB_STR, pe.getPath());
-                    break;
             }
             serializer.endTag(null, SSP_STR);
         }
@@ -1666,9 +1587,6 @@ public class IntentFilter implements Parcelable {
                     break;
                 case PatternMatcher.PATTERN_SIMPLE_GLOB:
                     serializer.attribute(null, SGLOB_STR, pe.getPath());
-                    break;
-                case PatternMatcher.PATTERN_ADVANCED_GLOB:
-                    serializer.attribute(null, AGLOB_STR, pe.getPath());
                     break;
             }
             serializer.endTag(null, PATH_STR);
@@ -1722,8 +1640,6 @@ public class IntentFilter implements Parcelable {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_PREFIX);
                 } else if ((ssp=parser.getAttributeValue(null, SGLOB_STR)) != null) {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_SIMPLE_GLOB);
-                } else if ((ssp=parser.getAttributeValue(null, AGLOB_STR)) != null) {
-                    addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_ADVANCED_GLOB);
                 }
             } else if (tagName.equals(AUTH_STR)) {
                 String host = parser.getAttributeValue(null, HOST_STR);
@@ -1739,67 +1655,12 @@ public class IntentFilter implements Parcelable {
                     addDataPath(path, PatternMatcher.PATTERN_PREFIX);
                 } else if ((path=parser.getAttributeValue(null, SGLOB_STR)) != null) {
                     addDataPath(path, PatternMatcher.PATTERN_SIMPLE_GLOB);
-                } else if ((path=parser.getAttributeValue(null, AGLOB_STR)) != null) {
-                    addDataPath(path, PatternMatcher.PATTERN_ADVANCED_GLOB);
                 }
             } else {
                 Log.w("IntentFilter", "Unknown tag parsing IntentFilter: " + tagName);
             }
             XmlUtils.skipCurrentTag(parser);
         }
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        long token = proto.start(fieldId);
-        if (mActions.size() > 0) {
-            Iterator<String> it = mActions.iterator();
-            while (it.hasNext()) {
-                proto.write(IntentFilterProto.ACTIONS, it.next());
-            }
-        }
-        if (mCategories != null) {
-            Iterator<String> it = mCategories.iterator();
-            while (it.hasNext()) {
-                proto.write(IntentFilterProto.CATEGORIES, it.next());
-            }
-        }
-        if (mDataSchemes != null) {
-            Iterator<String> it = mDataSchemes.iterator();
-            while (it.hasNext()) {
-                proto.write(IntentFilterProto.DATA_SCHEMES, it.next());
-            }
-        }
-        if (mDataSchemeSpecificParts != null) {
-            Iterator<PatternMatcher> it = mDataSchemeSpecificParts.iterator();
-            while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_SCHEME_SPECS);
-            }
-        }
-        if (mDataAuthorities != null) {
-            Iterator<AuthorityEntry> it = mDataAuthorities.iterator();
-            while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_AUTHORITIES);
-            }
-        }
-        if (mDataPaths != null) {
-            Iterator<PatternMatcher> it = mDataPaths.iterator();
-            while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_PATHS);
-            }
-        }
-        if (mDataTypes != null) {
-            Iterator<String> it = mDataTypes.iterator();
-            while (it.hasNext()) {
-                proto.write(IntentFilterProto.DATA_TYPES, it.next());
-            }
-        }
-        if (mPriority != 0 || mHasPartialTypes) {
-            proto.write(IntentFilterProto.PRIORITY, mPriority);
-            proto.write(IntentFilterProto.HAS_PARTIAL_TYPES, mHasPartialTypes);
-        }
-        proto.write(IntentFilterProto.GET_AUTO_VERIFY, getAutoVerify());
-        proto.end(token);
     }
 
     public void dump(Printer du, String prefix) {
@@ -1872,14 +1733,13 @@ public class IntentFilter implements Parcelable {
                 du.println(sb.toString());
             }
         }
-        if (mPriority != 0 || mOrder != 0 || mHasPartialTypes) {
+        if (mPriority != 0 || mHasPartialTypes) {
             sb.setLength(0);
             sb.append(prefix); sb.append("mPriority="); sb.append(mPriority);
-                    sb.append(", mOrder="); sb.append(mOrder);
                     sb.append(", mHasPartialTypes="); sb.append(mHasPartialTypes);
             du.println(sb.toString());
         }
-        if (getAutoVerify()) {
+        {
             sb.setLength(0);
             sb.append(prefix); sb.append("AutoVerify="); sb.append(getAutoVerify());
             du.println(sb.toString());
@@ -1951,8 +1811,6 @@ public class IntentFilter implements Parcelable {
         dest.writeInt(mPriority);
         dest.writeInt(mHasPartialTypes ? 1 : 0);
         dest.writeInt(getAutoVerify() ? 1 : 0);
-        dest.writeInt(mInstantAppVisibility);
-        dest.writeInt(mOrder);
     }
 
     /**
@@ -1981,8 +1839,7 @@ public class IntentFilter implements Parcelable {
         */
     }
 
-    /** @hide */
-    public IntentFilter(Parcel source) {
+    private IntentFilter(Parcel source) {
         mActions = new ArrayList<String>();
         source.readStringList(mActions);
         if (source.readInt() != 0) {
@@ -2021,8 +1878,6 @@ public class IntentFilter implements Parcelable {
         mPriority = source.readInt();
         mHasPartialTypes = source.readInt() > 0;
         setAutoVerify(source.readInt() > 0);
-        setVisibilityToInstantApp(source.readInt());
-        mOrder = source.readInt();
     }
 
     private final boolean findMimeType(String type) {

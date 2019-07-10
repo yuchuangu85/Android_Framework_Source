@@ -18,7 +18,6 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.writer.KCode;
 
 import java.util.List;
 
@@ -42,17 +41,6 @@ public class ArgListExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
-        throw new IllegalStateException("should never try to convert an argument expressions"
-                + " into code");
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.argListExpr(cloneToModel(model, getChildren()));
-    }
-
-    @Override
     protected ModelClass resolveType(ModelAnalyzer modelAnalyzer) {
         return modelAnalyzer.findClass(Void.class);
     }
@@ -65,10 +53,5 @@ public class ArgListExpr extends Expr {
     @Override
     public boolean canBeEvaluatedToAVariable() {
         return false;
-    }
-
-    @Override
-    public String getInvertibleError() {
-        return "Merged bindings are not invertible.";
     }
 }

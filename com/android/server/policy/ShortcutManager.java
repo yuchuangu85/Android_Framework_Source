@@ -26,10 +26,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.KeyCharacterMap;
-import android.view.KeyEvent;
-
 import com.android.internal.util.XmlUtils;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -50,10 +47,8 @@ class ShortcutManager {
     private static final String ATTRIBUTE_CLASS = "class";
     private static final String ATTRIBUTE_SHORTCUT = "shortcut";
     private static final String ATTRIBUTE_CATEGORY = "category";
-    private static final String ATTRIBUTE_SHIFT = "shift";
 
     private final SparseArray<ShortcutInfo> mShortcuts = new SparseArray<>();
-    private final SparseArray<ShortcutInfo> mShiftShortcuts = new SparseArray<>();
 
     private final Context mContext;
     
@@ -80,21 +75,17 @@ class ShortcutManager {
     public Intent getIntent(KeyCharacterMap kcm, int keyCode, int metaState) {
         ShortcutInfo shortcut = null;
 
-        // If the Shift key is pressed, then search for the shift shortcuts.
-        boolean isShiftOn = (metaState & KeyEvent.META_SHIFT_ON) == KeyEvent.META_SHIFT_ON;
-        SparseArray<ShortcutInfo> shortcutMap = isShiftOn ? mShiftShortcuts : mShortcuts;
-
         // First try the exact keycode (with modifiers).
         int shortcutChar = kcm.get(keyCode, metaState);
         if (shortcutChar != 0) {
-            shortcut = shortcutMap.get(shortcutChar);
+            shortcut = mShortcuts.get(shortcutChar);
         }
 
         // Next try the primary character on that key.
         if (shortcut == null) {
             shortcutChar = Character.toLowerCase(kcm.getDisplayLabel(keyCode));
             if (shortcutChar != 0) {
-                shortcut = shortcutMap.get(shortcutChar);
+                shortcut = mShortcuts.get(shortcutChar);
             }
         }
 
@@ -123,7 +114,6 @@ class ShortcutManager {
                 String className = parser.getAttributeValue(null, ATTRIBUTE_CLASS);
                 String shortcutName = parser.getAttributeValue(null, ATTRIBUTE_SHORTCUT);
                 String categoryName = parser.getAttributeValue(null, ATTRIBUTE_CATEGORY);
-                String shiftName = parser.getAttributeValue(null, ATTRIBUTE_SHIFT);
 
                 if (TextUtils.isEmpty(shortcutName)) {
                     Log.w(TAG, "Unable to get shortcut for: " + packageName + "/" + className);
@@ -131,7 +121,6 @@ class ShortcutManager {
                 }
 
                 final int shortcutChar = shortcutName.charAt(0);
-                final boolean isShiftShortcut = (shiftName != null && shiftName.equals("true"));
 
                 final Intent intent;
                 final String title;
@@ -139,19 +128,13 @@ class ShortcutManager {
                     ActivityInfo info = null;
                     ComponentName componentName = new ComponentName(packageName, className);
                     try {
-                        info = packageManager.getActivityInfo(componentName,
-                                PackageManager.MATCH_DIRECT_BOOT_AWARE
-                                        | PackageManager.MATCH_DIRECT_BOOT_UNAWARE
-                                        | PackageManager.MATCH_UNINSTALLED_PACKAGES);
+                        info = packageManager.getActivityInfo(componentName, 0);
                     } catch (PackageManager.NameNotFoundException e) {
                         String[] packages = packageManager.canonicalToCurrentPackageNames(
                                 new String[] { packageName });
                         componentName = new ComponentName(packages[0], className);
                         try {
-                            info = packageManager.getActivityInfo(componentName,
-                                    PackageManager.MATCH_DIRECT_BOOT_AWARE
-                                            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE
-                                            | PackageManager.MATCH_UNINSTALLED_PACKAGES);
+                            info = packageManager.getActivityInfo(componentName, 0);
                         } catch (PackageManager.NameNotFoundException e1) {
                             Log.w(TAG, "Unable to add bookmark: " + packageName
                                     + "/" + className, e);
@@ -173,11 +156,7 @@ class ShortcutManager {
                 }
 
                 ShortcutInfo shortcut = new ShortcutInfo(title, intent);
-                if (isShiftShortcut) {
-                    mShiftShortcuts.put(shortcutChar, shortcut);
-                } else {
-                    mShortcuts.put(shortcutChar, shortcut);
-                }
+                mShortcuts.put(shortcutChar, shortcut);
             }
         } catch (XmlPullParserException e) {
             Log.w(TAG, "Got exception parsing bookmarks.", e);

@@ -3,6 +3,9 @@
 
 package org.xmlpull.v1;
 
+import org.kxml2.io.KXmlParser;
+import org.kxml2.io.KXmlSerializer;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -215,17 +218,17 @@ public class XmlPullParserFactory {
     /**
      * Creates a new instance of a PullParserFactory that can be used
      * to create XML pull parsers. The factory will always return instances
-     * of Android's built-in {@link XmlPullParser} and {@link XmlSerializer}.
+     * of {@link KXmlParser} and {@link KXmlSerializer}.
      */
     public static XmlPullParserFactory newInstance () throws XmlPullParserException {
         return new XmlPullParserFactory();
     }
 
     /**
-     * Creates a factory that always returns instances of Android's built-in
-     * {@link XmlPullParser} and {@link XmlSerializer} implementation. This
-     * <b>does not</b> support factories capable of creating arbitrary parser
-     * and serializer implementations. Both arguments to this method are unused.
+     * Creates a factory that always returns instances of of {@link KXmlParser} and
+     * {@link KXmlSerializer}. This <b>does not</b> support factories capable of
+     * creating arbitrary parser and serializer implementations. Both arguments to this
+     * method are unused.
      */
     public static XmlPullParserFactory newInstance (String unused, Class unused2)
         throws XmlPullParserException {

@@ -18,7 +18,6 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.writer.KCode;
 
 import java.util.List;
 
@@ -34,19 +33,6 @@ public class InstanceOfExpr extends Expr {
     @Override
     protected String computeUniqueKey() {
         return join("instanceof", super.computeUniqueKey(), mTypeStr);
-    }
-
-    @Override
-    protected KCode generateCode() {
-        return new KCode()
-                .app("", getExpr().toCode())
-                .app(" instanceof ")
-                .app(getType().toJavaCode());
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.instanceOfOp(getExpr().cloneToModel(model), mTypeStr);
     }
 
     @Override
@@ -66,15 +52,5 @@ public class InstanceOfExpr extends Expr {
 
     public ModelClass getType() {
         return mType;
-    }
-
-    @Override
-    public String getInvertibleError() {
-        return "two-way binding can't target a value with the 'instanceof' operator";
-    }
-
-    @Override
-    public String toString() {
-        return getExpr().toString() + " instanceof " + mTypeStr;
     }
 }

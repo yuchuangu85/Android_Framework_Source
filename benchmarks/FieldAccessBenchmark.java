@@ -16,10 +16,14 @@
 
 package benchmarks;
 
+import com.google.caliper.Param;
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
 /**
  * What does field access cost?
  */
-public class FieldAccessBenchmark {
+public class FieldAccessBenchmark extends SimpleBenchmark {
     private static class Inner {
         public int publicInnerIntVal;
         protected int protectedInnerIntVal;

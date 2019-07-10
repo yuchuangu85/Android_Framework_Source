@@ -16,7 +16,6 @@
 
 package android.text;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
 
@@ -25,11 +24,8 @@ import com.android.internal.util.GrowingArrayUtils;
  * PackedIntVector stores a two-dimensional array of integers,
  * optimized for inserting and deleting rows and for
  * offsetting the values in segments of a given column.
- *
- * @hide
  */
-@VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
-public class PackedIntVector {
+class PackedIntVector {
     private final int mColumns;
     private int mRows;
 

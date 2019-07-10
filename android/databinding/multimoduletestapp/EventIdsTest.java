@@ -20,6 +20,7 @@ import android.databinding.testlibrary.ObservableInLibrary;
 
 import android.databinding.Observable;
 import android.databinding.Observable.OnPropertyChangedCallback;
+import android.os.Debug;
 import android.test.AndroidTestCase;
 
 import java.util.HashMap;
@@ -112,7 +113,7 @@ public class EventIdsTest extends AndroidTestCase {
     }
 
     private static class EventCounter extends OnPropertyChangedCallback {
-        Map<Integer, Integer> mCounter = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> mCounter = new HashMap<>();
 
         @Override
         public void onPropertyChanged(Observable observable, int propertyId) {

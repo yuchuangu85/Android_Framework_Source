@@ -1,79 +1,122 @@
-/*
- * Copyright (C) 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.android.server.wifi.hotspot2;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.wifi.Clock;
-import com.android.server.wifi.hotspot2.anqp.ANQPElement;
-import com.android.server.wifi.hotspot2.anqp.Constants;
+import com.android.server.wifi.anqp.ANQPElement;
+import com.android.server.wifi.anqp.Constants;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Class for maintaining ANQP elements and managing the lifetime of the elements.
- */
 public class ANQPData {
     /**
-     * Entry lifetime.
+     * The regular cache time for entries with a non-zero domain id.
      */
-    @VisibleForTesting
-    public static final long DATA_LIFETIME_MILLISECONDS = 3600000L;
-
-    private final Clock mClock;
-    private final Map<Constants.ANQPElementType, ANQPElement> mANQPElements;
-    private final long mExpiryTime;
-
-    public ANQPData(Clock clock, Map<Constants.ANQPElementType, ANQPElement> anqpElements) {
-        mClock = clock;
-        mANQPElements = new HashMap<>();
-        if (anqpElements != null) {
-            mANQPElements.putAll(anqpElements);
-        }
-        mExpiryTime = mClock.getElapsedSinceBootMillis() + DATA_LIFETIME_MILLISECONDS;
-    }
+    private static final long ANQP_QUALIFIED_CACHE_TIMEOUT = 3600000L;
+    /**
+     * The cache time for entries with a zero domain id. The zero domain id indicates that ANQP
+     * data from the AP may change at any time, thus a relatively short cache time is given to
+     * such data, but still long enough to avoid excessive querying.
+     */
+    private static final long ANQP_UNQUALIFIED_CACHE_TIMEOUT = 300000L;
+    /**
+     * This is the hold off time for pending queries, i.e. the time during which subsequent queries
+     * are squelched.
+     */
+    private static final long ANQP_HOLDOFF_TIME = 10000L;
 
     /**
-     * Return the ANQP elements.
-     *
-     * @return Map of ANQP elements
+     * Max value for the retry counter for unanswered queries. This limits the maximum time-out to
+     * ANQP_HOLDOFF_TIME * 2^MAX_RETRY. With current values this results in 640s.
      */
-    public Map<Constants.ANQPElementType, ANQPElement> getElements() {
+    private static final int MAX_RETRY = 6;
+
+    private final NetworkDetail mNetwork;
+    private final Map<Constants.ANQPElementType, ANQPElement> mANQPElements;
+    private final long mCtime;
+    private final long mExpiry;
+    private final int mRetry;
+
+    public ANQPData(NetworkDetail network,
+                    Map<Constants.ANQPElementType, ANQPElement> anqpElements) {
+
+        mNetwork = network;
+        mANQPElements = anqpElements != null ? Collections.unmodifiableMap(anqpElements) : null;
+        mCtime = System.currentTimeMillis();
+        mRetry = 0;
+        if (anqpElements == null) {
+            mExpiry = mCtime + ANQP_HOLDOFF_TIME;
+        }
+        else if (network.getAnqpDomainID() == 0) {
+            mExpiry = mCtime + ANQP_UNQUALIFIED_CACHE_TIMEOUT;
+        }
+        else {
+            mExpiry = mCtime + ANQP_QUALIFIED_CACHE_TIMEOUT;
+        }
+    }
+
+    public ANQPData(NetworkDetail network, ANQPData existing) {
+        mNetwork = network;
+        mANQPElements = null;
+        mCtime = System.currentTimeMillis();
+        if (existing == null) {
+            mRetry = 0;
+            mExpiry = mCtime + ANQP_HOLDOFF_TIME;
+        }
+        else {
+            mRetry = Math.max(existing.getRetry() + 1, MAX_RETRY);
+            mExpiry = ANQP_HOLDOFF_TIME * (1<<mRetry);
+        }
+    }
+
+    public Map<Constants.ANQPElementType, ANQPElement> getANQPElements() {
         return Collections.unmodifiableMap(mANQPElements);
     }
 
-    /**
-     * Check if this entry is expired at the specified time.
-     *
-     * @param at The time to check for
-     * @return true if it is expired at the given time
-     */
+    public NetworkDetail getNetwork() {
+        return mNetwork;
+    }
+
+    public boolean expired() {
+        return expired(System.currentTimeMillis());
+    }
+
     public boolean expired(long at) {
-        return mExpiryTime <= at;
+        return mExpiry <= at;
+    }
+
+    protected boolean isValid(NetworkDetail nwk) {
+        return mANQPElements != null &&
+                nwk.getAnqpDomainID() == mNetwork.getAnqpDomainID() &&
+                mExpiry > System.currentTimeMillis();
+    }
+
+    private int getRetry() {
+        return mRetry;
+    }
+
+    public String toString(boolean brief) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(mNetwork.toKeyString()).append(", domid ").append(mNetwork.getAnqpDomainID());
+        if (mANQPElements == null) {
+            sb.append(", unresolved, ");
+        }
+        else {
+            sb.append(", ").append(mANQPElements.size()).append(" elements, ");
+        }
+        long now = System.currentTimeMillis();
+        sb.append(Utils.toHMS(now-mCtime)).append(" old, expires in ").
+                append(Utils.toHMS(mExpiry-now)).append(' ');
+        if (brief) {
+            sb.append(expired(now) ? 'x' : '-');
+            sb.append(mANQPElements == null ? 'u' : '-');
+        }
+        else if (mANQPElements != null) {
+            sb.append(" data=").append(mANQPElements);
+        }
+        return sb.toString();
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(mANQPElements.size()).append(" elements, ");
-        long now = mClock.getElapsedSinceBootMillis();
-        sb.append(" expires in ").append(Utils.toHMS(mExpiryTime - now)).append(' ');
-        sb.append(expired(now) ? 'x' : '-');
-        return sb.toString();
+        return toString(true);
     }
 }

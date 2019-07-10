@@ -1,2441 +1,1621 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.sql;
 
-import java.math.BigDecimal;
-import java.util.Calendar;
-import java.io.Reader;
 import java.io.InputStream;
+import java.io.Reader;
+import java.math.BigDecimal;
+import java.net.URL;
+import java.util.Calendar;
+import java.util.Map;
 
 /**
- * The interface used to execute SQL stored procedures.  The JDBC API
- * provides a stored procedure SQL escape syntax that allows stored procedures
- * to be called in a standard way for all RDBMSs. This escape syntax has one
- * form that includes a result parameter and one that does not. If used, the result
- * parameter must be registered as an OUT parameter. The other parameters
- * can be used for input, output or both. Parameters are referred to
- * sequentially, by number, with the first parameter being 1.
- * <PRE>
- *   {?= call &lt;procedure-name&gt;[(&lt;arg1&gt;,&lt;arg2&gt;, ...)]}
- *   {call &lt;procedure-name&gt;[(&lt;arg1&gt;,&lt;arg2&gt;, ...)]}
- * </PRE>
- * <P>
- * IN parameter values are set using the <code>set</code> methods inherited from
- * {@link PreparedStatement}.  The type of all OUT parameters must be
- * registered prior to executing the stored procedure; their values
- * are retrieved after execution via the <code>get</code> methods provided here.
- * <P>
- * A <code>CallableStatement</code> can return one {@link ResultSet} object or
- * multiple <code>ResultSet</code> objects.  Multiple
- * <code>ResultSet</code> objects are handled using operations
- * inherited from {@link Statement}.
- * <P>
- * For maximum portability, a call's <code>ResultSet</code> objects and
- * update counts should be processed prior to getting the values of output
- * parameters.
- * <P>
- *
- * @see Connection#prepareCall
- * @see ResultSet
+ * An interface used to call <i>Stored Procedures</i>.
+ * <p>
+ * The JDBC API provides an SQL escape syntax allowing <i>Stored Procedures</i>
+ * to be called in a standard way for all databases. The JDBC escape syntax has
+ * two forms. One form includes a result parameter. The second form does not
+ * include a result parameter. Where the result parameter is used, it must be
+ * declared as an {@code OUT} parameter. Other parameters can be declared as
+ * {@code IN}, {@code OUT}, or {@code INOUT}. Parameters are referenced either by
+ * name or by a numerical index starting at 1.
+ * <p>
+ * The correct syntax is:
+ * <dd>
+ * <dl>
+ * { ?= call &lt;procedurename&gt; [( [parameter1,parameter2,...] )] }
+ * </dl>
+ * <dl>
+ * { call &lt;procedurename&gt; [( [parameter1,parameter2,...] )] }
+ * </dl>
+ * </code></dd>
+ * {@code IN} parameters are set before calling the procedure,
+ * using the setter methods which are inherited from {@code PreparedStatement}.
+ * For {@code OUT} parameters, their type must be registered before executing
+ * the stored procedure. The values are retrieved using the getter methods
+ * defined in the {@code CallableStatement} interface.
+ * <p>
+ * {@code CallableStatement}s can return one or more {@code ResultSets}. In the
+ * event that multiple {@code ResultSets} are returned, they are accessed using
+ * the methods inherited from the {@code Statement} interface.
  */
-
 public interface CallableStatement extends PreparedStatement {
 
     /**
-     * Registers the OUT parameter in ordinal position
-     * <code>parameterIndex</code> to the JDBC type
-     * <code>sqlType</code>.  All OUT parameters must be registered
-     * before a stored procedure is executed.
-     * <p>
-     * The JDBC type specified by <code>sqlType</code> for an OUT
-     * parameter determines the Java type that must be used
-     * in the <code>get</code> method to read the value of that parameter.
-     * <p>
-     * If the JDBC type expected to be returned to this output parameter
-     * is specific to this particular database, <code>sqlType</code>
-     * should be <code>java.sql.Types.OTHER</code>.  The method
-     * {@link #getObject} retrieves the value.
+     * Gets the value of a specified JDBC {@code ARRAY} parameter as a
+     * {@code java.sql.Array}.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @param sqlType the JDBC type code defined by <code>java.sql.Types</code>.
-     *        If the parameter is of JDBC type <code>NUMERIC</code>
-     *        or <code>DECIMAL</code>, the version of
-     *        <code>registerOutParameter</code> that accepts a scale value
-     *        should be used.
-     *
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type
-     * @see Types
+     * @param parameterIndex
+     *            the parameter index, where the first parameter has
+     *            index 1.
+     * @return a {@code java.sql.Array} containing the parameter value.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    void registerOutParameter(int parameterIndex, int sqlType)
-        throws SQLException;
+    public Array getArray(int parameterIndex) throws SQLException;
 
     /**
-     * Registers the parameter in ordinal position
-     * <code>parameterIndex</code> to be of JDBC type
-     * <code>sqlType</code>. All OUT parameters must be registered
-     * before a stored procedure is executed.
-     * <p>
-     * The JDBC type specified by <code>sqlType</code> for an OUT
-     * parameter determines the Java type that must be used
-     * in the <code>get</code> method to read the value of that parameter.
-     * <p>
-     * This version of <code>registerOutParameter</code> should be
-     * used when the parameter is of JDBC type <code>NUMERIC</code>
-     * or <code>DECIMAL</code>.
+     * Gets the value of a specified JDBC {@code ARRAY} parameter as a {@code
+     * java.sql.Array}.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @param sqlType the SQL type code defined by <code>java.sql.Types</code>.
-     * @param scale the desired number of digits to the right of the
-     * decimal point.  It must be greater than or equal to zero.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type
-     * @see Types
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return a {@code java.sql.Array} containing the parameter's value.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
      */
-    void registerOutParameter(int parameterIndex, int sqlType, int scale)
-        throws SQLException;
+    public Array getArray(String parameterName) throws SQLException;
 
     /**
-     * Retrieves whether the last OUT parameter read had the value of
-     * SQL <code>NULL</code>.  Note that this method should be called only after
-     * calling a getter method; otherwise, there is no value to use in
-     * determining whether it is <code>null</code> or not.
+     * Returns a new {@link BigDecimal} representation of the JDBC {@code
+     * NUMERIC} parameter specified by the input index.
      *
-     * @return <code>true</code> if the last parameter read was SQL
-     * <code>NULL</code>; <code>false</code> otherwise
-     * @exception SQLException if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
+     * @param parameterIndex
+     *            the parameter number index where the first parameter has index
+     *            1.
+     * @return a {@code java.math.BigDecimal} representing the value of the
+     *         specified parameter. The value {@code null} is returned if
+     *         the parameter in question is an SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    boolean wasNull() throws SQLException;
+    public BigDecimal getBigDecimal(int parameterIndex) throws SQLException;
 
     /**
-     * Retrieves the value of the designated JDBC <code>CHAR</code>,
-     * <code>VARCHAR</code>, or <code>LONGVARCHAR</code> parameter as a
-     * <code>String</code> in the Java programming language.
-     * <p>
-     * For the fixed-length type JDBC <code>CHAR</code>,
-     * the <code>String</code> object
-     * returned has exactly the same value the SQL
-     * <code>CHAR</code> value had in the
-     * database, including any padding added by the database.
+     * Returns a new {@link BigDecimal} representation of the JDBC {@code
+     * NUMERIC} parameter specified by the input index. The number of digits
+     * after the decimal point is specified by {@code scale}.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value. If the value is SQL <code>NULL</code>,
-     *         the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setString
-     */
-    String getString(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>BIT</code>
-     * or <code>BOOLEAN</code> parameter as a
-     * <code>boolean</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     *         the result is <code>false</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setBoolean
-     */
-    boolean getBoolean(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>TINYINT</code> parameter
-     * as a <code>byte</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setByte
-     */
-    byte getByte(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>SMALLINT</code> parameter
-     * as a <code>short</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setShort
-     */
-    short getShort(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>INTEGER</code> parameter
-     * as an <code>int</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setInt
-     */
-    int getInt(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>BIGINT</code> parameter
-     * as a <code>long</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setLong
-     */
-    long getLong(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>FLOAT</code> parameter
-     * as a <code>float</code> in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setFloat
-     */
-    float getFloat(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>DOUBLE</code> parameter as a <code>double</code>
-     * in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>0</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setDouble
-     */
-    double getDouble(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>NUMERIC</code> parameter as a
-     * <code>java.math.BigDecimal</code> object with <i>scale</i> digits to
-     * the right of the decimal point.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @param scale the number of digits to the right of the decimal point
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @deprecated use <code>getBigDecimal(int parameterIndex)</code>
-     *             or <code>getBigDecimal(String parameterName)</code>
-     * @see #setBigDecimal
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @param scale
+     *            the number of digits after the decimal point to get.
+     * @return a {@code java.math.BigDecimal} representing the value of the
+     *         specified parameter. The value {@code null} is returned if
+     *         the parameter in question is an SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @deprecated Use {@link #getBigDecimal(int)} or {@link #getBigDecimal(String)} instead.
      */
     @Deprecated
-    BigDecimal getBigDecimal(int parameterIndex, int scale)
-        throws SQLException;
+    public BigDecimal getBigDecimal(int parameterIndex, int scale)
+            throws SQLException;
 
     /**
-     * Retrieves the value of the designated JDBC <code>BINARY</code> or
-     * <code>VARBINARY</code> parameter as an array of <code>byte</code>
-     * values in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setBytes
-     */
-    byte[] getBytes(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>DATE</code> parameter as a
-     * <code>java.sql.Date</code> object.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setDate
-     */
-    java.sql.Date getDate(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>TIME</code> parameter as a
-     * <code>java.sql.Time</code> object.
+     * Returns a new {@link BigDecimal} representation of the JDBC {@code
+     * NUMERIC} parameter specified by the input name.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setTime
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return a {@code java.math.BigDecimal} representing the value of the
+     *         specified parameter. The value {@code null} is returned if
+     *         the parameter in question is an SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    java.sql.Time getTime(int parameterIndex) throws SQLException;
+    public BigDecimal getBigDecimal(String parameterName) throws SQLException;
 
     /**
-     * Retrieves the value of the designated JDBC <code>TIMESTAMP</code> parameter as a
-     * <code>java.sql.Timestamp</code> object.
+     * Gets the value of a specified JDBC {@code BLOB} parameter as a {@code
+     * java.sql.Blob}.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setTimestamp
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code java.sql.Blob} representing the value of the
+     *         specified parameter. The value {@code null} is returned if
+     *         the parameter in question is an SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    java.sql.Timestamp getTimestamp(int parameterIndex)
-        throws SQLException;
-
-    //----------------------------------------------------------------------
-    // Advanced features:
-
+    public Blob getBlob(int parameterIndex) throws SQLException;
 
     /**
-     * Retrieves the value of the designated parameter as an <code>Object</code>
-     * in the Java programming language. If the value is an SQL <code>NULL</code>,
-     * the driver returns a Java <code>null</code>.
+     * Gets the value of a specified JDBC {@code BLOB} parameter as a {@code
+     * java.sql.Blob}.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return a {@code java.sql.Blob} representing the value of the
+     *         specified parameter. The value {@code null} is returned if
+     *         the parameter in question is an SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Blob getBlob(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code BIT} parameter as a boolean.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code boolean} representing the parameter value. {@code false}
+     *            is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public boolean getBoolean(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code BIT} parameter as a {@code
+     * boolean}.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return a {@code boolean} representation of the value of the parameter.
+     *         {@code false} is returned if the SQL value is {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public boolean getBoolean(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TINYINT} parameter as a {@code
+     * byte}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code byte} representation of the value of the parameter.
+     *            {@code 0} is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public byte getByte(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TINYINT} parameter as a Java
+     * {@code byte}.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return a {@code byte} representation of the value of the parameter.
+     *         {@code 0} is returned if the SQL value is {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public byte getByte(String parameterName) throws SQLException;
+
+    /**
+     * Returns a byte array representation of the indexed JDBC {@code BINARY} or
+     * {@code VARBINARY} parameter.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return an array of bytes giving the value of the parameter. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public byte[] getBytes(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns a byte array representation of the named JDBC {@code BINARY} or
+     * {@code VARBINARY} parameter.
+     *
+     * @param parameterName
+     *            the name of the parameter.
+     * @return an array of bytes giving the value of the parameter. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public byte[] getBytes(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code CLOB} parameter as a {@code
+     * java.sql.Clob}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code java.sql.Clob} representing the value of the
+     *            parameter. {@code null} is returned if the value is SQL
+     *            {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Clob
+     */
+    public Clob getClob(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code CLOB} parameter as a {@code
+     * java.sql.Clob}.
+     *
+     * @param parameterName
+     *            the name of the parameter.
+     * @return a {@code java.sql.Clob} with the value of the parameter. {@code
+     *         null} is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Clob
+     */
+    public Clob getClob(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DATE} parameter as a {@code
+     * java.sql.Date}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the {@code java.sql.Date} representing the parameter's value.
+     *         {@code null} is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Date
+     */
+    public Date getDate(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DATE} parameter as a {@code
+     * java.sql.Date}, using the specified {@code Calendar} to construct the date.
+     *
+     * <p>The JDBC driver uses the calendar to create the Date using a particular
+     * timezone and locale. The default behavior of the driver is to use the VM defaults.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @param cal
+     *            the {@code Calendar} to use to construct the date
+     * @return the {@code java.sql.Date} giving the parameter's value. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Date
+     */
+    public Date getDate(int parameterIndex, Calendar cal) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DATE} parameter as a {@code
+     * java.sql.Date}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the {@code java.sql.Date} giving the parameter's value. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Date
+     */
+    public Date getDate(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DATE} parameter as a {@code
+     * java.sql.Date}, using the specified {@code Calendar} to construct the date.
+     *
+     * <p>The JDBC driver uses the calendar to create the date using a particular
+     * timezone and locale. The default behavior of the driver is to use the VM defaults.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @param cal
+     *            used for creating the returned {@code Date}.
+     * @return the {@code java.sql.Date} giving the parameter's value. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Date
+     */
+    public Date getDate(String parameterName, Calendar cal) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DOUBLE} parameter as a
+     * {@code double}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the parameter's value as a {@code double}. {@code 0.0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public double getDouble(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code DOUBLE} parameter as a
+     * {@code double}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the parameter's value as a {@code double}. {@code 0.0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public double getDouble(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code FLOAT} parameter as a {@code
+     * float}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the parameter's value as a {@code float}. {@code 0.0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public float getFloat(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code FLOAT} parameter as a Java
+     * {@code float}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the parameter's value as a {@code float}. {@code 0.0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public float getFloat(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code INTEGER} parameter as an
+     * {@code int}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the {@code int} giving the parameter's value. {@code 0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public int getInt(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code INTEGER} parameter as an
+     * {@code int}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the {@code int} giving the parameter's value. {@code 0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public int getInt(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code BIGINT} parameter as a
+     * {@code long}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the {@code long} giving the parameter's value. {@code 0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public long getLong(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified JDBC {@code BIGINT} parameter as a
+     * {@code long}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the {@code long} giving the parameter's value. {@code 0}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public long getLong(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of the specified parameter as a Java {@code Object}.
      * <p>
-     * This method returns a Java object whose type corresponds to the JDBC
-     * type that was registered for this parameter using the method
-     * <code>registerOutParameter</code>.  By registering the target JDBC
-     * type as <code>java.sql.Types.OTHER</code>, this method can be used
-     * to read database-specific abstract data types.
+     * The object type returned is the JDBC type registered for the parameter
+     * with a {@code registerOutParameter} call. If a parameter was registered
+     * as a {@code java.sql.Types.OTHER} then it may hold abstract types that
+     * are particular to the connected database.
      *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     *        and so on
-     * @return A <code>java.lang.Object</code> holding the OUT parameter value
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return an Object holding the value of the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Object getObject(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of the specified parameter as an {@code Object}. The
+     * {@code Map} gives the correspondence between SQL types and Java classes.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @param map
+     *            the {@code Map} giving the correspondence between SQL
+     *            types and Java classes.
+     * @return an Object holding the value of the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Object getObject(int parameterIndex, Map<String, Class<?>> map)
+            throws SQLException;
+
+    /**
+     * Gets the value of the specified parameter as an {@code Object}.
+     * <p>
+     * The object type returned is the JDBC type that was registered for
+     * the parameter by an earlier call to {@link #registerOutParameter}.
+     * If a parameter was registered as a {@code java.sql.Types.OTHER}
+     * then it may hold abstract types that are particular to the
+     * connected database.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @return the Java {@code Object} representation of the value of the
+     *         parameter.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Object getObject(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified parameter as an {@code Object}. The
+     * actual return type is determined by the {@code Map} parameter which
+     * gives the correspondence between SQL types and Java classes.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param map
+     *            the {@code Map} of SQL types to their Java counterparts
+     * @return an {@code Object} holding the value of the parameter.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public Object getObject(String parameterName, Map<String, Class<?>> map)
+            throws SQLException;
+
+    /**
+     * Gets the value of a specified SQL {@code REF(<structured type>)}
+     * parameter as a {@code java.sql.Ref}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code java.sql.Ref} with the parameter value. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Ref getRef(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified SQL {@code REF(<structured type>)}
+     * parameter as a {@code java.sql.Ref}.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return the parameter's value in the form of a {@code
+     *         java.sql.Ref}. A {@code null} reference is returned if the
+     *         parameter's value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     * @see Ref
+     */
+    public Ref getRef(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code SMALLINT} parameter as a
+     * {@code short}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the parameter's value as a {@code short}. 0 is returned
+     *         if the parameter's value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public short getShort(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code SMALLINT} parameter as a
+     * {@code short}.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return the parameter's value as a {@code short}. 0 is returned
+     *         if the parameter's value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public short getShort(String parameterName) throws SQLException;
+
+    /**
+     * Returns the indexed parameter's value as a {@code String}. The
+     * parameter value must be one of the JDBC types {@code CHAR},
+     * {@code VARCHAR} or {@code LONGVARCHAR}.
+     * <p>
+     * The {@code String} corresponding to a {@code CHAR} of fixed length
+     * will be of identical length to the value in the database inclusive
+     * of padding characters.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the parameter's value as a {@code String}. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public String getString(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the named parameter's value as a string. The parameter value must
+     * be one of the JDBC types {@code CHAR}, {@code VARCHAR} or {@code
+     * LONGVARCHAR}.
+     * <p>
+     * The string corresponding to a {@code CHAR} of fixed length will be of
+     * identical length to the value in the database inclusive of padding
+     * characters.
+     *
+     * @param parameterName
+     *            the desired parameter's name.
+     * @return the parameter's value as a {@code String}. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if there is a problem accessing the database.
+     */
+    public String getString(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TIME} parameter as a {@code
+     * java.sql.Time}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return the parameter's value as a {@code java.sql.Time}.
+     *         {@code null} is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
+     */
+    public Time getTime(int parameterIndex) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TIME} parameter as a {@code
+     * java.sql.Time}, using the supplied {@code Calendar} to construct the
+     * time. The JDBC driver uses the calendar to handle specific timezones
+     * and locales in order to determine {@code Time}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @param cal
+     *            the calendar to use in constructing {@code Time}.
+     * @return the parameter's value as a {@code java.sql.Time}.
+     *         {@code null} is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
+     * @see java.util.Calendar
+     */
+    public Time getTime(int parameterIndex, Calendar cal) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TIME} parameter as a {@code
+     * java.sql.Time}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return a new {@code java.sql.Time} with the parameter's value. A {@code
+     *         null} reference is returned for an SQL value of {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
+     */
+    public Time getTime(String parameterName) throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code TIME} parameter as a {@code
+     * java.sql.Time}, using the supplied {@code Calendar} to construct
+     * the time. The JDBC driver uses the calendar to handle specific
+     * timezones and locales when creating {@code Time}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @param cal
+     *            used for creating the returned {@code Time}
+     * @return a new {@code java.sql.Time} with the parameter's value. A {@code
+     *         null} reference is returned for an SQL value of {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
+     * @see java.util.Calendar
+     */
+    public Time getTime(String parameterName, Calendar cal) throws SQLException;
+
+    /**
+     * Returns the indexed parameter's {@code TIMESTAMP} value as a {@code
+     * java.sql.Timestamp}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1
+     * @return the parameter's value as a {@code java.sql.Timestamp}. A
+     *         {@code null} reference is returned for an SQL value of {@code
+     *         NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public Timestamp getTimestamp(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the indexed parameter's {@code TIMESTAMP} value as a {@code
+     * java.sql.Timestamp}. The JDBC driver uses the supplied {@code Calendar}
+     * to handle specific timezones and locales when creating the result.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1
+     * @param cal
+     *            used for creating the returned {@code Timestamp}
+     * @return the parameter's value as a {@code java.sql.Timestamp}. A
+     *         {@code null} reference is returned for an SQL value of {@code
+     *         NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public Timestamp getTimestamp(int parameterIndex, Calendar cal)
+            throws SQLException;
+
+    /**
+     * Returns the named parameter's {@code TIMESTAMP} value as a {@code
+     * java.sql.Timestamp}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return the parameter's value as a {@code java.sql.Timestamp}. A
+     *         {@code null} reference is returned for an SQL value of {@code
+     *         NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public Timestamp getTimestamp(String parameterName) throws SQLException;
+
+    /**
+     * Returns the indexed parameter's {@code TIMESTAMP} value as a {@code
+     * java.sql.Timestamp}. The JDBC driver uses the supplied {@code Calendar}
+     * to handle specific timezones and locales when creating the result.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @param cal
+     *            used for creating the returned {@code Timestamp}
+     * @return the parameter's value as a {@code java.sql.Timestamp}. A
+     *         {@code null} reference is returned for an SQL value of {@code
+     *         NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public Timestamp getTimestamp(String parameterName, Calendar cal)
+            throws SQLException;
+
+    /**
+     * Gets the value of a specified JDBC {@code DATALINK} parameter as a
+     * {@code java.net.URL}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @return a {@code URL} giving the parameter's value. {@code null}
+     *         is returned if the value is SQL {@code NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see java.net.URL
+     */
+    public URL getURL(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the named parameter's JDBC {@code DATALINK} value in a new Java
+     * {@code java.net.URL}.
+     *
+     * @param parameterName
+     *            the name of the desired parameter.
+     * @return a new {@code java.net.URL} encapsulating the parameter value. A
+     *         {@code null} reference is returned for an SQL value of {@code
+     *         NULL}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see java.net.URL
+     */
+    public URL getURL(String parameterName) throws SQLException;
+
+    /**
+     * Defines the type of a specified {@code OUT} parameter. All {@code OUT}
+     * parameters must have their type defined before a stored procedure is
+     * executed.
+     * <p>
+     * The type supplied in the {@code sqlType} parameter fixes the
+     * type that will be returned by the getter methods of
+     * {@code CallableStatement}.
+     * If a database specific type is expected for a parameter, the Type {@code
+     * java.sql.Types.OTHER} should be used. Note that there is another variant
+     * of this method for User Defined Types or a {@code REF} type.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1
+     * @param sqlType
+     *            the JDBC type as defined by {@code java.sql.Types}. The JDBC
+     *            types {@code NUMERIC} and {@code DECIMAL} should be defined
+     *            using {@link #registerOutParameter(int, int, int)}.
+     * @throws SQLException
+     *             if a database error occurs.
      * @see Types
-     * @see #setObject
      */
-    Object getObject(int parameterIndex) throws SQLException;
-
-
-    //--------------------------JDBC 2.0-----------------------------
+    public void registerOutParameter(int parameterIndex, int sqlType)
+            throws SQLException;
 
     /**
-     * Retrieves the value of the designated JDBC <code>NUMERIC</code> parameter as a
-     * <code>java.math.BigDecimal</code> object with as many digits to the
-     * right of the decimal point as the value contains.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value in full precision.  If the value is
-     * SQL <code>NULL</code>, the result is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setBigDecimal
-     * @since 1.2
-     */
-    BigDecimal getBigDecimal(int parameterIndex) throws SQLException;
-
-    /**
-     * Returns an object representing the value of OUT parameter
-     * <code>parameterIndex</code> and uses <code>map</code> for the custom
-     * mapping of the parameter value.
+     * Defines the Type of a specified {@code OUT} parameter. All {@code OUT}
+     * parameters must have their type defined before a stored procedure is
+     * executed. This version of the {@code registerOutParameter} method, which
+     * has a scale parameter, should be used for the JDBC types {@code NUMERIC}
+     * and {@code DECIMAL}, where there is a need to specify the number of
+     * digits expected after the decimal point.
      * <p>
-     * This method returns a Java object whose type corresponds to the
-     * JDBC type that was registered for this parameter using the method
-     * <code>registerOutParameter</code>.  By registering the target
-     * JDBC type as <code>java.sql.Types.OTHER</code>, this method can
-     * be used to read database-specific abstract data types.
-     * @param parameterIndex the first parameter is 1, the second is 2, and so on
-     * @param map the mapping from SQL type names to Java classes
-     * @return a <code>java.lang.Object</code> holding the OUT parameter value
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setObject
-     * @since 1.2
-     */
-    Object getObject(int parameterIndex, java.util.Map<String,Class<?>> map)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>REF(&lt;structured-type&gt;)</code>
-     * parameter as a {@link java.sql.Ref} object in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @return the parameter value as a <code>Ref</code> object in the
-     * Java programming language.  If the value was SQL <code>NULL</code>, the value
-     * <code>null</code> is returned.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.2
-     */
-    Ref getRef (int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>BLOB</code> parameter as a
-     * {@link java.sql.Blob} object in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2, and so on
-     * @return the parameter value as a <code>Blob</code> object in the
-     * Java programming language.  If the value was SQL <code>NULL</code>, the value
-     * <code>null</code> is returned.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.2
-     */
-    Blob getBlob (int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>CLOB</code> parameter as a
-     * <code>java.sql.Clob</code> object in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2, and
-     * so on
-     * @return the parameter value as a <code>Clob</code> object in the
-     * Java programming language.  If the value was SQL <code>NULL</code>, the
-     * value <code>null</code> is returned.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.2
-     */
-    Clob getClob (int parameterIndex) throws SQLException;
-
-    /**
+     * The type supplied in the {@code sqlType} parameter fixes the
+     * type that will be returned by the getter methods of
+     * {@code CallableStatement}.
      *
-     * Retrieves the value of the designated JDBC <code>ARRAY</code> parameter as an
-     * {@link java.sql.Array} object in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2, and
-     * so on
-     * @return the parameter value as an <code>Array</code> object in
-     * the Java programming language.  If the value was SQL <code>NULL</code>, the
-     * value <code>null</code> is returned.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.2
-     */
-    Array getArray (int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>DATE</code> parameter as a
-     * <code>java.sql.Date</code> object, using
-     * the given <code>Calendar</code> object
-     * to construct the date.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the date taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the date
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setDate
-     * @since 1.2
-     */
-    java.sql.Date getDate(int parameterIndex, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>TIME</code> parameter as a
-     * <code>java.sql.Time</code> object, using
-     * the given <code>Calendar</code> object
-     * to construct the time.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the time taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the time
-     * @return the parameter value; if the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setTime
-     * @since 1.2
-     */
-    java.sql.Time getTime(int parameterIndex, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>TIMESTAMP</code> parameter as a
-     * <code>java.sql.Timestamp</code> object, using
-     * the given <code>Calendar</code> object to construct
-     * the <code>Timestamp</code> object.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the timestamp taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,
-     * and so on
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the timestamp
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     *         is <code>null</code>.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #setTimestamp
-     * @since 1.2
-     */
-    java.sql.Timestamp getTimestamp(int parameterIndex, Calendar cal)
-        throws SQLException;
-
-
-    /**
-     * Registers the designated output parameter.
-     * This version of
-     * the method <code>registerOutParameter</code>
-     * should be used for a user-defined or <code>REF</code> output parameter.  Examples
-     * of user-defined types include: <code>STRUCT</code>, <code>DISTINCT</code>,
-     * <code>JAVA_OBJECT</code>, and named array types.
-     *<p>
-     * All OUT parameters must be registered
-     * before a stored procedure is executed.
-     * <p>  For a user-defined parameter, the fully-qualified SQL
-     * type name of the parameter should also be given, while a <code>REF</code>
-     * parameter requires that the fully-qualified type name of the
-     * referenced type be given.  A JDBC driver that does not need the
-     * type code and type name information may ignore it.   To be portable,
-     * however, applications should always provide these values for
-     * user-defined and <code>REF</code> parameters.
-     *
-     * Although it is intended for user-defined and <code>REF</code> parameters,
-     * this method may be used to register a parameter of any JDBC type.
-     * If the parameter does not have a user-defined or <code>REF</code> type, the
-     * <i>typeName</i> parameter is ignored.
-     *
-     * <P><B>Note:</B> When reading the value of an out parameter, you
-     * must use the getter method whose Java type corresponds to the
-     * parameter's registered SQL type.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,...
-     * @param sqlType a value from {@link java.sql.Types}
-     * @param typeName the fully-qualified name of an SQL structured type
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type
-     * @see Types
-     * @since 1.2
-     */
-    void registerOutParameter (int parameterIndex, int sqlType, String typeName)
-        throws SQLException;
-
-  //--------------------------JDBC 3.0-----------------------------
-
-    /**
-     * Registers the OUT parameter named
-     * <code>parameterName</code> to the JDBC type
-     * <code>sqlType</code>.  All OUT parameters must be registered
-     * before a stored procedure is executed.
-     * <p>
-     * The JDBC type specified by <code>sqlType</code> for an OUT
-     * parameter determines the Java type that must be used
-     * in the <code>get</code> method to read the value of that parameter.
-     * <p>
-     * If the JDBC type expected to be returned to this output parameter
-     * is specific to this particular database, <code>sqlType</code>
-     * should be <code>java.sql.Types.OTHER</code>.  The method
-     * {@link #getObject} retrieves the value.
-     * @param parameterName the name of the parameter
-     * @param sqlType the JDBC type code defined by <code>java.sql.Types</code>.
-     * If the parameter is of JDBC type <code>NUMERIC</code>
-     * or <code>DECIMAL</code>, the version of
-     * <code>registerOutParameter</code> that accepts a scale value
-     * should be used.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type or if the JDBC driver does not support
-     * this method
-     * @since 1.4
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1
+     * @param sqlType
+     *            the JDBC type as defined by {@code java.sql.Types}.
+     * @param scale
+     *            the number of digits after the decimal point. Must be greater
+     *            than or equal to 0.
+     * @throws SQLException
+     *             if a database error occurs.
      * @see Types
      */
-    void registerOutParameter(String parameterName, int sqlType)
-        throws SQLException;
+    public void registerOutParameter(int parameterIndex, int sqlType, int scale)
+            throws SQLException;
 
     /**
-     * Registers the parameter named
-     * <code>parameterName</code> to be of JDBC type
-     * <code>sqlType</code>.  All OUT parameters must be registered
-     * before a stored procedure is executed.
+     * Defines the Type of a specified {@code OUT} parameter. This variant
+     * of the method is designed for use with parameters that are
+     * <i>User Defined Types</i> (UDT) or a {@code REF} type, although it
+     * can be used for any type.
+     *
+     * @param paramIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @param typeName
+     *            an SQL type name. For a {@code REF} type, this name should be
+     *            the fully qualified name of the referenced type.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Ref
+     */
+    public void registerOutParameter(int paramIndex, int sqlType,
+            String typeName) throws SQLException;
+
+    /**
+     * Defines the Type of a specified {@code OUT} parameter. All OUT parameters
+     * must have their Type defined before a stored procedure is executed.
      * <p>
-     * The JDBC type specified by <code>sqlType</code> for an OUT
-     * parameter determines the Java type that must be used
-     * in the <code>get</code> method to read the value of that parameter.
+     * The type supplied in the {@code sqlType} parameter fixes the
+     * type that will be returned by the getter methods of
+     * {@code CallableStatement}.
+     * If a database-specific type is expected for a parameter, the Type {@code
+     * java.sql.Types.OTHER} should be used. Note that there is another variant
+     * of this method for User Defined Types or a {@code REF} type.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}. Types
+     *            {@code NUMERIC} and {@code DECIMAL} should be defined using
+     *            the variant of this method that takes a {@code scale}
+     *            parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void registerOutParameter(String parameterName, int sqlType)
+            throws SQLException;
+
+    /**
+     * Defines the Type of a specified {@code OUT} parameter. All {@code OUT}
+     * parameters must have their Type defined before a stored procedure is
+     * executed. This version of the {@code registerOutParameter} method, which
+     * has a scale parameter, should be used for the JDBC types {@code NUMERIC}
+     * and {@code DECIMAL}, where there is a need to specify the number of
+     * digits expected after the decimal point.
      * <p>
-     * This version of <code>registerOutParameter</code> should be
-     * used when the parameter is of JDBC type <code>NUMERIC</code>
-     * or <code>DECIMAL</code>.
+     * The type supplied in the {@code sqlType} parameter fixes the
+     * type that will be returned by the getter methods of
+     * {@code CallableStatement}.
      *
-     * @param parameterName the name of the parameter
-     * @param sqlType SQL type code defined by <code>java.sql.Types</code>.
-     * @param scale the desired number of digits to the right of the
-     * decimal point.  It must be greater than or equal to zero.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type or if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     * @see Types
+     * @param parameterName
+     *            the parameter name.
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @param scale
+     *            the number of digits after the decimal point. Must be greater
+     *            than or equal to 0.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    void registerOutParameter(String parameterName, int sqlType, int scale)
-        throws SQLException;
+    public void registerOutParameter(String parameterName, int sqlType,
+            int scale) throws SQLException;
 
     /**
-     * Registers the designated output parameter.  This version of
-     * the method <code>registerOutParameter</code>
-     * should be used for a user-named or REF output parameter.  Examples
-     * of user-named types include: STRUCT, DISTINCT, JAVA_OBJECT, and
-     * named array types.
-     *<p>
-     * All OUT parameters must be registered
-     * before a stored procedure is executed.
-     * <p>
-     * For a user-named parameter the fully-qualified SQL
-     * type name of the parameter should also be given, while a REF
-     * parameter requires that the fully-qualified type name of the
-     * referenced type be given.  A JDBC driver that does not need the
-     * type code and type name information may ignore it.   To be portable,
-     * however, applications should always provide these values for
-     * user-named and REF parameters.
-     *
-     * Although it is intended for user-named and REF parameters,
-     * this method may be used to register a parameter of any JDBC type.
-     * If the parameter does not have a user-named or REF type, the
-     * typeName parameter is ignored.
-     *
-     * <P><B>Note:</B> When reading the value of an out parameter, you
-     * must use the <code>getXXX</code> method whose Java type XXX corresponds to the
-     * parameter's registered SQL type.
-     *
-     * @param parameterName the name of the parameter
-     * @param sqlType a value from {@link java.sql.Types}
-     * @param typeName the fully-qualified name of an SQL structured type
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>sqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type or if the JDBC driver does not support
-     * this method
-     * @see Types
-     * @since 1.4
-     */
-    void registerOutParameter (String parameterName, int sqlType, String typeName)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>DATALINK</code> parameter as a
-     * <code>java.net.URL</code> object.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,...
-     * @return a <code>java.net.URL</code> object that represents the
-     *         JDBC <code>DATALINK</code> value used as the designated
-     *         parameter
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs,
-     * this method is called on a closed <code>CallableStatement</code>,
-     *            or if the URL being returned is
-     *            not a valid URL on the Java platform
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setURL
-     * @since 1.4
-     */
-    java.net.URL getURL(int parameterIndex) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.net.URL</code> object.
-     * The driver converts this to an SQL <code>DATALINK</code> value when
-     * it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param val the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs;
-     * this method is called on a closed <code>CallableStatement</code>
-     *            or if a URL is malformed
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getURL
-     * @since 1.4
-     */
-    void setURL(String parameterName, java.net.URL val) throws SQLException;
-
-    /**
-     * Sets the designated parameter to SQL <code>NULL</code>.
-     *
-     * <P><B>Note:</B> You must specify the parameter's SQL type.
-     *
-     * @param parameterName the name of the parameter
-     * @param sqlType the SQL type code defined in <code>java.sql.Types</code>
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    void setNull(String parameterName, int sqlType) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>boolean</code> value.
-     * The driver converts this
-     * to an SQL <code>BIT</code> or <code>BOOLEAN</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @see #getBoolean
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    void setBoolean(String parameterName, boolean x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>byte</code> value.
-     * The driver converts this
-     * to an SQL <code>TINYINT</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getByte
-     * @since 1.4
-     */
-    void setByte(String parameterName, byte x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>short</code> value.
-     * The driver converts this
-     * to an SQL <code>SMALLINT</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getShort
-     * @since 1.4
-     */
-    void setShort(String parameterName, short x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>int</code> value.
-     * The driver converts this
-     * to an SQL <code>INTEGER</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getInt
-     * @since 1.4
-     */
-    void setInt(String parameterName, int x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>long</code> value.
-     * The driver converts this
-     * to an SQL <code>BIGINT</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getLong
-     * @since 1.4
-     */
-    void setLong(String parameterName, long x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>float</code> value.
-     * The driver converts this
-     * to an SQL <code>FLOAT</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getFloat
-     * @since 1.4
-     */
-    void setFloat(String parameterName, float x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>double</code> value.
-     * The driver converts this
-     * to an SQL <code>DOUBLE</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getDouble
-     * @since 1.4
-     */
-    void setDouble(String parameterName, double x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given
-     * <code>java.math.BigDecimal</code> value.
-     * The driver converts this to an SQL <code>NUMERIC</code> value when
-     * it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getBigDecimal
-     * @since 1.4
-     */
-    void setBigDecimal(String parameterName, BigDecimal x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java <code>String</code> value.
-     * The driver converts this
-     * to an SQL <code>VARCHAR</code> or <code>LONGVARCHAR</code> value
-     * (depending on the argument's
-     * size relative to the driver's limits on <code>VARCHAR</code> values)
-     * when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getString
-     * @since 1.4
-     */
-    void setString(String parameterName, String x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given Java array of bytes.
-     * The driver converts this to an SQL <code>VARBINARY</code> or
-     * <code>LONGVARBINARY</code> (depending on the argument's size relative
-     * to the driver's limits on <code>VARBINARY</code> values) when it sends
-     * it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getBytes
-     * @since 1.4
-     */
-    void setBytes(String parameterName, byte x[]) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Date</code> value
-     * using the default time zone of the virtual machine that is running
-     * the application.
-     * The driver converts this
-     * to an SQL <code>DATE</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getDate
-     * @since 1.4
-     */
-    void setDate(String parameterName, java.sql.Date x)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Time</code> value.
-     * The driver converts this
-     * to an SQL <code>TIME</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getTime
-     * @since 1.4
-     */
-    void setTime(String parameterName, java.sql.Time x)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Timestamp</code> value.
-     * The driver
-     * converts this to an SQL <code>TIMESTAMP</code> value when it sends it to the
-     * database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getTimestamp
-     * @since 1.4
-     */
-    void setTimestamp(String parameterName, java.sql.Timestamp x)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given input stream, which will have
-     * the specified number of bytes.
-     * When a very large ASCII value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code>. Data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from ASCII to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the Java input stream that contains the ASCII parameter value
-     * @param length the number of bytes in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    void setAsciiStream(String parameterName, java.io.InputStream x, int length)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given input stream, which will have
-     * the specified number of bytes.
-     * When a very large binary value is input to a <code>LONGVARBINARY</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code> object. The data will be read from the stream
-     * as needed until end-of-file is reached.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the java input stream which contains the binary parameter value
-     * @param length the number of bytes in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    void setBinaryStream(String parameterName, java.io.InputStream x,
-                         int length) throws SQLException;
-
-    /**
-     * Sets the value of the designated parameter with the given object. The second
-     * argument must be an object type; for integral values, the
-     * <code>java.lang</code> equivalent objects should be used.
-     *
-     * <p>The given Java object will be converted to the given targetSqlType
-     * before being sent to the database.
-     *
-     * If the object has a custom mapping (is of a class implementing the
-     * interface <code>SQLData</code>),
-     * the JDBC driver should call the method <code>SQLData.writeSQL</code> to write it
-     * to the SQL data stream.
-     * If, on the other hand, the object is of a class implementing
-     * <code>Ref</code>, <code>Blob</code>, <code>Clob</code>,  <code>NClob</code>,
-     *  <code>Struct</code>, <code>java.net.URL</code>,
-     * or <code>Array</code>, the driver should pass it to the database as a
-     * value of the corresponding SQL type.
-     * <P>
-     * Note that this method may be used to pass datatabase-
-     * specific abstract data types.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the object containing the input parameter value
-     * @param targetSqlType the SQL type (as defined in java.sql.Types) to be
-     * sent to the database. The scale argument may further qualify this type.
-     * @param scale for java.sql.Types.DECIMAL or java.sql.Types.NUMERIC types,
-     *          this is the number of digits after the decimal point.  For all other
-     *          types, this value will be ignored.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>targetSqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type
-     * @see Types
-     * @see #getObject
-     * @since 1.4
-     */
-    void setObject(String parameterName, Object x, int targetSqlType, int scale)
-        throws SQLException;
-
-    /**
-     * Sets the value of the designated parameter with the given object.
-     * This method is like the method <code>setObject</code>
-     * above, except that it assumes a scale of zero.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the object containing the input parameter value
-     * @param targetSqlType the SQL type (as defined in java.sql.Types) to be
-     *                      sent to the database
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if <code>targetSqlType</code> is
-     * a <code>ARRAY</code>, <code>BLOB</code>, <code>CLOB</code>,
-     * <code>DATALINK</code>, <code>JAVA_OBJECT</code>, <code>NCHAR</code>,
-     * <code>NCLOB</code>, <code>NVARCHAR</code>, <code>LONGNVARCHAR</code>,
-     *  <code>REF</code>, <code>ROWID</code>, <code>SQLXML</code>
-     * or  <code>STRUCT</code> data type and the JDBC driver does not support
-     * this data type
-     * @see #getObject
-     * @since 1.4
-     */
-    void setObject(String parameterName, Object x, int targetSqlType)
-        throws SQLException;
-
-    /**
-     * Sets the value of the designated parameter with the given object.
-     * The second parameter must be of type <code>Object</code>; therefore, the
-     * <code>java.lang</code> equivalent objects should be used for built-in types.
-     *
-     * <p>The JDBC specification specifies a standard mapping from
-     * Java <code>Object</code> types to SQL types.  The given argument
-     * will be converted to the corresponding SQL type before being
-     * sent to the database.
-     * <p>Note that this method may be used to pass datatabase-
-     * specific abstract data types, by using a driver-specific Java
+     * Defines the Type of a specified {@code OUT} parameter. This variant of
+     * the method is designed for use with parameters that are <i>User Defined
+     * Types</i> (UDT) or a {@code REF} type, although it can be used for any
      * type.
      *
-     * If the object is of a class implementing the interface <code>SQLData</code>,
-     * the JDBC driver should call the method <code>SQLData.writeSQL</code>
-     * to write it to the SQL data stream.
-     * If, on the other hand, the object is of a class implementing
-     * <code>Ref</code>, <code>Blob</code>, <code>Clob</code>,  <code>NClob</code>,
-     *  <code>Struct</code>, <code>java.net.URL</code>,
-     * or <code>Array</code>, the driver should pass it to the database as a
-     * value of the corresponding SQL type.
-     * <P>
-     * This method throws an exception if there is an ambiguity, for example, if the
-     * object is of a class implementing more than one of the interfaces named above.
-     *<p>
-     *<b>Note:</b> Not all databases allow for a non-typed Null to be sent to
-     * the backend. For maximum portability, the <code>setNull</code> or the
-     * <code>setObject(String parameterName, Object x, int sqlType)</code>
-     * method should be used
-     * instead of <code>setObject(String parameterName, Object x)</code>.
-     *<p>
-     * @param parameterName the name of the parameter
-     * @param x the object containing the input parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs,
-     * this method is called on a closed <code>CallableStatement</code> or if the given
-     *            <code>Object</code> parameter is ambiguous
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getObject
-     * @since 1.4
+     * @param parameterName
+     *            the parameter name
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}
+     * @param typeName
+     *            the fully qualified name of an SQL structured type. For a
+     *            {@code REF} type, this name should be the fully qualified name
+     *            of the referenced type.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    void setObject(String parameterName, Object x) throws SQLException;
-
+    public void registerOutParameter(String parameterName, int sqlType,
+            String typeName) throws SQLException;
 
     /**
-     * Sets the designated parameter to the given <code>Reader</code>
-     * object, which is the given number of characters long.
-     * When a very large UNICODE value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.Reader</code> object. The data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from UNICODE to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param reader the <code>java.io.Reader</code> object that
-     *        contains the UNICODE data used as the designated parameter
-     * @param length the number of characters in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    void setCharacterStream(String parameterName,
-                            java.io.Reader reader,
-                            int length) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Date</code> value,
-     * using the given <code>Calendar</code> object.  The driver uses
-     * the <code>Calendar</code> object to construct an SQL <code>DATE</code> value,
-     * which the driver then sends to the database.  With a
-     * a <code>Calendar</code> object, the driver can calculate the date
-     * taking into account a custom timezone.  If no
-     * <code>Calendar</code> object is specified, the driver uses the default
-     * timezone, which is that of the virtual machine running the application.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the date
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getDate
-     * @since 1.4
-     */
-    void setDate(String parameterName, java.sql.Date x, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Time</code> value,
-     * using the given <code>Calendar</code> object.  The driver uses
-     * the <code>Calendar</code> object to construct an SQL <code>TIME</code> value,
-     * which the driver then sends to the database.  With a
-     * a <code>Calendar</code> object, the driver can calculate the time
-     * taking into account a custom timezone.  If no
-     * <code>Calendar</code> object is specified, the driver uses the default
-     * timezone, which is that of the virtual machine running the application.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the time
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getTime
-     * @since 1.4
-     */
-    void setTime(String parameterName, java.sql.Time x, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Timestamp</code> value,
-     * using the given <code>Calendar</code> object.  The driver uses
-     * the <code>Calendar</code> object to construct an SQL <code>TIMESTAMP</code> value,
-     * which the driver then sends to the database.  With a
-     * a <code>Calendar</code> object, the driver can calculate the timestamp
-     * taking into account a custom timezone.  If no
-     * <code>Calendar</code> object is specified, the driver uses the default
-     * timezone, which is that of the virtual machine running the application.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the timestamp
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #getTimestamp
-     * @since 1.4
-     */
-    void setTimestamp(String parameterName, java.sql.Timestamp x, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to SQL <code>NULL</code>.
-     * This version of the method <code>setNull</code> should
-     * be used for user-defined types and REF type parameters.  Examples
-     * of user-defined types include: STRUCT, DISTINCT, JAVA_OBJECT, and
-     * named array types.
-     *
-     * <P><B>Note:</B> To be portable, applications must give the
-     * SQL type code and the fully-qualified SQL type name when specifying
-     * a NULL user-defined or REF parameter.  In the case of a user-defined type
-     * the name is the type name of the parameter itself.  For a REF
-     * parameter, the name is the type name of the referenced type.
+     * Sets the value of a specified parameter to the content of a supplied
+     * {@code InputStream}, which has a specified number of bytes.
      * <p>
-     * Although it is intended for user-defined and Ref parameters,
-     * this method may be used to set a null parameter of any JDBC type.
-     * If the parameter does not have a user-defined or REF type, the given
-     * typeName is ignored.
+     * This is a good method for setting an SQL {@code LONGVARCHAR} parameter
+     * where the length of the data is large. Data is read from the {@code
+     * InputStream} until end-of-file is reached or the specified number of
+     * bytes is copied.
      *
-     *
-     * @param parameterName the name of the parameter
-     * @param sqlType a value from <code>java.sql.Types</code>
-     * @param typeName the fully-qualified name of an SQL user-defined type;
-     *        ignored if the parameter is not a user-defined type or
-     *        SQL <code>REF</code> value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
+     * @param parameterName
+     *            the parameter name
+     * @param theInputStream
+     *            the ASCII input stream carrying the data to update the
+     *            parameter with.
+     * @param length
+     *            the number of bytes in the {@code InputStream} to copy to the
+     *            parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    void setNull (String parameterName, int sqlType, String typeName)
-        throws SQLException;
+    public void setAsciiStream(String parameterName,
+            InputStream theInputStream, int length) throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>CHAR</code>, <code>VARCHAR</code>,
-     * or <code>LONGVARCHAR</code> parameter as a <code>String</code> in
-     * the Java programming language.
+     * Sets the value of a specified parameter to a supplied {@code
+     * java.math.BigDecimal} value.
+     *
+     * @param parameterName
+     *            the name of the parameter.
+     * @param theBigDecimal
+     *            the {@code java.math.BigInteger} value to set.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void setBigDecimal(String parameterName, BigDecimal theBigDecimal)
+            throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to the content of a supplied
+     * binary {@code InputStream}, which has a specified number of bytes.
      * <p>
-     * For the fixed-length type JDBC <code>CHAR</code>,
-     * the <code>String</code> object
-     * returned has exactly the same value the SQL
-     * <code>CHAR</code> value had in the
-     * database, including any padding added by the database.
-     * @param parameterName the name of the parameter
-     * @return the parameter value. If the value is SQL <code>NULL</code>, the result
-     * is <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setString
-     * @since 1.4
-     */
-    String getString(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>BIT</code> or <code>BOOLEAN</code>
-     * parameter as a
-     * <code>boolean</code> in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>false</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setBoolean
-     * @since 1.4
-     */
-    boolean getBoolean(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>TINYINT</code> parameter as a <code>byte</code>
-     * in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setByte
-     * @since 1.4
-     */
-    byte getByte(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>SMALLINT</code> parameter as a <code>short</code>
-     * in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setShort
-     * @since 1.4
-     */
-    short getShort(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>INTEGER</code> parameter as an <code>int</code>
-     * in the Java programming language.
+     * Use this method when a large amount of data needs to be set into a
+     * {@code LONGVARBINARY} parameter.
      *
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     *         the result is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setInt
-     * @since 1.4
+     * @param parameterName
+     *            the name of the parameter.
+     * @param theInputStream
+     *            the binary {@code InputStream} carrying the data to update the
+     *            parameter.
+     * @param length
+     *            the number of bytes in the {@code InputStream} to copy to the
+     *            parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    int getInt(String parameterName) throws SQLException;
+    public void setBinaryStream(String parameterName,
+            InputStream theInputStream, int length) throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>BIGINT</code> parameter as a <code>long</code>
-     * in the Java programming language.
+     * Sets the value of a specified parameter to a supplied {@code boolean}
+     * value.
      *
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     *         the result is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setLong
-     * @since 1.4
+     * @param parameterName
+     *            the parameter name.
+     * @param theBoolean
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    long getLong(String parameterName) throws SQLException;
+    public void setBoolean(String parameterName, boolean theBoolean)
+            throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>FLOAT</code> parameter as a <code>float</code>
-     * in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     *         the result is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setFloat
-     * @since 1.4
+     * Sets the value of a specified parameter to a supplied {@code byte} value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theByte
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    float getFloat(String parameterName) throws SQLException;
+    public void setByte(String parameterName, byte theByte) throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>DOUBLE</code> parameter as a <code>double</code>
-     * in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     *         the result is <code>0</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setDouble
-     * @since 1.4
+     * Sets the value of a specified parameter to a supplied array of bytes. The
+     * array is mapped to {@code VARBINARY} or else {@code LONGVARBINARY} in the
+     * connected database.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theBytes
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    double getDouble(String parameterName) throws SQLException;
+    public void setBytes(String parameterName, byte[] theBytes)
+            throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>BINARY</code> or <code>VARBINARY</code>
-     * parameter as an array of <code>byte</code> values in the Java
-     * programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result is
-     *  <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setBytes
-     * @since 1.4
+     * Sets the value of a specified parameter to the character content of a
+     * {@code Reader} object, with the specified length of character data.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param reader
+     *            the new value with which to update the parameter.
+     * @param length
+     *            a count of the characters contained in {@code reader}.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    byte[] getBytes(String parameterName) throws SQLException;
+    public void setCharacterStream(String parameterName, Reader reader,
+            int length) throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>DATE</code> parameter as a
-     * <code>java.sql.Date</code> object.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setDate
-     * @since 1.4
+     * Sets the value of a specified parameter to a supplied {@code
+     * java.sql.Date} value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theDate
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    java.sql.Date getDate(String parameterName) throws SQLException;
+    public void setDate(String parameterName, Date theDate) throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>TIME</code> parameter as a
-     * <code>java.sql.Time</code> object.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setTime
-     * @since 1.4
+     * Sets the value of a specified parameter to a supplied {@code
+     * java.sql.Date} value, using a supplied calendar to map the date. The
+     * calendar allows the application to control the timezone used to compute
+     * the SQL {@code DATE} in the database. In case that no calendar is
+     * supplied, the driver uses the default timezone of the Java virtual
+     * machine.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theDate
+     *            the new value with which to update the parameter.
+     * @param cal
+     *            a {@code Calendar} to use to construct the SQL {@code DATE}
+     *            value.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see java.util.Calendar
+     * @see Date
      */
-    java.sql.Time getTime(String parameterName) throws SQLException;
+    public void setDate(String parameterName, Date theDate, Calendar cal)
+            throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>TIMESTAMP</code> parameter as a
-     * <code>java.sql.Timestamp</code> object.
-     * @param parameterName the name of the parameter
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result
-     * is <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setTimestamp
-     * @since 1.4
+     * Sets the value of a specified parameter to a supplied {@code double}
+     * value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theDouble
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    java.sql.Timestamp getTimestamp(String parameterName) throws SQLException;
+    public void setDouble(String parameterName, double theDouble)
+            throws SQLException;
 
     /**
-     * Retrieves the value of a parameter as an <code>Object</code> in the Java
-     * programming language. If the value is an SQL <code>NULL</code>, the
-     * driver returns a Java <code>null</code>.
+     * Sets the value of a specified parameter to to a supplied {@code float}
+     * value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theFloat
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void setFloat(String parameterName, float theFloat)
+            throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to a supplied {@code int} value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theInt
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void setInt(String parameterName, int theInt) throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to a supplied {@code long} value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theLong
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void setLong(String parameterName, long theLong) throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to SQL {@code NULL}. Don't use
+     * this version of {@code setNull} for <i>User Defined Types</i> (UDT) or
+     * for {@code REF} type parameters.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public void setNull(String parameterName, int sqlType) throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to be SQL {@code NULL} where the
+     * parameter type is either {@code REF} or user defined (e.g. {@code STRUCT}
+     * , {@code JAVA_OBJECT} etc).
      * <p>
-     * This method returns a Java object whose type corresponds to the JDBC
-     * type that was registered for this parameter using the method
-     * <code>registerOutParameter</code>.  By registering the target JDBC
-     * type as <code>java.sql.Types.OTHER</code>, this method can be used
-     * to read database-specific abstract data types.
-     * @param parameterName the name of the parameter
-     * @return A <code>java.lang.Object</code> holding the OUT parameter value.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
+     * For reasons of portability, the caller is expected to supply both the SQL
+     * type code and type name (which is just the parameter name if the type is
+     * user defined, referred to as a {@code UDT}, or the name of the referenced
+     * type in case of a {@code REF} type).
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param sqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @param typeName
+     *            if the target parameter is a user defined type then this
+     *            should contain the full type name. The fully qualified name of
+     *            a {@code UDT} or {@code REF} type is ignored if the parameter
+     *            is not a {@code UDT}.
+     * @throws SQLException
+     *             if a database error occurs.
      * @see Types
-     * @see #setObject
-     * @since 1.4
      */
-    Object getObject(String parameterName) throws SQLException;
+    public void setNull(String parameterName, int sqlType, String typeName)
+            throws SQLException;
 
     /**
-     * Retrieves the value of a JDBC <code>NUMERIC</code> parameter as a
-     * <code>java.math.BigDecimal</code> object with as many digits to the
-     * right of the decimal point as the value contains.
-     * @param parameterName the name of the parameter
-     * @return the parameter value in full precision.  If the value is
-     * SQL <code>NULL</code>, the result is <code>null</code>.
-     * @exception SQLExceptionif parameterName does not correspond to a named
-     * parameter;  if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setBigDecimal
-     * @since 1.4
-     */
-    BigDecimal getBigDecimal(String parameterName) throws SQLException;
-
-    /**
-     * Returns an object representing the value of OUT parameter
-     * <code>parameterName</code> and uses <code>map</code> for the custom
-     * mapping of the parameter value.
+     * Sets the value of a specified parameter using a supplied object. Prior to
+     * issuing this request to the connected database {@code theObject} is
+     * transformed to the corresponding SQL type according to the standard Java
+     * to SQL mapping rules.
      * <p>
-     * This method returns a Java object whose type corresponds to the
-     * JDBC type that was registered for this parameter using the method
-     * <code>registerOutParameter</code>.  By registering the target
-     * JDBC type as <code>java.sql.Types.OTHER</code>, this method can
-     * be used to read database-specific abstract data types.
-     * @param parameterName the name of the parameter
-     * @param map the mapping from SQL type names to Java classes
-     * @return a <code>java.lang.Object</code> holding the OUT parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setObject
-     * @since 1.4
-     */
-    Object getObject(String parameterName, java.util.Map<String,Class<?>> map)
-      throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>REF(&lt;structured-type&gt;)</code>
-     * parameter as a {@link java.sql.Ref} object in the Java programming language.
+     * If the object's class implements the interface {@code SQLData}, the JDBC
+     * driver calls {@code SQLData.writeSQL} to write it to the SQL data stream.
+     * If {@code theObject} implements any of the following interfaces then the
+     * driver is in charge of mapping the value to the appropriate SQL type.
+     * <ul><li>{@link Ref}</li>
+     * <li>{@link Struct}</li>
+     * <li>{@link Array}</li>
+     * <li>{@link Clob}</li>
+     * <li>{@link Blob}</li> </ul>
      *
-     * @param parameterName the name of the parameter
-     * @return the parameter value as a <code>Ref</code> object in the
-     *         Java programming language.  If the value was SQL <code>NULL</code>,
-     *         the value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
+     * @param parameterName
+     *            the parameter name
+     * @param theObject
+     *            the new value with which to update the parameter
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see SQLData
      */
-    Ref getRef (String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>BLOB</code> parameter as a
-     * {@link java.sql.Blob} object in the Java programming language.
-     *
-     * @param parameterName the name of the parameter
-     * @return the parameter value as a <code>Blob</code> object in the
-     *         Java programming language.  If the value was SQL <code>NULL</code>,
-     *         the value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    Blob getBlob (String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>CLOB</code> parameter as a
-     * <code>java.sql.Clob</code> object in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value as a <code>Clob</code> object in the
-     *         Java programming language.  If the value was SQL <code>NULL</code>,
-     *         the value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    Clob getClob (String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>ARRAY</code> parameter as an
-     * {@link java.sql.Array} object in the Java programming language.
-     *
-     * @param parameterName the name of the parameter
-     * @return the parameter value as an <code>Array</code> object in
-     *         Java programming language.  If the value was SQL <code>NULL</code>,
-     *         the value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.4
-     */
-    Array getArray (String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>DATE</code> parameter as a
-     * <code>java.sql.Date</code> object, using
-     * the given <code>Calendar</code> object
-     * to construct the date.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the date taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     * @param parameterName the name of the parameter
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the date
-     * @return the parameter value.  If the value is SQL <code>NULL</code>,
-     * the result is <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setDate
-     * @since 1.4
-     */
-    java.sql.Date getDate(String parameterName, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>TIME</code> parameter as a
-     * <code>java.sql.Time</code> object, using
-     * the given <code>Calendar</code> object
-     * to construct the time.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the time taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     * @param parameterName the name of the parameter
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the time
-     * @return the parameter value; if the value is SQL <code>NULL</code>, the result is
-     * <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setTime
-     * @since 1.4
-     */
-    java.sql.Time getTime(String parameterName, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>TIMESTAMP</code> parameter as a
-     * <code>java.sql.Timestamp</code> object, using
-     * the given <code>Calendar</code> object to construct
-     * the <code>Timestamp</code> object.
-     * With a <code>Calendar</code> object, the driver
-     * can calculate the timestamp taking into account a custom timezone and locale.
-     * If no <code>Calendar</code> object is specified, the driver uses the
-     * default timezone and locale.
-     *
-     *
-     * @param parameterName the name of the parameter
-     * @param cal the <code>Calendar</code> object the driver will use
-     *            to construct the timestamp
-     * @return the parameter value.  If the value is SQL <code>NULL</code>, the result is
-     * <code>null</code>.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setTimestamp
-     * @since 1.4
-     */
-    java.sql.Timestamp getTimestamp(String parameterName, Calendar cal)
-        throws SQLException;
-
-    /**
-     * Retrieves the value of a JDBC <code>DATALINK</code> parameter as a
-     * <code>java.net.URL</code> object.
-     *
-     * @param parameterName the name of the parameter
-     * @return the parameter value as a <code>java.net.URL</code> object in the
-     * Java programming language.  If the value was SQL <code>NULL</code>, the
-     * value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs,
-     * this method is called on a closed <code>CallableStatement</code>,
-     *            or if there is a problem with the URL
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @see #setURL
-     * @since 1.4
-     */
-    java.net.URL getURL(String parameterName) throws SQLException;
-
-    //------------------------- JDBC 4.0 -----------------------------------
-
-    /**
-     * Retrieves the value of the designated JDBC <code>ROWID</code> parameter as a
-     * <code>java.sql.RowId</code> object.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2,...
-     * @return a <code>RowId</code> object that represents the JDBC <code>ROWID</code>
-     *     value is used as the designated parameter. If the parameter contains
-     * a SQL <code>NULL</code>, then a <code>null</code> value is returned.
-     * @throws SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    RowId getRowId(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>ROWID</code> parameter as a
-     * <code>java.sql.RowId</code> object.
-     *
-     * @param parameterName the name of the parameter
-     * @return a <code>RowId</code> object that represents the JDBC <code>ROWID</code>
-     *     value is used as the designated parameter. If the parameter contains
-     * a SQL <code>NULL</code>, then a <code>null</code> value is returned.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    RowId getRowId(String parameterName) throws SQLException;
-
-     /**
-     * Sets the designated parameter to the given <code>java.sql.RowId</code> object. The
-     * driver converts this to a SQL <code>ROWID</code> when it sends it to the
-     * database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the parameter value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setRowId(String parameterName, RowId x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>String</code> object.
-     * The driver converts this to a SQL <code>NCHAR</code> or
-     * <code>NVARCHAR</code> or <code>LONGNVARCHAR</code>
-     * @param parameterName the name of the parameter to be set
-     * @param value the parameter value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setNString(String parameterName, String value)
+    public void setObject(String parameterName, Object theObject)
             throws SQLException;
 
     /**
-     * Sets the designated parameter to a <code>Reader</code> object. The
-     * <code>Reader</code> reads the data till end-of-file is reached. The
-     * driver does the necessary conversion from Java character format to
-     * the national character set in the database.
-     * @param parameterName the name of the parameter to be set
-     * @param value the parameter value
-     * @param length the number of characters in the parameter data.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setNCharacterStream(String parameterName, Reader value, long length)
-            throws SQLException;
-
-     /**
-     * Sets the designated parameter to a <code>java.sql.NClob</code> object. The object
-     * implements the <code>java.sql.NClob</code> interface. This <code>NClob</code>
-     * object maps to a SQL <code>NCLOB</code>.
-     * @param parameterName the name of the parameter to be set
-     * @param value the parameter value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-     void setNClob(String parameterName, NClob value) throws SQLException;
-
-    /**
-     * Sets the designated parameter to a <code>Reader</code> object.  The <code>reader</code> must contain  the number
-     * of characters specified by length otherwise a <code>SQLException</code> will be
-     * generated when the <code>CallableStatement</code> is executed.
-     * This method differs from the <code>setCharacterStream (int, Reader, int)</code> method
-     * because it informs the driver that the parameter value should be sent to
-     * the server as a <code>CLOB</code>.  When the <code>setCharacterStream</code> method is used, the
-     * driver may have to do extra work to determine whether the parameter
-     * data should be send to the server as a <code>LONGVARCHAR</code> or a <code>CLOB</code>
-     * @param parameterName the name of the parameter to be set
-     * @param reader An object that contains the data to set the parameter value to.
-     * @param length the number of characters in the parameter data.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the length specified is less than zero;
-     * a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     *
-     * @since 1.6
-     */
-     void setClob(String parameterName, Reader reader, long length)
-       throws SQLException;
-
-    /**
-     * Sets the designated parameter to a <code>InputStream</code> object.  The <code>inputstream</code> must contain  the number
-     * of characters specified by length, otherwise a <code>SQLException</code> will be
-     * generated when the <code>CallableStatement</code> is executed.
-     * This method differs from the <code>setBinaryStream (int, InputStream, int)</code>
-     * method because it informs the driver that the parameter value should be
-     * sent to the server as a <code>BLOB</code>.  When the <code>setBinaryStream</code> method is used,
-     * the driver may have to do extra work to determine whether the parameter
-     * data should be sent to the server as a <code>LONGVARBINARY</code> or a <code>BLOB</code>
-     *
-     * @param parameterName the name of the parameter to be set
-     * the second is 2, ...
-     *
-     * @param inputStream An object that contains the data to set the parameter
-     * value to.
-     * @param length the number of bytes in the parameter data.
-     * @throws SQLException  if parameterName does not correspond to a named
-     * parameter; if the length specified
-     * is less than zero; if the number of bytes in the inputstream does not match
-     * the specfied length; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     *
-     * @since 1.6
-     */
-     void setBlob(String parameterName, InputStream inputStream, long length)
-        throws SQLException;
-    /**
-     * Sets the designated parameter to a <code>Reader</code> object.  The <code>reader</code> must contain  the number
-     * of characters specified by length otherwise a <code>SQLException</code> will be
-     * generated when the <code>CallableStatement</code> is executed.
-     * This method differs from the <code>setCharacterStream (int, Reader, int)</code> method
-     * because it informs the driver that the parameter value should be sent to
-     * the server as a <code>NCLOB</code>.  When the <code>setCharacterStream</code> method is used, the
-     * driver may have to do extra work to determine whether the parameter
-     * data should be send to the server as a <code>LONGNVARCHAR</code> or a <code>NCLOB</code>
-     *
-     * @param parameterName the name of the parameter to be set
-     * @param reader An object that contains the data to set the parameter value to.
-     * @param length the number of characters in the parameter data.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the length specified is less than zero;
-     * if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-     void setNClob(String parameterName, Reader reader, long length)
-       throws SQLException;
-
-    /**
-     * Retrieves the value of the designated JDBC <code>NCLOB</code> parameter as a
-     * <code>java.sql.NClob</code> object in the Java programming language.
-     *
-     * @param parameterIndex the first parameter is 1, the second is 2, and
-     * so on
-     * @return the parameter value as a <code>NClob</code> object in the
-     * Java programming language.  If the value was SQL <code>NULL</code>, the
-     * value <code>null</code> is returned.
-     * @exception SQLException if the parameterIndex is not valid;
-     * if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    NClob getNClob (int parameterIndex) throws SQLException;
-
-
-    /**
-     * Retrieves the value of a JDBC <code>NCLOB</code> parameter as a
-     * <code>java.sql.NClob</code> object in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return the parameter value as a <code>NClob</code> object in the
-     *         Java programming language.  If the value was SQL <code>NULL</code>,
-     *         the value <code>null</code> is returned.
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    NClob getNClob (String parameterName) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.SQLXML</code> object. The driver converts this to an
-     * <code>SQL XML</code> value when it sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param xmlObject a <code>SQLXML</code> object that maps an <code>SQL XML</code> value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs;
-     * this method is called on a closed <code>CallableStatement</code> or
-     * the <code>java.xml.transform.Result</code>,
-   *  <code>Writer</code> or <code>OutputStream</code> has not been closed for the <code>SQLXML</code> object
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     *
-     * @since 1.6
-     */
-    void setSQLXML(String parameterName, SQLXML xmlObject) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated <code>SQL XML</code> parameter as a
-     * <code>java.sql.SQLXML</code> object in the Java programming language.
-     * @param parameterIndex index of the first parameter is 1, the second is 2, ...
-     * @return a <code>SQLXML</code> object that maps an <code>SQL XML</code> value
-     * @throws SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    SQLXML getSQLXML(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated <code>SQL XML</code> parameter as a
-     * <code>java.sql.SQLXML</code> object in the Java programming language.
-     * @param parameterName the name of the parameter
-     * @return a <code>SQLXML</code> object that maps an <code>SQL XML</code> value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    SQLXML getSQLXML(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated <code>NCHAR</code>,
-     * <code>NVARCHAR</code>
-     * or <code>LONGNVARCHAR</code> parameter as
-     * a <code>String</code> in the Java programming language.
-     *  <p>
-     * For the fixed-length type JDBC <code>NCHAR</code>,
-     * the <code>String</code> object
-     * returned has exactly the same value the SQL
-     * <code>NCHAR</code> value had in the
-     * database, including any padding added by the database.
-     *
-     * @param parameterIndex index of the first parameter is 1, the second is 2, ...
-     * @return a <code>String</code> object that maps an
-     * <code>NCHAR</code>, <code>NVARCHAR</code> or <code>LONGNVARCHAR</code> value
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     * @see #setNString
-     */
-    String getNString(int parameterIndex) throws SQLException;
-
-
-    /**
-     *  Retrieves the value of the designated <code>NCHAR</code>,
-     * <code>NVARCHAR</code>
-     * or <code>LONGNVARCHAR</code> parameter as
-     * a <code>String</code> in the Java programming language.
+     * Sets the value of a specified parameter using a supplied object.
      * <p>
-     * For the fixed-length type JDBC <code>NCHAR</code>,
-     * the <code>String</code> object
-     * returned has exactly the same value the SQL
-     * <code>NCHAR</code> value had in the
-     * database, including any padding added by the database.
+     * The parameter {@code theObject} is converted to the given {@code
+     * targetSqlType} before it is sent to the database. If the object has a
+     * custom mapping (its class implements the interface {@code SQLData}), the
+     * JDBC driver calls the method {@code SQLData.writeSQL} to write it to the
+     * SQL data stream. If {@code theObject} is an instance of one of the
+     * following types
+     * <ul>
+     * <li>{@link Ref}</li>
+     * <li>{@link Struct}</li>
+     * <li>{@link Array}</li>
+     * <li>{@link Clob}</li>
+     * <li>{@link Blob}</li>
+     * </ul>
+     * then the driver is in charge of mapping the value to the appropriate
+     * SQL type and deliver it to the database.
      *
-     * @param parameterName the name of the parameter
-     * @return a <code>String</code> object that maps an
-     * <code>NCHAR</code>, <code>NVARCHAR</code> or <code>LONGNVARCHAR</code> value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     * @see #setNString
+     * @param parameterName
+     *            the parameter name.
+     * @param theObject
+     *            the new value with which to update the parameter.
+     * @param targetSqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see SQLData
      */
-    String getNString(String parameterName) throws SQLException;
+    public void setObject(String parameterName, Object theObject,
+            int targetSqlType) throws SQLException;
 
     /**
-     * Retrieves the value of the designated parameter as a
-     * <code>java.io.Reader</code> object in the Java programming language.
-     * It is intended for use when
-     * accessing  <code>NCHAR</code>,<code>NVARCHAR</code>
-     * and <code>LONGNVARCHAR</code> parameters.
+     * Sets the value of a specified parameter using a supplied object.
+     * <p>
+     * The object is converted to the given {@code targetSqlType} before it is
+     * sent to the database. If the object has a custom mapping (its class
+     * implements the interface {@code SQLData}), the JDBC driver calls the
+     * method {@code SQLData.writeSQL} to write it to the SQL data stream. If
+     * {@code theObject} implements any of the following interfaces
+     * <ul>
+     * <li>{@link Ref}</li>
+     * <li>{@link Struct}</li>
+     * <li>{@link Array}</li>
+     * <li>{@link Clob}</li>
+     * <li>{@link Blob}</li>
+     * </ul>
+     * then the driver is charge of mapping the value to the appropriate
+     * SQL type.
      *
-     * @return a <code>java.io.Reader</code> object that contains the parameter
-     * value; if the value is SQL <code>NULL</code>, the value returned is
-     * <code>null</code> in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2, ...
-     * @exception SQLException if the parameterIndex is not valid;
-     * if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
+     * @param parameterName
+     *            the parameter name.
+     * @param theObject
+     *            the new value with which to update the parameter.
+     * @param targetSqlType
+     *            a JDBC type expressed as a constant from {@link Types}.
+     * @param scale
+     *            where applicable, the number of digits after the decimal.
+     *            point.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see SQLData
      */
-    java.io.Reader getNCharacterStream(int parameterIndex) throws SQLException;
+    public void setObject(String parameterName, Object theObject,
+            int targetSqlType, int scale) throws SQLException;
 
     /**
-     * Retrieves the value of the designated parameter as a
-     * <code>java.io.Reader</code> object in the Java programming language.
-     * It is intended for use when
-     * accessing  <code>NCHAR</code>,<code>NVARCHAR</code>
-     * and <code>LONGNVARCHAR</code> parameters.
+     * Sets the value of a specified parameter to a supplied {@code short}
+     * value.
      *
-     * @param parameterName the name of the parameter
-     * @return a <code>java.io.Reader</code> object that contains the parameter
-     * value; if the value is SQL <code>NULL</code>, the value returned is
-     * <code>null</code> in the Java programming language
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
+     * @param parameterName
+     *            the name of the parameter.
+     * @param theShort
+     *            a short value to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-    java.io.Reader getNCharacterStream(String parameterName) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated parameter as a
-     * <code>java.io.Reader</code> object in the Java programming language.
-     *
-     * @return a <code>java.io.Reader</code> object that contains the parameter
-     * value; if the value is SQL <code>NULL</code>, the value returned is
-     * <code>null</code> in the Java programming language.
-     * @param parameterIndex the first parameter is 1, the second is 2, ...
-     * @exception SQLException if the parameterIndex is not valid; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @since 1.6
-     */
-    java.io.Reader getCharacterStream(int parameterIndex) throws SQLException;
-
-    /**
-     * Retrieves the value of the designated parameter as a
-     * <code>java.io.Reader</code> object in the Java programming language.
-     *
-     * @param parameterName the name of the parameter
-     * @return a <code>java.io.Reader</code> object that contains the parameter
-     * value; if the value is SQL <code>NULL</code>, the value returned is
-     * <code>null</code> in the Java programming language
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    java.io.Reader getCharacterStream(String parameterName) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Blob</code> object.
-     * The driver converts this to an SQL <code>BLOB</code> value when it
-     * sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x a <code>Blob</code> object that maps an SQL <code>BLOB</code> value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setBlob (String parameterName, Blob x) throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given <code>java.sql.Clob</code> object.
-     * The driver converts this to an SQL <code>CLOB</code> value when it
-     * sends it to the database.
-     *
-     * @param parameterName the name of the parameter
-     * @param x a <code>Clob</code> object that maps an SQL <code>CLOB</code> value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setClob (String parameterName, Clob x) throws SQLException;
-    /**
-     * Sets the designated parameter to the given input stream, which will have
-     * the specified number of bytes.
-     * When a very large ASCII value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code>. Data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from ASCII to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the Java input stream that contains the ASCII parameter value
-     * @param length the number of bytes in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setAsciiStream(String parameterName, java.io.InputStream x, long length)
-        throws SQLException;
-
-    /**
-     * Sets the designated parameter to the given input stream, which will have
-     * the specified number of bytes.
-     * When a very large binary value is input to a <code>LONGVARBINARY</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code> object. The data will be read from the stream
-     * as needed until end-of-file is reached.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the java input stream which contains the binary parameter value
-     * @param length the number of bytes in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setBinaryStream(String parameterName, java.io.InputStream x,
-                         long length) throws SQLException;
-        /**
-     * Sets the designated parameter to the given <code>Reader</code>
-     * object, which is the given number of characters long.
-     * When a very large UNICODE value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.Reader</code> object. The data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from UNICODE to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     *
-     * @param parameterName the name of the parameter
-     * @param reader the <code>java.io.Reader</code> object that
-     *        contains the UNICODE data used as the designated parameter
-     * @param length the number of characters in the stream
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
-     * this method
-     * @since 1.6
-     */
-    void setCharacterStream(String parameterName,
-                            java.io.Reader reader,
-                            long length) throws SQLException;
-     //--
-    /**
-     * Sets the designated parameter to the given input stream.
-     * When a very large ASCII value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code>. Data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from ASCII to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setAsciiStream</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the Java input stream that contains the ASCII parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-       * @since 1.6
-    */
-    void setAsciiStream(String parameterName, java.io.InputStream x)
+    public void setShort(String parameterName, short theShort)
             throws SQLException;
-    /**
-     * Sets the designated parameter to the given input stream.
-     * When a very large binary value is input to a <code>LONGVARBINARY</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.InputStream</code> object. The data will be read from the
-     * stream as needed until end-of-file is reached.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setBinaryStream</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param x the java input stream which contains the binary parameter value
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-     * @since 1.6
-     */
-    void setBinaryStream(String parameterName, java.io.InputStream x)
-    throws SQLException;
-    /**
-     * Sets the designated parameter to the given <code>Reader</code>
-     * object.
-     * When a very large UNICODE value is input to a <code>LONGVARCHAR</code>
-     * parameter, it may be more practical to send it via a
-     * <code>java.io.Reader</code> object. The data will be read from the stream
-     * as needed until end-of-file is reached.  The JDBC driver will
-     * do any necessary conversion from UNICODE to the database char format.
-     *
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setCharacterStream</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param reader the <code>java.io.Reader</code> object that contains the
-     *        Unicode data
-     * @exception SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-     * @since 1.6
-     */
-    void setCharacterStream(String parameterName,
-                          java.io.Reader reader) throws SQLException;
-  /**
-     * Sets the designated parameter to a <code>Reader</code> object. The
-     * <code>Reader</code> reads the data till end-of-file is reached. The
-     * driver does the necessary conversion from Java character format to
-     * the national character set in the database.
-
-     * <P><B>Note:</B> This stream object can either be a standard
-     * Java stream object or your own subclass that implements the
-     * standard interface.
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setNCharacterStream</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param value the parameter value
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national
-     *         character sets;  if the driver can detect that a data conversion
-     *  error could occur; if a database access error occurs; or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-     * @since 1.6
-     */
-     void setNCharacterStream(String parameterName, Reader value) throws SQLException;
 
     /**
-     * Sets the designated parameter to a <code>Reader</code> object.
-     * This method differs from the <code>setCharacterStream (int, Reader)</code> method
-     * because it informs the driver that the parameter value should be sent to
-     * the server as a <code>CLOB</code>.  When the <code>setCharacterStream</code> method is used, the
-     * driver may have to do extra work to determine whether the parameter
-     * data should be send to the server as a <code>LONGVARCHAR</code> or a <code>CLOB</code>
+     * Sets the value of a specified parameter to a supplied {@code String}.
      *
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setClob</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param reader An object that contains the data to set the parameter value to.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or this method is called on
-     * a closed <code>CallableStatement</code>
-     *
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-     * @since 1.6
+     * @param parameterName
+     *            the name of the parameter.
+     * @param theString
+     *            a {@code String} value to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
      */
-     void setClob(String parameterName, Reader reader)
-       throws SQLException;
+    public void setString(String parameterName, String theString)
+            throws SQLException;
 
     /**
-     * Sets the designated parameter to a <code>InputStream</code> object.
-     * This method differs from the <code>setBinaryStream (int, InputStream)</code>
-     * method because it informs the driver that the parameter value should be
-     * sent to the server as a <code>BLOB</code>.  When the <code>setBinaryStream</code> method is used,
-     * the driver may have to do extra work to determine whether the parameter
-     * data should be send to the server as a <code>LONGVARBINARY</code> or a <code>BLOB</code>
+     * Sets the value of the parameter named {@code parameterName} to the value
+     * of the supplied {@code java.sql.Time}.
      *
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setBlob</code> which takes a length parameter.
-     *
-     * @param parameterName the name of the parameter
-     * @param inputStream An object that contains the data to set the parameter
-     * value to.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
-     *
-     * @since 1.6
+     * @param parameterName
+     *            the parameter name.
+     * @param theTime
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
      */
-     void setBlob(String parameterName, InputStream inputStream)
-        throws SQLException;
+    public void setTime(String parameterName, Time theTime) throws SQLException;
+
     /**
-     * Sets the designated parameter to a <code>Reader</code> object.
-     * This method differs from the <code>setCharacterStream (int, Reader)</code> method
-     * because it informs the driver that the parameter value should be sent to
-     * the server as a <code>NCLOB</code>.  When the <code>setCharacterStream</code> method is used, the
-     * driver may have to do extra work to determine whether the parameter
-     * data should be send to the server as a <code>LONGNVARCHAR</code> or a <code>NCLOB</code>
-     * <P><B>Note:</B> Consult your JDBC driver documentation to determine if
-     * it might be more efficient to use a version of
-     * <code>setNClob</code> which takes a length parameter.
+     * Sets the value of the parameter named {@code parameterName} to the value
+     * of the supplied {@code java.sql.Time} using the supplied calendar.
      *
-     * @param parameterName the name of the parameter
-     * @param reader An object that contains the data to set the parameter value to.
-     * @throws SQLException if parameterName does not correspond to a named
-     * parameter; if the driver does not support national character sets;
-     * if the driver can detect that a data conversion
-     *  error could occur;  if a database access error occurs or
-     * this method is called on a closed <code>CallableStatement</code>
-     * @throws SQLFeatureNotSupportedException  if the JDBC driver does not support this method
+     * <p>The driver uses the supplied {@code Calendar} to create the SQL
+     * {@code TIME} value, which allows it to use a custom timezone -
+     * otherwise the driver uses the VM defaults.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
      *
-     * @since 1.6
+     * @param parameterName
+     *            the parameter name.
+     * @param theTime
+     *            the new value with which to update the parameter.
+     * @param cal
+     *            used for creating the new SQL {@code TIME} value.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Time
      */
-     void setNClob(String parameterName, Reader reader)
-       throws SQLException;
+    public void setTime(String parameterName, Time theTime, Calendar cal)
+            throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to a supplied {@code
+     * java.sql.Timestamp} value.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theTimestamp
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     */
+    public void setTimestamp(String parameterName, Timestamp theTimestamp)
+            throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to a supplied {@code
+     * java.sql.Timestamp} value, using the supplied calendar.
+     *
+     * <p>The driver uses the supplied calendar to create the SQL {@code TIMESTAMP}
+     * value, which allows it to use a custom timezone - otherwise the driver
+     * uses the VM defaults.
+     * See "<a href="../util/Locale.html#default_locale">Be wary of the default locale</a>".
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theTimestamp
+     *            the new value with which to update the parameter.
+     * @param cal
+     *            used for creating the new SQL {@code TIME} value.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see Timestamp
+     * @see java.util.Calendar
+     */
+    public void setTimestamp(String parameterName, Timestamp theTimestamp,
+            Calendar cal) throws SQLException;
+
+    /**
+     * Sets the value of a specified parameter to the supplied {@code
+     * java.net.URL}.
+     *
+     * @param parameterName
+     *            the parameter name.
+     * @param theURL
+     *            the new value with which to update the parameter.
+     * @throws SQLException
+     *             if a database error occurs.
+     * @see java.net.URL
+     */
+    public void setURL(String parameterName, URL theURL) throws SQLException;
+
+    /**
+     * Gets whether the value of the last {@code OUT} parameter read was SQL
+     * {@code NULL}.
+     *
+     * @return true if the last parameter was SQL {@code NULL}, {@code false}
+     *         otherwise.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public boolean wasNull() throws SQLException;
+
+    /**
+     * Gets the value of a specified {@code ROWID} parameter as a {@code
+     * java.sql.RowId}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public RowId getRowId(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL ROWID parameter as a {@code
+     * java.sql.RowId}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public RowId getRowId(String parameterName) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code rowId}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setRowId(String parameterName, RowId rowId) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code string}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNString(String parameterName, String string) throws SQLException;
+
+    /**
+     * Sets the named parameter to the characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNCharacterStream(String parameterName, Reader reader, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code nclob}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNClob(String parameterName, NClob nclob) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setClob(String parameterName, Reader reader, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} bytes from the given {@code inputStream}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setBlob(String parameterName, InputStream inputStream, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNClob(String parameterName, Reader reader, long length) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCLOB parameter as a {@code
+     * java.sql.NClob}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public NClob getNClob(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCLOB parameter as a {@code
+     * java.sql.NClob}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public NClob getNClob(String parameterName) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code sqlXml}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setSQLXML(String parameterName, SQLXML sqlXml) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL XML parameter as a {@code
+     * java.sql.SQLXML}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public SQLXML getSQLXML(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL XML parameter as a {@code
+     * java.sql.SQLXML}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public SQLXML getSQLXML(String parameterName) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCHAR, NVARCHAR, or LONGNVARCHAR parameter as a
+     * {@code java.lang.String}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public String getNString(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCHAR, NVARCHAR, or LONGNVARCHAR parameter as a {@code
+     * java.lang.String}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public String getNString(String parameterName) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCHAR, NVARCHAR, or LONGNVARCHAR parameter
+     * as a {@link Reader}.
+     *
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Reader getNCharacterStream(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified SQL NCHAR, NVARCHAR, or LONGNVARCHAR parameter as a {@code
+     * java.io.Reader}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public Reader getNCharacterStream(String parameterName) throws SQLException;
+
+    /**
+     * Returns the value of the specified parameter as a {@code java.io.Reader}.
+     * @param parameterIndex
+     *            the parameter number index, where the first parameter has
+     *            index 1.
+     * @throws SQLException
+     *             if a database error occurs.
+     */
+    public Reader getCharacterStream(int parameterIndex) throws SQLException;
+
+    /**
+     * Returns the value of the specified parameter as a {@code java.io.Reader}.
+     * @param parameterName the parameter name
+     * @throws SQLException if a database error occurs
+     */
+    public Reader getCharacterStream(String parameterName) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code blob}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setBlob(String parameterName, Blob blob) throws SQLException;
+
+    /**
+     * Sets the named parameter to the given {@code clob}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setClob(String parameterName, Clob clob) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} bytes from the given {@code inputStream}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setAsciiStream(String parameterName, InputStream x, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the bytes from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setAsciiStream(String parameterName, InputStream x) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} bytes from the given {@code inputStream}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setBinaryStream(String parameterName, InputStream x, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the bytes from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setBinaryStream(String parameterName, InputStream x) throws SQLException;
+
+    /**
+     * Sets the named parameter to the next {@code length} characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setCharacterStream(String parameterName, Reader reader, long length) throws SQLException;
+
+    /**
+     * Sets the named parameter to the characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setCharacterStream(String parameterName, Reader reader) throws SQLException;
+
+    /**
+     * Sets the named parameter to the characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNCharacterStream(String parameterName, Reader value) throws SQLException;
+
+    /**
+     * Sets the named parameter to the characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setClob(String parameterName, Reader reader) throws SQLException;
+
+    /**
+     * Sets the named parameter to the bytes from the given {@code inputStream}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setBlob(String parameterName, InputStream inputStream) throws SQLException;
+
+    /**
+     * Sets the named parameter to the characters from the given {@code reader}.
+     * @throws SQLException if a database error occurs
+     */
+    public void setNClob(String parameterName, Reader reader) throws SQLException;
 }

@@ -16,9 +16,6 @@
 
 package android.view.inputmethod;
 
-import android.annotation.MainThread;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.inputmethodservice.InputMethodService;
@@ -91,9 +88,8 @@ public interface InputMethod {
      * accept the first token given to you.  Any after that may come from the
      * client.
      */
-    @MainThread
     public void attachToken(IBinder token);
-
+    
     /**
      * Bind a new application environment in to the input method, so that it
      * can later start and stop input processing.
@@ -106,7 +102,6 @@ public interface InputMethod {
      * @see InputBinding
      * @see #unbindInput()
      */
-    @MainThread
     public void bindInput(InputBinding binding);
 
     /**
@@ -117,7 +112,6 @@ public interface InputMethod {
      * Typically this method is called when the application changes to be
      * non-foreground.
      */
-    @MainThread
     public void unbindInput();
 
     /**
@@ -133,7 +127,6 @@ public interface InputMethod {
      * 
      * @see EditorInfo
      */
-    @MainThread
     public void startInput(InputConnection inputConnection, EditorInfo info);
 
     /**
@@ -152,47 +145,7 @@ public interface InputMethod {
      * 
      * @see EditorInfo
      */
-    @MainThread
     public void restartInput(InputConnection inputConnection, EditorInfo attribute);
-
-    /**
-     * This method is called when {@code {@link #startInput(InputConnection, EditorInfo)} or
-     * {@code {@link #restartInput(InputConnection, EditorInfo)} needs to be dispatched.
-     *
-     * <p>Note: This method is hidden because the {@code startInputToken} that this method is
-     * dealing with is one of internal details, which should not be exposed to the IME developers.
-     * If you override this method, you are responsible for not breaking existing IMEs that expect
-     * {@link #startInput(InputConnection, EditorInfo)} to be still called back.</p>
-     *
-     * @param inputConnection optional specific input connection for communicating with the text
-     *                        box; if {@code null}, you should use the generic bound input
-     *                        connection
-     * @param editorInfo information about the text box (typically, an EditText) that requests input
-     * @param restarting {@code false} if this corresponds to
-     *                   {@link #startInput(InputConnection, EditorInfo)}. Otherwise this
-     *                   corresponds to {@link #restartInput(InputConnection, EditorInfo)}.
-     * @param startInputToken a token that identifies a logical session that starts with this method
-     *                        call. Some internal IPCs such as {@link
-     *                        InputMethodManager#setImeWindowStatus(IBinder, IBinder, int, int)}
-     *                        require this token to work, and you have to keep the token alive until
-     *                        the next {@link #startInput(InputConnection, EditorInfo, IBinder)} as
-     *                        long as your implementation of {@link InputMethod} relies on such
-     *                        IPCs
-     * @see #startInput(InputConnection, EditorInfo)
-     * @see #restartInput(InputConnection, EditorInfo)
-     * @see EditorInfo
-     * @hide
-     */
-    @MainThread
-    default void dispatchStartInputWithToken(@Nullable InputConnection inputConnection,
-            @NonNull EditorInfo editorInfo, boolean restarting,
-            @NonNull IBinder startInputToken) {
-        if (restarting) {
-            restartInput(inputConnection, editorInfo);
-        } else {
-            startInput(inputConnection, editorInfo);
-        }
-    }
 
     /**
      * Create a new {@link InputMethodSession} that can be handed to client
@@ -202,7 +155,6 @@ public interface InputMethod {
      * 
      * @param callback Interface that is called with the newly created session.
      */
-    @MainThread
     public void createSession(SessionCallback callback);
     
     /**
@@ -211,7 +163,6 @@ public interface InputMethod {
      * @param session The {@link InputMethodSession} previously provided through
      * SessionCallback.sessionCreated() that is to be changed.
      */
-    @MainThread
     public void setSessionEnabled(InputMethodSession session, boolean enabled);
     
     /**
@@ -223,7 +174,6 @@ public interface InputMethod {
      * @param session The {@link InputMethodSession} previously provided through
      * SessionCallback.sessionCreated() that is to be revoked.
      */
-    @MainThread
     public void revokeSession(InputMethodSession session);
     
     /**
@@ -254,7 +204,6 @@ public interface InputMethod {
      * {@link InputMethodManager#RESULT_SHOWN InputMethodManager.RESULT_SHOWN}, or
      * {@link InputMethodManager#RESULT_HIDDEN InputMethodManager.RESULT_HIDDEN}.
      */
-    @MainThread
     public void showSoftInput(int flags, ResultReceiver resultReceiver);
     
     /**
@@ -269,13 +218,11 @@ public interface InputMethod {
      * {@link InputMethodManager#RESULT_SHOWN InputMethodManager.RESULT_SHOWN}, or
      * {@link InputMethodManager#RESULT_HIDDEN InputMethodManager.RESULT_HIDDEN}.
      */
-    @MainThread
     public void hideSoftInput(int flags, ResultReceiver resultReceiver);
 
     /**
      * Notify that the input method subtype is being changed in the same input method.
      * @param subtype New subtype of the notified input method
      */
-    @MainThread
     public void changeInputMethodSubtype(InputMethodSubtype subtype);
 }

@@ -1,195 +1,132 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package java.util;
 
+
 /**
- * An iterator for lists that allows the programmer
- * to traverse the list in either direction, modify
- * the list during iteration, and obtain the iterator's
- * current position in the list. A {@code ListIterator}
- * has no current element; its <I>cursor position</I> always
- * lies between the element that would be returned by a call
- * to {@code previous()} and the element that would be
- * returned by a call to {@code next()}.
- * An iterator for a list of length {@code n} has {@code n+1} possible
- * cursor positions, as illustrated by the carets ({@code ^}) below:
- * <PRE>
- *                      Element(0)   Element(1)   Element(2)   ... Element(n-1)
- * cursor positions:  ^            ^            ^            ^                  ^
- * </PRE>
- * Note that the {@link #remove} and {@link #set(Object)} methods are
- * <i>not</i> defined in terms of the cursor position;  they are defined to
- * operate on the last element returned by a call to {@link #next} or
- * {@link #previous()}.
- *
- * <p>This interface is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
- * Java Collections Framework</a>.
- *
- * @author  Josh Bloch
- * @see Collection
- * @see List
- * @see Iterator
- * @see Enumeration
- * @see List#listIterator()
- * @since   1.2
+ * An ListIterator is used to sequence over a List of objects. ListIterator can
+ * move backwards or forwards through the list.
  */
 public interface ListIterator<E> extends Iterator<E> {
-    // Query Operations
 
     /**
-     * Returns {@code true} if this list iterator has more elements when
-     * traversing the list in the forward direction. (In other words,
-     * returns {@code true} if {@link #next} would return an element rather
-     * than throwing an exception.)
+     * Inserts the specified object into the list between {@code next} and
+     * {@code previous}. The object inserted will be the previous object.
      *
-     * @return {@code true} if the list iterator has more elements when
-     *         traversing the list in the forward direction
+     * @param object
+     *            the object to insert.
+     * @throws UnsupportedOperationException
+     *             if adding is not supported by the list being iterated.
+     * @throws ClassCastException
+     *             if the class of the object is inappropriate for the list.
+     * @throws IllegalArgumentException
+     *             if the object cannot be added to the list.
      */
-    boolean hasNext();
+    void add(E object);
 
     /**
-     * Returns the next element in the list and advances the cursor position.
-     * This method may be called repeatedly to iterate through the list,
-     * or intermixed with calls to {@link #previous} to go back and forth.
-     * (Note that alternating calls to {@code next} and {@code previous}
-     * will return the same element repeatedly.)
+     * Returns whether there are more elements to iterate.
      *
-     * @return the next element in the list
-     * @throws NoSuchElementException if the iteration has no next element
+     * @return {@code true} if there are more elements, {@code false} otherwise.
+     * @see #next
      */
-    E next();
+    public boolean hasNext();
 
     /**
-     * Returns {@code true} if this list iterator has more elements when
-     * traversing the list in the reverse direction.  (In other words,
-     * returns {@code true} if {@link #previous} would return an element
-     * rather than throwing an exception.)
+     * Returns whether there are previous elements to iterate.
      *
-     * @return {@code true} if the list iterator has more elements when
-     *         traversing the list in the reverse direction
+     * @return {@code true} if there are previous elements, {@code false}
+     *         otherwise.
+     * @see #previous
      */
-    boolean hasPrevious();
+    public boolean hasPrevious();
 
     /**
-     * Returns the previous element in the list and moves the cursor
-     * position backwards.  This method may be called repeatedly to
-     * iterate through the list backwards, or intermixed with calls to
-     * {@link #next} to go back and forth.  (Note that alternating calls
-     * to {@code next} and {@code previous} will return the same
-     * element repeatedly.)
+     * Returns the next object in the iteration.
      *
-     * @return the previous element in the list
-     * @throws NoSuchElementException if the iteration has no previous
-     *         element
+     * @return the next object.
+     * @throws NoSuchElementException
+     *             if there are no more elements.
+     * @see #hasNext
      */
-    E previous();
+    public E next();
 
     /**
-     * Returns the index of the element that would be returned by a
-     * subsequent call to {@link #next}. (Returns list size if the list
-     * iterator is at the end of the list.)
+     * Returns the index of the next object in the iteration.
      *
-     * @return the index of the element that would be returned by a
-     *         subsequent call to {@code next}, or list size if the list
-     *         iterator is at the end of the list
+     * @return the index of the next object, or the size of the list if the
+     *         iterator is at the end.
+     * @throws NoSuchElementException
+     *             if there are no more elements.
+     * @see #next
      */
-    int nextIndex();
+    public int nextIndex();
 
     /**
-     * Returns the index of the element that would be returned by a
-     * subsequent call to {@link #previous}. (Returns -1 if the list
-     * iterator is at the beginning of the list.)
+     * Returns the previous object in the iteration.
      *
-     * @return the index of the element that would be returned by a
-     *         subsequent call to {@code previous}, or -1 if the list
-     *         iterator is at the beginning of the list
+     * @return the previous object.
+     * @throws NoSuchElementException
+     *             if there are no previous elements.
+     * @see #hasPrevious
      */
-    int previousIndex();
-
-
-    // Modification Operations
+    public E previous();
 
     /**
-     * Removes from the list the last element that was returned by {@link
-     * #next} or {@link #previous} (optional operation).  This call can
-     * only be made once per call to {@code next} or {@code previous}.
-     * It can be made only if {@link #add} has not been
-     * called after the last call to {@code next} or {@code previous}.
+     * Returns the index of the previous object in the iteration.
      *
-     * @throws UnsupportedOperationException if the {@code remove}
-     *         operation is not supported by this list iterator
-     * @throws IllegalStateException if neither {@code next} nor
-     *         {@code previous} have been called, or {@code remove} or
-     *         {@code add} have been called after the last call to
-     *         {@code next} or {@code previous}
+     * @return the index of the previous object, or -1 if the iterator is at the
+     *         beginning.
+     * @throws NoSuchElementException
+     *             if there are no previous elements.
+     * @see #previous
      */
-    void remove();
+    public int previousIndex();
 
     /**
-     * Replaces the last element returned by {@link #next} or
-     * {@link #previous} with the specified element (optional operation).
-     * This call can be made only if neither {@link #remove} nor {@link
-     * #add} have been called after the last call to {@code next} or
-     * {@code previous}.
+     * Removes the last object returned by {@code next} or {@code previous} from
+     * the list.
      *
-     * @param e the element with which to replace the last element returned by
-     *          {@code next} or {@code previous}
-     * @throws UnsupportedOperationException if the {@code set} operation
-     *         is not supported by this list iterator
-     * @throws ClassCastException if the class of the specified element
-     *         prevents it from being added to this list
-     * @throws IllegalArgumentException if some aspect of the specified
-     *         element prevents it from being added to this list
-     * @throws IllegalStateException if neither {@code next} nor
-     *         {@code previous} have been called, or {@code remove} or
-     *         {@code add} have been called after the last call to
-     *         {@code next} or {@code previous}
+     * @throws UnsupportedOperationException
+     *             if removing is not supported by the list being iterated.
+     * @throws IllegalStateException
+     *             if {@code next} or {@code previous} have not been called, or
+     *             {@code remove} or {@code add} have already been called after
+     *             the last call to {@code next} or {@code previous}.
      */
-    void set(E e);
+    public void remove();
 
     /**
-     * Inserts the specified element into the list (optional operation).
-     * The element is inserted immediately before the element that
-     * would be returned by {@link #next}, if any, and after the element
-     * that would be returned by {@link #previous}, if any.  (If the
-     * list contains no elements, the new element becomes the sole element
-     * on the list.)  The new element is inserted before the implicit
-     * cursor: a subsequent call to {@code next} would be unaffected, and a
-     * subsequent call to {@code previous} would return the new element.
-     * (This call increases by one the value that would be returned by a
-     * call to {@code nextIndex} or {@code previousIndex}.)
+     * Replaces the last object returned by {@code next} or {@code previous}
+     * with the specified object.
      *
-     * @param e the element to insert
-     * @throws UnsupportedOperationException if the {@code add} method is
-     *         not supported by this list iterator
-     * @throws ClassCastException if the class of the specified element
-     *         prevents it from being added to this list
-     * @throws IllegalArgumentException if some aspect of this element
-     *         prevents it from being added to this list
+     * @param object
+     *            the object to set.
+     * @throws UnsupportedOperationException
+     *             if setting is not supported by the list being iterated
+     * @throws ClassCastException
+     *             if the class of the object is inappropriate for the list.
+     * @throws IllegalArgumentException
+     *             if the object cannot be added to the list.
+     * @throws IllegalStateException
+     *             if {@code next} or {@code previous} have not been called, or
+     *             {@code remove} or {@code add} have already been called after
+     *             the last call to {@code next} or {@code previous}.
      */
-    void add(E e);
+    void set(E object);
 }

@@ -17,16 +17,13 @@
 package android.util;
 
 import android.os.FileUtils;
-import android.os.SystemClock;
-
-import libcore.io.IoUtils;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.function.Consumer;
 
 /**
  * Helper class for performing atomic operations on a file by creating a
@@ -48,25 +45,14 @@ import java.util.function.Consumer;
 public class AtomicFile {
     private final File mBaseName;
     private final File mBackupName;
-    private final String mCommitTag;
-    private long mStartTime;
 
     /**
      * Create a new AtomicFile for a file located at the given File path.
      * The secondary backup file will be the same file path with ".bak" appended.
      */
     public AtomicFile(File baseName) {
-        this(baseName, null);
-    }
-
-    /**
-     * @hide Internal constructor that also allows you to have the class
-     * automatically log commit events.
-     */
-    public AtomicFile(File baseName, String commitTag) {
         mBaseName = baseName;
         mBackupName = new File(baseName.getPath() + ".bak");
-        mCommitTag = commitTag;
     }
 
     /**
@@ -100,18 +86,6 @@ public class AtomicFile {
      * access to AtomicFile.
      */
     public FileOutputStream startWrite() throws IOException {
-        return startWrite(mCommitTag != null ? SystemClock.uptimeMillis() : 0);
-    }
-
-    /**
-     * @hide Internal version of {@link #startWrite()} that allows you to specify an earlier
-     * start time of the operation to adjust how the commit is logged.
-     * @param startTime The effective start time of the operation, in the time
-     * base of {@link SystemClock#uptimeMillis()}.
-     */
-    public FileOutputStream startWrite(long startTime) throws IOException {
-        mStartTime = startTime;
-
         // Rename the current file so it may be used as a backup during the next read
         if (mBaseName.exists()) {
             if (!mBackupName.exists()) {
@@ -158,10 +132,6 @@ public class AtomicFile {
                 mBackupName.delete();
             } catch (IOException e) {
                 Log.w("AtomicFile", "finishWrite: Got exception:", e);
-            }
-            if (mCommitTag != null) {
-                com.android.internal.logging.EventLogTags.writeCommitSysConfigFile(
-                        mCommitTag, SystemClock.uptimeMillis() - mStartTime);
             }
         }
     }
@@ -230,22 +200,13 @@ public class AtomicFile {
     }
 
     /**
-     * @hide
-     * Checks if the original or backup file exists.
-     * @return whether the original or backup file exists.
-     */
-    public boolean exists() {
-        return mBaseName.exists() || mBackupName.exists();
-    }
-
-    /**
      * Gets the last modified time of the atomic file.
      * {@hide}
      *
-     * @return last modified time in milliseconds since epoch.  Returns zero if
-     *     the file does not exist or an I/O error is encountered.
+     * @return last modified time in milliseconds since epoch.
+     * @throws IOException
      */
-    public long getLastModifiedTime() {
+    public long getLastModifiedTime() throws IOException {
         if (mBackupName.exists()) {
             return mBackupName.lastModified();
         }
@@ -281,21 +242,6 @@ public class AtomicFile {
             }
         } finally {
             stream.close();
-        }
-    }
-
-    /** @hide */
-    public void write(Consumer<FileOutputStream> writeContent) {
-        FileOutputStream out = null;
-        try {
-            out = startWrite();
-            writeContent.accept(out);
-            finishWrite(out);
-        } catch (Throwable t) {
-            failWrite(out);
-            throw ExceptionUtils.propagate(t);
-        } finally {
-            IoUtils.closeQuietly(out);
         }
     }
 }

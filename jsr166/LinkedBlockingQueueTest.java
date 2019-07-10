@@ -26,27 +26,25 @@ import junit.framework.Test;
 
 public class LinkedBlockingQueueTest extends JSR166TestCase {
 
-    // android-note: These tests have been moved into their own separate
+    // android-note: These tests have been moved into their own separate 
     // classes to work around CTS issues.
     //
     // public static class Unbounded extends BlockingQueueTest {
-    //     protected BlockingQueue emptyCollection() {
-    //         return new LinkedBlockingQueue();
+    //    protected BlockingQueue emptyCollection() {
+    //        return new LinkedBlockingQueue();
     //     }
     // }
-
+    //
     // public static class Bounded extends BlockingQueueTest {
-    //     protected BlockingQueue emptyCollection() {
+    //    protected BlockingQueue emptyCollection() {
     //         return new LinkedBlockingQueue(SIZE);
     //     }
     // }
-
-    // android-note: Removed because the CTS runner does a bad job of
-    // retrying tests that have suite() declarations.
     //
     // public static void main(String[] args) {
-    //     main(suite(), args);
+    //    main(suite(), args);
     // }
+    //
     // public static Test suite() {
     //     return newTestSuite(LinkedBlockingQueueTest.class,
     //                         new Unbounded().testSuite(),
@@ -115,7 +113,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
      */
     public void testConstructor5() {
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         Collection<Integer> elements = Arrays.asList(ints);
         try {
@@ -162,7 +160,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
             assertEquals(i, q.remove());
         }
         for (int i = 0; i < SIZE; ++i) {
-            assertEquals(SIZE - i, q.remainingCapacity());
+            assertEquals(SIZE-i, q.remainingCapacity());
             assertEquals(SIZE, q.size() + q.remainingCapacity());
             assertTrue(q.add(i));
         }
@@ -209,7 +207,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
     public void testAddAll3() {
         LinkedBlockingQueue q = new LinkedBlockingQueue(SIZE);
         Integer[] ints = new Integer[SIZE];
-        for (int i = 0; i < SIZE - 1; ++i)
+        for (int i = 0; i < SIZE-1; ++i)
             ints[i] = new Integer(i);
         Collection<Integer> elements = Arrays.asList(ints);
         try {
@@ -447,23 +445,25 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
         final CountDownLatch aboutToWait = new CountDownLatch(1);
         Thread t = newStartedThread(new CheckedRunnable() {
             public void realRun() throws InterruptedException {
-                long startTime = System.nanoTime();
                 for (int i = 0; i < SIZE; ++i) {
+                    long t0 = System.nanoTime();
                     assertEquals(i, (int) q.poll(LONG_DELAY_MS, MILLISECONDS));
+                    assertTrue(millisElapsedSince(t0) < SMALL_DELAY_MS);
                 }
+                long t0 = System.nanoTime();
                 aboutToWait.countDown();
                 try {
-                    q.poll(LONG_DELAY_MS, MILLISECONDS);
+                    q.poll(MEDIUM_DELAY_MS, MILLISECONDS);
                     shouldThrow();
                 } catch (InterruptedException success) {
-                    assertTrue(millisElapsedSince(startTime) < LONG_DELAY_MS);
+                    assertTrue(millisElapsedSince(t0) < MEDIUM_DELAY_MS);
                 }
             }});
 
-        await(aboutToWait);
-        waitForThreadToEnterWaitState(t, LONG_DELAY_MS);
+        aboutToWait.await();
+        waitForThreadToEnterWaitState(t, SMALL_DELAY_MS);
         t.interrupt();
-        awaitTermination(t);
+        awaitTermination(t, MEDIUM_DELAY_MS);
         checkEmpty(q);
     }
 
@@ -579,7 +579,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
                 assertTrue(changed);
 
             assertTrue(q.containsAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             p.remove();
         }
     }
@@ -592,7 +592,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
             LinkedBlockingQueue q = populatedQueue(SIZE);
             LinkedBlockingQueue p = populatedQueue(i);
             assertTrue(q.removeAll(p));
-            assertEquals(SIZE - i, q.size());
+            assertEquals(SIZE-i, q.size());
             for (int j = 0; j < i; ++j) {
                 Integer x = (Integer)(p.remove());
                 assertFalse(q.contains(x));
@@ -727,23 +727,23 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
         final LinkedBlockingQueue q = new LinkedBlockingQueue(2);
         q.add(one);
         q.add(two);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
         final CheckedBarrier threadsStarted = new CheckedBarrier(2);
-        final ExecutorService executor = Executors.newFixedThreadPool(2);
-        try (PoolCleaner cleaner = cleaner(executor)) {
-            executor.execute(new CheckedRunnable() {
-                public void realRun() throws InterruptedException {
-                    assertFalse(q.offer(three));
-                    threadsStarted.await();
-                    assertTrue(q.offer(three, LONG_DELAY_MS, MILLISECONDS));
-                    assertEquals(0, q.remainingCapacity());
-                }});
+        executor.execute(new CheckedRunnable() {
+            public void realRun() throws InterruptedException {
+                assertFalse(q.offer(three));
+                threadsStarted.await();
+                assertTrue(q.offer(three, LONG_DELAY_MS, MILLISECONDS));
+                assertEquals(0, q.remainingCapacity());
+            }});
 
-            executor.execute(new CheckedRunnable() {
-                public void realRun() throws InterruptedException {
-                    threadsStarted.await();
-                    assertSame(one, q.take());
-                }});
-        }
+        executor.execute(new CheckedRunnable() {
+            public void realRun() throws InterruptedException {
+                threadsStarted.await();
+                assertSame(one, q.take());
+            }});
+
+        joinPool(executor);
     }
 
     /**
@@ -752,22 +752,22 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
     public void testPollInExecutor() {
         final LinkedBlockingQueue q = new LinkedBlockingQueue(2);
         final CheckedBarrier threadsStarted = new CheckedBarrier(2);
-        final ExecutorService executor = Executors.newFixedThreadPool(2);
-        try (PoolCleaner cleaner = cleaner(executor)) {
-            executor.execute(new CheckedRunnable() {
-                public void realRun() throws InterruptedException {
-                    assertNull(q.poll());
-                    threadsStarted.await();
-                    assertSame(one, q.poll(LONG_DELAY_MS, MILLISECONDS));
-                    checkEmpty(q);
-                }});
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        executor.execute(new CheckedRunnable() {
+            public void realRun() throws InterruptedException {
+                assertNull(q.poll());
+                threadsStarted.await();
+                assertSame(one, q.poll(LONG_DELAY_MS, MILLISECONDS));
+                checkEmpty(q);
+            }});
 
-            executor.execute(new CheckedRunnable() {
-                public void realRun() throws InterruptedException {
-                    threadsStarted.await();
-                    q.put(one);
-                }});
-        }
+        executor.execute(new CheckedRunnable() {
+            public void realRun() throws InterruptedException {
+                threadsStarted.await();
+                q.put(one);
+            }});
+
+        joinPool(executor);
     }
 
     /**
@@ -819,7 +819,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
         final LinkedBlockingQueue q = populatedQueue(SIZE);
         Thread t = new Thread(new CheckedRunnable() {
             public void realRun() throws InterruptedException {
-                q.put(new Integer(SIZE + 1));
+                q.put(new Integer(SIZE+1));
             }});
 
         t.start();
@@ -844,7 +844,7 @@ public class LinkedBlockingQueueTest extends JSR166TestCase {
             q.drainTo(l, i);
             int k = (i < SIZE) ? i : SIZE;
             assertEquals(k, l.size());
-            assertEquals(SIZE - k, q.size());
+            assertEquals(SIZE-k, q.size());
             for (int j = 0; j < k; ++j)
                 assertEquals(l.get(j), new Integer(j));
             do {} while (q.poll() != null);

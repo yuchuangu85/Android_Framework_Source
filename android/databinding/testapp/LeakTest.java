@@ -19,7 +19,6 @@ import android.util.Log;
 import android.widget.FrameLayout;
 
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 
 public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
     WeakReference<LeakTestBinding> mWeakReference = new WeakReference<LeakTestBinding>(null);
@@ -64,9 +63,8 @@ public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
             }
         });
         WeakReference<Object> canary = new WeakReference<Object>(new Object());
-        ArrayList<WeakReference<byte[]>> leak = new ArrayList<>();
         while (canary.get() != null) {
-            leak.add(new WeakReference<byte[]>(new byte[100]));
+            byte[] b = new byte[1024 * 1024];
             System.gc();
         }
         assertNull(mWeakReference.get());
@@ -84,7 +82,7 @@ public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
             public void run() {
                 getActivity().setContentView(new FrameLayout(getActivity()));
                 binding.setName("goodbye world");
-                getActivity().getWindow().getDecorView().postOnAnimation(watcher);
+                binding.getRoot().postOnAnimation(watcher);
             }
         });
 
@@ -95,7 +93,7 @@ public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
             public void run() {
                 assertEquals("hello world", binding.textView.getText().toString());
                 getActivity().setContentView(binding.getRoot());
-                getActivity().getWindow().getDecorView().postOnAnimation(watcher);
+                binding.getRoot().postOnAnimation(watcher);
             }
         });
 

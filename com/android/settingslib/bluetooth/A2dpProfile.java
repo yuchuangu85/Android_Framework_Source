@@ -19,8 +19,6 @@ package com.android.settingslib.bluetooth;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
-import android.bluetooth.BluetoothCodecConfig;
-import android.bluetooth.BluetoothCodecStatus;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothUuid;
@@ -28,22 +26,16 @@ import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.settingslib.R;
-import com.android.settingslib.wrapper.BluetoothA2dpWrapper;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
-public class A2dpProfile implements LocalBluetoothProfile {
+public final class A2dpProfile implements LocalBluetoothProfile {
     private static final String TAG = "A2dpProfile";
     private static boolean V = false;
 
-    private Context mContext;
-
     private BluetoothA2dp mService;
-    private BluetoothA2dpWrapper mServiceWrapper;
     private boolean mIsProfileReady;
 
     private final LocalBluetoothAdapter mLocalAdapter;
@@ -67,7 +59,6 @@ public class A2dpProfile implements LocalBluetoothProfile {
         public void onServiceConnected(int profile, BluetoothProfile proxy) {
             if (V) Log.d(TAG,"Bluetooth service connected");
             mService = (BluetoothA2dp) proxy;
-            mServiceWrapper = new BluetoothA2dpWrapper(mService);
             // We just bound to the service, so refresh the UI for any connected A2DP devices.
             List<BluetoothDevice> deviceList = mService.getConnectedDevices();
             while (!deviceList.isEmpty()) {
@@ -94,25 +85,14 @@ public class A2dpProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
-    @Override
-    public int getProfileId() {
-        return BluetoothProfile.A2DP;
-    }
-
     A2dpProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
-        mContext = context;
         mLocalAdapter = adapter;
         mDeviceManager = deviceManager;
         mProfileManager = profileManager;
         mLocalAdapter.getProfileProxy(context, new A2dpServiceListener(),
                 BluetoothProfile.A2DP);
-    }
-
-    @VisibleForTesting
-    void setBluetoothA2dpWrapper(BluetoothA2dpWrapper wrapper) {
-        mServiceWrapper = wrapper;
     }
 
     public boolean isConnectable() {
@@ -133,18 +113,10 @@ public class A2dpProfile implements LocalBluetoothProfile {
 
     public boolean connect(BluetoothDevice device) {
         if (mService == null) return false;
-        int max_connected_devices = mLocalAdapter.getMaxConnectedAudioDevices();
-        if (max_connected_devices == 1) {
-            // Original behavior: disconnect currently connected device
-            List<BluetoothDevice> sinks = getConnectedDevices();
-            if (sinks != null) {
-                for (BluetoothDevice sink : sinks) {
-                    if (sink.equals(device)) {
-                        Log.w(TAG, "Connecting to device " + device + " : disconnect skipped");
-                        continue;
-                    }
-                    mService.disconnect(sink);
-                }
+        List<BluetoothDevice> sinks = getConnectedDevices();
+        if (sinks != null) {
+            for (BluetoothDevice sink : sinks) {
+                mService.disconnect(sink);
             }
         }
         return mService.connect(device);
@@ -164,16 +136,6 @@ public class A2dpProfile implements LocalBluetoothProfile {
             return BluetoothProfile.STATE_DISCONNECTED;
         }
         return mService.getConnectionState(device);
-    }
-
-    public boolean setActiveDevice(BluetoothDevice device) {
-        if (mService == null) return false;
-        return mService.setActiveDevice(device);
-    }
-
-    public BluetoothDevice getActiveDevice() {
-        if (mService == null) return null;
-        return mService.getActiveDevice();
     }
 
     public boolean isPreferred(BluetoothDevice device) {
@@ -199,103 +161,12 @@ public class A2dpProfile implements LocalBluetoothProfile {
     boolean isA2dpPlaying() {
         if (mService == null) return false;
         List<BluetoothDevice> sinks = mService.getConnectedDevices();
-        for (BluetoothDevice device : sinks) {
-            if (mService.isA2dpPlaying(device)) {
+        if (!sinks.isEmpty()) {
+            if (mService.isA2dpPlaying(sinks.get(0))) {
                 return true;
             }
         }
         return false;
-    }
-
-    public boolean supportsHighQualityAudio(BluetoothDevice device) {
-        int support = mServiceWrapper.supportsOptionalCodecs(device);
-        return support == BluetoothA2dp.OPTIONAL_CODECS_SUPPORTED;
-    }
-
-    public boolean isHighQualityAudioEnabled(BluetoothDevice device) {
-        int enabled = mServiceWrapper.getOptionalCodecsEnabled(device);
-        if (enabled != BluetoothA2dp.OPTIONAL_CODECS_PREF_UNKNOWN) {
-            return enabled == BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED;
-        } else if (getConnectionStatus(device) != BluetoothProfile.STATE_CONNECTED &&
-                supportsHighQualityAudio(device)) {
-            // Since we don't have a stored preference and the device isn't connected, just return
-            // true since the default behavior when the device gets connected in the future would be
-            // to have optional codecs enabled.
-            return true;
-        }
-        BluetoothCodecConfig codecConfig = null;
-        if (mServiceWrapper.getCodecStatus(device) != null) {
-            codecConfig = mServiceWrapper.getCodecStatus(device).getCodecConfig();
-        }
-        if (codecConfig != null)  {
-            return !codecConfig.isMandatoryCodec();
-        } else {
-            return false;
-        }
-    }
-
-    public void setHighQualityAudioEnabled(BluetoothDevice device, boolean enabled) {
-        int prefValue = enabled
-                ? BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED
-                : BluetoothA2dp.OPTIONAL_CODECS_PREF_DISABLED;
-        mServiceWrapper.setOptionalCodecsEnabled(device, prefValue);
-        if (getConnectionStatus(device) != BluetoothProfile.STATE_CONNECTED) {
-            return;
-        }
-        if (enabled) {
-            mService.enableOptionalCodecs(device);
-        } else {
-            mService.disableOptionalCodecs(device);
-        }
-    }
-
-    public String getHighQualityAudioOptionLabel(BluetoothDevice device) {
-        int unknownCodecId = R.string.bluetooth_profile_a2dp_high_quality_unknown_codec;
-        if (!supportsHighQualityAudio(device)
-                || getConnectionStatus(device) != BluetoothProfile.STATE_CONNECTED) {
-            return mContext.getString(unknownCodecId);
-        }
-        // We want to get the highest priority codec, since that's the one that will be used with
-        // this device, and see if it is high-quality (ie non-mandatory).
-        BluetoothCodecConfig[] selectable = null;
-        if (mServiceWrapper.getCodecStatus(device) != null) {
-            selectable = mServiceWrapper.getCodecStatus(device).getCodecsSelectableCapabilities();
-            // To get the highest priority, we sort in reverse.
-            Arrays.sort(selectable,
-                    (a, b) -> {
-                        return b.getCodecPriority() - a.getCodecPriority();
-                    });
-        }
-
-        final BluetoothCodecConfig codecConfig = (selectable == null || selectable.length < 1)
-                ? null : selectable[0];
-        final int codecType = (codecConfig == null || codecConfig.isMandatoryCodec())
-                ? BluetoothCodecConfig.SOURCE_CODEC_TYPE_INVALID : codecConfig.getCodecType();
-
-        int index = -1;
-        switch (codecType) {
-           case BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC:
-               index = 1;
-               break;
-           case BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC:
-               index = 2;
-               break;
-           case BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX:
-               index = 3;
-               break;
-           case BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD:
-               index = 4;
-               break;
-           case BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC:
-               index = 5;
-               break;
-           }
-
-        if (index < 0) {
-            return mContext.getString(unknownCodecId);
-        }
-        return mContext.getString(R.string.bluetooth_profile_a2dp_high_quality,
-                mContext.getResources().getStringArray(R.array.bluetooth_a2dp_codec_titles)[index]);
     }
 
     public String toString() {

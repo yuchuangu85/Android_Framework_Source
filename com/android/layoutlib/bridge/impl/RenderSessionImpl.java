@@ -18,13 +18,15 @@ package com.android.layoutlib.bridge.impl;
 
 import com.android.ide.common.rendering.api.AdapterBinding;
 import com.android.ide.common.rendering.api.HardwareConfig;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.IAnimationListener;
+import com.android.ide.common.rendering.api.ILayoutPullParser;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.Result;
+import com.android.ide.common.rendering.api.Result.Status;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.ide.common.rendering.api.SessionParams.RenderingMode;
 import com.android.ide.common.rendering.api.ViewInfo;
@@ -37,37 +39,39 @@ import com.android.internal.view.menu.MenuItemImpl;
 import com.android.internal.view.menu.MenuView;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
+import com.android.layoutlib.bridge.android.BridgeLayoutParamsMapAttributes;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
 import com.android.layoutlib.bridge.android.RenderParamsFlags;
-import com.android.layoutlib.bridge.android.graphics.NopCanvas;
 import com.android.layoutlib.bridge.android.support.DesignLibUtil;
-import com.android.layoutlib.bridge.android.support.FragmentTabHostUtil;
-import com.android.layoutlib.bridge.android.support.SupportPreferencesUtil;
 import com.android.layoutlib.bridge.impl.binding.FakeAdapter;
 import com.android.layoutlib.bridge.impl.binding.FakeExpandableAdapter;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
 import com.android.resources.ResourceType;
-import com.android.tools.layoutlib.java.System_Delegate;
 import com.android.util.Pair;
-import com.android.util.PropertiesMap;
 
+import android.animation.AnimationThread;
+import android.animation.Animator;
+import android.animation.AnimatorInflater;
+import android.animation.LayoutTransition;
+import android.animation.LayoutTransition.TransitionListener;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Fragment_Delegate;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap_Delegate;
 import android.graphics.Canvas;
-import android.os.Looper;
 import android.preference.Preference_Delegate;
 import android.view.AttachInfo_Accessor;
 import android.view.BridgeInflater;
-import android.view.Choreographer_Delegate;
+import android.view.IWindowManager;
+import android.view.IWindowManagerImpl;
+import android.view.Surface;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.view.ViewParent;
+import android.view.WindowManagerGlobal_Delegate;
 import android.widget.AbsListView;
 import android.widget.AbsSpinner;
 import android.widget.ActionMenuView;
@@ -89,9 +93,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static com.android.ide.common.rendering.api.Result.Status.ERROR_ANIM_NOT_FOUND;
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_INFLATION;
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_NOT_INFLATED;
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_UNKNOWN;
+import static com.android.ide.common.rendering.api.Result.Status.ERROR_VIEWGROUP_NO_CHILDREN;
 import static com.android.ide.common.rendering.api.Result.Status.SUCCESS;
 import static com.android.layoutlib.bridge.util.ReflectionUtils.isInstanceOf;
 
@@ -104,8 +110,6 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.isInstanceOf;
  */
 public class RenderSessionImpl extends RenderAction<SessionParams> {
 
-    private static final Canvas NOP_CANVAS = new NopCanvas();
-
     // scene state
     private RenderSession mScene;
     private BridgeXmlBlockParser mBlockParser;
@@ -116,22 +120,17 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
     private int mMeasuredScreenWidth = -1;
     private int mMeasuredScreenHeight = -1;
     private boolean mIsAlphaChannelImage;
-    /** If >= 0, a frame will be executed */
-    private long mElapsedFrameTimeNanos = -1;
-    /** True if one frame has been already executed to start the animations */
-    private boolean mFirstFrameExecuted = false;
 
     // information being returned through the API
     private BufferedImage mImage;
     private List<ViewInfo> mViewInfoList;
     private List<ViewInfo> mSystemViewInfoList;
     private Layout.Builder mLayoutBuilder;
-    private boolean mNewRenderSize;
 
     private static final class PostInflateException extends Exception {
         private static final long serialVersionUID = 1L;
 
-        private PostInflateException(String message) {
+        public PostInflateException(String message) {
             super(message);
         }
     }
@@ -176,6 +175,13 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
         mLayoutBuilder = new Layout.Builder(params, context);
 
+        // FIXME: find those out, and possibly add them to the render params
+        boolean hasNavigationBar = true;
+        //noinspection ConstantConditions
+        IWindowManager iwm = new IWindowManagerImpl(getContext().getConfiguration(),
+                context.getMetrics(), Surface.ROTATION_0, hasNavigationBar);
+        WindowManagerGlobal_Delegate.setWindowManagerService(iwm);
+
         // build the inflater and parser.
         mInflater = new BridgeInflater(context, params.getLayoutlibCallback());
         context.setBridgeInflater(mInflater);
@@ -183,94 +189,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         mBlockParser = new BridgeXmlBlockParser(params.getLayoutDescription(), context, false);
 
         return SUCCESS.createResult();
-    }
-
-    /**
-     * Measures the the current layout if needed (see {@link #invalidateRenderingSize}).
-     */
-    private void measureLayout(@NonNull SessionParams params) {
-        // only do the screen measure when needed.
-        if (mMeasuredScreenWidth != -1) {
-            return;
-        }
-
-        RenderingMode renderingMode = params.getRenderingMode();
-        HardwareConfig hardwareConfig = params.getHardwareConfig();
-
-        mNewRenderSize = true;
-        mMeasuredScreenWidth = hardwareConfig.getScreenWidth();
-        mMeasuredScreenHeight = hardwareConfig.getScreenHeight();
-
-        if (renderingMode != RenderingMode.NORMAL) {
-            int widthMeasureSpecMode = renderingMode.isHorizExpand() ?
-                    MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
-                    : MeasureSpec.EXACTLY;
-            int heightMeasureSpecMode = renderingMode.isVertExpand() ?
-                    MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
-                    : MeasureSpec.EXACTLY;
-
-            // We used to compare the measured size of the content to the screen size but
-            // this does not work anymore due to the 2 following issues:
-            // - If the content is in a decor (system bar, title/action bar), the root view
-            //   will not resize even with the UNSPECIFIED because of the embedded layout.
-            // - If there is no decor, but a dialog frame, then the dialog padding prevents
-            //   comparing the size of the content to the screen frame (as it would not
-            //   take into account the dialog padding).
-
-            // The solution is to first get the content size in a normal rendering, inside
-            // the decor or the dialog padding.
-            // Then measure only the content with UNSPECIFIED to see the size difference
-            // and apply this to the screen size.
-
-            View measuredView = mContentRoot.getChildAt(0);
-
-            // first measure the full layout, with EXACTLY to get the size of the
-            // content as it is inside the decor/dialog
-            @SuppressWarnings("deprecation")
-            Pair<Integer, Integer> exactMeasure = measureView(
-                    mViewRoot, measuredView,
-                    mMeasuredScreenWidth, MeasureSpec.EXACTLY,
-                    mMeasuredScreenHeight, MeasureSpec.EXACTLY);
-
-            // now measure the content only using UNSPECIFIED (where applicable, based on
-            // the rendering mode). This will give us the size the content needs.
-            @SuppressWarnings("deprecation")
-            Pair<Integer, Integer> result = measureView(
-                    mContentRoot, mContentRoot.getChildAt(0),
-                    mMeasuredScreenWidth, widthMeasureSpecMode,
-                    mMeasuredScreenHeight, heightMeasureSpecMode);
-
-            // If measuredView is not null, exactMeasure nor result will be null.
-            assert exactMeasure != null;
-            assert result != null;
-
-            // now look at the difference and add what is needed.
-            if (renderingMode.isHorizExpand()) {
-                int measuredWidth = exactMeasure.getFirst();
-                int neededWidth = result.getFirst();
-                if (neededWidth > measuredWidth) {
-                    mMeasuredScreenWidth += neededWidth - measuredWidth;
-                }
-                if (mMeasuredScreenWidth < measuredWidth) {
-                    // If the screen width is less than the exact measured width,
-                    // expand to match.
-                    mMeasuredScreenWidth = measuredWidth;
-                }
-            }
-
-            if (renderingMode.isVertExpand()) {
-                int measuredHeight = exactMeasure.getSecond();
-                int neededHeight = result.getSecond();
-                if (neededHeight > measuredHeight) {
-                    mMeasuredScreenHeight += neededHeight - measuredHeight;
-                }
-                if (mMeasuredScreenHeight < measuredHeight) {
-                    // If the screen height is less than the exact measured height,
-                    // expand to match.
-                    mMeasuredScreenHeight = measuredHeight;
-                }
-            }
-        }
     }
 
     /**
@@ -291,20 +209,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
             SessionParams params = getParams();
             BridgeContext context = getContext();
 
-            if (Bridge.isLocaleRtl(params.getLocale())) {
-                if (!params.isRtlSupported()) {
-                    Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_ENABLED,
-                            "You are using a right-to-left " +
-                                    "(RTL) locale but RTL is not enabled", null);
-                } else if (params.getSimulatedPlatformVersion() < 17) {
-                    // This will render ok because we are using the latest layoutlib but at least
-                    // warn the user that this might fail in a real device.
-                    Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_SUPPORTED, "You are using a " +
-                            "right-to-left " +
-                            "(RTL) locale but RTL is not supported for API level < 17", null);
-                }
-            }
-
             // Sets the project callback (custom view loader) to the fragment delegate so that
             // it can instantiate the custom Fragment.
             Fragment_Delegate.setLayoutlibCallback(params.getLayoutlibCallback());
@@ -313,14 +217,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
             boolean isPreference = "PreferenceScreen".equals(rootTag);
             View view;
             if (isPreference) {
-                // First try to use the support library inflater. If something fails, fallback
-                // to the system preference inflater.
-                view = SupportPreferencesUtil.inflatePreference(getContext(), mBlockParser,
+                view = Preference_Delegate.inflatePreference(getContext(), mBlockParser,
                         mContentRoot);
-                if (view == null) {
-                    view = Preference_Delegate.inflatePreference(getContext(), mBlockParser,
-                            mContentRoot);
-                }
             } else {
                 view = mInflater.inflate(mBlockParser, mContentRoot);
             }
@@ -339,17 +237,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             setActiveToolbar(view, context, params);
 
-            measureLayout(params);
-            measureView(mViewRoot, null /*measuredView*/,
-                    mMeasuredScreenWidth, MeasureSpec.EXACTLY,
-                    mMeasuredScreenHeight, MeasureSpec.EXACTLY);
-            mViewRoot.layout(0, 0, mMeasuredScreenWidth, mMeasuredScreenHeight);
-            mSystemViewInfoList =
-                    visitAllChildren(mViewRoot, 0, 0, params.getExtendedViewInfoMode(),
-                    false);
-
-            Choreographer_Delegate.clearFrames();
-
             return SUCCESS.createResult();
         } catch (PostInflateException e) {
             return ERROR_INFLATION.createResult(e.getMessage(), e);
@@ -362,47 +249,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             return ERROR_INFLATION.createResult(t.getMessage(), t);
         }
-    }
-
-    /**
-     * Sets the time for which the next frame will be selected. The time is the elapsed time from
-     * the current system nanos time. You
-     */
-    public void setElapsedFrameTimeNanos(long nanos) {
-        mElapsedFrameTimeNanos = nanos;
-    }
-
-    /**
-     * Runs a layout pass for the given view root
-     */
-    private static void doLayout(@NonNull BridgeContext context, @NonNull ViewGroup viewRoot,
-            int width, int height) {
-        // measure again with the size we need
-        // This must always be done before the call to layout
-        measureView(viewRoot, null /*measuredView*/,
-                width, MeasureSpec.EXACTLY,
-                height, MeasureSpec.EXACTLY);
-
-        // now do the layout.
-        viewRoot.layout(0, 0, width, height);
-        handleScrolling(context, viewRoot);
-    }
-
-    /**
-     * Renders the given view hierarchy to the passed canvas and returns the result of the render
-     * operation.
-     * @param canvas an optional canvas to render the views to. If null, only the measure and
-     * layout steps will be executed.
-     */
-    private static Result renderAndBuildResult(@NonNull ViewGroup viewRoot, @Nullable Canvas canvas) {
-        if (canvas == null) {
-            return SUCCESS.createResult();
-        }
-
-        AttachInfo_Accessor.dispatchOnPreDraw(viewRoot);
-        viewRoot.draw(canvas);
-
-        return SUCCESS.createResult();
     }
 
     /**
@@ -421,40 +267,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * @see RenderSession#render(long)
      */
     public Result render(boolean freshRender) {
-        return renderAndBuildResult(freshRender, false);
-    }
-
-    /**
-     * Measures the layout
-     * <p>
-     * {@link #acquire(long)} must have been called before this.
-     *
-     * @throws IllegalStateException if the current context is different than the one owned by
-     *      the scene, or if {@link #acquire(long)} was not called.
-     *
-     * @see SessionParams#getRenderingMode()
-     * @see RenderSession#render(long)
-     */
-    public Result measure() {
-        return renderAndBuildResult(false, true);
-    }
-
-    /**
-     * Renders the scene.
-     * <p>
-     * {@link #acquire(long)} must have been called before this.
-     *
-     * @param freshRender whether the render is a new one and should erase the existing bitmap (in
-     *      the case where bitmaps are reused). This is typically needed when not playing
-     *      animations.)
-     *
-     * @throws IllegalStateException if the current context is different than the one owned by
-     *      the scene, or if {@link #acquire(long)} was not called.
-     *
-     * @see SessionParams#getRenderingMode()
-     * @see RenderSession#render(long)
-     */
-    private Result renderAndBuildResult(boolean freshRender, boolean onlyMeasure) {
         checkLock();
 
         SessionParams params = getParams();
@@ -464,16 +276,100 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                 return ERROR_NOT_INFLATED.createResult();
             }
 
-            measureLayout(params);
-
+            RenderingMode renderingMode = params.getRenderingMode();
             HardwareConfig hardwareConfig = params.getHardwareConfig();
-            Result renderResult = SUCCESS.createResult();
-            if (onlyMeasure) {
+
+            // only do the screen measure when needed.
+            boolean newRenderSize = false;
+            if (mMeasuredScreenWidth == -1) {
+                newRenderSize = true;
+                mMeasuredScreenWidth = hardwareConfig.getScreenWidth();
+                mMeasuredScreenHeight = hardwareConfig.getScreenHeight();
+
+                if (renderingMode != RenderingMode.NORMAL) {
+                    int widthMeasureSpecMode = renderingMode.isHorizExpand() ?
+                            MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
+                            : MeasureSpec.EXACTLY;
+                    int heightMeasureSpecMode = renderingMode.isVertExpand() ?
+                            MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
+                            : MeasureSpec.EXACTLY;
+
+                    // We used to compare the measured size of the content to the screen size but
+                    // this does not work anymore due to the 2 following issues:
+                    // - If the content is in a decor (system bar, title/action bar), the root view
+                    //   will not resize even with the UNSPECIFIED because of the embedded layout.
+                    // - If there is no decor, but a dialog frame, then the dialog padding prevents
+                    //   comparing the size of the content to the screen frame (as it would not
+                    //   take into account the dialog padding).
+
+                    // The solution is to first get the content size in a normal rendering, inside
+                    // the decor or the dialog padding.
+                    // Then measure only the content with UNSPECIFIED to see the size difference
+                    // and apply this to the screen size.
+
+                    // first measure the full layout, with EXACTLY to get the size of the
+                    // content as it is inside the decor/dialog
+                    @SuppressWarnings("deprecation")
+                    Pair<Integer, Integer> exactMeasure = measureView(
+                            mViewRoot, mContentRoot.getChildAt(0),
+                            mMeasuredScreenWidth, MeasureSpec.EXACTLY,
+                            mMeasuredScreenHeight, MeasureSpec.EXACTLY);
+
+                    // now measure the content only using UNSPECIFIED (where applicable, based on
+                    // the rendering mode). This will give us the size the content needs.
+                    @SuppressWarnings("deprecation")
+                    Pair<Integer, Integer> result = measureView(
+                            mContentRoot, mContentRoot.getChildAt(0),
+                            mMeasuredScreenWidth, widthMeasureSpecMode,
+                            mMeasuredScreenHeight, heightMeasureSpecMode);
+
+                    // now look at the difference and add what is needed.
+                    if (renderingMode.isHorizExpand()) {
+                        int measuredWidth = exactMeasure.getFirst();
+                        int neededWidth = result.getFirst();
+                        if (neededWidth > measuredWidth) {
+                            mMeasuredScreenWidth += neededWidth - measuredWidth;
+                        }
+                        if (mMeasuredScreenWidth < measuredWidth) {
+                            // If the screen width is less than the exact measured width,
+                            // expand to match.
+                            mMeasuredScreenWidth = measuredWidth;
+                        }
+                    }
+
+                    if (renderingMode.isVertExpand()) {
+                        int measuredHeight = exactMeasure.getSecond();
+                        int neededHeight = result.getSecond();
+                        if (neededHeight > measuredHeight) {
+                            mMeasuredScreenHeight += neededHeight - measuredHeight;
+                        }
+                        if (mMeasuredScreenHeight < measuredHeight) {
+                            // If the screen height is less than the exact measured height,
+                            // expand to match.
+                            mMeasuredScreenHeight = measuredHeight;
+                        }
+                    }
+                }
+            }
+
+            // measure again with the size we need
+            // This must always be done before the call to layout
+            measureView(mViewRoot, null /*measuredView*/,
+                    mMeasuredScreenWidth, MeasureSpec.EXACTLY,
+                    mMeasuredScreenHeight, MeasureSpec.EXACTLY);
+
+            // now do the layout.
+            mViewRoot.layout(0, 0, mMeasuredScreenWidth, mMeasuredScreenHeight);
+
+            handleScrolling(mViewRoot);
+
+            if (params.isLayoutOnly()) {
                 // delete the canvas and image to reset them on the next full rendering
                 mImage = null;
                 mCanvas = null;
-                doLayout(getContext(), mViewRoot, mMeasuredScreenWidth, mMeasuredScreenHeight);
             } else {
+                AttachInfo_Accessor.dispatchOnPreDraw(mViewRoot);
+
                 // draw the views
                 // create the BufferedImage into which the layout will be rendered.
                 boolean newImage = false;
@@ -484,8 +380,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                 // it doesn't get cached.
                 boolean disableBitmapCaching = Boolean.TRUE.equals(params.getFlag(
                     RenderParamsFlags.FLAG_KEY_DISABLE_BITMAP_CACHING));
-                if (mNewRenderSize || mCanvas == null || disableBitmapCaching) {
-                    mNewRenderSize = false;
+                if (newRenderSize || mCanvas == null || disableBitmapCaching) {
                     if (params.getImageFactory() != null) {
                         mImage = params.getImageFactory().getImage(
                                 mMeasuredScreenWidth,
@@ -533,29 +428,14 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     gc.dispose();
                 }
 
-                doLayout(getContext(), mViewRoot, mMeasuredScreenWidth, mMeasuredScreenHeight);
-                if (mElapsedFrameTimeNanos >= 0) {
-                    long initialTime = System_Delegate.nanoTime();
-                    if (!mFirstFrameExecuted) {
-                        // We need to run an initial draw call to initialize the animations
-                        renderAndBuildResult(mViewRoot, NOP_CANVAS);
-
-                        // The first frame will initialize the animations
-                        Choreographer_Delegate.doFrame(initialTime);
-                        mFirstFrameExecuted = true;
-                    }
-                    // Second frame will move the animations
-                    Choreographer_Delegate.doFrame(initialTime + mElapsedFrameTimeNanos);
-                }
-                renderResult = renderAndBuildResult(mViewRoot, mCanvas);
+                mViewRoot.draw(mCanvas);
             }
 
-            mSystemViewInfoList =
-                    visitAllChildren(mViewRoot, 0, 0, params.getExtendedViewInfoMode(),
+            mSystemViewInfoList = visitAllChildren(mViewRoot, 0, params.getExtendedViewInfoMode(),
                     false);
 
             // success!
-            return renderResult;
+            return SUCCESS.createResult();
         } catch (Throwable e) {
             // get the real cause of the exception.
             Throwable t = e;
@@ -583,7 +463,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * @return the measured width/height if measuredView is non-null, null otherwise.
      */
     @SuppressWarnings("deprecation")  // For the use of Pair
-    private static Pair<Integer, Integer> measureView(ViewGroup viewToMeasure, View measuredView,
+    private Pair<Integer, Integer> measureView(ViewGroup viewToMeasure, View measuredView,
             int width, int widthMode, int height, int heightMode) {
         int w_spec = MeasureSpec.makeMeasureSpec(width, widthMode);
         int h_spec = MeasureSpec.makeMeasureSpec(height, heightMode);
@@ -594,6 +474,407 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         }
 
         return null;
+    }
+
+    /**
+     * Animate an object
+     * <p>
+     * {@link #acquire(long)} must have been called before this.
+     *
+     * @throws IllegalStateException if the current context is different than the one owned by
+     *      the scene, or if {@link #acquire(long)} was not called.
+     *
+     * @see RenderSession#animate(Object, String, boolean, IAnimationListener)
+     */
+    public Result animate(Object targetObject, String animationName,
+            boolean isFrameworkAnimation, IAnimationListener listener) {
+        checkLock();
+
+        BridgeContext context = getContext();
+
+        // find the animation file.
+        ResourceValue animationResource;
+        int animationId = 0;
+        if (isFrameworkAnimation) {
+            animationResource = context.getRenderResources().getFrameworkResource(
+                    ResourceType.ANIMATOR, animationName);
+            if (animationResource != null) {
+                animationId = Bridge.getResourceId(ResourceType.ANIMATOR, animationName);
+            }
+        } else {
+            animationResource = context.getRenderResources().getProjectResource(
+                    ResourceType.ANIMATOR, animationName);
+            if (animationResource != null) {
+                animationId = context.getLayoutlibCallback().getResourceId(
+                        ResourceType.ANIMATOR, animationName);
+            }
+        }
+
+        if (animationResource != null) {
+            try {
+                Animator anim = AnimatorInflater.loadAnimator(context, animationId);
+                if (anim != null) {
+                    anim.setTarget(targetObject);
+
+                    new PlayAnimationThread(anim, this, animationName, listener).start();
+
+                    return SUCCESS.createResult();
+                }
+            } catch (Exception e) {
+                // get the real cause of the exception.
+                Throwable t = e;
+                while (t.getCause() != null) {
+                    t = t.getCause();
+                }
+
+                return ERROR_UNKNOWN.createResult(t.getMessage(), t);
+            }
+        }
+
+        return ERROR_ANIM_NOT_FOUND.createResult();
+    }
+
+    /**
+     * Insert a new child into an existing parent.
+     * <p>
+     * {@link #acquire(long)} must have been called before this.
+     *
+     * @throws IllegalStateException if the current context is different than the one owned by
+     *      the scene, or if {@link #acquire(long)} was not called.
+     *
+     * @see RenderSession#insertChild(Object, ILayoutPullParser, int, IAnimationListener)
+     */
+    public Result insertChild(final ViewGroup parentView, ILayoutPullParser childXml,
+            final int index, IAnimationListener listener) {
+        checkLock();
+
+        BridgeContext context = getContext();
+
+        // create a block parser for the XML
+        BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(
+                childXml, context, false /* platformResourceFlag */);
+
+        // inflate the child without adding it to the root since we want to control where it'll
+        // get added. We do pass the parentView however to ensure that the layoutParams will
+        // be created correctly.
+        final View child = mInflater.inflate(blockParser, parentView, false /*attachToRoot*/);
+        blockParser.ensurePopped();
+
+        invalidateRenderingSize();
+
+        if (listener != null) {
+            new AnimationThread(this, "insertChild", listener) {
+
+                @Override
+                public Result preAnimation() {
+                    parentView.setLayoutTransition(new LayoutTransition());
+                    return addView(parentView, child, index);
+                }
+
+                @Override
+                public void postAnimation() {
+                    parentView.setLayoutTransition(null);
+                }
+            }.start();
+
+            // always return success since the real status will come through the listener.
+            return SUCCESS.createResult(child);
+        }
+
+        // add it to the parentView in the correct location
+        Result result = addView(parentView, child, index);
+        if (!result.isSuccess()) {
+            return result;
+        }
+
+        result = render(false /*freshRender*/);
+        if (result.isSuccess()) {
+            result = result.getCopyWithData(child);
+        }
+
+        return result;
+    }
+
+    /**
+     * Adds a given view to a given parent at a given index.
+     *
+     * @param parent the parent to receive the view
+     * @param view the view to add to the parent
+     * @param index the index where to do the add.
+     *
+     * @return a Result with {@link Status#SUCCESS} or
+     *     {@link Status#ERROR_VIEWGROUP_NO_CHILDREN} if the given parent doesn't support
+     *     adding views.
+     */
+    private Result addView(ViewGroup parent, View view, int index) {
+        try {
+            parent.addView(view, index);
+            return SUCCESS.createResult();
+        } catch (UnsupportedOperationException e) {
+            // looks like this is a view class that doesn't support children manipulation!
+            return ERROR_VIEWGROUP_NO_CHILDREN.createResult();
+        }
+    }
+
+    /**
+     * Moves a view to a new parent at a given location
+     * <p>
+     * {@link #acquire(long)} must have been called before this.
+     *
+     * @throws IllegalStateException if the current context is different than the one owned by
+     *      the scene, or if {@link #acquire(long)} was not called.
+     *
+     * @see RenderSession#moveChild(Object, Object, int, Map, IAnimationListener)
+     */
+    public Result moveChild(final ViewGroup newParentView, final View childView, final int index,
+            Map<String, String> layoutParamsMap, final IAnimationListener listener) {
+        checkLock();
+
+        invalidateRenderingSize();
+
+        LayoutParams layoutParams = null;
+        if (layoutParamsMap != null) {
+            // need to create a new LayoutParams object for the new parent.
+            layoutParams = newParentView.generateLayoutParams(
+                    new BridgeLayoutParamsMapAttributes(layoutParamsMap));
+        }
+
+        // get the current parent of the view that needs to be moved.
+        final ViewGroup previousParent = (ViewGroup) childView.getParent();
+
+        if (listener != null) {
+            final LayoutParams params = layoutParams;
+
+            // there is no support for animating views across layouts, so in case the new and old
+            // parent views are different we fake the animation through a no animation thread.
+            if (previousParent != newParentView) {
+                new Thread("not animated moveChild") {
+                    @Override
+                    public void run() {
+                        Result result = moveView(previousParent, newParentView, childView, index,
+                                params);
+                        if (!result.isSuccess()) {
+                            listener.done(result);
+                        }
+
+                        // ready to do the work, acquire the scene.
+                        result = acquire(250);
+                        if (!result.isSuccess()) {
+                            listener.done(result);
+                            return;
+                        }
+
+                        try {
+                            result = render(false /*freshRender*/);
+                            if (result.isSuccess()) {
+                                listener.onNewFrame(RenderSessionImpl.this.getSession());
+                            }
+                        } finally {
+                            release();
+                        }
+
+                        listener.done(result);
+                    }
+                }.start();
+            } else {
+                new AnimationThread(this, "moveChild", listener) {
+
+                    @Override
+                    public Result preAnimation() {
+                        // set up the transition for the parent.
+                        LayoutTransition transition = new LayoutTransition();
+                        previousParent.setLayoutTransition(transition);
+
+                        // tweak the animation durations and start delays (to match the duration of
+                        // animation playing just before).
+                        // Note: Cannot user Animation.setDuration() directly. Have to set it
+                        // on the LayoutTransition.
+                        transition.setDuration(LayoutTransition.DISAPPEARING, 100);
+                        // CHANGE_DISAPPEARING plays after DISAPPEARING
+                        transition.setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, 100);
+
+                        transition.setDuration(LayoutTransition.CHANGE_DISAPPEARING, 100);
+
+                        transition.setDuration(LayoutTransition.CHANGE_APPEARING, 100);
+                        // CHANGE_APPEARING plays after CHANGE_APPEARING
+                        transition.setStartDelay(LayoutTransition.APPEARING, 100);
+
+                        transition.setDuration(LayoutTransition.APPEARING, 100);
+
+                        return moveView(previousParent, newParentView, childView, index, params);
+                    }
+
+                    @Override
+                    public void postAnimation() {
+                        previousParent.setLayoutTransition(null);
+                        newParentView.setLayoutTransition(null);
+                    }
+                }.start();
+            }
+
+            // always return success since the real status will come through the listener.
+            return SUCCESS.createResult(layoutParams);
+        }
+
+        Result result = moveView(previousParent, newParentView, childView, index, layoutParams);
+        if (!result.isSuccess()) {
+            return result;
+        }
+
+        result = render(false /*freshRender*/);
+        if (layoutParams != null && result.isSuccess()) {
+            result = result.getCopyWithData(layoutParams);
+        }
+
+        return result;
+    }
+
+    /**
+     * Moves a View from its current parent to a new given parent at a new given location, with
+     * an optional new {@link LayoutParams} instance
+     *
+     * @param previousParent the previous parent, still owning the child at the time of the call.
+     * @param newParent the new parent
+     * @param movedView the view to move
+     * @param index the new location in the new parent
+     * @param params an option (can be null) {@link LayoutParams} instance.
+     *
+     * @return a Result with {@link Status#SUCCESS} or
+     *     {@link Status#ERROR_VIEWGROUP_NO_CHILDREN} if the given parent doesn't support
+     *     adding views.
+     */
+    private Result moveView(ViewGroup previousParent, final ViewGroup newParent,
+            final View movedView, final int index, final LayoutParams params) {
+        try {
+            // check if there is a transition on the previousParent.
+            LayoutTransition previousTransition = previousParent.getLayoutTransition();
+            if (previousTransition != null) {
+                // in this case there is an animation. This means we have to wait for the child's
+                // parent reference to be null'ed out so that we can add it to the new parent.
+                // It is technically removed right before the DISAPPEARING animation is done (if
+                // the animation of this type is not null, otherwise it's after which is impossible
+                // to handle).
+                // Because there is no move animation, if the new parent is the same as the old
+                // parent, we need to wait until the CHANGE_DISAPPEARING animation is done before
+                // adding the child or the child will appear in its new location before the
+                // other children have made room for it.
+
+                // add a listener to the transition to be notified of the actual removal.
+                previousTransition.addTransitionListener(new TransitionListener() {
+                    private int mChangeDisappearingCount = 0;
+
+                    @Override
+                    public void startTransition(LayoutTransition transition, ViewGroup container,
+                            View view, int transitionType) {
+                        if (transitionType == LayoutTransition.CHANGE_DISAPPEARING) {
+                            mChangeDisappearingCount++;
+                        }
+                    }
+
+                    @Override
+                    public void endTransition(LayoutTransition transition, ViewGroup container,
+                            View view, int transitionType) {
+                        if (transitionType == LayoutTransition.CHANGE_DISAPPEARING) {
+                            mChangeDisappearingCount--;
+                        }
+
+                        if (transitionType == LayoutTransition.CHANGE_DISAPPEARING &&
+                                mChangeDisappearingCount == 0) {
+                            // add it to the parentView in the correct location
+                            if (params != null) {
+                                newParent.addView(movedView, index, params);
+                            } else {
+                                newParent.addView(movedView, index);
+                            }
+                        }
+                    }
+                });
+
+                // remove the view from the current parent.
+                previousParent.removeView(movedView);
+
+                // and return since adding the view to the new parent is done in the listener.
+                return SUCCESS.createResult();
+            } else {
+                // standard code with no animation. pretty simple.
+                previousParent.removeView(movedView);
+
+                // add it to the parentView in the correct location
+                if (params != null) {
+                    newParent.addView(movedView, index, params);
+                } else {
+                    newParent.addView(movedView, index);
+                }
+
+                return SUCCESS.createResult();
+            }
+        } catch (UnsupportedOperationException e) {
+            // looks like this is a view class that doesn't support children manipulation!
+            return ERROR_VIEWGROUP_NO_CHILDREN.createResult();
+        }
+    }
+
+    /**
+     * Removes a child from its current parent.
+     * <p>
+     * {@link #acquire(long)} must have been called before this.
+     *
+     * @throws IllegalStateException if the current context is different than the one owned by
+     *      the scene, or if {@link #acquire(long)} was not called.
+     *
+     * @see RenderSession#removeChild(Object, IAnimationListener)
+     */
+    public Result removeChild(final View childView, IAnimationListener listener) {
+        checkLock();
+
+        invalidateRenderingSize();
+
+        final ViewGroup parent = (ViewGroup) childView.getParent();
+
+        if (listener != null) {
+            new AnimationThread(this, "moveChild", listener) {
+
+                @Override
+                public Result preAnimation() {
+                    parent.setLayoutTransition(new LayoutTransition());
+                    return removeView(parent, childView);
+                }
+
+                @Override
+                public void postAnimation() {
+                    parent.setLayoutTransition(null);
+                }
+            }.start();
+
+            // always return success since the real status will come through the listener.
+            return SUCCESS.createResult();
+        }
+
+        Result result = removeView(parent, childView);
+        if (!result.isSuccess()) {
+            return result;
+        }
+
+        return render(false /*freshRender*/);
+    }
+
+    /**
+     * Removes a given view from its current parent.
+     *
+     * @param view the view to remove from its parent
+     *
+     * @return a Result with {@link Status#SUCCESS} or
+     *     {@link Status#ERROR_VIEWGROUP_NO_CHILDREN} if the given parent doesn't support
+     *     adding views.
+     */
+    private Result removeView(ViewGroup parent, View view) {
+        try {
+            parent.removeView(view);
+            return SUCCESS.createResult();
+        } catch (UnsupportedOperationException e) {
+            // looks like this is a view class that doesn't support children manipulation!
+            return ERROR_VIEWGROUP_NO_CHILDREN.createResult();
+        }
     }
 
     /**
@@ -724,7 +1005,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         DesignLibUtil.setTitle(collapsingToolbar, title);
     }
 
-    private View findChildView(View view, String[] className) {
+    private View findChildView(View view, String className) {
         if (!(view instanceof ViewGroup)) {
             return null;
         }
@@ -751,30 +1032,30 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
     }
 
     /**
-     * Set the scroll position on all the components with the "scrollX" and "scrollY" attribute. If
-     * the component supports nested scrolling attempt that first, then use the unconsumed scroll
-     * part to scroll the content in the component.
+     * Set the vertical scroll position on all the components with the "scrollY" attribute. If the
+     * component supports nested scrolling attempt that first, then use the unconsumed scroll part
+     * to scroll the content in the component.
      */
-    private static void handleScrolling(BridgeContext context, View view) {
-        int scrollPosX = context.getScrollXPos(view);
-        int scrollPosY = context.getScrollYPos(view);
-        if (scrollPosX != 0 || scrollPosY != 0) {
+    private void handleScrolling(View view) {
+        BridgeContext context = getContext();
+        int scrollPos = context.getScrollYPos(view);
+        if (scrollPos != 0) {
             if (view.isNestedScrollingEnabled()) {
                 int[] consumed = new int[2];
-                int axis = scrollPosX != 0 ? View.SCROLL_AXIS_HORIZONTAL : 0;
-                axis |= scrollPosY != 0 ? View.SCROLL_AXIS_VERTICAL : 0;
-                if (view.startNestedScroll(axis)) {
-                    view.dispatchNestedPreScroll(scrollPosX, scrollPosY, consumed, null);
-                    view.dispatchNestedScroll(consumed[0], consumed[1], scrollPosX, scrollPosY,
-                            null);
+                if (view.startNestedScroll(DesignLibUtil.SCROLL_AXIS_VERTICAL)) {
+                    view.dispatchNestedPreScroll(0, scrollPos, consumed, null);
+                    view.dispatchNestedScroll(consumed[0], consumed[1], 0, scrollPos, null);
                     view.stopNestedScroll();
-                    scrollPosX -= consumed[0];
-                    scrollPosY -= consumed[1];
+                    scrollPos -= consumed[1];
                 }
             }
-            if (scrollPosX != 0 || scrollPosY != 0) {
-                view.scrollTo(scrollPosX, scrollPosY);
+            if (scrollPos != 0) {
+                view.scrollBy(0, scrollPos);
+            } else {
+                view.scrollBy(0, scrollPos);
             }
+        } else {
+            view.scrollBy(0, scrollPos);
         }
 
         if (!(view instanceof ViewGroup)) {
@@ -783,7 +1064,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         ViewGroup group = (ViewGroup) view;
         for (int i = 0; i < group.getChildCount(); i++) {
             View child = group.getChildAt(i);
-            handleScrolling(context, child);
+            handleScrolling(child);
         }
     }
 
@@ -791,7 +1072,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * Sets up a {@link TabHost} object.
      * @param tabHost the TabHost to setup.
      * @param layoutlibCallback The project callback object to access the project R class.
-     * @throws PostInflateException if TabHost is missing the required ids for TabHost
+     * @throws PostInflateException
      */
     private void setupTabHost(TabHost tabHost, LayoutlibCallback layoutlibCallback)
             throws PostInflateException {
@@ -832,18 +1113,19 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
         // this must be called before addTab() so that the TabHost searches its TabWidget
         // and FrameLayout.
-        if (ReflectionUtils.isInstanceOf(tabHost, FragmentTabHostUtil.CN_FRAGMENT_TAB_HOST)) {
-            FragmentTabHostUtil.setup(tabHost, getContext());
-        } else {
-            tabHost.setup();
-        }
+        tabHost.setup();
 
         if (count == 0) {
             // Create a dummy child to get a single tab
             TabSpec spec = tabHost.newTabSpec("tag")
                     .setIndicator("Tab Label", tabHost.getResources()
                             .getDrawable(android.R.drawable.ic_menu_info_details, null))
-                    .setContent(tag -> new LinearLayout(getContext()));
+                    .setContent(new TabHost.TabContentFactory() {
+                        @Override
+                        public View createTabContent(String tag) {
+                            return new LinearLayout(getContext());
+                        }
+                    });
             tabHost.addTab(spec);
         } else {
             // for each child of the frameLayout, add a new TabSpec
@@ -870,22 +1152,20 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * bounds of all the views.
      *
      * @param view the root View
-     * @param hOffset horizontal offset for the view bounds.
-     * @param vOffset vertical offset for the view bounds.
+     * @param offset an offset for the view bounds.
      * @param setExtendedInfo whether to set the extended view info in the {@link ViewInfo} object.
      * @param isContentFrame {@code true} if the {@code ViewInfo} to be created is part of the
      *                       content frame.
      *
      * @return {@code ViewInfo} containing the bounds of the view and it children otherwise.
      */
-    private ViewInfo visit(View view, int hOffset, int vOffset, boolean setExtendedInfo,
+    private ViewInfo visit(View view, int offset, boolean setExtendedInfo,
             boolean isContentFrame) {
-        ViewInfo result = createViewInfo(view, hOffset, vOffset, setExtendedInfo, isContentFrame);
+        ViewInfo result = createViewInfo(view, offset, setExtendedInfo, isContentFrame);
 
         if (view instanceof ViewGroup) {
             ViewGroup group = ((ViewGroup) view);
-            result.setChildren(visitAllChildren(group, isContentFrame ? 0 : hOffset,
-                    isContentFrame ? 0 : vOffset,
+            result.setChildren(visitAllChildren(group, isContentFrame ? 0 : offset,
                     setExtendedInfo, isContentFrame));
         }
         return result;
@@ -897,31 +1177,28 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * the children of the {@code mContentRoot}.
      *
      * @param viewGroup the root View
-     * @param hOffset horizontal offset from the top for the content view frame.
-     * @param vOffset vertical offset from the top for the content view frame.
+     * @param offset an offset from the top for the content view frame.
      * @param setExtendedInfo whether to set the extended view info in the {@link ViewInfo} object.
      * @param isContentFrame {@code true} if the {@code ViewInfo} to be created is part of the
      *                       content frame. {@code false} if the {@code ViewInfo} to be created is
      *                       part of the system decor.
      */
-    private List<ViewInfo> visitAllChildren(ViewGroup viewGroup, int hOffset, int vOffset,
+    private List<ViewInfo> visitAllChildren(ViewGroup viewGroup, int offset,
             boolean setExtendedInfo, boolean isContentFrame) {
         if (viewGroup == null) {
             return null;
         }
 
         if (!isContentFrame) {
-            vOffset += viewGroup.getTop();
-            hOffset += viewGroup.getLeft();
+            offset += viewGroup.getTop();
         }
 
         int childCount = viewGroup.getChildCount();
         if (viewGroup == mContentRoot) {
-            List<ViewInfo> childrenWithoutOffset = new ArrayList<>(childCount);
-            List<ViewInfo> childrenWithOffset = new ArrayList<>(childCount);
+            List<ViewInfo> childrenWithoutOffset = new ArrayList<ViewInfo>(childCount);
+            List<ViewInfo> childrenWithOffset = new ArrayList<ViewInfo>(childCount);
             for (int i = 0; i < childCount; i++) {
-                ViewInfo[] childViewInfo =
-                        visitContentRoot(viewGroup.getChildAt(i), hOffset, vOffset,
+                ViewInfo[] childViewInfo = visitContentRoot(viewGroup.getChildAt(i), offset,
                         setExtendedInfo);
                 childrenWithoutOffset.add(childViewInfo[0]);
                 childrenWithOffset.add(childViewInfo[1]);
@@ -929,9 +1206,9 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
             mViewInfoList = childrenWithOffset;
             return childrenWithoutOffset;
         } else {
-            List<ViewInfo> children = new ArrayList<>(childCount);
+            List<ViewInfo> children = new ArrayList<ViewInfo>(childCount);
             for (int i = 0; i < childCount; i++) {
-                children.add(visit(viewGroup.getChildAt(i), hOffset, vOffset, setExtendedInfo,
+                children.add(visit(viewGroup.getChildAt(i), offset, setExtendedInfo,
                         isContentFrame));
             }
             return children;
@@ -950,18 +1227,16 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      *         index 1 is with the offset.
      */
     @NonNull
-    private ViewInfo[] visitContentRoot(View view, int hOffset, int vOffset,
-            boolean setExtendedInfo) {
+    private ViewInfo[] visitContentRoot(View view, int offset, boolean setExtendedInfo) {
         ViewInfo[] result = new ViewInfo[2];
         if (view == null) {
             return result;
         }
 
-        result[0] = createViewInfo(view, 0, 0, setExtendedInfo, true);
-        result[1] = createViewInfo(view, hOffset, vOffset, setExtendedInfo, true);
+        result[0] = createViewInfo(view, 0, setExtendedInfo, true);
+        result[1] = createViewInfo(view, offset, setExtendedInfo, true);
         if (view instanceof ViewGroup) {
-            List<ViewInfo> children =
-                    visitAllChildren((ViewGroup) view, 0, 0, setExtendedInfo, true);
+            List<ViewInfo> children = visitAllChildren((ViewGroup) view, 0, setExtendedInfo, true);
             result[0].setChildren(children);
             result[1].setChildren(children);
         }
@@ -972,31 +1247,22 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * Creates a {@link ViewInfo} for the view. The {@code ViewInfo} corresponding to the children
      * of the {@code view} are not created. Consequently, the children of {@code ViewInfo} is not
      * set.
-     * @param hOffset horizontal offset for the view bounds. Used only if view is part of the
-     * content frame.
-     * @param vOffset vertial an offset for the view bounds. Used only if view is part of the
-     * content frame.
+     * @param offset an offset for the view bounds. Used only if view is part of the content frame.
      */
-    private ViewInfo createViewInfo(View view, int hOffset, int vOffset, boolean setExtendedInfo,
+    private ViewInfo createViewInfo(View view, int offset, boolean setExtendedInfo,
             boolean isContentFrame) {
         if (view == null) {
             return null;
         }
 
-        ViewParent parent = view.getParent();
         ViewInfo result;
         if (isContentFrame) {
-            // Account for parent scroll values when calculating the bounding box
-            int scrollX = parent != null ? ((View)parent).getScrollX() : 0;
-            int scrollY = parent != null ? ((View)parent).getScrollY() : 0;
-
             // The view is part of the layout added by the user. Hence,
             // the ViewCookie may be obtained only through the Context.
             result = new ViewInfo(view.getClass().getName(),
-                    getContext().getViewKey(view), -scrollX + view.getLeft() + hOffset,
-                    -scrollY + view.getTop() + vOffset, -scrollX + view.getRight() + hOffset,
-                    -scrollY + view.getBottom() + vOffset,
-                    view, view.getLayoutParams());
+                    getContext().getViewKey(view),
+                    view.getLeft(), view.getTop() + offset, view.getRight(),
+                    view.getBottom() + offset, view, view.getLayoutParams());
         } else {
             // We are part of the system decor.
             SystemViewInfo r = new SystemViewInfo(view.getClass().getName(),
@@ -1024,6 +1290,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     // its parent is of type ActionMenuView. We can also check if the view is
                     // instanceof ActionMenuItemView but that will fail for menus using
                     // actionProviderClass.
+                    ViewParent parent = view.getParent();
                     while (parent != mViewRoot && parent instanceof ViewGroup) {
                         if (parent instanceof ActionMenuView) {
                             r.setViewType(ViewType.ACTION_BAR_MENU);
@@ -1098,8 +1365,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         return mSystemViewInfoList;
     }
 
-    public Map<Object, PropertiesMap> getDefaultProperties() {
-        return getContext().getDefaultProperties();
+    public Map<String, String> getDefaultProperties(Object viewObject) {
+        return getContext().getDefaultPropMap(viewObject);
     }
 
     public void setScene(RenderSession session) {
@@ -1108,35 +1375,5 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
     public RenderSession getSession() {
         return mScene;
-    }
-
-    public void dispose() {
-        boolean createdLooper = false;
-        if (Looper.myLooper() == null) {
-            // Detaching the root view from the window will try to stop any running animations.
-            // The stop method checks that it can run in the looper so, if there is no current
-            // looper, we create a temporary one to complete the shutdown.
-            Bridge.prepareThread();
-            createdLooper = true;
-        }
-        AttachInfo_Accessor.detachFromWindow(mViewRoot);
-        if (mCanvas != null) {
-            mCanvas.release();
-            mCanvas = null;
-        }
-        if (mViewInfoList != null) {
-            mViewInfoList.clear();
-        }
-        if (mSystemViewInfoList != null) {
-            mSystemViewInfoList.clear();
-        }
-        mImage = null;
-        mViewRoot = null;
-        mContentRoot = null;
-
-        if (createdLooper) {
-            Choreographer_Delegate.dispose();
-            Bridge.cleanupThread();
-        }
     }
 }

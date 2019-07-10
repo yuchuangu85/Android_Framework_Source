@@ -1,170 +1,130 @@
 /*
- * Copyright (c) 1999, 2007, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 
 package javax.crypto;
 
-import java.security.Key;
 import java.security.AlgorithmParameters;
-import java.security.InvalidKeyException;
 import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
 import java.security.spec.AlgorithmParameterSpec;
 
 /**
- * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the <code>ExemptionMechanism</code> class.
- * All the abstract methods in this class must be implemented by each
- * cryptographic service provider who wishes to supply the implementation
- * of a particular exemption mechanism.
- *
- * @author Sharon Liu
- *
- * @since 1.4
+ * The <i>Service Provider Interface</i> (<b>SPI</b>) definition for the {@code
+ * ExemptionMechanism} class.
  */
-
 public abstract class ExemptionMechanismSpi {
 
     /**
-     * Returns the length in bytes that an output buffer would need to be in
-     * order to hold the result of the next
-     * {@link #engineGenExemptionBlob(byte[], int) engineGenExemptionBlob}
-     * operation, given the input length <code>inputLen</code> (in bytes).
+     * Creates a new {@code ExemptionMechanismSpi} instance.
+     */
+    public ExemptionMechanismSpi() {
+    }
+
+    /**
+     * Generates the result key blob for this exemption mechanism.
      *
-     * <p>The actual output length of the next
-     * {@link #engineGenExemptionBlob(byte[], int) engineGenExemptionBlob}
-     * call may be smaller than the length returned by this method.
+     * @return the result key blob for this exemption mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during generation.
+     */
+    protected abstract byte[] engineGenExemptionBlob()
+            throws ExemptionMechanismException;
+
+    /**
+     * Generates the result key blob for this exemption mechanism and stores it
+     * into the {@code output} buffer at offset {@code outputOffset}.
      *
-     * @param inputLen the input length (in bytes)
+     * @param output
+     *            the output buffer for the result key blob.
+     * @param outputOffset
+     *            the offset in the output buffer to start.
+     * @return the number of bytes written to the {@code output} buffer.
+     * @throws ShortBufferException
+     *             if the provided buffer is too small for the result key blob.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during generation.
+     */
+    protected abstract int engineGenExemptionBlob(byte[] output,
+            int outputOffset) throws ShortBufferException,
+            ExemptionMechanismException;
+
+    /**
+     * Returns the size in bytes for the output buffer needed to hold the output
+     * of the next {@link #engineGenExemptionBlob} call, given the specified
+     * {@code inputLen} (in bytes).
      *
-     * @return the required output buffer size (in bytes)
+     * @param inputLen
+     *            the specified input length (in bytes).
+     * @return the size in bytes for the output buffer.
      */
     protected abstract int engineGetOutputSize(int inputLen);
 
     /**
-     * Initializes this exemption mechanism with a key.
+     * Initializes this {@code ExemptionMechanism} instance with the specified
+     * key.
      *
-     * <p>If this exemption mechanism requires any algorithm parameters
-     * that cannot be derived from the given <code>key</code>, the underlying
-     * exemption mechanism implementation is supposed to generate the required
-     * parameters itself (using provider-specific default values); in the case
-     * that algorithm parameters must be specified by the caller, an
-     * <code>InvalidKeyException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
+     * @param key
+     *            the key to initialize this instance with.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
-    protected abstract void engineInit(Key key)
-    throws InvalidKeyException, ExemptionMechanismException;
+    protected abstract void engineInit(Key key) throws InvalidKeyException,
+            ExemptionMechanismException;
 
     /**
-     * Initializes this exemption mechanism with a key and a set of algorithm
-     * parameters.
+     * Initializes this {@code ExemptionMechanism} instance with the specified
+     * key and algorithm parameters.
      *
-     * <p>If this exemption mechanism requires any algorithm parameters and
-     * <code>params</code> is null, the underlying exemption mechanism
-     * implementation is supposed to generate the required parameters
-     * itself (using provider-specific default values); in the case that
-     * algorithm parameters must be specified by the caller, an
-     * <code>InvalidAlgorithmParameterException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
-     */
-    protected abstract void engineInit(Key key, AlgorithmParameterSpec params)
-    throws InvalidKeyException, InvalidAlgorithmParameterException,
-    ExemptionMechanismException;
-
-    /**
-     * Initializes this exemption mechanism with a key and a set of algorithm
-     * parameters.
-     *
-     * <p>If this exemption mechanism requires any algorithm parameters
-     * and <code>params</code> is null, the underlying exemption mechanism
-     * implementation is supposed to generate the required parameters
-     * itself (using provider-specific default values); in the case that
-     * algorithm parameters must be specified by the caller, an
-     * <code>InvalidAlgorithmParameterException</code> is raised.
-     *
-     * @param key the key for this exemption mechanism
-     * @param params the algorithm parameters
-     *
-     * @exception InvalidKeyException if the given key is inappropriate for
-     * this exemption mechanism.
-     * @exception InvalidAlgorithmParameterException if the given algorithm
-     * parameters are inappropriate for this exemption mechanism.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of initializing.
+     * @param key
+     *            the key to initialize this instance with.
+     * @param params
+     *            the parameters for this exemption mechanism algorithm.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws InvalidAlgorithmParameterException
+     *             if the parameters cannot be used to initialize this
+     *             mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
     protected abstract void engineInit(Key key, AlgorithmParameters params)
-    throws InvalidKeyException, InvalidAlgorithmParameterException,
-    ExemptionMechanismException;
+            throws InvalidKeyException, InvalidAlgorithmParameterException,
+            ExemptionMechanismException;
 
     /**
-     * Generates the exemption mechanism key blob.
+     * Initializes this {@code ExemptionMechanism} instance with the specified
+     * key and algorithm parameters.
      *
-     * @return the new buffer with the result key blob.
-     *
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of generating.
+     * @param key
+     *            the key to initialize this instance with.
+     * @param params
+     *            the parameters for this exemption mechanism algorithm.
+     * @throws InvalidKeyException
+     *             if the key cannot be used to initialize this mechanism.
+     * @throws InvalidAlgorithmParameterException
+     *             the the parameters cannot be used to initialize this
+     *             mechanism.
+     * @throws ExemptionMechanismException
+     *             if error(s) occur during initialization.
      */
-    protected abstract byte[] engineGenExemptionBlob()
-        throws ExemptionMechanismException;
-
-    /**
-     * Generates the exemption mechanism key blob, and stores the result in
-     * the <code>output</code> buffer, starting at <code>outputOffset</code>
-     * inclusive.
-     *
-     * <p>If the <code>output</code> buffer is too small to hold the result,
-     * a <code>ShortBufferException</code> is thrown. In this case, repeat this
-     * call with a larger output buffer. Use
-     * {@link #engineGetOutputSize(int) engineGetOutputSize} to determine
-     * how big the output buffer should be.
-     *
-     * @param output the buffer for the result
-     * @param outputOffset the offset in <code>output</code> where the result
-     * is stored
-     *
-     * @return the number of bytes stored in <code>output</code>
-     *
-     * @exception ShortBufferException if the given output buffer is too small
-     * to hold the result.
-     * @exception ExemptionMechanismException if problem(s) encountered in the
-     * process of generating.
-     */
-    protected abstract int engineGenExemptionBlob
-    (byte[] output, int outputOffset)
-        throws ShortBufferException, ExemptionMechanismException;
+    protected abstract void engineInit(Key key, AlgorithmParameterSpec params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException,
+            ExemptionMechanismException;
 }

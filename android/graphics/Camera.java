@@ -163,7 +163,6 @@ public class Camera {
     protected void finalize() throws Throwable {
         try {
             nativeDestructor();
-            native_instance = 0;
         } finally {
             super.finalize();
         }

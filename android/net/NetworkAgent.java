@@ -17,8 +17,6 @@
 package android.net;
 
 import android.content.Context;
-import android.net.ConnectivityManager.PacketKeepalive;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -101,21 +99,30 @@ public abstract class NetworkAgent extends Handler {
     public static final int EVENT_NETWORK_SCORE_CHANGED = BASE + 4;
 
     /**
+     * Sent by the NetworkAgent to ConnectivityService to add new UID ranges
+     * to be forced into this Network.  For VPNs only.
+     * obj = UidRange[] to forward
+     */
+    public static final int EVENT_UID_RANGES_ADDED = BASE + 5;
+
+    /**
+     * Sent by the NetworkAgent to ConnectivityService to remove UID ranges
+     * from being forced into this Network.  For VPNs only.
+     * obj = UidRange[] to stop forwarding
+     */
+    public static final int EVENT_UID_RANGES_REMOVED = BASE + 6;
+
+    /**
      * Sent by ConnectivityService to the NetworkAgent to inform the agent of the
      * networks status - whether we could use the network or could not, due to
      * either a bad network configuration (no internet link) or captive portal.
      *
      * arg1 = either {@code VALID_NETWORK} or {@code INVALID_NETWORK}
-     * obj = Bundle containing map from {@code REDIRECT_URL_KEY} to {@code String}
-     *       representing URL that Internet probe was redirect to, if it was redirected,
-     *       or mapping to {@code null} otherwise.
      */
     public static final int CMD_REPORT_NETWORK_STATUS = BASE + 7;
 
     public static final int VALID_NETWORK = 1;
     public static final int INVALID_NETWORK = 2;
-
-    public static String REDIRECT_URL_KEY = "redirect URL";
 
      /**
      * Sent by the NetworkAgent to ConnectivityService to indicate this network was
@@ -136,60 +143,17 @@ public abstract class NetworkAgent extends Handler {
      */
     public static final int CMD_SAVE_ACCEPT_UNVALIDATED = BASE + 9;
 
-    /**
-     * Sent by ConnectivityService to the NetworkAgent to inform the agent to pull
+    /** Sent by ConnectivityService to the NetworkAgent to inform the agent to pull
      * the underlying network connection for updated bandwidth information.
      */
     public static final int CMD_REQUEST_BANDWIDTH_UPDATE = BASE + 10;
-
-    /**
-     * Sent by ConnectivityService to the NetworkAgent to request that the specified packet be sent
-     * periodically on the given interval.
-     *
-     *   arg1 = the slot number of the keepalive to start
-     *   arg2 = interval in seconds
-     *   obj = KeepalivePacketData object describing the data to be sent
-     *
-     * Also used internally by ConnectivityService / KeepaliveTracker, with different semantics.
-     */
-    public static final int CMD_START_PACKET_KEEPALIVE = BASE + 11;
-
-    /**
-     * Requests that the specified keepalive packet be stopped.
-     *
-     * arg1 = slot number of the keepalive to stop.
-     *
-     * Also used internally by ConnectivityService / KeepaliveTracker, with different semantics.
-     */
-    public static final int CMD_STOP_PACKET_KEEPALIVE = BASE + 12;
-
-    /**
-     * Sent by the NetworkAgent to ConnectivityService to provide status on a packet keepalive
-     * request. This may either be the reply to a CMD_START_PACKET_KEEPALIVE, or an asynchronous
-     * error notification.
-     *
-     * This is also sent by KeepaliveTracker to the app's ConnectivityManager.PacketKeepalive to
-     * so that the app's PacketKeepaliveCallback methods can be called.
-     *
-     * arg1 = slot number of the keepalive
-     * arg2 = error code
-     */
-    public static final int EVENT_PACKET_KEEPALIVE = BASE + 13;
-
-    /**
-     * Sent by ConnectivityService to inform this network transport of signal strength thresholds
-     * that when crossed should trigger a system wakeup and a NetworkCapabilities update.
-     *
-     *   obj = int[] describing signal strength thresholds.
-     */
-    public static final int CMD_SET_SIGNAL_STRENGTH_THRESHOLDS = BASE + 14;
 
     /**
      * Sent by ConnectivityService to the NeworkAgent to inform the agent to avoid
      * automatically reconnecting to this network (e.g. via autojoin).  Happens
      * when user selects "No" option on the "Stay connected?" dialog box.
      */
-    public static final int CMD_PREVENT_AUTOMATIC_RECONNECT = BASE + 15;
+    public static final int CMD_PREVENT_AUTOMATIC_RECONNECT = BASE + 11;
 
     public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
             NetworkCapabilities nc, LinkProperties lp, int score) {
@@ -274,37 +238,15 @@ public abstract class NetworkAgent extends Handler {
                 break;
             }
             case CMD_REPORT_NETWORK_STATUS: {
-                String redirectUrl = ((Bundle)msg.obj).getString(REDIRECT_URL_KEY);
                 if (VDBG) {
                     log("CMD_REPORT_NETWORK_STATUS(" +
-                            (msg.arg1 == VALID_NETWORK ? "VALID, " : "INVALID, ") + redirectUrl);
+                            (msg.arg1 == VALID_NETWORK ? "VALID)" : "INVALID)"));
                 }
-                networkStatus(msg.arg1, redirectUrl);
+                networkStatus(msg.arg1);
                 break;
             }
             case CMD_SAVE_ACCEPT_UNVALIDATED: {
                 saveAcceptUnvalidated(msg.arg1 != 0);
-                break;
-            }
-            case CMD_START_PACKET_KEEPALIVE: {
-                startPacketKeepalive(msg);
-                break;
-            }
-            case CMD_STOP_PACKET_KEEPALIVE: {
-                stopPacketKeepalive(msg);
-                break;
-            }
-
-            case CMD_SET_SIGNAL_STRENGTH_THRESHOLDS: {
-                ArrayList<Integer> thresholds =
-                        ((Bundle) msg.obj).getIntegerArrayList("thresholds");
-                // TODO: Change signal strength thresholds API to use an ArrayList<Integer>
-                // rather than convert to int[].
-                int[] intThresholds = new int[(thresholds != null) ? thresholds.size() : 0];
-                for (int i = 0; i < intThresholds.length; i++) {
-                    intThresholds[i] = thresholds.get(i);
-                }
-                setSignalStrengthThresholds(intThresholds);
                 break;
             }
             case CMD_PREVENT_AUTOMATIC_RECONNECT: {
@@ -315,27 +257,13 @@ public abstract class NetworkAgent extends Handler {
     }
 
     private void queueOrSendMessage(int what, Object obj) {
-        queueOrSendMessage(what, 0, 0, obj);
-    }
-
-    private void queueOrSendMessage(int what, int arg1, int arg2) {
-        queueOrSendMessage(what, arg1, arg2, null);
-    }
-
-    private void queueOrSendMessage(int what, int arg1, int arg2, Object obj) {
-        Message msg = Message.obtain();
-        msg.what = what;
-        msg.arg1 = arg1;
-        msg.arg2 = arg2;
-        msg.obj = obj;
-        queueOrSendMessage(msg);
-    }
-
-    private void queueOrSendMessage(Message msg) {
         synchronized (mPreConnectedQueue) {
             if (mAsyncChannel != null) {
-                mAsyncChannel.sendMessage(msg);
+                mAsyncChannel.sendMessage(what, obj);
             } else {
+                Message msg = Message.obtain();
+                msg.what = what;
+                msg.obj = obj;
                 mPreConnectedQueue.add(msg);
             }
         }
@@ -373,6 +301,22 @@ public abstract class NetworkAgent extends Handler {
             throw new IllegalArgumentException("Score must be >= 0");
         }
         queueOrSendMessage(EVENT_NETWORK_SCORE_CHANGED, new Integer(score));
+    }
+
+    /**
+     * Called by the VPN code when it wants to add ranges of UIDs to be routed
+     * through the VPN network.
+     */
+    public void addUidRanges(UidRange[] ranges) {
+        queueOrSendMessage(EVENT_UID_RANGES_ADDED, ranges);
+    }
+
+    /**
+     * Called by the VPN code when it wants to remove ranges of UIDs from being routed
+     * through the VPN network.
+     */
+    public void removeUidRanges(UidRange[] ranges) {
+        queueOrSendMessage(EVENT_UID_RANGES_REMOVED, ranges);
     }
 
     /**
@@ -419,12 +363,8 @@ public abstract class NetworkAgent extends Handler {
      *
      * This may be called multiple times as the network status changes and may
      * generate false negatives if we lose ip connectivity before the link is torn down.
-     *
-     * @param status one of {@code VALID_NETWORK} or {@code INVALID_NETWORK}.
-     * @param redirectUrl If the Internet probe was redirected, this is the destination it was
-     *         redirected to, otherwise {@code null}.
      */
-    protected void networkStatus(int status, String redirectUrl) {
+    protected void networkStatus(int status) {
     }
 
     /**
@@ -435,34 +375,6 @@ public abstract class NetworkAgent extends Handler {
      * {@code acceptUnvalidated} set to {@code false}.
      */
     protected void saveAcceptUnvalidated(boolean accept) {
-    }
-
-    /**
-     * Requests that the network hardware send the specified packet at the specified interval.
-     */
-    protected void startPacketKeepalive(Message msg) {
-        onPacketKeepaliveEvent(msg.arg1, PacketKeepalive.ERROR_HARDWARE_UNSUPPORTED);
-    }
-
-    /**
-     * Requests that the network hardware send the specified packet at the specified interval.
-     */
-    protected void stopPacketKeepalive(Message msg) {
-        onPacketKeepaliveEvent(msg.arg1, PacketKeepalive.ERROR_HARDWARE_UNSUPPORTED);
-    }
-
-    /**
-     * Called by the network when a packet keepalive event occurs.
-     */
-    public void onPacketKeepaliveEvent(int slot, int reason) {
-        queueOrSendMessage(EVENT_PACKET_KEEPALIVE, slot, reason);
-    }
-
-    /**
-     * Called by ConnectivityService to inform this network transport of signal strength thresholds
-     * that when crossed should trigger a system wakeup and a NetworkCapabilities update.
-     */
-    protected void setSignalStrengthThresholds(int[] thresholds) {
     }
 
     /**

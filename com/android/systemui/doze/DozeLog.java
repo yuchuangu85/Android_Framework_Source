@@ -33,19 +33,14 @@ public class DozeLog {
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
     private static final boolean ENABLED = true;
     private static final int SIZE = Build.IS_DEBUGGABLE ? 400 : 50;
-    static final SimpleDateFormat FORMAT = new SimpleDateFormat("MM-dd HH:mm:ss.SSS");
+    private static final SimpleDateFormat FORMAT = new SimpleDateFormat("MM-dd HH:mm:ss.SSS");
 
-    private static final int PULSE_REASONS = 6;
+    private static final int PULSE_REASONS = 4;
 
-    public static final int PULSE_REASON_NONE = -1;
     public static final int PULSE_REASON_INTENT = 0;
     public static final int PULSE_REASON_NOTIFICATION = 1;
     public static final int PULSE_REASON_SENSOR_SIGMOTION = 2;
     public static final int PULSE_REASON_SENSOR_PICKUP = 3;
-    public static final int PULSE_REASON_SENSOR_DOUBLE_TAP = 4;
-    public static final int PULSE_REASON_SENSOR_LONG_PRESS = 5;
-
-    private static boolean sRegisterKeyguardCallback = true;
 
     private static long[] sTimes;
     private static String[] sMessages;
@@ -62,9 +57,8 @@ public class DozeLog {
     private static SummaryStats sEmergencyCallStats;
     private static SummaryStats[][] sProxStats; // [reason][near/far]
 
-    public static void tracePickupPulse(Context context, boolean withinVibrationThreshold) {
+    public static void tracePickupPulse(boolean withinVibrationThreshold) {
         if (!ENABLED) return;
-        init(context);
         log("pickupPulse withinVibrationThreshold=" + withinVibrationThreshold);
         (withinVibrationThreshold ? sPickupPulseNearVibrationStats
                 : sPickupPulseNotNearVibrationStats).append();
@@ -82,10 +76,9 @@ public class DozeLog {
         log("pulseFinish");
     }
 
-    public static void traceNotificationPulse(Context context) {
+    public static void traceNotificationPulse(long instance) {
         if (!ENABLED) return;
-        init(context);
-        log("notificationPulse");
+        log("notificationPulse instance=" + instance);
         sNotificationPulseStats.append();
     }
 
@@ -107,9 +100,7 @@ public class DozeLog {
                     sProxStats[i][1] = new SummaryStats();
                 }
                 log("init");
-                if (sRegisterKeyguardCallback) {
-                    KeyguardUpdateMonitor.getInstance(context).registerCallback(sKeyguardCallback);
-                }
+                KeyguardUpdateMonitor.getInstance(context).registerCallback(sKeyguardCallback);
             }
         }
     }
@@ -151,11 +142,6 @@ public class DozeLog {
         log("screenOff why=" + why);
     }
 
-    public static void traceMissedTick(String delay) {
-        if (!ENABLED) return;
-        log("missedTick by=" + delay);
-    }
-
     public static void traceKeyguard(boolean showing) {
         if (!ENABLED) return;
         log("keyguard " + showing);
@@ -164,17 +150,12 @@ public class DozeLog {
         }
     }
 
-    public static void traceState(DozeMachine.State state) {
-        if (!ENABLED) return;
-        log("state " + state);
-    }
-
     public static void traceProximityResult(Context context, boolean near, long millis,
             int pulseReason) {
         if (!ENABLED) return;
-        init(context);
         log("proximityResult reason=" + pulseReasonToString(pulseReason) + " near=" + near
                 + " millis=" + millis);
+        init(context);
         sProxStats[pulseReason][near ? 0 : 1].append();
     }
 
@@ -184,8 +165,6 @@ public class DozeLog {
             case PULSE_REASON_NOTIFICATION: return "notification";
             case PULSE_REASON_SENSOR_SIGMOTION: return "sigmotion";
             case PULSE_REASON_SENSOR_PICKUP: return "pickup";
-            case PULSE_REASON_SENSOR_DOUBLE_TAP: return "doubletap";
-            case PULSE_REASON_SENSOR_LONG_PRESS: return "longpress";
             default: throw new IllegalArgumentException("bad reason: " + pulseReason);
         }
     }
@@ -228,37 +207,6 @@ public class DozeLog {
             sCount = Math.min(sCount + 1, SIZE);
         }
         if (DEBUG) Log.d(TAG, msg);
-    }
-
-    public static void tracePulseDropped(Context context, boolean pulsePending,
-            DozeMachine.State state, boolean blocked) {
-        if (!ENABLED) return;
-        init(context);
-        log("pulseDropped pulsePending=" + pulsePending + " state="
-                + state + " blocked=" + blocked);
-    }
-
-    public static void tracePulseTouchDisabledByProx(Context context, boolean disabled) {
-        if (!ENABLED) return;
-        init(context);
-        log("pulseTouchDisabledByProx " + disabled);
-    }
-
-    public static void setRegisterKeyguardCallback(boolean registerKeyguardCallback) {
-        if (!ENABLED) return;
-        synchronized (DozeLog.class) {
-            if (sRegisterKeyguardCallback != registerKeyguardCallback && sMessages != null) {
-                throw new IllegalStateException("Cannot change setRegisterKeyguardCallback "
-                        + "after init()");
-            }
-            sRegisterKeyguardCallback = registerKeyguardCallback;
-        }
-    }
-
-    public static void traceSensor(Context context, int pulseReason) {
-        if (!ENABLED) return;
-        init(context);
-        log("sensor type=" + pulseReasonToString(pulseReason));
     }
 
     private static class SummaryStats {

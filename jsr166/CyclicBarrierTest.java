@@ -27,7 +27,7 @@ public class CyclicBarrierTest extends JSR166TestCase {
     //     main(suite(), args);
     // }
     // public static Test suite() {
-    //     return new TestSuite(CyclicBarrierTest.class);
+    //     return new TestSuite(...);
     // }
 
     private volatile int countAction;

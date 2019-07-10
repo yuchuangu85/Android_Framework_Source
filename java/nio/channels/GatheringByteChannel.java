@@ -1,26 +1,17 @@
-/*
- * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.nio.channels;
@@ -28,139 +19,77 @@ package java.nio.channels;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-
 /**
- * A channel that can write bytes from a sequence of buffers.
- *
- * <p> A <i>gathering</i> write operation writes, in a single invocation, a
- * sequence of bytes from one or more of a given sequence of buffers.
- * Gathering writes are often useful when implementing network protocols or
- * file formats that, for example, group data into segments consisting of one
- * or more fixed-length headers followed by a variable-length body.  Similar
- * <i>scattering</i> read operations are defined in the {@link
- * ScatteringByteChannel} interface.  </p>
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
+ * The interface for channels that can write a set of buffers in a single
+ * operation. The corresponding interface for read operations is
+ * {@link ScatteringByteChannel}.
  */
-
-public interface GatheringByteChannel
-    extends WritableByteChannel
-{
+public interface GatheringByteChannel extends WritableByteChannel {
 
     /**
-     * Writes a sequence of bytes to this channel from a subsequence of the
-     * given buffers.
+     * Writes bytes from all the given buffers to a channel.
+     * <p>
+     * This method is equivalent to: {@code write(buffers, 0, buffers.length);}
      *
-     * <p> An attempt is made to write up to <i>r</i> bytes to this channel,
-     * where <i>r</i> is the total number of bytes remaining in the specified
-     * subsequence of the given buffer array, that is,
-     *
-     * <blockquote><pre>
-     * srcs[offset].remaining()
-     *     + srcs[offset+1].remaining()
-     *     + ... + srcs[offset+length-1].remaining()</pre></blockquote>
-     *
-     * at the moment that this method is invoked.
-     *
-     * <p> Suppose that a byte sequence of length <i>n</i> is written, where
-     * <tt>0</tt>&nbsp;<tt>&lt;=</tt>&nbsp;<i>n</i>&nbsp;<tt>&lt;=</tt>&nbsp;<i>r</i>.
-     * Up to the first <tt>srcs[offset].remaining()</tt> bytes of this sequence
-     * are written from buffer <tt>srcs[offset]</tt>, up to the next
-     * <tt>srcs[offset+1].remaining()</tt> bytes are written from buffer
-     * <tt>srcs[offset+1]</tt>, and so forth, until the entire byte sequence is
-     * written.  As many bytes as possible are written from each buffer, hence
-     * the final position of each updated buffer, except the last updated
-     * buffer, is guaranteed to be equal to that buffer's limit.
-     *
-     * <p> Unless otherwise specified, a write operation will return only after
-     * writing all of the <i>r</i> requested bytes.  Some types of channels,
-     * depending upon their state, may write only some of the bytes or possibly
-     * none at all.  A socket channel in non-blocking mode, for example, cannot
-     * write any more bytes than are free in the socket's output buffer.
-     *
-     * <p> This method may be invoked at any time.  If another thread has
-     * already initiated a write operation upon this channel, however, then an
-     * invocation of this method will block until the first operation is
-     * complete. </p>
-     *
-     * @param  srcs
-     *         The buffers from which bytes are to be retrieved
-     *
-     * @param  offset
-     *         The offset within the buffer array of the first buffer from
-     *         which bytes are to be retrieved; must be non-negative and no
-     *         larger than <tt>srcs.length</tt>
-     *
-     * @param  length
-     *         The maximum number of buffers to be accessed; must be
-     *         non-negative and no larger than
-     *         <tt>srcs.length</tt>&nbsp;-&nbsp;<tt>offset</tt>
-     *
-     * @return  The number of bytes written, possibly zero
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If the preconditions on the <tt>offset</tt> and <tt>length</tt>
-     *          parameters do not hold
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the write operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the write operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @param buffers
+     *            the buffers containing bytes to be written.
+     * @return the number of bytes actually written.
+     * @throws AsynchronousCloseException
+     *             if the channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while the
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if the channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code length < 0}, or if
+     *             {@code offset + length} is greater than the size of
+     *             {@code buffers}.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonWritableChannelException
+     *             if the channel has not been opened in a mode that permits
+     *             writing.
      */
-    public long write(ByteBuffer[] srcs, int offset, int length)
-        throws IOException;
-
+    public long write(ByteBuffer[] buffers) throws IOException;
 
     /**
-     * Writes a sequence of bytes to this channel from the given buffers.
+     * Attempts to write all <code>remaining()</code> bytes from {@code length}
+     * byte buffers, in order, starting at {@code buffers[offset]}. The number
+     * of bytes actually written is returned.
+     * <p>
+     * If a write operation is in progress, subsequent threads will block until
+     * the write is completed and then contend for the ability to write.
      *
-     * <p> An invocation of this method of the form <tt>c.write(srcs)</tt>
-     * behaves in exactly the same manner as the invocation
-     *
-     * <blockquote><pre>
-     * c.write(srcs, 0, srcs.length);</pre></blockquote>
-     *
-     * @param  srcs
-     *         The buffers from which bytes are to be retrieved
-     *
-     * @return  The number of bytes written, possibly zero
-     *
-     * @throws  NonWritableChannelException
-     *          If this channel was not opened for writing
-     *
-     * @throws  ClosedChannelException
-     *          If this channel is closed
-     *
-     * @throws  AsynchronousCloseException
-     *          If another thread closes this channel
-     *          while the write operation is in progress
-     *
-     * @throws  ClosedByInterruptException
-     *          If another thread interrupts the current thread
-     *          while the write operation is in progress, thereby
-     *          closing the channel and setting the current thread's
-     *          interrupt status
-     *
-     * @throws  IOException
-     *          If some other I/O error occurs
+     * @param buffers
+     *            the array of byte buffers that is the source for bytes written
+     *            to the channel.
+     * @param offset
+     *            the index of the first buffer in {@code buffers }to get bytes
+     *            from.
+     * @param length
+     *            the number of buffers to get bytes from.
+     * @return the number of bytes actually written.
+     * @throws AsynchronousCloseException
+     *             if the channel is closed by another thread during this write
+     *             operation.
+     * @throws ClosedByInterruptException
+     *             if another thread interrupts the calling thread while the
+     *             operation is in progress. The interrupt state of the calling
+     *             thread is set and the channel is closed.
+     * @throws ClosedChannelException
+     *             if the channel is closed.
+     * @throws IndexOutOfBoundsException
+     *             if {@code offset < 0} or {@code length < 0}, or if
+     *             {@code offset + length} is greater than the size of
+     *             {@code buffers}.
+     * @throws IOException
+     *             if another I/O error occurs; details are in the message.
+     * @throws NonWritableChannelException
+     *             if the channel was not opened for writing.
      */
-    public long write(ByteBuffer[] srcs) throws IOException;
-
+    public long write(ByteBuffer[] buffers, int offset, int length)
+            throws IOException;
 }

@@ -1,986 +1,652 @@
-/*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
-// -- This file was mechanically generated: Do not edit! -- //
 
 package java.nio.charset;
 
-import java.nio.Buffer;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.BufferOverflowException;
 import java.nio.BufferUnderflowException;
-import java.lang.ref.WeakReference;
-import java.nio.charset.CoderMalfunctionError;                  // javadoc
-import java.util.Arrays;
-
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 
 /**
- * An engine that can transform a sequence of bytes in a specific charset into a sequence of
- * sixteen-bit Unicode characters.
- *
- * <a name="steps"></a>
- *
- * <p> The input byte sequence is provided in a byte buffer or a series
- * of such buffers.  The output character sequence is written to a character buffer
- * or a series of such buffers.  A decoder should always be used by making
- * the following sequence of method invocations, hereinafter referred to as a
- * <i>decoding operation</i>:
- *
+ * A converter that can convert a byte sequence from a charset into a 16-bit
+ * Unicode character sequence.
+ * <p>
+ * The input byte sequence is wrapped by a
+ * {@link java.nio.ByteBuffer ByteBuffer} and the output character sequence is a
+ * {@link java.nio.CharBuffer CharBuffer}. A decoder instance should be used in
+ * the following sequence, which is referred to as a decoding operation:
  * <ol>
- *
- *   <li><p> Reset the decoder via the {@link #reset reset} method, unless it
- *   has not been used before; </p></li>
- *
- *   <li><p> Invoke the {@link #decode decode} method zero or more times, as
- *   long as additional input may be available, passing <tt>false</tt> for the
- *   <tt>endOfInput</tt> argument and filling the input buffer and flushing the
- *   output buffer between invocations; </p></li>
- *
- *   <li><p> Invoke the {@link #decode decode} method one final time, passing
- *   <tt>true</tt> for the <tt>endOfInput</tt> argument; and then </p></li>
- *
- *   <li><p> Invoke the {@link #flush flush} method so that the decoder can
- *   flush any internal state to the output buffer. </p></li>
- *
+ * <li>invoking the {@link #reset() reset} method to reset the decoder if the
+ * decoder has been used;</li>
+ * <li>invoking the {@link #decode(ByteBuffer, CharBuffer, boolean) decode}
+ * method until the additional input is not needed, the <code>endOfInput</code>
+ * parameter must be set to false, the input buffer must be filled and the
+ * output buffer must be flushed between invocations;</li>
+ * <li>invoking the {@link #decode(ByteBuffer, CharBuffer, boolean) decode}
+ * method for the last time, and then the <code>endOfInput</code> parameter
+ * must be set to true;</li>
+ * <li>invoking the {@link #flush(CharBuffer) flush} method to flush the
+ * output.</li>
  * </ol>
+ * <p>
+ * The {@link #decode(ByteBuffer, CharBuffer, boolean) decode} method will
+ * convert as many bytes as possible, and the process won't stop until the input
+ * bytes have run out, the output buffer has been filled or some error has
+ * happened. A {@link CoderResult CoderResult} instance will be returned to
+ * indicate the stop reason, and the invoker can identify the result and choose
+ * further action, which includes filling the input buffer, flushing the output
+ * buffer or recovering from an error and trying again.
+ * <p>
+ * There are two common decoding errors. One is named malformed and it is
+ * returned when the input byte sequence is illegal for the current specific
+ * charset, the other is named unmappable character and it is returned when a
+ * problem occurs mapping a legal input byte sequence to its Unicode character
+ * equivalent.
+ * <p>
+ * Both errors can be handled in three ways, the default one is to report the
+ * error to the invoker by a {@link CoderResult CoderResult} instance, and the
+ * alternatives are to ignore it or to replace the erroneous input with the
+ * replacement string. The replacement string is "\uFFFD" by default and can be
+ * changed by invoking {@link #replaceWith(String) replaceWith} method. The
+ * invoker of this decoder can choose one way by specifying a
+ * {@link CodingErrorAction CodingErrorAction} instance for each error type via
+ * {@link #onMalformedInput(CodingErrorAction) onMalformedInput} method and
+ * {@link #onUnmappableCharacter(CodingErrorAction) onUnmappableCharacter}
+ * method.
+ * <p>
+ * This is an abstract class and encapsulates many common operations of the
+ * decoding process for all charsets. Decoders for a specific charset should
+ * extend this class and need only to implement the
+ * {@link #decodeLoop(ByteBuffer, CharBuffer) decodeLoop} method for the basic
+ * decoding. If a subclass maintains an internal state, it should override the
+ * {@link #implFlush(CharBuffer) implFlush} method and the
+ * {@link #implReset() implReset} method in addition.
+ * <p>
+ * This class is not thread-safe.
  *
- * Each invocation of the {@link #decode decode} method will decode as many
- * bytes as possible from the input buffer, writing the resulting characters
- * to the output buffer.  The {@link #decode decode} method returns when more
- * input is required, when there is not enough room in the output buffer, or
- * when a decoding error has occurred.  In each case a {@link CoderResult}
- * object is returned to describe the reason for termination.  An invoker can
- * examine this object and fill the input buffer, flush the output buffer, or
- * attempt to recover from a decoding error, as appropriate, and try again.
- *
- * <a name="ce"></a>
- *
- * <p> There are two general types of decoding errors.  If the input byte
- * sequence is not legal for this charset then the input is considered <i>malformed</i>.  If
- * the input byte sequence is legal but cannot be mapped to a valid
- * Unicode character then an <i>unmappable character</i> has been encountered.
- *
- * <a name="cae"></a>
- *
- * <p> How a decoding error is handled depends upon the action requested for
- * that type of error, which is described by an instance of the {@linkplain
- * CodingErrorAction} class.  The possible error actions are to {@linkplain
- * CodingErrorAction#IGNORE ignore} the erroneous input, {@link
- * CodingErrorAction#REPORT report} the error to the invoker via
- * the returned {@link CoderResult} object, or {@linkplain CodingErrorAction#REPLACE
- * replace} the erroneous input with the current value of the
- * replacement string.  The replacement
- *
-
-
-
-
-
- * has the initial value <tt>"&#92;uFFFD"</tt>;
-
- *
- * its value may be changed via the {@link #replaceWith(java.lang.String)
- * replaceWith} method.
- *
- * <p> The default action for malformed-input and unmappable-character errors
- * is to {@linkplain CodingErrorAction#REPORT report} them.  The
- * malformed-input error action may be changed via the {@link
- * #onMalformedInput(CodingErrorAction) onMalformedInput} method; the
- * unmappable-character action may be changed via the {@link
- * #onUnmappableCharacter(CodingErrorAction) onUnmappableCharacter} method.
- *
- * <p> This class is designed to handle many of the details of the decoding
- * process, including the implementation of error actions.  A decoder for a
- * specific charset, which is a concrete subclass of this class, need only
- * implement the abstract {@link #decodeLoop decodeLoop} method, which
- * encapsulates the basic decoding loop.  A subclass that maintains internal
- * state should, additionally, override the {@link #implFlush implFlush} and
- * {@link #implReset implReset} methods.
- *
- * <p> Instances of this class are not safe for use by multiple concurrent
- * threads.  </p>
- *
- *
- * @author Mark Reinhold
- * @author JSR-51 Expert Group
- * @since 1.4
- *
- * @see ByteBuffer
- * @see CharBuffer
- * @see Charset
- * @see CharsetEncoder
+ * @see java.nio.charset.Charset
+ * @see java.nio.charset.CharsetEncoder
  */
-
 public abstract class CharsetDecoder {
+    private static final String RESET = "RESET";
+    private static final String ONGOING = "ONGOING";
+    private static final String END_OF_INPUT = "END_OF_INPUT";
+    private static final String FLUSHED = "FLUSHED";
 
     private final Charset charset;
+
     private final float averageCharsPerByte;
     private final float maxCharsPerByte;
 
-    private String replacement;
-    private CodingErrorAction malformedInputAction
-        = CodingErrorAction.REPORT;
-    private CodingErrorAction unmappableCharacterAction
-        = CodingErrorAction.REPORT;
+    private String replacementChars = "\ufffd";
 
-    // Internal states
-    //
-    private static final int ST_RESET   = 0;
-    private static final int ST_CODING  = 1;
-    private static final int ST_END     = 2;
-    private static final int ST_FLUSHED = 3;
+    private String state = RESET;
 
-    private int state = ST_RESET;
-
-    private static String stateNames[]
-        = { "RESET", "CODING", "CODING_END", "FLUSHED" };
-
+    private CodingErrorAction malformedInputAction = CodingErrorAction.REPORT;
+    private CodingErrorAction unmappableCharacterAction = CodingErrorAction.REPORT;
 
     /**
-     * Initializes a new decoder.  The new decoder will have the given
-     * chars-per-byte and replacement values.
+     * Constructs a new <code>CharsetDecoder</code> using the given
+     * <code>Charset</code>, average number and maximum number of characters
+     * created by this decoder for one input byte, and the default replacement
+     * string "\uFFFD".
      *
-     * * @param  cs
-     *         The charset that created this decoder
-     *
-     * @param  averageCharsPerByte
-     *         A positive float value indicating the expected number of
-     *         characters that will be produced for each input byte
-     *
-     * @param  maxCharsPerByte
-     *         A positive float value indicating the maximum number of
-     *         characters that will be produced for each input byte
-     *
-     * @param  replacement
-     *         The initial replacement; must not be <tt>null</tt>, must have
-     *         non-zero length, must not be longer than maxCharsPerByte,
-     *         and must be {@linkplain #isLegalReplacement legal}
-     *
-     * @throws  IllegalArgumentException
-     *          If the preconditions on the parameters do not hold
+     * @param charset
+     *            the <code>Charset</code> to be used by this decoder.
+     * @param averageCharsPerByte
+     *            the average number of characters created by this decoder for
+     *            one input byte, must be positive.
+     * @param maxCharsPerByte
+     *            the maximum number of characters created by this decoder for
+     *            one input byte, must be positive.
+     * @throws IllegalArgumentException
+     *     if {@code averageCharsPerByte <= 0 || maxCharsPerByte <= 0 || averageCharsPerByte > maxCharsPerByte}.
      */
-    private
-    CharsetDecoder(Charset cs,
-                   float averageCharsPerByte,
-                   float maxCharsPerByte,
-                   String replacement)
-    {
-        this.charset = cs;
-        if (averageCharsPerByte <= 0.0f)
-            throw new IllegalArgumentException("Non-positive "
-                                               + "averageCharsPerByte");
-        if (maxCharsPerByte <= 0.0f)
-            throw new IllegalArgumentException("Non-positive "
-                                               + "maxCharsPerByte");
-        if (!Charset.atBugLevel("1.4")) {
-            if (averageCharsPerByte > maxCharsPerByte)
-                throw new IllegalArgumentException("averageCharsPerByte"
-                                                   + " exceeds "
-                                                   + "maxCharsPerByte");
+    protected CharsetDecoder(Charset charset, float averageCharsPerByte, float maxCharsPerByte) {
+        if (averageCharsPerByte <= 0 || maxCharsPerByte <= 0) {
+            throw new IllegalArgumentException("averageCharsPerByte and maxCharsPerByte must be positive");
         }
-        this.replacement = replacement;
+        if (averageCharsPerByte > maxCharsPerByte) {
+            throw new IllegalArgumentException("averageCharsPerByte is greater than maxCharsPerByte");
+        }
         this.averageCharsPerByte = averageCharsPerByte;
         this.maxCharsPerByte = maxCharsPerByte;
-        // Android-removed
-        // replaceWith(replacement);
+        this.charset = charset;
     }
 
     /**
-     * Initializes a new decoder.  The new decoder will have the given
-     * chars-per-byte values and its replacement will be the
-     * string <tt>"&#92;uFFFD"</tt>.
-     *
-     * @param  cs
-     *         The charset that created this decoder
-     *
-     * @param  averageCharsPerByte
-     *         A positive float value indicating the expected number of
-     *         characters that will be produced for each input byte
-     *
-     * @param  maxCharsPerByte
-     *         A positive float value indicating the maximum number of
-     *         characters that will be produced for each input byte
-     *
-     * @throws  IllegalArgumentException
-     *          If the preconditions on the parameters do not hold
-     */
-    protected CharsetDecoder(Charset cs,
-                             float averageCharsPerByte,
-                             float maxCharsPerByte)
-    {
-        this(cs,
-             averageCharsPerByte, maxCharsPerByte,
-             "\uFFFD");
-    }
-
-    /**
-     * Returns the charset that created this decoder.
-     *
-     * @return  This decoder's charset
-     */
-    public final Charset charset() {
-        return charset;
-    }
-
-    /**
-     * Returns this decoder's replacement value.
-     *
-     * @return  This decoder's current replacement,
-     *          which is never <tt>null</tt> and is never empty
-     */
-    public final String replacement() {
-        return replacement;
-    }
-
-    /**
-     * Changes this decoder's replacement value.
-     *
-     * <p> This method invokes the {@link #implReplaceWith implReplaceWith}
-     * method, passing the new replacement, after checking that the new
-     * replacement is acceptable.  </p>
-     *
-     * @param  newReplacement  The replacement value
-     *
-
-     *         The new replacement; must not be <tt>null</tt>
-     *         and must have non-zero length
-
-
-
-
-
-
-
-     *
-     * @return  This decoder
-     *
-     * @throws  IllegalArgumentException
-     *          If the preconditions on the parameter do not hold
-     */
-    public final CharsetDecoder replaceWith(String newReplacement) {
-        if (newReplacement == null)
-            throw new IllegalArgumentException("Null replacement");
-        int len = newReplacement.length();
-        if (len == 0)
-            throw new IllegalArgumentException("Empty replacement");
-        if (len > maxCharsPerByte)
-            throw new IllegalArgumentException("Replacement too long");
-
-        this.replacement = newReplacement;
-
-
-
-
-
-        implReplaceWith(this.replacement);
-        return this;
-    }
-
-    /**
-     * Reports a change to this decoder's replacement value.
-     *
-     * <p> The default implementation of this method does nothing.  This method
-     * should be overridden by decoders that require notification of changes to
-     * the replacement.  </p>
-     *
-     * @param  newReplacement    The replacement value
-     */
-    protected void implReplaceWith(String newReplacement) {
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    /**
-     * Returns this decoder's current action for malformed-input errors.
-     *
-     * @return The current malformed-input action, which is never <tt>null</tt>
-     */
-    public CodingErrorAction malformedInputAction() {
-        return malformedInputAction;
-    }
-
-    /**
-     * Changes this decoder's action for malformed-input errors.
-     *
-     * <p> This method invokes the {@link #implOnMalformedInput
-     * implOnMalformedInput} method, passing the new action.  </p>
-     *
-     * @param  newAction  The new action; must not be <tt>null</tt>
-     *
-     * @return  This decoder
-     *
-     * @throws IllegalArgumentException
-     *         If the precondition on the parameter does not hold
-     */
-    public final CharsetDecoder onMalformedInput(CodingErrorAction newAction) {
-        if (newAction == null)
-            throw new IllegalArgumentException("Null action");
-        malformedInputAction = newAction;
-        implOnMalformedInput(newAction);
-        return this;
-    }
-
-    /**
-     * Reports a change to this decoder's malformed-input action.
-     *
-     * <p> The default implementation of this method does nothing.  This method
-     * should be overridden by decoders that require notification of changes to
-     * the malformed-input action.  </p>
-     *
-     * @param  newAction  The new action
-     */
-    protected void implOnMalformedInput(CodingErrorAction newAction) { }
-
-    /**
-     * Returns this decoder's current action for unmappable-character errors.
-     *
-     * @return The current unmappable-character action, which is never
-     *         <tt>null</tt>
-     */
-    public CodingErrorAction unmappableCharacterAction() {
-        return unmappableCharacterAction;
-    }
-
-    /**
-     * Changes this decoder's action for unmappable-character errors.
-     *
-     * <p> This method invokes the {@link #implOnUnmappableCharacter
-     * implOnUnmappableCharacter} method, passing the new action.  </p>
-     *
-     * @param  newAction  The new action; must not be <tt>null</tt>
-     *
-     * @return  This decoder
-     *
-     * @throws IllegalArgumentException
-     *         If the precondition on the parameter does not hold
-     */
-    public final CharsetDecoder onUnmappableCharacter(CodingErrorAction
-                                                      newAction)
-    {
-        if (newAction == null)
-            throw new IllegalArgumentException("Null action");
-        unmappableCharacterAction = newAction;
-        implOnUnmappableCharacter(newAction);
-        return this;
-    }
-
-    /**
-     * Reports a change to this decoder's unmappable-character action.
-     *
-     * <p> The default implementation of this method does nothing.  This method
-     * should be overridden by decoders that require notification of changes to
-     * the unmappable-character action.  </p>
-     *
-     * @param  newAction  The new action
-     */
-    protected void implOnUnmappableCharacter(CodingErrorAction newAction) { }
-
-    /**
-     * Returns the average number of characters that will be produced for each
-     * byte of input.  This heuristic value may be used to estimate the size
-     * of the output buffer required for a given input sequence.
-     *
-     * @return  The average number of characters produced
-     *          per byte of input
+     * Returns the average number of characters created by this decoder for a
+     * single input byte.
      */
     public final float averageCharsPerByte() {
         return averageCharsPerByte;
     }
 
     /**
-     * Returns the maximum number of characters that will be produced for each
-     * byte of input.  This value may be used to compute the worst-case size
-     * of the output buffer required for a given input sequence. </p>
-     *
-     * @return  The maximum number of characters that will be produced per
-     *          byte of input
+     * Returns the {@link Charset} which this decoder uses.
      */
-    public final float maxCharsPerByte() {
-        return maxCharsPerByte;
+    public final Charset charset() {
+        return charset;
     }
 
     /**
-     * Decodes as many bytes as possible from the given input buffer,
-     * writing the results to the given output buffer.
+     * This is a facade method for the decoding operation.
+     * <p>
+     * This method decodes the remaining byte sequence of the given byte buffer
+     * into a new character buffer. This method performs a complete decoding
+     * operation, resets at first, then decodes, and flushes at last.
+     * <p>
+     * This method should not be invoked while another {@code decode} operation
+     * is ongoing.
      *
-     * <p> The buffers are read from, and written to, starting at their current
-     * positions.  At most {@link Buffer#remaining in.remaining()} bytes
-     * will be read and at most {@link Buffer#remaining out.remaining()}
-     * characters will be written.  The buffers' positions will be advanced to
-     * reflect the bytes read and the characters written, but their marks and
-     * limits will not be modified.
-     *
-     * <p> In addition to reading bytes from the input buffer and writing
-     * characters to the output buffer, this method returns a {@link CoderResult}
-     * object to describe its reason for termination:
-     *
-     * <ul>
-     *
-     *   <li><p> {@link CoderResult#UNDERFLOW} indicates that as much of the
-     *   input buffer as possible has been decoded.  If there is no further
-     *   input then the invoker can proceed to the next step of the
-     *   <a href="#steps">decoding operation</a>.  Otherwise this method
-     *   should be invoked again with further input.  </p></li>
-     *
-     *   <li><p> {@link CoderResult#OVERFLOW} indicates that there is
-     *   insufficient space in the output buffer to decode any more bytes.
-     *   This method should be invoked again with an output buffer that has
-     *   more {@linkplain Buffer#remaining remaining} characters. This is
-     *   typically done by draining any decoded characters from the output
-     *   buffer.  </p></li>
-     *
-     *   <li><p> A {@linkplain CoderResult#malformedForLength
-     *   malformed-input} result indicates that a malformed-input
-     *   error has been detected.  The malformed bytes begin at the input
-     *   buffer's (possibly incremented) position; the number of malformed
-     *   bytes may be determined by invoking the result object's {@link
-     *   CoderResult#length() length} method.  This case applies only if the
-     *   {@linkplain #onMalformedInput malformed action} of this decoder
-     *   is {@link CodingErrorAction#REPORT}; otherwise the malformed input
-     *   will be ignored or replaced, as requested.  </p></li>
-     *
-     *   <li><p> An {@linkplain CoderResult#unmappableForLength
-     *   unmappable-character} result indicates that an
-     *   unmappable-character error has been detected.  The bytes that
-     *   decode the unmappable character begin at the input buffer's (possibly
-     *   incremented) position; the number of such bytes may be determined
-     *   by invoking the result object's {@link CoderResult#length() length}
-     *   method.  This case applies only if the {@linkplain #onUnmappableCharacter
-     *   unmappable action} of this decoder is {@link
-     *   CodingErrorAction#REPORT}; otherwise the unmappable character will be
-     *   ignored or replaced, as requested.  </p></li>
-     *
-     * </ul>
-     *
-     * In any case, if this method is to be reinvoked in the same decoding
-     * operation then care should be taken to preserve any bytes remaining
-     * in the input buffer so that they are available to the next invocation.
-     *
-     * <p> The <tt>endOfInput</tt> parameter advises this method as to whether
-     * the invoker can provide further input beyond that contained in the given
-     * input buffer.  If there is a possibility of providing additional input
-     * then the invoker should pass <tt>false</tt> for this parameter; if there
-     * is no possibility of providing further input then the invoker should
-     * pass <tt>true</tt>.  It is not erroneous, and in fact it is quite
-     * common, to pass <tt>false</tt> in one invocation and later discover that
-     * no further input was actually available.  It is critical, however, that
-     * the final invocation of this method in a sequence of invocations always
-     * pass <tt>true</tt> so that any remaining undecoded input will be treated
-     * as being malformed.
-     *
-     * <p> This method works by invoking the {@link #decodeLoop decodeLoop}
-     * method, interpreting its results, handling error conditions, and
-     * reinvoking it as necessary.  </p>
-     *
-     *
-     * @param  in
-     *         The input byte buffer
-     *
-     * @param  out
-     *         The output character buffer
-     *
-     * @param  endOfInput
-     *         <tt>true</tt> if, and only if, the invoker can provide no
-     *         additional input bytes beyond those in the given buffer
-     *
-     * @return  A coder-result object describing the reason for termination
-     *
-     * @throws  IllegalStateException
-     *          If a decoding operation is already in progress and the previous
-     *          step was an invocation neither of the {@link #reset reset}
-     *          method, nor of this method with a value of <tt>false</tt> for
-     *          the <tt>endOfInput</tt> parameter, nor of this method with a
-     *          value of <tt>true</tt> for the <tt>endOfInput</tt> parameter
-     *          but a return value indicating an incomplete decoding operation
-     *
-     * @throws  CoderMalfunctionError
-     *          If an invocation of the decodeLoop method threw
-     *          an unexpected exception
+     * @param in
+     *            the input buffer.
+     * @return a new <code>CharBuffer</code> containing the the characters
+     *         produced by this decoding operation. The buffer's limit will be
+     *         the position of the last character in the buffer, and the
+     *         position will be zero.
+     * @throws IllegalStateException
+     *             if another decoding operation is ongoing.
+     * @throws MalformedInputException
+     *             if an illegal input byte sequence for this charset was
+     *             encountered, and the action for malformed error is
+     *             {@link CodingErrorAction#REPORT CodingErrorAction.REPORT}
+     * @throws UnmappableCharacterException
+     *             if a legal but unmappable input byte sequence for this
+     *             charset was encountered, and the action for unmappable
+     *             character error is
+     *             {@link CodingErrorAction#REPORT CodingErrorAction.REPORT}.
+     *             Unmappable means the byte sequence at the input buffer's
+     *             current position cannot be mapped to a Unicode character
+     *             sequence.
+     * @throws CharacterCodingException
+     *             if another exception happened during the decode operation.
      */
-    public final CoderResult decode(ByteBuffer in, CharBuffer out,
-                                    boolean endOfInput)
-    {
-        int newState = endOfInput ? ST_END : ST_CODING;
-        if ((state != ST_RESET) && (state != ST_CODING)
-            && !(endOfInput && (state == ST_END)))
-            throwIllegalStateException(state, newState);
-        state = newState;
+    public final CharBuffer decode(ByteBuffer in) throws CharacterCodingException {
+        int length = (int) (in.remaining() * averageCharsPerByte);
+        CharBuffer out = CharBuffer.allocate(length);
 
-        for (;;) {
+        reset();
 
-            CoderResult cr;
-            try {
-                cr = decodeLoop(in, out);
-            } catch (BufferUnderflowException x) {
-                throw new CoderMalfunctionError(x);
-            } catch (BufferOverflowException x) {
-                throw new CoderMalfunctionError(x);
+        while (state != FLUSHED) {
+            CoderResult result = decode(in, out, true);
+            if (result == CoderResult.OVERFLOW) {
+                out = allocateMore(out);
+                continue; // No point trying to flush to an already-full buffer.
+            } else {
+                checkCoderResult(result);
             }
 
-            if (cr.isOverflow())
-                return cr;
-
-            if (cr.isUnderflow()) {
-                if (endOfInput && in.hasRemaining()) {
-                    cr = CoderResult.malformedForLength(in.remaining());
-                    // Fall through to malformed-input case
-                } else {
-                    return cr;
-                }
+            result = flush(out);
+            if (result == CoderResult.OVERFLOW) {
+                out = allocateMore(out);
+            } else {
+                checkCoderResult(result);
             }
-
-            CodingErrorAction action = null;
-            if (cr.isMalformed())
-                action = malformedInputAction;
-            else if (cr.isUnmappable())
-                action = unmappableCharacterAction;
-            else
-                assert false : cr.toString();
-
-            if (action == CodingErrorAction.REPORT)
-                return cr;
-
-            if (action == CodingErrorAction.REPLACE) {
-                if (out.remaining() < replacement.length())
-                    return CoderResult.OVERFLOW;
-                out.put(replacement);
-            }
-
-            if ((action == CodingErrorAction.IGNORE)
-                || (action == CodingErrorAction.REPLACE)) {
-                // Skip erroneous input either way
-                in.position(in.position() + cr.length());
-                continue;
-            }
-
-            assert false;
         }
 
+        out.flip();
+        return out;
+    }
+
+    /*
+     * checks the result whether it needs to throw CharacterCodingException.
+     */
+    private void checkCoderResult(CoderResult result) throws CharacterCodingException {
+        if (result.isMalformed() && malformedInputAction == CodingErrorAction.REPORT) {
+            throw new MalformedInputException(result.length());
+        } else if (result.isUnmappable() && unmappableCharacterAction == CodingErrorAction.REPORT) {
+            throw new UnmappableCharacterException(result.length());
+        }
+    }
+
+    /*
+     * original output is full and doesn't have remaining. allocate more space
+     * to new CharBuffer and return it, the contents in the given buffer will be
+     * copied into the new buffer.
+     */
+    private CharBuffer allocateMore(CharBuffer output) {
+        if (output.capacity() == 0) {
+            return CharBuffer.allocate(1);
+        }
+        CharBuffer result = CharBuffer.allocate(output.capacity() * 2);
+        output.flip();
+        result.put(output);
+        return result;
+    }
+
+    /**
+     * Decodes bytes starting at the current position of the given input buffer,
+     * and writes the equivalent character sequence into the given output buffer
+     * from its current position.
+     * <p>
+     * The buffers' position will be changed with the reading and writing
+     * operation, but their limits and marks will be kept intact.
+     * <p>
+     * A <code>CoderResult</code> instance will be returned according to
+     * following rules:
+     * <ul>
+     * <li>{@link CoderResult#OVERFLOW CoderResult.OVERFLOW} indicates that
+     * even though not all of the input has been processed, the buffer the
+     * output is being written to has reached its capacity. In the event of this
+     * code being returned this method should be called once more with an
+     * <code>out</code> argument that has not already been filled.</li>
+     * <li>{@link CoderResult#UNDERFLOW CoderResult.UNDERFLOW} indicates that
+     * as many bytes as possible in the input buffer have been decoded. If there
+     * is no further input and no remaining bytes in the input buffer then this
+     * operation may be regarded as complete. Otherwise, this method should be
+     * called once more with additional input.</li>
+     * <li>A {@link CoderResult#malformedForLength(int) malformed input} result
+     * indicates that some malformed input error has been encountered, and the
+     * erroneous bytes start at the input buffer's position and their number can
+     * be got by result's {@link CoderResult#length() length}. This kind of
+     * result can be returned only if the malformed action is
+     * {@link CodingErrorAction#REPORT CodingErrorAction.REPORT}. </li>
+     * <li>A {@link CoderResult#unmappableForLength(int) unmappable character}
+     * result indicates that some unmappable character error has been
+     * encountered, and the erroneous bytes start at the input buffer's position
+     * and their number can be got by result's
+     * {@link CoderResult#length() length}. This kind of result can be returned
+     * only if the unmappable character action is
+     * {@link CodingErrorAction#REPORT CodingErrorAction.REPORT}. </li>
+     * </ul>
+     * <p>
+     * The <code>endOfInput</code> parameter indicates that the invoker cannot
+     * provide further input. This parameter is true if and only if the bytes in
+     * current input buffer are all inputs for this decoding operation. Note
+     * that it is common and won't cause an error if the invoker sets false and
+     * then can't provide more input, while it may cause an error if the invoker
+     * always sets true in several consecutive invocations. This would make the
+     * remaining input to be treated as malformed input.
+     * <p>
+     * This method invokes the
+     * {@link #decodeLoop(ByteBuffer, CharBuffer) decodeLoop} method to
+     * implement the basic decode logic for a specific charset.
+     *
+     * @param in
+     *            the input buffer.
+     * @param out
+     *            the output buffer.
+     * @param endOfInput
+     *            true if all the input characters have been provided.
+     * @return a <code>CoderResult</code> instance which indicates the reason
+     *         of termination.
+     * @throws IllegalStateException
+     *             if decoding has started or no more input is needed in this
+     *             decoding progress.
+     * @throws CoderMalfunctionError
+     *             if the {@link #decodeLoop(ByteBuffer, CharBuffer) decodeLoop}
+     *             method threw an <code>BufferUnderflowException</code> or
+     *             <code>BufferOverflowException</code>.
+     */
+    public final CoderResult decode(ByteBuffer in, CharBuffer out, boolean endOfInput) {
+        if (state != RESET && state != ONGOING && !(endOfInput && state == END_OF_INPUT)) {
+            throw illegalStateException();
+        }
+
+        state = endOfInput ? END_OF_INPUT : ONGOING;
+
+        while (true) {
+            CoderResult result;
+            try {
+                result = decodeLoop(in, out);
+            } catch (BufferOverflowException ex) {
+                throw new CoderMalfunctionError(ex);
+            } catch (BufferUnderflowException ex) {
+                throw new CoderMalfunctionError(ex);
+            }
+
+            if (result == CoderResult.UNDERFLOW) {
+                if (endOfInput && in.hasRemaining()) {
+                    result = CoderResult.malformedForLength(in.remaining());
+                } else {
+                    return result;
+                }
+            } else if (result == CoderResult.OVERFLOW) {
+                return result;
+            }
+
+            // We have a real error, so do what the appropriate action tells us what to do...
+            CodingErrorAction action =
+                    result.isUnmappable() ? unmappableCharacterAction : malformedInputAction;
+            if (action == CodingErrorAction.REPORT) {
+                return result;
+            } else if (action == CodingErrorAction.REPLACE) {
+                if (out.remaining() < replacementChars.length()) {
+                    return CoderResult.OVERFLOW;
+                }
+                out.put(replacementChars);
+            }
+            in.position(in.position() + result.length());
+        }
+    }
+
+    /**
+     * Decodes bytes into characters. This method is called by the
+     * {@link #decode(ByteBuffer, CharBuffer, boolean) decode} method.
+     * <p>
+     * This method will implement the essential decoding operation, and it won't
+     * stop decoding until either all the input bytes are read, the output
+     * buffer is filled, or some exception is encountered. Then it will return a
+     * <code>CoderResult</code> object indicating the result of current
+     * decoding operation. The rules to construct the <code>CoderResult</code>
+     * are the same as for
+     * {@link #decode(ByteBuffer, CharBuffer, boolean) decode}. When an
+     * exception is encountered in the decoding operation, most implementations
+     * of this method will return a relevant result object to the
+     * {@link #decode(ByteBuffer, CharBuffer, boolean) decode} method, and some
+     * performance optimized implementation may handle the exception and
+     * implement the error action itself.
+     * <p>
+     * The buffers are scanned from their current positions, and their positions
+     * will be modified accordingly, while their marks and limits will be
+     * intact. At most {@link ByteBuffer#remaining() in.remaining()} characters
+     * will be read, and {@link CharBuffer#remaining() out.remaining()} bytes
+     * will be written.
+     * <p>
+     * Note that some implementations may pre-scan the input buffer and return a
+     * <code>CoderResult.UNDERFLOW</code> until it receives sufficient input.
+     *
+     * @param in
+     *            the input buffer.
+     * @param out
+     *            the output buffer.
+     * @return a <code>CoderResult</code> instance indicating the result.
+     */
+    protected abstract CoderResult decodeLoop(ByteBuffer in, CharBuffer out);
+
+    /**
+     * Gets the charset detected by this decoder; this method is optional.
+     * <p>
+     * If implementing an auto-detecting charset, then this decoder returns the
+     * detected charset from this method when it is available. The returned
+     * charset will be the same for the rest of the decode operation.
+     * <p>
+     * If insufficient bytes have been read to determine the charset, an
+     * <code>IllegalStateException</code> will be thrown.
+     * <p>
+     * The default implementation always throws
+     * <code>UnsupportedOperationException</code>, so it should be overridden
+     * by a subclass if needed.
+     *
+     * @return the charset detected by this decoder, or null if it is not yet
+     *         determined.
+     * @throws UnsupportedOperationException
+     *             if this decoder does not implement an auto-detecting charset.
+     * @throws IllegalStateException
+     *             if insufficient bytes have been read to determine the
+     *             charset.
+     */
+    public Charset detectedCharset() {
+        throw new UnsupportedOperationException();
     }
 
     /**
      * Flushes this decoder.
      *
-     * <p> Some decoders maintain internal state and may need to write some
-     * final characters to the output buffer once the overall input sequence has
-     * been read.
+     * This method will call {@link #implFlush(CharBuffer) implFlush}. Some
+     * decoders may need to write some characters to the output buffer when they
+     * have read all input bytes; subclasses can override
+     * {@link #implFlush(CharBuffer) implFlush} to perform the writing operation.
+     * <p>
+     * The maximum number of written bytes won't be larger than
+     * {@link CharBuffer#remaining() out.remaining()}. If some decoder wants to
+     * write more bytes than an output buffer's remaining space allows, then a
+     * <code>CoderResult.OVERFLOW</code> will be returned, and this method
+     * must be called again with a character buffer that has more remaining
+     * space. Otherwise this method will return
+     * <code>CoderResult.UNDERFLOW</code>, which means one decoding process
+     * has been completed successfully.
+     * <p>
+     * During the flush, the output buffer's position will be changed
+     * accordingly, while its mark and limit will be intact.
      *
-     * <p> Any additional output is written to the output buffer beginning at
-     * its current position.  At most {@link Buffer#remaining out.remaining()}
-     * characters will be written.  The buffer's position will be advanced
-     * appropriately, but its mark and limit will not be modified.
-     *
-     * <p> If this method completes successfully then it returns {@link
-     * CoderResult#UNDERFLOW}.  If there is insufficient room in the output
-     * buffer then it returns {@link CoderResult#OVERFLOW}.  If this happens
-     * then this method must be invoked again, with an output buffer that has
-     * more room, in order to complete the current <a href="#steps">decoding
-     * operation</a>.
-     *
-     * <p> If this decoder has already been flushed then invoking this method
-     * has no effect.
-     *
-     * <p> This method invokes the {@link #implFlush implFlush} method to
-     * perform the actual flushing operation.  </p>
-     *
-     * @param  out
-     *         The output character buffer
-     *
-     * @return  A coder-result object, either {@link CoderResult#UNDERFLOW} or
-     *          {@link CoderResult#OVERFLOW}
-     *
-     * @throws  IllegalStateException
-     *          If the previous step of the current decoding operation was an
-     *          invocation neither of the {@link #flush flush} method nor of
-     *          the three-argument {@link
-     *          #decode(ByteBuffer,CharBuffer,boolean) decode} method
-     *          with a value of <tt>true</tt> for the <tt>endOfInput</tt>
-     *          parameter
+     * @param out
+     *            the given output buffer.
+     * @return <code>CoderResult.UNDERFLOW</code> or
+     *         <code>CoderResult.OVERFLOW</code>.
+     * @throws IllegalStateException
+     *             if this decoder isn't already flushed or at end of input.
      */
     public final CoderResult flush(CharBuffer out) {
-        if (state == ST_END) {
-            CoderResult cr = implFlush(out);
-            if (cr.isUnderflow())
-                state = ST_FLUSHED;
-            return cr;
+        if (state != FLUSHED && state != END_OF_INPUT) {
+            throw illegalStateException();
         }
-
-        if (state != ST_FLUSHED)
-            throwIllegalStateException(state, ST_FLUSHED);
-
-        return CoderResult.UNDERFLOW; // Already flushed
+        CoderResult result = implFlush(out);
+        if (result == CoderResult.UNDERFLOW) {
+            state = FLUSHED;
+        }
+        return result;
     }
 
     /**
-     * Flushes this decoder.
+     * Flushes this decoder. The default implementation does nothing and always
+     * returns <code>CoderResult.UNDERFLOW</code>; this method can be
+     * overridden if needed.
      *
-     * <p> The default implementation of this method does nothing, and always
-     * returns {@link CoderResult#UNDERFLOW}.  This method should be overridden
-     * by decoders that may need to write final characters to the output buffer
-     * once the entire input sequence has been read. </p>
-     *
-     * @param  out
-     *         The output character buffer
-     *
-     * @return  A coder-result object, either {@link CoderResult#UNDERFLOW} or
-     *          {@link CoderResult#OVERFLOW}
+     * @param out
+     *            the output buffer.
+     * @return <code>CoderResult.UNDERFLOW</code> or
+     *         <code>CoderResult.OVERFLOW</code>.
      */
     protected CoderResult implFlush(CharBuffer out) {
         return CoderResult.UNDERFLOW;
     }
 
     /**
-     * Resets this decoder, clearing any internal state.
+     * Notifies that this decoder's <code>CodingErrorAction</code> specified
+     * for malformed input error has been changed. The default implementation
+     * does nothing; this method can be overridden if needed.
      *
-     * <p> This method resets charset-independent state and also invokes the
-     * {@link #implReset() implReset} method in order to perform any
-     * charset-specific reset actions.  </p>
-     *
-     * @return  This decoder
-     *
+     * @param newAction
+     *            the new action.
      */
-    public final CharsetDecoder reset() {
-        implReset();
-        state = ST_RESET;
-        return this;
+    protected void implOnMalformedInput(CodingErrorAction newAction) {
+        // default implementation is empty
     }
 
     /**
-     * Resets this decoder, clearing any charset-specific internal state.
+     * Notifies that this decoder's <code>CodingErrorAction</code> specified
+     * for unmappable character error has been changed. The default
+     * implementation does nothing; this method can be overridden if needed.
      *
-     * <p> The default implementation of this method does nothing.  This method
-     * should be overridden by decoders that maintain internal state.  </p>
+     * @param newAction
+     *            the new action.
      */
-    protected void implReset() { }
-
-    /**
-     * Decodes one or more bytes into one or more characters.
-     *
-     * <p> This method encapsulates the basic decoding loop, decoding as many
-     * bytes as possible until it either runs out of input, runs out of room
-     * in the output buffer, or encounters a decoding error.  This method is
-     * invoked by the {@link #decode decode} method, which handles result
-     * interpretation and error recovery.
-     *
-     * <p> The buffers are read from, and written to, starting at their current
-     * positions.  At most {@link Buffer#remaining in.remaining()} bytes
-     * will be read, and at most {@link Buffer#remaining out.remaining()}
-     * characters will be written.  The buffers' positions will be advanced to
-     * reflect the bytes read and the characters written, but their marks and
-     * limits will not be modified.
-     *
-     * <p> This method returns a {@link CoderResult} object to describe its
-     * reason for termination, in the same manner as the {@link #decode decode}
-     * method.  Most implementations of this method will handle decoding errors
-     * by returning an appropriate result object for interpretation by the
-     * {@link #decode decode} method.  An optimized implementation may instead
-     * examine the relevant error action and implement that action itself.
-     *
-     * <p> An implementation of this method may perform arbitrary lookahead by
-     * returning {@link CoderResult#UNDERFLOW} until it receives sufficient
-     * input.  </p>
-     *
-     * @param  in
-     *         The input byte buffer
-     *
-     * @param  out
-     *         The output character buffer
-     *
-     * @return  A coder-result object describing the reason for termination
-     */
-    protected abstract CoderResult decodeLoop(ByteBuffer in,
-                                              CharBuffer out);
-
-    /**
-     * Convenience method that decodes the remaining content of a single input
-     * byte buffer into a newly-allocated character buffer.
-     *
-     * <p> This method implements an entire <a href="#steps">decoding
-     * operation</a>; that is, it resets this decoder, then it decodes the
-     * bytes in the given byte buffer, and finally it flushes this
-     * decoder.  This method should therefore not be invoked if a decoding
-     * operation is already in progress.  </p>
-     *
-     * @param  in
-     *         The input byte buffer
-     *
-     * @return A newly-allocated character buffer containing the result of the
-     *         decoding operation.  The buffer's position will be zero and its
-     *         limit will follow the last character written.
-     *
-     * @throws  IllegalStateException
-     *          If a decoding operation is already in progress
-     *
-     * @throws  MalformedInputException
-     *          If the byte sequence starting at the input buffer's current
-     *          position is not legal for this charset and the current malformed-input action
-     *          is {@link CodingErrorAction#REPORT}
-     *
-     * @throws  UnmappableCharacterException
-     *          If the byte sequence starting at the input buffer's current
-     *          position cannot be mapped to an equivalent character sequence and
-     *          the current unmappable-character action is {@link
-     *          CodingErrorAction#REPORT}
-     */
-    public final CharBuffer decode(ByteBuffer in)
-        throws CharacterCodingException
-    {
-        int n = (int)(in.remaining() * averageCharsPerByte());
-        CharBuffer out = CharBuffer.allocate(n);
-
-        if ((n == 0) && (in.remaining() == 0))
-            return out;
-        reset();
-        for (;;) {
-            CoderResult cr = in.hasRemaining() ?
-                decode(in, out, true) : CoderResult.UNDERFLOW;
-            if (cr.isUnderflow())
-                cr = flush(out);
-
-            if (cr.isUnderflow())
-                break;
-            if (cr.isOverflow()) {
-                n = 2*n + 1;    // Ensure progress; n might be 0!
-                CharBuffer o = CharBuffer.allocate(n);
-                out.flip();
-                o.put(out);
-                out = o;
-                continue;
-            }
-            cr.throwException();
-        }
-        out.flip();
-        return out;
+    protected void implOnUnmappableCharacter(CodingErrorAction newAction) {
+        // default implementation is empty
     }
 
-
+    /**
+     * Notifies that this decoder's replacement has been changed. The default
+     * implementation does nothing; this method can be overridden if needed.
+     *
+     * @param newReplacement
+     *            the new replacement string.
+     */
+    protected void implReplaceWith(String newReplacement) {
+        // default implementation is empty
+    }
 
     /**
-     * Tells whether or not this decoder implements an auto-detecting charset.
+     * Reset this decoder's charset related state. The default implementation
+     * does nothing; this method can be overridden if needed.
+     */
+    protected void implReset() {
+        // default implementation is empty
+    }
+
+    /**
+     * Indicates whether this decoder implements an auto-detecting charset.
      *
-     * <p> The default implementation of this method always returns
-     * <tt>false</tt>; it should be overridden by auto-detecting decoders to
-     * return <tt>true</tt>.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if, this decoder implements an
-     *          auto-detecting charset
+     * @return <code>true</code> if this decoder implements an auto-detecting
+     *         charset.
      */
     public boolean isAutoDetecting() {
         return false;
     }
 
     /**
-     * Tells whether or not this decoder has yet detected a
-     * charset&nbsp;&nbsp;<i>(optional operation)</i>.
+     * Indicates whether this decoder has detected a charset; this method is
+     * optional.
+     * <p>
+     * If this decoder implements an auto-detecting charset, then this method
+     * may start to return true during decoding operation to indicate that a
+     * charset has been detected in the input bytes and that the charset can be
+     * retrieved by invoking the {@link #detectedCharset() detectedCharset}
+     * method.
+     * <p>
+     * Note that a decoder that implements an auto-detecting charset may still
+     * succeed in decoding a portion of the given input even when it is unable
+     * to detect the charset. For this reason users should be aware that a
+     * <code>false</code> return value does not indicate that no decoding took
+     * place.
+     * <p>
+     * The default implementation always throws an
+     * <code>UnsupportedOperationException</code>; it should be overridden by
+     * a subclass if needed.
      *
-     * <p> If this decoder implements an auto-detecting charset then at a
-     * single point during a decoding operation this method may start returning
-     * <tt>true</tt> to indicate that a specific charset has been detected in
-     * the input byte sequence.  Once this occurs, the {@link #detectedCharset
-     * detectedCharset} method may be invoked to retrieve the detected charset.
-     *
-     * <p> That this method returns <tt>false</tt> does not imply that no bytes
-     * have yet been decoded.  Some auto-detecting decoders are capable of
-     * decoding some, or even all, of an input byte sequence without fixing on
-     * a particular charset.
-     *
-     * <p> The default implementation of this method always throws an {@link
-     * UnsupportedOperationException}; it should be overridden by
-     * auto-detecting decoders to return <tt>true</tt> once the input charset
-     * has been determined.  </p>
-     *
-     * @return  <tt>true</tt> if, and only if, this decoder has detected a
-     *          specific charset
-     *
-     * @throws  UnsupportedOperationException
-     *          If this decoder does not implement an auto-detecting charset
+     * @return <code>true</code> if this decoder has detected a charset.
+     * @throws UnsupportedOperationException
+     *             if this decoder doesn't implement an auto-detecting charset.
      */
     public boolean isCharsetDetected() {
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Retrieves the charset that was detected by this
-     * decoder&nbsp;&nbsp;<i>(optional operation)</i>.
-     *
-     * <p> If this decoder implements an auto-detecting charset then this
-     * method returns the actual charset once it has been detected.  After that
-     * point, this method returns the same value for the duration of the
-     * current decoding operation.  If not enough input bytes have yet been
-     * read to determine the actual charset then this method throws an {@link
-     * IllegalStateException}.
-     *
-     * <p> The default implementation of this method always throws an {@link
-     * UnsupportedOperationException}; it should be overridden by
-     * auto-detecting decoders to return the appropriate value.  </p>
-     *
-     * @return  The charset detected by this auto-detecting decoder,
-     *          or <tt>null</tt> if the charset has not yet been determined
-     *
-     * @throws  IllegalStateException
-     *          If insufficient bytes have been read to determine a charset
-     *
-     * @throws  UnsupportedOperationException
-     *          If this decoder does not implement an auto-detecting charset
+     * Returns this decoder's <code>CodingErrorAction</code> when malformed input
+     * occurred during the decoding process.
      */
-    public Charset detectedCharset() {
-        throw new UnsupportedOperationException();
+    public CodingErrorAction malformedInputAction() {
+        return malformedInputAction;
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    private void throwIllegalStateException(int from, int to) {
-        throw new IllegalStateException("Current state = " + stateNames[from]
-                                        + ", new state = " + stateNames[to]);
+    /**
+     * Returns the maximum number of characters which can be created by this
+     * decoder for one input byte, must be positive.
+     */
+    public final float maxCharsPerByte() {
+        return maxCharsPerByte;
     }
 
+    /**
+     * Sets this decoder's action on malformed input errors.
+     *
+     * This method will call the
+     * {@link #implOnMalformedInput(CodingErrorAction) implOnMalformedInput}
+     * method with the given new action as argument.
+     *
+     * @param newAction
+     *            the new action on malformed input error.
+     * @return this decoder.
+     * @throws IllegalArgumentException
+     *             if {@code newAction == null}.
+     */
+    public final CharsetDecoder onMalformedInput(CodingErrorAction newAction) {
+        if (newAction == null) {
+            throw new IllegalArgumentException("newAction == null");
+        }
+        malformedInputAction = newAction;
+        implOnMalformedInput(newAction);
+        return this;
+    }
+
+    /**
+     * Sets this decoder's action on unmappable character errors.
+     *
+     * This method will call the
+     * {@link #implOnUnmappableCharacter(CodingErrorAction) implOnUnmappableCharacter}
+     * method with the given new action as argument.
+     *
+     * @param newAction
+     *            the new action on unmappable character error.
+     * @return this decoder.
+     * @throws IllegalArgumentException
+     *             if {@code newAction == null}.
+     */
+    public final CharsetDecoder onUnmappableCharacter(CodingErrorAction newAction) {
+        if (newAction == null) {
+            throw new IllegalArgumentException("newAction == null");
+        }
+        unmappableCharacterAction = newAction;
+        implOnUnmappableCharacter(newAction);
+        return this;
+    }
+
+    /**
+     * Returns the replacement string, which is never null or empty.
+     */
+    public final String replacement() {
+        return replacementChars;
+    }
+
+    /**
+     * Sets the new replacement string.
+     *
+     * This method first checks the given replacement's validity, then changes
+     * the replacement value, and at last calls the
+     * {@link #implReplaceWith(String) implReplaceWith} method with the given
+     * new replacement as argument.
+     *
+     * @param replacement
+     *            the replacement string cannot be null, empty, or longer
+     *            than {@link #maxCharsPerByte()}.
+     * @return this decoder.
+     * @throws IllegalArgumentException
+     *             if the given replacement cannot satisfy the requirement
+     *             mentioned above.
+     */
+    public final CharsetDecoder replaceWith(String replacement) {
+        if (replacement == null) {
+            throw new IllegalArgumentException("replacement == null");
+        }
+        if (replacement.isEmpty()) {
+            throw new IllegalArgumentException("replacement.isEmpty()");
+        }
+        if (replacement.length() > maxCharsPerByte()) {
+            throw new IllegalArgumentException("replacement length > maxCharsPerByte: " +
+                    replacement.length() + " > " + maxCharsPerByte());
+        }
+        replacementChars = replacement;
+        implReplaceWith(replacement);
+        return this;
+    }
+
+    /**
+     * Resets this decoder. This method will reset the internal state, and then
+     * calls {@link #implReset} to reset any state related to the
+     * specific charset.
+     */
+    public final CharsetDecoder reset() {
+        state = RESET;
+        implReset();
+        return this;
+    }
+
+    /**
+     * Returns this decoder's <code>CodingErrorAction</code> when an unmappable
+     * character error occurred during the decoding process.
+     */
+    public CodingErrorAction unmappableCharacterAction() {
+        return unmappableCharacterAction;
+    }
+
+    private IllegalStateException illegalStateException() {
+        throw new IllegalStateException("State: " + state);
+    }
 }

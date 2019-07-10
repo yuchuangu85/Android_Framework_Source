@@ -16,9 +16,6 @@
 
 package java.math;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
-import libcore.util.NativeAllocationRegistry;
-
 /*
  * In contrast to BigIntegers this class doesn't fake two's complement representation.
  * Any Bit-Operations, including Shifting, solely regard the unsigned magnitude.
@@ -26,33 +23,38 @@ import libcore.util.NativeAllocationRegistry;
  */
 final class BigInt {
 
-    private static NativeAllocationRegistry registry = new NativeAllocationRegistry(
-            BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer(), NativeBN.size());
-
     /* Fields used for the internal representation. */
-    @ReachabilitySensitive
-    private transient long bignum = 0;
+    transient long bignum = 0;
+
+    @Override protected void finalize() throws Throwable {
+        try {
+            if (this.bignum != 0) {
+                NativeBN.BN_free(this.bignum);
+                this.bignum = 0;
+            }
+        } finally {
+            super.finalize();
+        }
+    }
 
     @Override
     public String toString() {
         return this.decString();
     }
 
-    boolean hasNativeBignum() {
-        return this.bignum != 0;
+    long getNativeBIGNUM() {
+        return this.bignum;
     }
 
     private void makeValid() {
         if (this.bignum == 0) {
             this.bignum = NativeBN.BN_new();
-            registry.registerNativeAllocation(this, this.bignum);
         }
     }
 
     private static BigInt newBigInt() {
         BigInt bi = new BigInt();
         bi.bignum = NativeBN.BN_new();
-        registry.registerNativeAllocation(bi, bi.bignum);
         return bi;
     }
 
@@ -336,11 +338,11 @@ final class BigInt {
 
     static BigInt generatePrimeDefault(int bitLength) {
         BigInt r = newBigInt();
-        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0);
+        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0, 0);
         return r;
     }
 
     boolean isPrime(int certainty) {
-        return NativeBN.BN_primality_test(bignum, certainty, false);
+        return NativeBN.BN_is_prime_ex(bignum, certainty, 0);
     }
 }

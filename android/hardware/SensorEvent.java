@@ -18,7 +18,7 @@ package android.hardware;
 
 /**
  * This class represents a {@link android.hardware.Sensor Sensor} event and
- * holds information such as the sensor's type, the time-stamp, accuracy and of
+ * holds informations such as the sensor's type, the time-stamp, accuracy and of
  * course the sensor's {@link SensorEvent#values data}.
  *
  * <p>
@@ -163,7 +163,7 @@ public class SensorEvent {
      * </ul>
      * <p>
      * Typically the output of the gyroscope is integrated over time to
-     * calculate a rotation describing the change of angles over the time step,
+     * calculate a rotation describing the change of angles over the timestep,
      * for example:
      * </p>
      *
@@ -173,7 +173,7 @@ public class SensorEvent {
      *     private float timestamp;
      *
      *     public void onSensorChanged(SensorEvent event) {
-     *          // This time step's delta rotation to be multiplied by the current rotation
+     *          // This timestep's delta rotation to be multiplied by the current rotation
      *          // after computing it from the gyro sample data.
      *          if (timestamp != 0) {
      *              final float dT = (event.timestamp - timestamp) * NS2S;
@@ -192,8 +192,8 @@ public class SensorEvent {
      *                  axisZ /= omegaMagnitude;
      *              }
      *
-     *              // Integrate around this axis with the angular speed by the time step
-     *              // in order to get a delta rotation from this sample over the time step
+     *              // Integrate around this axis with the angular speed by the timestep
+     *              // in order to get a delta rotation from this sample over the timestep
      *              // We will convert this axis-angle representation of the delta rotation
      *              // into a quaternion before turning it into the rotation matrix.
      *              float thetaOverTwo = omegaMagnitude * dT / 2.0f;
@@ -207,8 +207,8 @@ public class SensorEvent {
      *          timestamp = event.timestamp;
      *          float[] deltaRotationMatrix = new float[9];
      *          SensorManager.getRotationMatrixFromVector(deltaRotationMatrix, deltaRotationVector);
-     *          // User code should concatenate the delta rotation we computed with the current
-     *          // rotation in order to get the updated rotation.
+     *          // User code should concatenate the delta rotation we computed with the current rotation
+     *          // in order to get the updated rotation.
      *          // rotationCurrent = rotationCurrent * deltaRotationMatrix;
      *     }
      * </pre>
@@ -244,22 +244,21 @@ public class SensorEvent {
      *  <h4>{@link android.hardware.Sensor#TYPE_GRAVITY Sensor.TYPE_GRAVITY}:</h4>
      *  <p>A three dimensional vector indicating the direction and magnitude of gravity.  Units
      *  are m/s^2. The coordinate system is the same as is used by the acceleration sensor.</p>
-     *  <p><b>Note:</b> When the device is at rest, the output of the gravity sensor should be
-     *  identical to that of the accelerometer.</p>
+     *  <p><b>Note:</b> When the device is at rest, the output of the gravity sensor should be identical
+     *  to that of the accelerometer.</p>
      *
-     *  <h4>
-     *  {@link android.hardware.Sensor#TYPE_LINEAR_ACCELERATION Sensor.TYPE_LINEAR_ACCELERATION}:
-     *  </h4> A three dimensional vector indicating acceleration along each device axis, not
-     *  including gravity. All values have units of m/s^2.  The coordinate system is the same as is
-     *  used by the acceleration sensor.
+     *  <h4>{@link android.hardware.Sensor#TYPE_LINEAR_ACCELERATION Sensor.TYPE_LINEAR_ACCELERATION}:</h4>
+     *  A three dimensional vector indicating acceleration along each device axis, not including
+     *  gravity.  All values have units of m/s^2.  The coordinate system is the same as is used by the
+     *  acceleration sensor.
      *  <p>The output of the accelerometer, gravity and  linear-acceleration sensors must obey the
      *  following relation:</p>
-     *  <p><ul>acceleration = gravity + linear-acceleration</ul></p>
+     *   <p><ul>acceleration = gravity + linear-acceleration</ul></p>
      *
      *  <h4>{@link android.hardware.Sensor#TYPE_ROTATION_VECTOR Sensor.TYPE_ROTATION_VECTOR}:</h4>
-     *  <p>The rotation vector represents the orientation of the device as a combination of an
-     *  <i>angle</i> and an <i>axis</i>, in which the device has rotated through an angle &#952
-     *  around an axis &lt;x, y, z>.</p>
+     *  <p>The rotation vector represents the orientation of the device as a combination of an <i>angle</i>
+     *  and an <i>axis</i>, in which the device has rotated through an angle &#952 around an axis
+     *  &lt;x, y, z>.</p>
      *  <p>The three elements of the rotation vector are
      *  &lt;x*sin(&#952/2), y*sin(&#952/2), z*sin(&#952/2)>, such that the magnitude of the rotation
      *  vector is equal to sin(&#952/2), and the direction of the rotation vector is equal to the
@@ -397,7 +396,7 @@ public class SensorEvent {
      * dv = 216.7 *
      * (rh / 100.0 * 6.112 * Math.exp(17.62 * t / (243.12 + t)) / (273.15 + t));
      * </pre>
-     *
+     * 
      * <h4>{@link android.hardware.Sensor#TYPE_AMBIENT_TEMPERATURE Sensor.TYPE_AMBIENT_TEMPERATURE}:
      * </h4>
      *
@@ -434,13 +433,12 @@ public class SensorEvent {
      * Each field is a component of the estimated hard iron calibration.
      * The values are in micro-Tesla (uT).
      * </p>
-     * <p> Hard iron - These distortions arise due to the magnetized iron, steel or permanent
+     * <p> Hard iron - These distortions arise due to the magnetized iron, steel or permanenet
      * magnets on the device.
-     * Soft iron - These distortions arise due to the interaction with the earth's magnetic
+     * Soft iron - These distortions arise due to the interaction with the earth's magentic
      * field.
      * </p>
-     * <h4> {@link android.hardware.Sensor#TYPE_GAME_ROTATION_VECTOR
-     * Sensor.TYPE_GAME_ROTATION_VECTOR}:</h4>
+     * <h4> {@link android.hardware.Sensor#TYPE_GAME_ROTATION_VECTOR}:</h4>
      * Identical to {@link android.hardware.Sensor#TYPE_ROTATION_VECTOR} except that it
      * doesn't use the geomagnetic field. Therefore the Y axis doesn't
      * point north, but instead to some other reference, that reference is
@@ -483,150 +481,6 @@ public class SensorEvent {
      * </p>
      * <p><b>Pro Tip:</b> Always use the length of the values array while performing operations
      * on it. In earlier versions, this used to be always 3 which has changed now. </p>
-     *
-     *   <h4>{@link android.hardware.Sensor#TYPE_POSE_6DOF
-     * Sensor.TYPE_POSE_6DOF}:</h4>
-     *
-     * A TYPE_POSE_6DOF event consists of a rotation expressed as a quaternion and a translation
-     * expressed in SI units. The event also contains a delta rotation and translation that show
-     * how the device?s pose has changed since the previous sequence numbered pose.
-     * The event uses the cannonical Android Sensor axes.
-     *
-     *
-     * <ul>
-     * <li> values[0]: x*sin(&#952/2) </li>
-     * <li> values[1]: y*sin(&#952/2) </li>
-     * <li> values[2]: z*sin(&#952/2) </li>
-     * <li> values[3]: cos(&#952/2)   </li>
-     *
-     *
-     * <li> values[4]: Translation along x axis from an arbitrary origin. </li>
-     * <li> values[5]: Translation along y axis from an arbitrary origin. </li>
-     * <li> values[6]: Translation along z axis from an arbitrary origin. </li>
-     *
-     * <li> values[7]:  Delta quaternion rotation x*sin(&#952/2) </li>
-     * <li> values[8]:  Delta quaternion rotation y*sin(&#952/2) </li>
-     * <li> values[9]:  Delta quaternion rotation z*sin(&#952/2) </li>
-     * <li> values[10]: Delta quaternion rotation cos(&#952/2) </li>
-     *
-     * <li> values[11]: Delta translation along x axis. </li>
-     * <li> values[12]: Delta translation along y axis. </li>
-     * <li> values[13]: Delta translation along z axis. </li>
-     *
-     * <li> values[14]: Sequence number </li>
-     *
-     * </ul>
-     *
-     *   <h4>{@link android.hardware.Sensor#TYPE_STATIONARY_DETECT
-     * Sensor.TYPE_STATIONARY_DETECT}:</h4>
-     *
-     * A TYPE_STATIONARY_DETECT event is produced if the device has been
-     * stationary for at least 5 seconds with a maximal latency of 5
-     * additional seconds. ie: it may take up anywhere from 5 to 10 seconds
-     * afte the device has been at rest to trigger this event.
-     *
-     * The only allowed value is 1.0.
-     *
-     * <ul>
-     *  <li> values[0]: 1.0 </li>
-     * </ul>
-     *
-     *   <h4>{@link android.hardware.Sensor#TYPE_MOTION_DETECT
-     * Sensor.TYPE_MOTION_DETECT}:</h4>
-     *
-     * A TYPE_MOTION_DETECT event is produced if the device has been in
-     * motion  for at least 5 seconds with a maximal latency of 5
-     * additional seconds. ie: it may take up anywhere from 5 to 10 seconds
-     * afte the device has been at rest to trigger this event.
-     *
-     * The only allowed value is 1.0.
-     *
-     * <ul>
-     *  <li> values[0]: 1.0 </li>
-     * </ul>
-     *
-     *   <h4>{@link android.hardware.Sensor#TYPE_HEART_BEAT
-     * Sensor.TYPE_HEART_BEAT}:</h4>
-     *
-     * A sensor of this type returns an event everytime a hear beat peak is
-     * detected.
-     *
-     * Peak here ideally corresponds to the positive peak in the QRS complex of
-     * an ECG signal.
-     *
-     * <ul>
-     *  <li> values[0]: confidence</li>
-     * </ul>
-     *
-     * <p>
-     * A confidence value of 0.0 indicates complete uncertainty - that a peak
-     * is as likely to be at the indicated timestamp as anywhere else.
-     * A confidence value of 1.0 indicates complete certainly - that a peak is
-     * completely unlikely to be anywhere else on the QRS complex.
-     * </p>
-     *
-     * <h4>{@link android.hardware.Sensor#TYPE_LOW_LATENCY_OFFBODY_DETECT
-     * Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT}:</h4>
-     *
-     * <p>
-     * A sensor of this type returns an event every time the device transitions
-     * from off-body to on-body and from on-body to off-body (e.g. a wearable
-     * device being removed from the wrist would trigger an event indicating an
-     * off-body transition). The event returned will contain a single value to
-     * indicate off-body state:
-     * </p>
-     *
-     * <ul>
-     *  <li> values[0]: off-body state</li>
-     * </ul>
-     *
-     * <p>
-     *     Valid values for off-body state:
-     * <ul>
-     *  <li> 1.0 (device is on-body)</li>
-     *  <li> 0.0 (device is off-body)</li>
-     * </ul>
-     * </p>
-     *
-     * <p>
-     * When a sensor of this type is activated, it must deliver the initial
-     * on-body or off-body event representing the current device state within
-     * 5 seconds of activating the sensor.
-     * </p>
-     *
-     * <p>
-     * This sensor must be able to detect and report an on-body to off-body
-     * transition within 1 second of the device being removed from the body,
-     * and must be able to detect and report an off-body to on-body transition
-     * within 5 seconds of the device being put back onto the body.
-     * </p>
-     *
-     * <h4>{@link android.hardware.Sensor#TYPE_ACCELEROMETER_UNCALIBRATED
-     * Sensor.TYPE_ACCELEROMETER_UNCALIBRATED}:</h4> All values are in SI
-     * units (m/s^2)
-     *
-     * Similar to {@link android.hardware.Sensor#TYPE_ACCELEROMETER},
-     * Factory calibration and temperature compensation will still be applied
-     * to the "uncalibrated" measurement.
-     *
-     * <p>
-     * The values array is shown below:
-     * <ul>
-     * <li> values[0] = x_uncalib without bias compensation </li>
-     * <li> values[1] = y_uncalib without bias compensation </li>
-     * <li> values[2] = z_uncalib without bias compensation </li>
-     * <li> values[3] = estimated x_bias </li>
-     * <li> values[4] = estimated y_bias </li>
-     * <li> values[5] = estimated z_bias </li>
-     * </ul>
-     * </p>
-     * <p>
-     * x_uncalib, y_uncalib, z_uncalib are the measured acceleration in X, Y, Z
-     * axes similar to the  {@link android.hardware.Sensor#TYPE_ACCELEROMETER},
-     * without any bias correction (factory bias compensation and any
-     * temperature compensation is allowed).
-     * x_bias, y_bias, z_bias are the estimated biases.
-     * </p>
      *
      * @see GeomagneticField
      */

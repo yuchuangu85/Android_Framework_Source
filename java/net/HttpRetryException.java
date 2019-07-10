@@ -1,26 +1,17 @@
-/*
- * Copyright (c) 2004, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+/* Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package java.net;
@@ -28,26 +19,25 @@ package java.net;
 import java.io.IOException;
 
 /**
- * Thrown to indicate that a HTTP request needs to be retried
- * but cannot be retried automatically, due to streaming mode
- * being enabled.
- *
- * @author  Michael McMahon
- * @since   1.5
+ * If a HTTP request has to be retried, this exception will be thrown if the
+ * request cannot be retried automatically.
  */
-public
-class HttpRetryException extends IOException {
+public class HttpRetryException extends IOException {
+
     private static final long serialVersionUID = -9186022286469111381L;
 
     private int responseCode;
-    private String location;
+
+    private String location = null;
 
     /**
-     * Constructs a new {@code HttpRetryException} from the
-     * specified response code and exception detail message
+     * Creates a new {@code HttpRetryException} instance with the specified
+     * response code and the given detail message.
      *
-     * @param   detail   the detail message.
-     * @param   code   the HTTP response code from server.
+     * @param detail
+     *            the detail message for this exception.
+     * @param code
+     *            the HTTP response code from target host.
      */
     public HttpRetryException(String detail, int code) {
         super(detail);
@@ -55,45 +45,47 @@ class HttpRetryException extends IOException {
     }
 
     /**
-     * Constructs a new {@code HttpRetryException} with detail message
-     * responseCode and the contents of the Location response header field.
+     * Creates a new {@code HttpRetryException} instance with the specified
+     * response code, the given detail message and the value of the location
+     * field from the response header.
      *
-     * @param   detail   the detail message.
-     * @param   code   the HTTP response code from server.
-     * @param   location   the URL to be redirected to
+     * @param detail
+     *            the detail message for this exception.
+     * @param code
+     *            the HTTP response code from target host.
+     * @param location
+     *            the destination URL of the redirection.
      */
     public HttpRetryException(String detail, int code, String location) {
-        super (detail);
+        super(detail);
         responseCode = code;
         this.location = location;
     }
 
     /**
-     * Returns the http response code
+     * Gets the location value.
      *
-     * @return  The http response code.
-     */
-    public int responseCode() {
-        return responseCode;
-    }
-
-    /**
-     * Returns a string explaining why the http request could
-     * not be retried.
-     *
-     * @return  The reason string
-     */
-    public String getReason() {
-        return super.getMessage();
-    }
-
-    /**
-     * Returns the value of the Location header field if the
-     * error resulted from redirection.
-     *
-     * @return The location string
+     * @return the stored location from the HTTP header.
      */
     public String getLocation() {
         return location;
+    }
+
+    /**
+     * Gets the detail message.
+     *
+     * @return the detail message.
+     */
+    public String getReason() {
+        return getMessage();
+    }
+
+    /**
+     * Gets the response code.
+     *
+     * @return the HTTP response code.
+     */
+    public int responseCode() {
+        return responseCode;
     }
 }

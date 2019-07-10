@@ -16,7 +16,10 @@
 
 package benchmarks.regression;
 
-public class StringIsEmptyBenchmark {
+import com.google.caliper.Runner;
+import com.google.caliper.SimpleBenchmark;
+
+public class StringIsEmptyBenchmark extends SimpleBenchmark {
     public void timeIsEmpty_NonEmpty(int reps) {
         boolean result = true;
         for (int i = 0; i < reps; ++i) {

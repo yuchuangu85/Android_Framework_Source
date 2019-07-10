@@ -16,11 +16,7 @@
 
 package android.telephony;
 
-import android.annotation.Nullable;
-import android.annotation.SystemApi;
 import android.content.Context;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -29,14 +25,9 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.DisplayMetrics;
-
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * A Parcelable class for Subscription Information.
@@ -118,51 +109,11 @@ public class SubscriptionInfo implements Parcelable {
     private String mCountryIso;
 
     /**
-     * Whether the subscription is an embedded one.
-     */
-    private boolean mIsEmbedded;
-
-    /**
-     * The access rules for this subscription, if it is embedded and defines any.
-     */
-    @Nullable
-    private UiccAccessRule[] mAccessRules;
-
-    /**
-     * The ID of the SIM card. It is the ICCID of the active profile for a UICC card and the EID
-     * for an eUICC card.
-     */
-    private String mCardId;
-
-    /**
-     * @hide
-     */
-    public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
-        CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-        Bitmap icon, int mcc, int mnc, String countryIso) {
-        this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-            roaming, icon, mcc, mnc, countryIso, false /* isEmbedded */,
-            null /* accessRules */, null /* accessRules */);
-    }
-
-    /**
      * @hide
      */
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
             CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-            Bitmap icon, int mcc, int mnc, String countryIso,  boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules) {
-        this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-                roaming, icon, mcc, mnc, countryIso, isEmbedded, accessRules, null /* cardId */);
-    }
-
-    /**
-     * @hide
-     */
-    public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
-            CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-            Bitmap icon, int mcc, int mnc, String countryIso, boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules, String cardId) {
+            Bitmap icon, int mcc, int mnc, String countryIso) {
         this.mId = id;
         this.mIccId = iccId;
         this.mSimSlotIndex = simSlotIndex;
@@ -176,9 +127,6 @@ public class SubscriptionInfo implements Parcelable {
         this.mMcc = mcc;
         this.mMnc = mnc;
         this.mCountryIso = countryIso;
-        this.mIsEmbedded = isEmbedded;
-        this.mAccessRules = accessRules;
-        this.mCardId = cardId;
     }
 
     /**
@@ -335,84 +283,6 @@ public class SubscriptionInfo implements Parcelable {
         return this.mCountryIso;
     }
 
-    /** @return whether the subscription is an eUICC one. */
-    public boolean isEmbedded() {
-        return this.mIsEmbedded;
-    }
-
-    /**
-     * Checks whether the app with the given context is authorized to manage this subscription
-     * according to its metadata. Only supported for embedded subscriptions (if {@link #isEmbedded}
-     * returns true).
-     *
-     * @param context Context of the application to check.
-     * @return whether the app is authorized to manage this subscription per its metadata.
-     * @throws UnsupportedOperationException if this subscription is not embedded.
-     * @hide
-     * @deprecated - Do not use.
-     */
-    @Deprecated
-    public boolean canManageSubscription(Context context) {
-        return canManageSubscription(context, context.getPackageName());
-    }
-
-    /**
-     * Checks whether the given app is authorized to manage this subscription according to its
-     * metadata. Only supported for embedded subscriptions (if {@link #isEmbedded} returns true).
-     *
-     * @param context Any context.
-     * @param packageName Package name of the app to check.
-     * @return whether the app is authorized to manage this subscription per its metadata.
-     * @throws UnsupportedOperationException if this subscription is not embedded.
-     * @hide
-     * @deprecated - Do not use.
-     */
-    @Deprecated
-    public boolean canManageSubscription(Context context, String packageName) {
-        if (!isEmbedded()) {
-            throw new UnsupportedOperationException("Not an embedded subscription");
-        }
-        if (mAccessRules == null) {
-            return false;
-        }
-        PackageManager packageManager = context.getPackageManager();
-        PackageInfo packageInfo;
-        try {
-            packageInfo = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
-        } catch (PackageManager.NameNotFoundException e) {
-            throw new IllegalArgumentException("Unknown package: " + packageName, e);
-        }
-        for (UiccAccessRule rule : mAccessRules) {
-            if (rule.getCarrierPrivilegeStatus(packageInfo)
-                    == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * @return the {@link UiccAccessRule}s dictating who is authorized to manage this subscription.
-     * @throws UnsupportedOperationException if this subscription is not embedded.
-     * @hide
-     */
-    @SystemApi
-    public @Nullable List<UiccAccessRule> getAccessRules() {
-        if (!isEmbedded()) {
-            throw new UnsupportedOperationException("Not an embedded subscription");
-        }
-        if (mAccessRules == null) return null;
-        return Arrays.asList(mAccessRules);
-    }
-
-    /**
-     * @return the ID of the SIM card which contains the subscription.
-     * @hide
-     */
-    public String getCardId() {
-        return this.mCardId;
-    }
-
     public static final Parcelable.Creator<SubscriptionInfo> CREATOR = new Parcelable.Creator<SubscriptionInfo>() {
         @Override
         public SubscriptionInfo createFromParcel(Parcel source) {
@@ -429,13 +299,9 @@ public class SubscriptionInfo implements Parcelable {
             int mnc = source.readInt();
             String countryIso = source.readString();
             Bitmap iconBitmap = Bitmap.CREATOR.createFromParcel(source);
-            boolean isEmbedded = source.readBoolean();
-            UiccAccessRule[] accessRules = source.createTypedArray(UiccAccessRule.CREATOR);
-            String cardId = source.readString();
 
             return new SubscriptionInfo(id, iccId, simSlotIndex, displayName, carrierName,
-                    nameSource, iconTint, number, dataRoaming, iconBitmap, mcc, mnc, countryIso,
-                    isEmbedded, accessRules, cardId);
+                    nameSource, iconTint, number, dataRoaming, iconBitmap, mcc, mnc, countryIso);
         }
 
         @Override
@@ -459,9 +325,6 @@ public class SubscriptionInfo implements Parcelable {
         dest.writeInt(mMnc);
         dest.writeString(mCountryIso);
         mIconBitmap.writeToParcel(dest, flags);
-        dest.writeBoolean(mIsEmbedded);
-        dest.writeTypedArray(mAccessRules, flags);
-        dest.writeString(mCardId);
     }
 
     @Override
@@ -469,31 +332,12 @@ public class SubscriptionInfo implements Parcelable {
         return 0;
     }
 
-    /**
-     * @hide
-     */
-    public static String givePrintableIccid(String iccId) {
-        String iccIdToPrint = null;
-        if (iccId != null) {
-            if (iccId.length() > 9 && !Build.IS_DEBUGGABLE) {
-                iccIdToPrint = iccId.substring(0, 9) + Rlog.pii(false, iccId.substring(9));
-            } else {
-                iccIdToPrint = iccId;
-            }
-        }
-        return iccIdToPrint;
-    }
-
     @Override
     public String toString() {
-        String iccIdToPrint = givePrintableIccid(mIccId);
-        String cardIdToPrint = givePrintableIccid(mCardId);
-        return "{id=" + mId + ", iccId=" + iccIdToPrint + " simSlotIndex=" + mSimSlotIndex
+        return "{id=" + mId + ", iccId=" + mIccId + " simSlotIndex=" + mSimSlotIndex
                 + " displayName=" + mDisplayName + " carrierName=" + mCarrierName
                 + " nameSource=" + mNameSource + " iconTint=" + mIconTint
                 + " dataRoaming=" + mDataRoaming + " iconBitmap=" + mIconBitmap + " mcc " + mMcc
-                + " mnc " + mMnc + " isEmbedded " + mIsEmbedded
-                + " accessRules " + Arrays.toString(mAccessRules)
-                + " cardId=" + cardIdToPrint + "}";
+                + " mnc " + mMnc + "}";
     }
 }

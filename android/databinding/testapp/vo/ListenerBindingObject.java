@@ -16,11 +16,11 @@
 package android.databinding.testapp.vo;
 
 import android.content.Context;
-import android.databinding.BaseObservable;
 import android.databinding.ObservableBoolean;
 import android.graphics.Outline;
 import android.media.MediaPlayer;
 import android.text.Editable;
+import android.view.ActionMode;
 import android.view.ContextMenu;
 import android.view.DragEvent;
 import android.view.KeyEvent;
@@ -47,7 +47,6 @@ public class ListenerBindingObject {
     public static int lastClick = 0;
     public boolean inflateCalled;
     private final Context mContext;
-    public boolean wasRunnableRun;
 
     public final ObservableBoolean clickable = new ObservableBoolean();
     public final ObservableBoolean useOne = new ObservableBoolean();
@@ -248,23 +247,7 @@ public class ListenerBindingObject {
         lastClick = 4;
     }
 
-    public void runnableRun() {
-        this.wasRunnableRun = true;
-    }
-
     public void onFoo() {
     }
 
-    public void onBar() {}
-
-    public boolean onBar(View view) {
-        return true;
-    }
-
-    public static class Inner extends BaseObservable {
-        public boolean clicked;
-        public void onClick(View view) {
-            clicked = true;
-        }
-    }
 }

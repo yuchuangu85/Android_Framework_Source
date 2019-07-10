@@ -16,9 +16,10 @@
 
 package benchmarks.regression;
 
+import com.google.caliper.SimpleBenchmark;
 import java.util.regex.Pattern;
 
-public class StringSplitBenchmark {
+public class StringSplitBenchmark extends SimpleBenchmark {
     public void timeStringSplitComma(int reps) {
         for (int i = 0; i < reps; ++i) {
             "this,is,a,simple,example".split(",");

@@ -46,8 +46,7 @@ public class NotificationBackupHelper extends BlobBackupHelper {
             try {
                 INotificationManager nm = INotificationManager.Stub.asInterface(
                         ServiceManager.getService("notification"));
-                // TODO: http://b/22388012
-                newPayload = nm.getBackupPayload(UserHandle.USER_SYSTEM);
+                newPayload = nm.getBackupPayload(UserHandle.USER_OWNER);
             } catch (Exception e) {
                 // Treat as no data
                 Slog.e(TAG, "Couldn't communicate with notification manager");
@@ -67,8 +66,7 @@ public class NotificationBackupHelper extends BlobBackupHelper {
             try {
                 INotificationManager nm = INotificationManager.Stub.asInterface(
                         ServiceManager.getService("notification"));
-                // TODO: http://b/22388012
-                nm.applyRestore(payload, UserHandle.USER_SYSTEM);
+                nm.applyRestore(payload, UserHandle.USER_OWNER);
             } catch (Exception e) {
                 Slog.e(TAG, "Couldn't communicate with notification manager");
             }

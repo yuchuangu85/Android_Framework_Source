@@ -57,13 +57,4 @@ public class FlagSetTest {
         assertEquals(1 << 2, flagSet.buckets[1]);
         assertEquals(1 << 10, flagSet.buckets[2]);
     }
-
-    @Test
-    public void testLargeValue() {
-        BitSet bs = new BitSet();
-        bs.set(43);
-        FlagSet flagSet = new FlagSet(bs, 1);
-        assertEquals(1, flagSet.buckets.length);
-        assertEquals(1L << 43, flagSet.buckets[0]);
-    }
 }

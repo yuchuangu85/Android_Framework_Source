@@ -18,7 +18,6 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
-import android.databinding.tool.writer.KCode;
 
 import java.util.List;
 
@@ -55,37 +54,5 @@ public class CastExpr extends Expr {
 
     public String getCastType() {
         return getResolvedType().toJavaCode();
-    }
-
-    @Override
-    protected KCode generateCode() {
-        return new KCode()
-                .app("(")
-                .app(getCastType())
-                .app(") (", getCastExpr().toCode())
-                .app(")");
-    }
-
-    @Override
-    public String getInvertibleError() {
-        return getCastExpr().getInvertibleError();
-    }
-
-    @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        Expr castExpr = getCastExpr();
-        ModelClass exprType = castExpr.getResolvedType();
-        Expr castValue = model.castExpr(exprType.toJavaCode(), value);
-        return castExpr.generateInverse(model, castValue, bindingClassName);
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.castExpr(mType, getCastExpr().cloneToModel(model));
-    }
-
-    @Override
-    public String toString() {
-        return "(" + mType + ") " + getCastExpr();
     }
 }

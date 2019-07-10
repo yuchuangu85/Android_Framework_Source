@@ -16,15 +16,7 @@
 
 package android.telephony;
 
-import android.os.Build;
-import android.text.TextUtils;
 import android.util.Log;
-
-import android.util.Base64;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-
 
 /**
  * A class to log strings to the RADIO LOG.
@@ -32,8 +24,6 @@ import java.security.NoSuchAlgorithmException;
  * @hide
  */
 public final class Rlog {
-
-    private static final boolean USER_BUILD = Build.IS_USER;
 
     private Rlog() {
     }
@@ -95,59 +85,5 @@ public final class Rlog {
         return Log.isLoggable(tag, level);
     }
 
-    /**
-     * Redact personally identifiable information for production users.
-     * @param tag used to identify the source of a log message
-     * @param pii the personally identifiable information we want to apply secure hash on.
-     * @return If tag is loggable in verbose mode or pii is null, return the original input.
-     * otherwise return a secure Hash of input pii
-     */
-    public static String pii(String tag, Object pii) {
-        String val = String.valueOf(pii);
-        if (pii == null || TextUtils.isEmpty(val) || isLoggable(tag, Log.VERBOSE)) {
-            return val;
-        }
-        return "[" + secureHash(val.getBytes()) + "]";
-    }
-
-    /**
-     * Redact personally identifiable information for production users.
-     * @param enablePiiLogging set when caller explicitly want to enable sensitive logging.
-     * @param pii the personally identifiable information we want to apply secure hash on.
-     * @return If enablePiiLogging is set to true or pii is null, return the original input.
-     * otherwise return a secure Hash of input pii
-     */
-    public static String pii(boolean enablePiiLogging, Object pii) {
-        String val = String.valueOf(pii);
-        if (pii == null || TextUtils.isEmpty(val) || enablePiiLogging) {
-            return val;
-        }
-        return "[" + secureHash(val.getBytes()) + "]";
-    }
-
-    /**
-     * Returns a secure hash (using the SHA1 algorithm) of the provided input.
-     *
-     * @return "****" if the build type is user, otherwise the hash
-     * @param input the bytes for which the secure hash should be computed.
-     */
-    private static String secureHash(byte[] input) {
-        // Refrain from logging user personal information in user build.
-        if (USER_BUILD) {
-            return "****";
-        }
-
-        MessageDigest messageDigest;
-
-        try {
-            messageDigest = MessageDigest.getInstance("SHA-1");
-        } catch (NoSuchAlgorithmException e) {
-            return "####";
-        }
-
-        byte[] result = messageDigest.digest(input);
-        return Base64.encodeToString(
-                result, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
-    }
 }
 

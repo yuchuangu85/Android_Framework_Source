@@ -16,7 +16,6 @@
 
 package android.app.usage;
 
-import android.annotation.IntDef;
 import android.content.Context;
 import android.net.INetworkStatsService;
 import android.net.INetworkStatsSession;
@@ -24,13 +23,10 @@ import android.net.NetworkStatsHistory;
 import android.net.NetworkTemplate;
 import android.net.TrafficStats;
 import android.os.RemoteException;
-import android.util.IntArray;
+import android.os.ServiceManager;
 import android.util.Log;
 
 import dalvik.system.CloseGuard;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 
 /**
  * Class providing enumeration over buckets of network usage statistics. {@link NetworkStats} objects
@@ -51,6 +47,7 @@ public final class NetworkStats implements AutoCloseable {
      */
     private final long mEndTimeStamp;
 
+
     /**
      * Non-null array indicates the query enumerates over uids.
      */
@@ -61,16 +58,6 @@ public final class NetworkStats implements AutoCloseable {
      * depending on query type.
      */
     private int mUidOrUidIndex;
-
-    /**
-     * Tag id in case if was specified in the query.
-     */
-    private int mTag = android.net.NetworkStats.TAG_NONE;
-
-    /**
-     * State in case it was not specified in the query.
-     */
-    private int mState = Bucket.STATE_ALL;
 
     /**
      * The session while the query requires it, null if all the stats have been collected or close()
@@ -101,11 +88,12 @@ public final class NetworkStats implements AutoCloseable {
     private NetworkStatsHistory.Entry mRecycledHistoryEntry = null;
 
     /** @hide */
-    NetworkStats(Context context, NetworkTemplate template, int flags, long startTimestamp,
-            long endTimestamp, INetworkStatsService statsService)
-            throws RemoteException, SecurityException {
+    NetworkStats(Context context, NetworkTemplate template, long startTimestamp,
+            long endTimestamp) throws RemoteException, SecurityException {
+        final INetworkStatsService statsService = INetworkStatsService.Stub.asInterface(
+                ServiceManager.getService(Context.NETWORK_STATS_SERVICE));
         // Open network stats session
-        mSession = statsService.openSessionForUsageStats(flags, context.getOpPackageName());
+        mSession = statsService.openSessionForUsageStats(context.getOpPackageName());
         mCloseGuard.open("close");
         mTemplate = template;
         mStartTimeStamp = startTimestamp;
@@ -131,22 +119,13 @@ public final class NetworkStats implements AutoCloseable {
      * aggregated (e.g. time or state) some values may be equal across all buckets.
      */
     public static class Bucket {
-        /** @hide */
-        @IntDef(prefix = { "STATE_" }, value = {
-                STATE_ALL,
-                STATE_DEFAULT,
-                STATE_FOREGROUND
-        })
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface State {}
-
         /**
-         * Combined usage across all states.
+         * Combined usage across all other states.
          */
         public static final int STATE_ALL = -1;
 
         /**
-         * Usage not accounted for in any other state.
+         * Usage not accounted in any other states.
          */
         public static final int STATE_DEFAULT = 0x1;
 
@@ -170,107 +149,8 @@ public final class NetworkStats implements AutoCloseable {
          */
         public static final int UID_TETHERING = TrafficStats.UID_TETHERING;
 
-        /** @hide */
-        @IntDef(prefix = { "METERED_" }, value = {
-                METERED_ALL,
-                METERED_NO,
-                METERED_YES
-        })
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface Metered {}
-
-        /**
-         * Combined usage across all metered states. Covers metered and unmetered usage.
-         */
-        public static final int METERED_ALL = -1;
-
-        /**
-         * Usage that occurs on an unmetered network.
-         */
-        public static final int METERED_NO = 0x1;
-
-        /**
-         * Usage that occurs on a metered network.
-         *
-         * <p>A network is classified as metered when the user is sensitive to heavy data usage on
-         * that connection.
-         */
-        public static final int METERED_YES = 0x2;
-
-        /** @hide */
-        @IntDef(prefix = { "ROAMING_" }, value = {
-                ROAMING_ALL,
-                ROAMING_NO,
-                ROAMING_YES
-        })
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface Roaming {}
-
-        /**
-         * Combined usage across all roaming states. Covers both roaming and non-roaming usage.
-         */
-        public static final int ROAMING_ALL = -1;
-
-        /**
-         * Usage that occurs on a home, non-roaming network.
-         *
-         * <p>Any cellular usage in this bucket was incurred while the device was connected to a
-         * tower owned or operated by the user's wireless carrier, or a tower that the user's
-         * wireless carrier has indicated should be treated as a home network regardless.
-         *
-         * <p>This is also the default value for network types that do not support roaming.
-         */
-        public static final int ROAMING_NO = 0x1;
-
-        /**
-         * Usage that occurs on a roaming network.
-         *
-         * <p>Any cellular usage in this bucket as incurred while the device was roaming on another
-         * carrier's network, for which additional charges may apply.
-         */
-        public static final int ROAMING_YES = 0x2;
-
-        /** @hide */
-        @IntDef(prefix = { "DEFAULT_NETWORK_" }, value = {
-                DEFAULT_NETWORK_ALL,
-                DEFAULT_NETWORK_NO,
-                DEFAULT_NETWORK_YES
-        })
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface DefaultNetworkStatus {}
-
-        /**
-         * Combined usage for this network regardless of default network status.
-         */
-        public static final int DEFAULT_NETWORK_ALL = -1;
-
-        /**
-         * Usage that occurs while this network is not a default network.
-         *
-         * <p>This implies that the app responsible for this usage requested that it occur on a
-         * specific network different from the one(s) the system would have selected for it.
-         */
-        public static final int DEFAULT_NETWORK_NO = 0x1;
-
-        /**
-         * Usage that occurs while this network is a default network.
-         *
-         * <p>This implies that the app either did not select a specific network for this usage,
-         * or it selected a network that the system could have selected for app traffic.
-         */
-        public static final int DEFAULT_NETWORK_YES = 0x2;
-
-        /**
-         * Special TAG value for total data across all tags
-         */
-        public static final int TAG_NONE = android.net.NetworkStats.TAG_NONE;
-
         private int mUid;
-        private int mTag;
         private int mState;
-        private int mDefaultNetworkStatus;
-        private int mMetered;
-        private int mRoaming;
         private long mBeginTimeStamp;
         private long mEndTimeStamp;
         private long mRxBytes;
@@ -278,16 +158,7 @@ public final class NetworkStats implements AutoCloseable {
         private long mTxBytes;
         private long mTxPackets;
 
-        private static int convertSet(@State int state) {
-            switch (state) {
-                case STATE_ALL: return android.net.NetworkStats.SET_ALL;
-                case STATE_DEFAULT: return android.net.NetworkStats.SET_DEFAULT;
-                case STATE_FOREGROUND: return android.net.NetworkStats.SET_FOREGROUND;
-            }
-            return 0;
-        }
-
-        private static @State int convertState(int networkStatsSet) {
+        private static int convertState(int networkStatsSet) {
             switch (networkStatsSet) {
                 case android.net.NetworkStats.SET_ALL : return STATE_ALL;
                 case android.net.NetworkStats.SET_DEFAULT : return STATE_DEFAULT;
@@ -302,41 +173,6 @@ public final class NetworkStats implements AutoCloseable {
                 case TrafficStats.UID_TETHERING: return UID_TETHERING;
             }
             return uid;
-        }
-
-        private static int convertTag(int tag) {
-            switch (tag) {
-                case android.net.NetworkStats.TAG_NONE: return TAG_NONE;
-            }
-            return tag;
-        }
-
-        private static @Metered int convertMetered(int metered) {
-            switch (metered) {
-                case android.net.NetworkStats.METERED_ALL : return METERED_ALL;
-                case android.net.NetworkStats.METERED_NO: return METERED_NO;
-                case android.net.NetworkStats.METERED_YES: return METERED_YES;
-            }
-            return 0;
-        }
-
-        private static @Roaming int convertRoaming(int roaming) {
-            switch (roaming) {
-                case android.net.NetworkStats.ROAMING_ALL : return ROAMING_ALL;
-                case android.net.NetworkStats.ROAMING_NO: return ROAMING_NO;
-                case android.net.NetworkStats.ROAMING_YES: return ROAMING_YES;
-            }
-            return 0;
-        }
-
-        private static @DefaultNetworkStatus int convertDefaultNetworkStatus(
-                int defaultNetworkStatus) {
-            switch (defaultNetworkStatus) {
-                case android.net.NetworkStats.DEFAULT_NETWORK_ALL : return DEFAULT_NETWORK_ALL;
-                case android.net.NetworkStats.DEFAULT_NETWORK_NO: return DEFAULT_NETWORK_NO;
-                case android.net.NetworkStats.DEFAULT_NETWORK_YES: return DEFAULT_NETWORK_YES;
-            }
-            return 0;
         }
 
         public Bucket() {
@@ -356,14 +192,6 @@ public final class NetworkStats implements AutoCloseable {
         }
 
         /**
-         * Tag of the bucket.<p />
-         * @return Bucket tag.
-         */
-        public int getTag() {
-            return mTag;
-        }
-
-        /**
          * Usage state. One of the following values:<p/>
          * <ul>
          * <li>{@link #STATE_ALL}</li>
@@ -372,47 +200,8 @@ public final class NetworkStats implements AutoCloseable {
          * </ul>
          * @return Usage state.
          */
-        public @State int getState() {
+        public int getState() {
             return mState;
-        }
-
-        /**
-         * Metered state. One of the following values:<p/>
-         * <ul>
-         * <li>{@link #METERED_ALL}</li>
-         * <li>{@link #METERED_NO}</li>
-         * <li>{@link #METERED_YES}</li>
-         * </ul>
-         * <p>A network is classified as metered when the user is sensitive to heavy data usage on
-         * that connection. Apps may warn before using these networks for large downloads. The
-         * metered state can be set by the user within data usage network restrictions.
-         */
-        public @Metered int getMetered() {
-            return mMetered;
-        }
-
-        /**
-         * Roaming state. One of the following values:<p/>
-         * <ul>
-         * <li>{@link #ROAMING_ALL}</li>
-         * <li>{@link #ROAMING_NO}</li>
-         * <li>{@link #ROAMING_YES}</li>
-         * </ul>
-         */
-        public @Roaming int getRoaming() {
-            return mRoaming;
-        }
-
-        /**
-         * Default network status. One of the following values:<p/>
-         * <ul>
-         * <li>{@link #DEFAULT_NETWORK_ALL}</li>
-         * <li>{@link #DEFAULT_NETWORK_NO}</li>
-         * <li>{@link #DEFAULT_NETWORK_YES}</li>
-         * </ul>
-         */
-        public @DefaultNetworkStatus int getDefaultNetworkStatus() {
-            return mDefaultNetworkStatus;
         }
 
         /**
@@ -537,21 +326,21 @@ public final class NetworkStats implements AutoCloseable {
      * @throws RemoteException
      */
     void startSummaryEnumeration() throws RemoteException {
-        mSummary = mSession.getSummaryForAllUid(mTemplate, mStartTimeStamp, mEndTimeStamp,
-                false /* includeTags */);
+        mSummary = mSession.getSummaryForAllUid(mTemplate, mStartTimeStamp, mEndTimeStamp, false);
+
         mEnumerationIndex = 0;
     }
 
     /**
      * Collects history results for uid and resets history enumeration index.
      */
-    void startHistoryEnumeration(int uid, int tag, int state) {
+    void startHistoryEnumeration(int uid) {
         mHistory = null;
         try {
             mHistory = mSession.getHistoryIntervalForUid(mTemplate, uid,
-                    Bucket.convertSet(state), tag, NetworkStatsHistory.FIELD_ALL,
-                    mStartTimeStamp, mEndTimeStamp);
-            setSingleUidTagState(uid, tag, state);
+                    android.net.NetworkStats.SET_ALL, android.net.NetworkStats.TAG_NONE,
+                    NetworkStatsHistory.FIELD_ALL, mStartTimeStamp, mEndTimeStamp);
+            setSingleUid(uid);
         } catch (RemoteException e) {
             Log.w(TAG, e);
             // Leaving mHistory null
@@ -564,25 +353,7 @@ public final class NetworkStats implements AutoCloseable {
      * @throws RemoteException
      */
     void startUserUidEnumeration() throws RemoteException {
-        // TODO: getRelevantUids should be sensitive to time interval. When that's done,
-        //       the filtering logic below can be removed.
-        int[] uids = mSession.getRelevantUids();
-        // Filtering of uids with empty history.
-        IntArray filteredUids = new IntArray(uids.length);
-        for (int uid : uids) {
-            try {
-                NetworkStatsHistory history = mSession.getHistoryIntervalForUid(mTemplate, uid,
-                        android.net.NetworkStats.SET_ALL, android.net.NetworkStats.TAG_NONE,
-                        NetworkStatsHistory.FIELD_ALL, mStartTimeStamp, mEndTimeStamp);
-                if (history != null && history.size() > 0) {
-                    filteredUids.add(uid);
-                }
-            } catch (RemoteException e) {
-                Log.w(TAG, "Error while getting history of uid " + uid, e);
-            }
-        }
-        mUids = filteredUids.toArray();
-        mUidOrUidIndex = -1;
+        setUidEnumeration(mSession.getRelevantUids());
         stepHistory();
     }
 
@@ -607,12 +378,7 @@ public final class NetworkStats implements AutoCloseable {
 
     private void fillBucketFromSummaryEntry(Bucket bucketOut) {
         bucketOut.mUid = Bucket.convertUid(mRecycledSummaryEntry.uid);
-        bucketOut.mTag = Bucket.convertTag(mRecycledSummaryEntry.tag);
         bucketOut.mState = Bucket.convertState(mRecycledSummaryEntry.set);
-        bucketOut.mDefaultNetworkStatus = Bucket.convertDefaultNetworkStatus(
-                mRecycledSummaryEntry.defaultNetwork);
-        bucketOut.mMetered = Bucket.convertMetered(mRecycledSummaryEntry.metered);
-        bucketOut.mRoaming = Bucket.convertRoaming(mRecycledSummaryEntry.roaming);
         bucketOut.mBeginTimeStamp = mStartTimeStamp;
         bucketOut.mEndTimeStamp = mEndTimeStamp;
         bucketOut.mRxBytes = mRecycledSummaryEntry.rxBytes;
@@ -647,7 +413,6 @@ public final class NetworkStats implements AutoCloseable {
         fillBucketFromSummaryEntry(bucket);
         return bucket;
     }
-
     /**
      * Getting the next item in a history enumeration.
      * @param bucketOut Next item will be set here.
@@ -659,11 +424,7 @@ public final class NetworkStats implements AutoCloseable {
                 mRecycledHistoryEntry = mHistory.getValues(mEnumerationIndex++,
                         mRecycledHistoryEntry);
                 bucketOut.mUid = Bucket.convertUid(getUid());
-                bucketOut.mTag = Bucket.convertTag(mTag);
-                bucketOut.mState = mState;
-                bucketOut.mDefaultNetworkStatus = Bucket.DEFAULT_NETWORK_ALL;
-                bucketOut.mMetered = Bucket.METERED_ALL;
-                bucketOut.mRoaming = Bucket.ROAMING_ALL;
+                bucketOut.mState = Bucket.STATE_ALL;
                 bucketOut.mBeginTimeStamp = mRecycledHistoryEntry.bucketStart;
                 bucketOut.mEndTimeStamp = mRecycledHistoryEntry.bucketStart +
                         mRecycledHistoryEntry.bucketDuration;
@@ -703,10 +464,13 @@ public final class NetworkStats implements AutoCloseable {
         return mUidOrUidIndex;
     }
 
-    private void setSingleUidTagState(int uid, int tag, int state) {
+    private void setSingleUid(int uid) {
         mUidOrUidIndex = uid;
-        mTag = tag;
-        mState = state;
+    }
+
+    private void setUidEnumeration(int[] uids) {
+        mUids = uids;
+        mUidOrUidIndex = -1;
     }
 
     private void stepUid() {

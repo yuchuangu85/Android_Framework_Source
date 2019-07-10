@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea and Josh Bloch with assistance from members of JCP
  * JSR-166 Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -42,32 +13,30 @@ package java.util;
 /**
  * A {@link SortedMap} extended with navigation methods returning the
  * closest matches for given search targets. Methods
- * {@link #lowerEntry}, {@link #floorEntry}, {@link #ceilingEntry},
- * and {@link #higherEntry} return {@code Map.Entry} objects
+ * {@code lowerEntry}, {@code floorEntry}, {@code ceilingEntry},
+ * and {@code higherEntry} return {@code Map.Entry} objects
  * associated with keys respectively less than, less than or equal,
  * greater than or equal, and greater than a given key, returning
  * {@code null} if there is no such key.  Similarly, methods
- * {@link #lowerKey}, {@link #floorKey}, {@link #ceilingKey}, and
- * {@link #higherKey} return only the associated keys. All of these
+ * {@code lowerKey}, {@code floorKey}, {@code ceilingKey}, and
+ * {@code higherKey} return only the associated keys. All of these
  * methods are designed for locating, not traversing entries.
  *
  * <p>A {@code NavigableMap} may be accessed and traversed in either
- * ascending or descending key order.  The {@link #descendingMap}
+ * ascending or descending key order.  The {@code descendingMap}
  * method returns a view of the map with the senses of all relational
  * and directional methods inverted. The performance of ascending
  * operations and views is likely to be faster than that of descending
- * ones.  Methods
- * {@link #subMap(Object, boolean, Object, boolean) subMap(K, boolean, K, boolean)},
- * {@link #headMap(Object, boolean) headMap(K, boolean)}, and
- * {@link #tailMap(Object, boolean) tailMap(K, boolean)}
- * differ from the like-named {@code SortedMap} methods in accepting
- * additional arguments describing whether lower and upper bounds are
- * inclusive versus exclusive.  Submaps of any {@code NavigableMap}
- * must implement the {@code NavigableMap} interface.
+ * ones.  Methods {@code subMap}, {@code headMap},
+ * and {@code tailMap} differ from the like-named {@code
+ * SortedMap} methods in accepting additional arguments describing
+ * whether lower and upper bounds are inclusive versus exclusive.
+ * Submaps of any {@code NavigableMap} must implement the {@code
+ * NavigableMap} interface.
  *
- * <p>This interface additionally defines methods {@link #firstEntry},
- * {@link #pollFirstEntry}, {@link #lastEntry}, and
- * {@link #pollLastEntry} that return and/or remove the least and
+ * <p>This interface additionally defines methods {@code firstEntry},
+ * {@code pollFirstEntry}, {@code lastEntry}, and
+ * {@code pollLastEntry} that return and/or remove the least and
  * greatest mappings, if any exist, else returning {@code null}.
  *
  * <p>Implementations of entry-returning methods are expected to
@@ -86,7 +55,7 @@ package java.util;
  * implement {@code NavigableMap}, but extensions and implementations
  * of this interface are encouraged to override these methods to return
  * {@code NavigableMap}.  Similarly,
- * {@link #keySet()} can be overridden to return {@link NavigableSet}.
+ * {@link #keySet()} can be overridden to return {@code NavigableSet}.
  *
  * @author Doug Lea
  * @author Josh Bloch
@@ -214,18 +183,12 @@ public interface NavigableMap<K,V> extends SortedMap<K,V> {
     /**
      * Returns a key-value mapping associated with the least
      * key in this map, or {@code null} if the map is empty.
-     *
-     * @return an entry with the least key,
-     *         or {@code null} if this map is empty
      */
     Map.Entry<K,V> firstEntry();
 
     /**
      * Returns a key-value mapping associated with the greatest
      * key in this map, or {@code null} if the map is empty.
-     *
-     * @return an entry with the greatest key,
-     *         or {@code null} if this map is empty
      */
     Map.Entry<K,V> lastEntry();
 
@@ -256,7 +219,7 @@ public interface NavigableMap<K,V> extends SortedMap<K,V> {
      * operation), the results of the iteration are undefined.
      *
      * <p>The returned map has an ordering equivalent to
-     * {@link Collections#reverseOrder(Comparator) Collections.reverseOrder}{@code (comparator())}.
+     * <tt>{@link Collections#reverseOrder(Comparator) Collections.reverseOrder}(comparator())</tt>.
      * The expression {@code m.descendingMap().descendingMap()} returns a
      * view of {@code m} essentially equivalent to {@code m}.
      *
@@ -300,7 +263,7 @@ public interface NavigableMap<K,V> extends SortedMap<K,V> {
      * Returns a view of the portion of this map whose keys range from
      * {@code fromKey} to {@code toKey}.  If {@code fromKey} and
      * {@code toKey} are equal, the returned map is empty unless
-     * {@code fromInclusive} and {@code toInclusive} are both true.  The
+     * {@code fromExclusive} and {@code toExclusive} are both true.  The
      * returned map is backed by this map, so changes in the returned map are
      * reflected in this map, and vice-versa.  The returned map supports all
      * optional map operations that this map supports.

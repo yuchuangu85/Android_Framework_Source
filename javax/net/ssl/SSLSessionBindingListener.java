@@ -1,66 +1,44 @@
 /*
- * Copyright (c) 1997, 2001, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
-
 
 package javax.net.ssl;
 
 import java.util.EventListener;
 
 /**
- * This interface is implemented by objects which want to know when
- * they are being bound or unbound from a SSLSession.  When either event
- * occurs via {@link SSLSession#putValue(String, Object)}
- * or {@link SSLSession#removeValue(String)}, the event is communicated
- * through a SSLSessionBindingEvent identifying the session.
- *
- * @see SSLSession
- * @see SSLSessionBindingEvent
- *
- * @since 1.4
- * @author Nathan Abramson
- * @author David Brownell
+ * The interface to be implemented by any object that requires notification when
+ * data objects are bound to (or unbound from) an {@code SSLSession}.
  */
-public
-interface SSLSessionBindingListener
-extends EventListener
-{
+public interface SSLSessionBindingListener extends EventListener {
+
     /**
-     * This is called to notify the listener that it is being bound into
-     * an SSLSession.
+     * Notifies this listener when a value is bound to an {@code SSLSession}.
      *
-     * @param event the event identifying the SSLSession into
-     *          which the listener is being bound.
+     * @param event
+     *            the event data.
      */
     public void valueBound(SSLSessionBindingEvent event);
 
     /**
-     * This is called to notify the listener that it is being unbound
-     * from a SSLSession.
+     * Notifies this listener when a value is unbound from an {@code SSLSession}.
      *
-     * @param event the event identifying the SSLSession from
-     *          which the listener is being unbound.
+     * @param event
+     *            the event data.
      */
     public void valueUnbound(SSLSessionBindingEvent event);
+
 }
