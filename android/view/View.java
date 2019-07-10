@@ -17853,6 +17853,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /*
      * Caller is responsible for calling requestLayout if necessary.
      * (This allows addViewInLayout to not request a new layout.)
+     * parent是从ViewRootImpl(ViewGroup)传入的this，说明parent是ViewRootImpl(ViewGroup)，
+     * 因此mParent也是ViewRootImpl(ViewGroup)
      */
     void assignParent(ViewParent parent) {
         if (mParent == null) {
@@ -17871,6 +17873,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * guaranteed to be called before {@link #onDraw(android.graphics.Canvas)},
      * however it may be called any time before the first onDraw -- including
      * before or after {@link #onMeasure(int, int)}.
+     * <p>
+     * 1.setContentView的时候，会调用host.dispatchAttachedToWindow方法，也会调用该方法
+     * 2.inflate加载视图遍历的时候会调用addView方法，会调用该方法
      *
      * @see #onDetachedFromWindow()
      */
