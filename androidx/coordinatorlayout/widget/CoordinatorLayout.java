@@ -1736,7 +1736,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
         final int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             final View view = getChildAt(i);
-            if (view.getVisibility() == View.GONE) {
+            if (view.getVisibility() == View.GONE) {// 隐藏，不处理
                 // If it's GONE, don't dispatch
                 continue;
             }

@@ -37,6 +37,8 @@ import androidx.core.view.ViewCompat.ScrollAxis;
  * shim static methods. This ensures interoperability with nested scrolling views on all versions
  * of Android.</p>
  *
+ * 嵌套滑动父View需要实现的接口
+ *
  * 参考：
  * https://blog.csdn.net/qq_42944793/article/details/88417127
  */
@@ -57,12 +59,15 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * will receive a call to {@link #onStopNestedScroll(View, int)}.
      * </p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
-     * @param axes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
+     * 在嵌套滑动子View开始滑动前通知嵌套滑动父View，回调嵌套滑动父View的onStartNestedScroll()，
+     * 嵌套滑动父View需要嵌套滑动（一起滑动）则返回true，否则返回false(不配合嵌套滑动)
+     *
+     * @param child Direct child of this ViewParent containing target（嵌套滑动父View的直接子View）
+     * @param target View that initiated the nested scroll（嵌套子View）
+     * @param axes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},（滑动方向）
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
-     * @param type the type of input which cause this scroll event
-     * @return true if this ViewParent accepts the nested scroll operation
+     * @param type the type of input which cause this scroll event（滑动类型）
+     * @return true if this ViewParent accepts the nested scroll operation（嵌套父View是否接受嵌套滑动）
      */
     boolean onStartNestedScroll(@NonNull View child, @NonNull View target, @ScrollAxis int axes,
             @NestedScrollType int type);
@@ -141,11 +146,12 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
      *
-     * @param target View that initiated the nested scroll
-     * @param dx Horizontal scroll distance in pixels
-     * @param dy Vertical scroll distance in pixels
+     * @param target View that initiated the nested scroll（嵌套滑动子View）
+     * @param dx Horizontal scroll distance in pixels（手指滑动变量）
+     * @param dy Vertical scroll distance in pixels（手指滑动变量）
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
-     * @param type the type of input which cause this scroll event
+     *                 用来保存嵌套滑动父View需要消费的距离
+     * @param type the type of input which cause this scroll event滑动类型
      */
     void onNestedPreScroll(@NonNull View target, int dx, int dy, @NonNull int[] consumed,
             @NestedScrollType int type);

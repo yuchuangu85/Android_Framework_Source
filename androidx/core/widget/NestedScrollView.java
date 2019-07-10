@@ -145,6 +145,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
      */
     private boolean mSmoothScrollingEnabled = true;
 
+    // 滑动阈值，滑动距离超过这个值才算滑动，否则不执行滑动
     private int mTouchSlop;
     private int mMinimumVelocity;
     private int mMaximumVelocity;
@@ -241,6 +242,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
     @Override
     public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offsetInWindow,
             int type) {
+        // 这里向父View申请，父View是欧服先消费滑动事件，如果消费，把消费事件保存到consumed中，并返回true
         return mChildHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type);
     }
 
@@ -304,7 +306,9 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
     @Override
     public void onNestedScrollAccepted(@NonNull View child, @NonNull View target, int axes,
             int type) {
+        // 设置滑动方向
         mParentHelper.onNestedScrollAccepted(child, target, axes, type);
+        // 这个不在起作用，因为里面已经设置了嵌套父View
         startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, type);
     }
 
@@ -830,37 +834,45 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
                 // Remember where the motion event started
                 mLastMotionY = (int) ev.getY();
                 mActivePointerId = ev.getPointerId(0);
+                // 开始准备嵌套滑动
                 startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, ViewCompat.TYPE_TOUCH);
                 break;
             }
             case MotionEvent.ACTION_MOVE:
+                // 获取当前触摸屏幕的手指的id（有效手指）
                 final int activePointerIndex = ev.findPointerIndex(mActivePointerId);
                 if (activePointerIndex == -1) {
                     Log.e(TAG, "Invalid pointerId=" + mActivePointerId + " in onTouchEvent");
                     break;
                 }
 
+                // 获取有效手指的y坐标
                 final int y = (int) ev.getY(activePointerIndex);
-                int deltaY = mLastMotionY - y;
+                int deltaY = mLastMotionY - y;// 获取滑动变量（向下滑为负，向上滑为正）
+                // 分发预滑动事件，通知嵌套父View是否消费滑动事件，如果消费，把消费距离保存到mScrollConsumed中
                 if (dispatchNestedPreScroll(0, deltaY, mScrollConsumed, mScrollOffset,
                         ViewCompat.TYPE_TOUCH)) {
+                    // 从移动变量中去除父View的消费距离，如果父View全部消费，则不会剩余滑动事件，
+                    // 如果没有会剩余部分再给子View是否消费
                     deltaY -= mScrollConsumed[1];
                     vtev.offsetLocation(0, mScrollOffset[1]);
                     mNestedYOffset += mScrollOffset[1];
                 }
+                // 如果没有被拖拽（惯性滑动）并且父View消费剩余的距离比滑动阈值大
                 if (!mIsBeingDragged && Math.abs(deltaY) > mTouchSlop) {
                     final ViewParent parent = getParent();
                     if (parent != null) {
+                        // 请求父布局不要拦截触摸事件
                         parent.requestDisallowInterceptTouchEvent(true);
                     }
                     mIsBeingDragged = true;
-                    if (deltaY > 0) {
+                    if (deltaY > 0) {// 上滑
                         deltaY -= mTouchSlop;
-                    } else {
+                    } else {// 下滑或者不滑动
                         deltaY += mTouchSlop;
                     }
                 }
-                if (mIsBeingDragged) {
+                if (mIsBeingDragged) {// 正在被多拽，或者满足上面的情况
                     // Scroll to follow the motion event
                     mLastMotionY = y - mScrollOffset[1];
 

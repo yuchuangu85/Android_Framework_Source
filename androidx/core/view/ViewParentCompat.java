@@ -163,12 +163,12 @@ public final class ViewParentCompat {
      * will receive a call to {@link #onStopNestedScroll(ViewParent, View, int)}.
      * </p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child Direct child of this ViewParent containing target(嵌套滑动父View直接包含的子View)
+     * @param target View that initiated the nested scroll(嵌套子View)
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
-     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
-     * @param type the type of input which cause this scroll event
-     * @return true if this ViewParent accepts the nested scroll operation
+     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both（嵌套滑动方向）
+     * @param type the type of input which cause this scroll event（滑动事件类型：触摸事件，非触摸事件）
+     * @return true if this ViewParent accepts the nested scroll operation（嵌套父View是否接受嵌套滑动）
      */
     @SuppressWarnings("RedundantCast") // Intentionally invoking interface method.
     public static boolean onStartNestedScroll(ViewParent parent, View child, View target,
@@ -203,8 +203,8 @@ public final class ViewParentCompat {
      * for the nested scroll. Implementations of this method should always call their superclass's
      * implementation of this method if one is present.</p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child Direct child of this ViewParent containing target（嵌套父View的直接子View）
+     * @param target View that initiated the nested scroll（嵌套子View）
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
      * @param type the type of input which cause this scroll event
