@@ -40,8 +40,8 @@ import static androidx.core.view.ViewCompat.TYPE_TOUCH;
  * ns child在收到UP事件时，可以计算出需要滚动的速度，ns child对于速度的消费流程是：
  * 5.1 ns child在进行flying操作前，先询问ns parent是否需要消费该速度。如果ns parent消费该速度，后续就由ns parent带飞，自己就不消费该速度了。如果ns parent不消费，则ns child进行自己的flying操作。
  * 5.2 ns child在flying过程中，如果已经滚动到阈值速度仍没有消费完，会再次将速度分发给ns parent，将ns parent进行消费。
- *
- *
+ * <p>
+ * <p>
  * Helper class for implementing nested scrolling child views compatible with Android platform
  * versions earlier than Android 5.0 Lollipop (API 21).
  *
@@ -57,14 +57,13 @@ import static androidx.core.view.ViewCompat.TYPE_TOUCH;
  * 5.0 Lollipop and newer.</p>
  * <p>
  * 嵌套滑动子View的帮助类
- *
+ * <p>
  * 参考：
  * https://segmentfault.com/a/1190000019272870
  * https://segmentfault.com/a/1190000019272870
  * https://blog.csdn.net/lmj623565791/article/details/52204039
  * https://juejin.im/entry/5ccf9c2451882541332f5a9c
  * https://www.jianshu.com/p/6547ec3202bd
- *
  */
 public class NestedScrollingChildHelper {
     private ViewParent mNestedScrollingParentTouch;
@@ -154,6 +153,7 @@ public class NestedScrollingChildHelper {
      *
      * @param axes Supported nested scroll axes.
      *             See {@link androidx.core.view.NestedScrollingChild#startNestedScroll(int)}.
+     *
      * @return true if a cooperating parent view was found and nested scrolling started successfully
      */
     public boolean startNestedScroll(@ScrollAxis int axes) {
@@ -170,6 +170,7 @@ public class NestedScrollingChildHelper {
      * @param axes Supported nested scroll axes.
      *             See {@link androidx.core.view.NestedScrollingChild2#startNestedScroll(int,
      *             int)}.
+     *
      * @return true if a cooperating parent view was found and nested scrolling started successfully
      */
     public boolean startNestedScroll(@ScrollAxis int axes, @NestedScrollType int type) {
@@ -182,7 +183,7 @@ public class NestedScrollingChildHelper {
             ViewParent p = mView.getParent();
             View child = mView;
             while (p != null) {// 循环查找循环滑动的父布局
- 		        // 重点在这------->
+                // 重点在这------->
                 // 在子View开始滑动前通知嵌套滑动父View，回调嵌套滑动父View的onStartNestedScroll()方法，
                 // 嵌套滑动父View需要嵌套滑动则返回true：
                 if (ViewParentCompat.onStartNestedScroll(p, child, mView, axes, type)) {
@@ -236,7 +237,7 @@ public class NestedScrollingChildHelper {
      * @return true if the parent consumed any of the nested scroll
      */
     public boolean dispatchNestedScroll(int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow) {
+                                        int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow) {
         return dispatchNestedScroll(dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed,
                 offsetInWindow, TYPE_TOUCH);
     }
@@ -249,10 +250,11 @@ public class NestedScrollingChildHelper {
      * signature to implement the standard policy.</p>
      *
      * @return true if the parent consumed any of the nested scroll
+     * (如果嵌套滑动父ViewGroup消费了事件就会返回true，这里消费是嵌套父View调用onNestedPreScroll时是否消费了事件)
      */
     public boolean dispatchNestedScroll(int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow,
-            @NestedScrollType int type) {
+                                        int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow,
+                                        @NestedScrollType int type) {
         if (isNestedScrollingEnabled()) {
             final ViewParent parent = getNestedScrollingParentForType(type);
             if (parent == null) {
@@ -268,6 +270,7 @@ public class NestedScrollingChildHelper {
                     startY = offsetInWindow[1];
                 }
 
+                // 先通知父View是否消费
                 ViewParentCompat.onNestedScroll(parent, mView, dxConsumed,
                         dyConsumed, dxUnconsumed, dyUnconsumed, type);
 
@@ -297,7 +300,7 @@ public class NestedScrollingChildHelper {
      * 嵌套滑动父布局是否消费滑动距离，如果父布局消费返回true，否则返回false
      */
     public boolean dispatchNestedPreScroll(int dx, int dy, @Nullable int[] consumed,
-            @Nullable int[] offsetInWindow) {
+                                           @Nullable int[] offsetInWindow) {
         return dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, TYPE_TOUCH);
     }
 
@@ -311,7 +314,7 @@ public class NestedScrollingChildHelper {
      * @return true if the parent consumed any of the nested scroll（如果父View消费了任何滑动滑动事件，返回true）
      */
     public boolean dispatchNestedPreScroll(int dx, int dy, @Nullable int[] consumed,
-            @Nullable int[] offsetInWindow, @NestedScrollType int type) {
+                                           @Nullable int[] offsetInWindow, @NestedScrollType int type) {
         if (isNestedScrollingEnabled()) {
             final ViewParent parent = getNestedScrollingParentForType(type);
             if (parent == null) {
@@ -337,7 +340,7 @@ public class NestedScrollingChildHelper {
                 // 清空数据
                 consumed[0] = 0;
                 consumed[1] = 0;
-		        // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及用来保存父View需要消耗距离的
+                // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及用来保存父View需要消耗距离的
                 // consumed传递过去，
                 ViewParentCompat.onNestedPreScroll(parent, mView, dx, dy, consumed, type);
 
@@ -384,7 +387,7 @@ public class NestedScrollingChildHelper {
      * method/{@link androidx.core.view.NestedScrollingChild} interface method with the same
      * signature to implement the standard policy.</p>
      *
-     * @return true if the parent consumed the nested fling
+     * @return true if the parent consumed the nested fling(如果父View消费了Fling事件，返回true)
      */
     public boolean dispatchNestedPreFling(float velocityX, float velocityY) {
         if (isNestedScrollingEnabled()) {
@@ -434,8 +437,9 @@ public class NestedScrollingChildHelper {
 
     /**
      * 根据滑动类型，设置嵌套父View
+     *
      * @param type 滑动类型
-     * @param p 嵌套父View
+     * @param p    嵌套父View
      */
     private void setNestedScrollingParentForType(@NestedScrollType int type, ViewParent p) {
         switch (type) {
