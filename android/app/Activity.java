@@ -3407,7 +3407,8 @@ public class Activity extends ContextThemeWrapper
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
             onUserInteraction();
         }
-        // getWindow()获取的是PhoneWindow
+        // getWindow()获取的是PhoneWindow，如果返回true则不走下面的onTouchEvent事件
+        // PhoneWindow.superDispatchTouchEvent会调用ViewGroup的dispatchTouchEvent事件，也就是下发
         if (getWindow().superDispatchTouchEvent(ev)) {
             return true;
         }

@@ -2552,6 +2552,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             ev.setTargetAccessibilityFocus(false);
         }
 
+        // 是否处理事件
         boolean handled = false;
         if (onFilterTouchEventForSecurity(ev)) {
             final int action = ev.getAction();
