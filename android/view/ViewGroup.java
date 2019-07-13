@@ -2554,11 +2554,12 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
 
         // 是否处理事件
         boolean handled = false;
+        // 过滤安全事件，如果窗口被遮挡了，返回false，放弃该事件；如果没有返回true，继续处理
         if (onFilterTouchEventForSecurity(ev)) {
             final int action = ev.getAction();
             final int actionMasked = action & MotionEvent.ACTION_MASK;
 
-            // Handle an initial down.
+            // Handle an initial down.每次down事件都要清理之前的操作
             if (actionMasked == MotionEvent.ACTION_DOWN) {
                 // Throw away all previous state when starting a new touch gesture.
                 // The framework may have dropped the up or cancel event for the previous gesture
@@ -2571,14 +2572,16 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             final boolean intercepted;
             if (actionMasked == MotionEvent.ACTION_DOWN
                     || mFirstTouchTarget != null) {
+                // 是否设置了不允许拦截事件（是否调用了requestDisallowInterceptTouchEvent方法）
                 final boolean disallowIntercept = (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
-                if (!disallowIntercept) {
+                if (!disallowIntercept) {// 没有设置
+                    // 调用onInterceptTouchEvent方法看看是否拦截事件
                     intercepted = onInterceptTouchEvent(ev);
                     ev.setAction(action); // restore action in case it was changed
                 } else {
                     intercepted = false;
                 }
-            } else {
+            } else {// 在move事件和up事件如果找不到目标View来处理该事件则拦截
                 // There are no touch targets and this action is not an initial down
                 // so this view group continues to intercept touches.
                 intercepted = true;
@@ -2679,6 +2682,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                                 }
                                 mLastTouchDownX = ev.getX();
                                 mLastTouchDownY = ev.getY();
+                                // 初始化mFirstTouchTarget
                                 newTouchTarget = addTouchTarget(child, idBitsToAssign);
                                 alreadyDispatchedToNewTouchTarget = true;
                                 break;
@@ -2808,6 +2812,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      */
     private void resetTouchState() {
         clearTouchTargets();
+        // 重置取消当前View的Touch事件
         resetCancelNextUpFlag(this);
         mGroupFlags &= ~FLAG_DISALLOW_INTERCEPT;
         mNestedScrollAxes = SCROLL_AXIS_NONE;
@@ -2836,6 +2841,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 target.recycle();
                 target = next;
             } while (target != null);
+            // 回收mFirstTouchTarget
             mFirstTouchTarget = null;
         }
     }
@@ -2847,8 +2853,8 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      */
     private void cancelAndClearTouchTargets(MotionEvent event) {
         if (mFirstTouchTarget != null) {// 有过触摸目标，也就是已经发生过触摸事件
-            boolean syntheticEvent = false;
-            if (event == null) {
+            boolean syntheticEvent = false;// 是否合成事件
+            if (event == null) {// 事件为空,也就是View从窗口被移除了
                 final long now = SystemClock.uptimeMillis();
                 event = MotionEvent.obtain(now, now,
                         MotionEvent.ACTION_CANCEL, 0.0f, 0.0f, 0);
@@ -2856,10 +2862,12 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 syntheticEvent = true;
             }
 
+            // 逐级重置清理事件
             for (TouchTarget target = mFirstTouchTarget; target != null; target = target.next) {
                 resetCancelNextUpFlag(target.child);
                 dispatchTransformedTouchEvent(event, true, target.child, target.pointerIdBits);
             }
+            // 清理所有Target(之前触摸的目标View)
             clearTouchTargets();
 
             if (syntheticEvent) {
@@ -2886,8 +2894,10 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * Assumes the target child is not already present.
      */
     private TouchTarget addTouchTarget(@NonNull View child, int pointerIdBits) {
+        // 如果没有回收的创建新的TouchTarget，如果有使用已经回收的
         final TouchTarget target = TouchTarget.obtain(child, pointerIdBits);
         target.next = mFirstTouchTarget;
+        // mFirstTouchTarget开始赋值
         mFirstTouchTarget = target;
         return target;
     }
@@ -2918,6 +2928,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         }
     }
 
+    // 移除View取消Touch事件，清理TouchTarget
     private void cancelTouchTarget(View view) {
         TouchTarget predecessor = null;
         TouchTarget target = mFirstTouchTarget;
@@ -3199,12 +3210,15 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * them dispatched to this ViewGroup through onTouchEvent().
      * The current target will receive an ACTION_CANCEL event, and no further
      * messages will be delivered here.
+     *
+     * 这里就是满足if中的那几个条件才拦截，否则默认不拦截
+     *
      */
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (ev.isFromSource(InputDevice.SOURCE_MOUSE)
-                && ev.getAction() == MotionEvent.ACTION_DOWN
-                && ev.isButtonPressed(MotionEvent.BUTTON_PRIMARY)
-                && isOnScrollbarThumb(ev.getX(), ev.getY())) {
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE)// 鼠标设备的输入事件
+                && ev.getAction() == MotionEvent.ACTION_DOWN// down事件
+                && ev.isButtonPressed(MotionEvent.BUTTON_PRIMARY)// 手表左键
+                && isOnScrollbarThumb(ev.getX(), ev.getY())) {// 滚动条
             return true;
         }
         return false;

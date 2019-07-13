@@ -1261,9 +1261,11 @@ public abstract class Window {
 
     /** @hide */
     public boolean shouldCloseOnTouch(Context context, MotionEvent event) {
+        // down事件并且在Activity占用View之外，返回true；其他事件并且在View之外，返回true
         final boolean isOutside =
                 event.getAction() == MotionEvent.ACTION_DOWN && isOutOfBounds(context, event)
-                || event.getAction() == MotionEvent.ACTION_OUTSIDE;
+                || event.getAction() == MotionEvent.ACTION_OUTSIDE;// 当前View之外
+        // 设置触摸外面关闭，并且Activity的DecorView存在，并且满足上面的事件，返回true，关闭触摸事件
         if (mCloseOnTouchOutside && peekDecorView() != null && isOutside) {
             return true;
         }
