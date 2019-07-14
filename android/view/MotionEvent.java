@@ -3150,6 +3150,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
 
     /**
      * Gets an integer where each pointer id present in the event is marked as a bit.
+     *
+     * 获取代表手指id的bit
+     *
      * @hide
      */
     public final int getPointerIdBits() {

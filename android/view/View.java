@@ -2345,6 +2345,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /**
      * Indicates whether the view is temporarily detached.
      *
+     * 显示该View是否被临时分离
+     *
      * @hide
      */
     static final int PFLAG_CANCEL_NEXT_UP_EVENT        = 0x04000000;
