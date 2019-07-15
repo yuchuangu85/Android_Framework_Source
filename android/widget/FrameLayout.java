@@ -170,9 +170,11 @@ public class FrameLayout extends ViewGroup {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int count = getChildCount();
 
+        // 父ViewGroup的宽度或者高度不都是确切值
         final boolean measureMatchParentChildren =
                 MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.EXACTLY ||
                 MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.EXACTLY;
+        // 清理缓存
         mMatchParentChildren.clear();
 
         int maxHeight = 0;
@@ -182,16 +184,19 @@ public class FrameLayout extends ViewGroup {
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
             if (mMeasureAllChildren || child.getVisibility() != GONE) {
+                // 测量子View
                 measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+                // 查找最大宽度和高度
                 maxWidth = Math.max(maxWidth,
                         child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin);
                 maxHeight = Math.max(maxHeight,
                         child.getMeasuredHeight() + lp.topMargin + lp.bottomMargin);
                 childState = combineMeasuredStates(childState, child.getMeasuredState());
-                if (measureMatchParentChildren) {
+                if (measureMatchParentChildren) {// 如果父ViewGroup的高度和宽度不都是确定值
                     if (lp.width == LayoutParams.MATCH_PARENT ||
                             lp.height == LayoutParams.MATCH_PARENT) {
+                        // 缓存match_parent属性的子View
                         mMatchParentChildren.add(child);
                     }
                 }
@@ -213,44 +218,48 @@ public class FrameLayout extends ViewGroup {
             maxWidth = Math.max(maxWidth, drawable.getMinimumWidth());
         }
 
+        // 保存当前View的测量所得到的宽高
         setMeasuredDimension(resolveSizeAndState(maxWidth, widthMeasureSpec, childState),
                 resolveSizeAndState(maxHeight, heightMeasureSpec,
                         childState << MEASURED_HEIGHT_STATE_SHIFT));
 
         count = mMatchParentChildren.size();
-        if (count > 1) {
+        if (count > 1) {// 处理match_parent属性的View
             for (int i = 0; i < count; i++) {
                 final View child = mMatchParentChildren.get(i);
                 final MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
 
+                // 宽度MeasureSpec
                 final int childWidthMeasureSpec;
-                if (lp.width == LayoutParams.MATCH_PARENT) {
+                if (lp.width == LayoutParams.MATCH_PARENT) {// 宽度是match_parent，那么宽度就用父布局的高度计算
                     final int width = Math.max(0, getMeasuredWidth()
                             - getPaddingLeftWithForeground() - getPaddingRightWithForeground()
                             - lp.leftMargin - lp.rightMargin);
                     childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(
                             width, MeasureSpec.EXACTLY);
-                } else {
+                } else {// wrap_content或者确切值
                     childWidthMeasureSpec = getChildMeasureSpec(widthMeasureSpec,
                             getPaddingLeftWithForeground() + getPaddingRightWithForeground() +
                             lp.leftMargin + lp.rightMargin,
                             lp.width);
                 }
 
+                // 高度MeasureSpec
                 final int childHeightMeasureSpec;
-                if (lp.height == LayoutParams.MATCH_PARENT) {
+                if (lp.height == LayoutParams.MATCH_PARENT) {// 高度是match_parent，那么高度就用父布局的高度计算
                     final int height = Math.max(0, getMeasuredHeight()
                             - getPaddingTopWithForeground() - getPaddingBottomWithForeground()
                             - lp.topMargin - lp.bottomMargin);
                     childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(
                             height, MeasureSpec.EXACTLY);
-                } else {
+                } else {// wrap_content或者确切值
                     childHeightMeasureSpec = getChildMeasureSpec(heightMeasureSpec,
                             getPaddingTopWithForeground() + getPaddingBottomWithForeground() +
                             lp.topMargin + lp.bottomMargin,
                             lp.height);
                 }
 
+                // 调用子ViewGroup的测量方法
                 child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
             }
         }

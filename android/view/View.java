@@ -23526,7 +23526,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 if (specSize < size) {
                     result = specSize | MEASURED_STATE_TOO_SMALL;
                 } else {
-                    // 如果父控件指定最大尺寸没有比View想要的尺寸小，这时候就放弃之前已经给View赋值的
+                    // 如果父控件指定最大尺寸不比View想要的尺寸小，这时候就放弃之前已经给View赋值的
                     // specSize，用View自己想要的尺寸就可以了。
                     result = size;
                 }
