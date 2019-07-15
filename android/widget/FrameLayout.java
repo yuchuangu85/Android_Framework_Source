@@ -50,8 +50,6 @@ import java.util.ArrayList;
  * used for sizing
  * only if {@link #setMeasureAllChildren(boolean) setConsiderGoneChildrenWhenMeasuring()}
  * is set to true.
- *
- * @attr ref android.R.styleable#FrameLayout_measureAllChildren
  */
 @RemoteView
 public class FrameLayout extends ViewGroup {
@@ -83,12 +81,12 @@ public class FrameLayout extends ViewGroup {
     }
 
     public FrameLayout(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr) {
+                       @AttrRes int defStyleAttr) {
         this(context, attrs, defStyleAttr, 0);
     }
 
     public FrameLayout(@NonNull Context context, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
+                       @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         final TypedArray a = context.obtainStyledAttributes(
@@ -107,8 +105,6 @@ public class FrameLayout extends ViewGroup {
      * @param foregroundGravity See {@link android.view.Gravity}
      *
      * @see #getForegroundGravity()
-     *
-     * @attr ref android.R.styleable#View_foregroundGravity
      */
     @android.view.RemotableViewMethod
     public void setForegroundGravity(int foregroundGravity) {
@@ -148,22 +144,22 @@ public class FrameLayout extends ViewGroup {
 
     int getPaddingLeftWithForeground() {
         return isForegroundInsidePadding() ? Math.max(mPaddingLeft, mForegroundPaddingLeft) :
-            mPaddingLeft + mForegroundPaddingLeft;
+                mPaddingLeft + mForegroundPaddingLeft;
     }
 
     int getPaddingRightWithForeground() {
         return isForegroundInsidePadding() ? Math.max(mPaddingRight, mForegroundPaddingRight) :
-            mPaddingRight + mForegroundPaddingRight;
+                mPaddingRight + mForegroundPaddingRight;
     }
 
     private int getPaddingTopWithForeground() {
         return isForegroundInsidePadding() ? Math.max(mPaddingTop, mForegroundPaddingTop) :
-            mPaddingTop + mForegroundPaddingTop;
+                mPaddingTop + mForegroundPaddingTop;
     }
 
     private int getPaddingBottomWithForeground() {
         return isForegroundInsidePadding() ? Math.max(mPaddingBottom, mForegroundPaddingBottom) :
-            mPaddingBottom + mForegroundPaddingBottom;
+                mPaddingBottom + mForegroundPaddingBottom;
     }
 
     @Override
@@ -173,7 +169,7 @@ public class FrameLayout extends ViewGroup {
         // 父ViewGroup的宽度或者高度不都是确切值
         final boolean measureMatchParentChildren =
                 MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.EXACTLY ||
-                MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.EXACTLY;
+                        MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.EXACTLY;
         // 清理缓存
         mMatchParentChildren.clear();
 
@@ -240,7 +236,7 @@ public class FrameLayout extends ViewGroup {
                 } else {// wrap_content或者确切值
                     childWidthMeasureSpec = getChildMeasureSpec(widthMeasureSpec,
                             getPaddingLeftWithForeground() + getPaddingRightWithForeground() +
-                            lp.leftMargin + lp.rightMargin,
+                                    lp.leftMargin + lp.rightMargin,
                             lp.width);
                 }
 
@@ -255,7 +251,7 @@ public class FrameLayout extends ViewGroup {
                 } else {// wrap_content或者确切值
                     childHeightMeasureSpec = getChildMeasureSpec(heightMeasureSpec,
                             getPaddingTopWithForeground() + getPaddingBottomWithForeground() +
-                            lp.topMargin + lp.bottomMargin,
+                                    lp.topMargin + lp.bottomMargin,
                             lp.height);
                 }
 
@@ -265,6 +261,13 @@ public class FrameLayout extends ViewGroup {
         }
     }
 
+    /**
+     * @param changed This is a new size or position for this view。该View的位置或者大小是否改变
+     * @param left    Left position, relative to parent。相对于父布局左侧位置
+     * @param top     Top position, relative to parent。相对于父布局顶部位置
+     * @param right   Right position, relative to parent。相对于父布局右侧位置
+     * @param bottom  Bottom position, relative to parent。相对于父布局底部位置
+     */
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         layoutChildren(left, top, right, bottom, false /* no force left gravity */);
@@ -300,35 +303,36 @@ public class FrameLayout extends ViewGroup {
                 final int verticalGravity = gravity & Gravity.VERTICAL_GRAVITY_MASK;
 
                 switch (absoluteGravity & Gravity.HORIZONTAL_GRAVITY_MASK) {
-                    case Gravity.CENTER_HORIZONTAL:
+                    case Gravity.CENTER_HORIZONTAL:// 横向居中
                         childLeft = parentLeft + (parentRight - parentLeft - width) / 2 +
-                        lp.leftMargin - lp.rightMargin;
+                                lp.leftMargin - lp.rightMargin;
                         break;
-                    case Gravity.RIGHT:
+                    case Gravity.RIGHT:// 右侧
                         if (!forceLeftGravity) {
                             childLeft = parentRight - width - lp.rightMargin;
                             break;
                         }
-                    case Gravity.LEFT:
+                    case Gravity.LEFT:// 默认左侧
                     default:
                         childLeft = parentLeft + lp.leftMargin;
                 }
 
                 switch (verticalGravity) {
-                    case Gravity.TOP:
+                    case Gravity.TOP:// 默认顶部
                         childTop = parentTop + lp.topMargin;
                         break;
-                    case Gravity.CENTER_VERTICAL:
+                    case Gravity.CENTER_VERTICAL:// 竖直居中
                         childTop = parentTop + (parentBottom - parentTop - height) / 2 +
-                        lp.topMargin - lp.bottomMargin;
+                                lp.topMargin - lp.bottomMargin;
                         break;
-                    case Gravity.BOTTOM:
+                    case Gravity.BOTTOM:// 底部
                         childTop = parentBottom - height - lp.bottomMargin;
                         break;
                     default:
                         childTop = parentTop + lp.topMargin;
                 }
 
+                // 子View布局
                 child.layout(childLeft, childTop, childLeft + width, childTop + height);
             }
         }
@@ -339,9 +343,7 @@ public class FrameLayout extends ViewGroup {
      * the VISIBLE or INVISIBLE state, when measuring. Defaults to false.
      *
      * @param measureAll true to consider children marked GONE, false otherwise.
-     * Default value is false.
-     *
-     * @attr ref android.R.styleable#FrameLayout_measureAllChildren
+     *                   Default value is false.
      */
     @android.view.RemotableViewMethod
     public void setMeasureAllChildren(boolean measureAll) {
@@ -406,7 +408,9 @@ public class FrameLayout extends ViewGroup {
         return FrameLayout.class.getName();
     }
 
-    /** @hide */
+    /**
+     *
+     */
     @Override
     protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
         super.encodeProperties(encoder);
@@ -422,8 +426,6 @@ public class FrameLayout extends ViewGroup {
      * Per-child layout information for layouts that support margins.
      * See {@link android.R.styleable#FrameLayout_Layout FrameLayout Layout Attributes}
      * for a list of all child view attributes that this class supports.
-     *
-     * @attr ref android.R.styleable#FrameLayout_Layout_layout_gravity
      */
     public static class LayoutParams extends MarginLayoutParams {
         /**
@@ -440,7 +442,6 @@ public class FrameLayout extends ViewGroup {
          * by FrameLayout as {@code Gravity.TOP | Gravity.START}.
          *
          * @see android.view.Gravity
-         * @attr ref android.R.styleable#FrameLayout_Layout_layout_gravity
          */
         public int gravity = UNSPECIFIED_GRAVITY;
 
@@ -460,10 +461,10 @@ public class FrameLayout extends ViewGroup {
          * Creates a new set of layout parameters with the specified width, height
          * and weight.
          *
-         * @param width the width, either {@link #MATCH_PARENT},
-         *              {@link #WRAP_CONTENT} or a fixed size in pixels
-         * @param height the height, either {@link #MATCH_PARENT},
-         *               {@link #WRAP_CONTENT} or a fixed size in pixels
+         * @param width   the width, either {@link #MATCH_PARENT},
+         *                {@link #WRAP_CONTENT} or a fixed size in pixels
+         * @param height  the height, either {@link #MATCH_PARENT},
+         *                {@link #WRAP_CONTENT} or a fixed size in pixels
          * @param gravity the gravity
          *
          * @see android.view.Gravity

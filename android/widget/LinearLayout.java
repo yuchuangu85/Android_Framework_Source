@@ -700,9 +700,9 @@ public class LinearLayout extends ViewGroup {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (mOrientation == VERTICAL) {
+        if (mOrientation == VERTICAL) {// 纵向
             measureVertical(widthMeasureSpec, heightMeasureSpec);
-        } else {
+        } else {// 默认横向
             measureHorizontal(widthMeasureSpec, heightMeasureSpec);
         }
     }
@@ -785,6 +785,7 @@ public class LinearLayout extends ViewGroup {
                 continue;
             }
 
+            // gone
             if (child.getVisibility() == View.GONE) {
                i += getChildrenSkipCount(child, i);
                continue;
@@ -797,9 +798,12 @@ public class LinearLayout extends ViewGroup {
 
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
+            // 计算总高度，叠加每个子View的高度
             totalWeight += lp.weight;
 
+            // 高度为0，权重大于0
             final boolean useExcessSpace = lp.height == 0 && lp.weight > 0;
+            // 父ViewGroup是确切值，子View设置了权重
             if (heightMode == MeasureSpec.EXACTLY && useExcessSpace) {
                 // Optimization: don't bother measuring children who are only
                 // laid out using excess space. These views will get measured

@@ -6774,8 +6774,10 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
 
         // 根据父布局的MeasureSpec，父布局的padding和child的LayoutParams这三个参数，
         // 通过getChildMeasureSpec()方法计算出子元素的MeasureSpec
+        // lp.width：child的宽度（MATCH_PARENT、WRAP_CONTENT、具体值）
         final int childWidthMeasureSpec = getChildMeasureSpec(parentWidthMeasureSpec,
                 mPaddingLeft + mPaddingRight, lp.width);
+        // lp.height：child的高度（MATCH_PARENT、WRAP_CONTENT、具体值）
         final int childHeightMeasureSpec = getChildMeasureSpec(parentHeightMeasureSpec,
                 mPaddingTop + mPaddingBottom, lp.height);
 
@@ -6803,9 +6805,11 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             int parentHeightMeasureSpec, int heightUsed) {
         final MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
 
+        // lp.width：child的宽度（MATCH_PARENT、WRAP_CONTENT、具体值）
         final int childWidthMeasureSpec = getChildMeasureSpec(parentWidthMeasureSpec,
                 mPaddingLeft + mPaddingRight + lp.leftMargin + lp.rightMargin
                         + widthUsed, lp.width);
+        // lp.height：child的高度（MATCH_PARENT、WRAP_CONTENT、具体值）
         final int childHeightMeasureSpec = getChildMeasureSpec(parentHeightMeasureSpec,
                 mPaddingTop + mPaddingBottom + lp.topMargin + lp.bottomMargin
                         + heightUsed, lp.height);
@@ -6829,7 +6833,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @param padding The padding of this view for the current dimension and
      *        margins, if applicable
      * @param childDimension How big the child wants to be in the current
-     *        dimension（子视图的宽高属性值）
+     *        dimension（子视图的宽、高属性值(具体值，match_parent，wrap_content)）
      * @return a MeasureSpec integer for the child
      */
     public static int getChildMeasureSpec(int spec, int padding, int childDimension) {
@@ -6850,16 +6854,16 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             // 因为MATCH_PARENT的值为-1，WRAP_CONTENT的值为-2，都是小于0的，所以大于等于0肯定是指定固定
             // 尺寸的。既然子元素都指定固定大小了，就直接取指定的尺寸，
             // 然后将子元素的测量模式定为EXACTLY模式，表明子元素的尺寸也确定了
-            if (childDimension >= 0) {
+            if (childDimension >= 0) {// 具体值
                 resultSize = childDimension;
                 resultMode = MeasureSpec.EXACTLY;
-            } else if (childDimension == LayoutParams.MATCH_PARENT) {
+            } else if (childDimension == LayoutParams.MATCH_PARENT) {// -1
                 // 如果子元素是MATCH_PARENT，也就是希望占满父容器的空间，那子元素的尺寸就取父容器的
                 // 可用空间大小，模式也是EXACTLY，表明子元素的尺寸也确定了
                 // Child wants to be our size. So be it.
                 resultSize = size;
                 resultMode = MeasureSpec.EXACTLY;
-            } else if (childDimension == LayoutParams.WRAP_CONTENT) {
+            } else if (childDimension == LayoutParams.WRAP_CONTENT) {// -2
                 // 如果子元素是WRAP_CONTENT，也就是宽/高希望能包裹自身的内容就可以了，
                 //但由于这时子元素自身还没测量，无法知道自己想要多大的尺寸，
                 //所以这时就先取父容器给子元素留下的最大空间，模式为AT_MOST，表示子元素的宽/高不能超过该最大值
