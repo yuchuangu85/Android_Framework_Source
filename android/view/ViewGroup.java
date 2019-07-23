@@ -3064,6 +3064,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                     final float offsetY = mScrollY - child.mTop;
                     event.offsetLocation(offsetX, offsetY);
 
+                    // 是否处理事件（如果child是View，默认处理）
                     handled = child.dispatchTouchEvent(event);
 
                     event.offsetLocation(-offsetX, -offsetY);
@@ -3086,6 +3087,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 transformedEvent.transform(child.getInverseMatrix());
             }
 
+            // 是否处理事件（如果child是View，默认处理）
             handled = child.dispatchTouchEvent(transformedEvent);
         }
 

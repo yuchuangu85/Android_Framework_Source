@@ -12260,6 +12260,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             stopNestedScroll();
         }
 
+        // 过滤安全事件，如果窗口被遮挡了，返回false，放弃该事件；如果没有返回true，继续处理
         if (onFilterTouchEventForSecurity(event)) {
             if ((mViewFlags & ENABLED_MASK) == ENABLED && handleScrollBarDragging(event)) {
                 result = true;
@@ -12302,6 +12303,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Filter the touch event to apply security policies.
+     *
+     * 过滤安全事件，如果窗口被遮挡了，返回false，放弃该事件；如果没有返回true，继续处理
      *
      * @param event The motion event to be filtered.
      *
