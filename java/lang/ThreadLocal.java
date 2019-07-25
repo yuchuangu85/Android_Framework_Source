@@ -71,6 +71,13 @@ import java.util.function.Supplier;
  * @author  Josh Bloch and Doug Lea
  * @since   1.2
  *
+ * ThreadLocal用于保存某个线程共享变量：对于同一个static ThreadLocal，
+ * 不同线程只能从中get，set，remove自己的变量，而不会影响其他线程的变量。
+ *
+ * ThreadLocal的作用是提供线程内的局部变量，这种变量在线程的生命周期内起作用。
+ * 作用：ThreadLocal为每个使用该变量的线程分配一个独立的变量副本。所以每一个
+ * 线程都可以独立地改变自己的副本，而不会影响其他线程所对应的副本。
+ *
  * 参考：http://www.cnblogs.com/dolphin0520/p/3920407.html
  */
 public class ThreadLocal<T> {
@@ -219,6 +226,7 @@ public class ThreadLocal<T> {
      */
     public void set(T value) {
         Thread t = Thread.currentThread();
+        // map存在当前线程中
         ThreadLocalMap map = getMap(t);
         if (map != null)
             map.set(this, value);
@@ -397,6 +405,8 @@ public class ThreadLocal<T> {
          * Construct a new map initially containing (firstKey, firstValue).
          * ThreadLocalMaps are constructed lazily, so we only create
          * one when we have at least one entry to put in it.
+         *
+         * Object: 当前线程共享变量。
          */
         ThreadLocalMap(ThreadLocal<?> firstKey, Object firstValue) {
             // 初始化ThreadLocal弱引用数组，默认长度为16

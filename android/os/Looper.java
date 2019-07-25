@@ -99,7 +99,7 @@ public final class Looper {
     }
 
     private static void prepare(boolean quitAllowed) {
-        if (sThreadLocal.get() != null) {// 确保ThreadLocal中只有一个Looper
+        if (sThreadLocal.get() != null) {// 确保每个线程中只有一个Looper
             throw new RuntimeException("Only one Looper may be created per thread");
         }
         sThreadLocal.set(new Looper(quitAllowed));
