@@ -2581,7 +2581,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 } else {
                     intercepted = false;
                 }
-            } else {// 在move事件和up事件如果找不到目标View来处理该事件则拦截
+            } else {// 在move事件和up事件如果找不到目标View来处理该事件则拦截(mFirstTouchTarget == null)
                 // There are no touch targets and this action is not an initial down
                 // so this view group continues to intercept touches.
                 intercepted = true;
@@ -2720,7 +2720,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             if (mFirstTouchTarget == null) {// down事件没有找到子View接收down事件
                 // No touch targets so treat this as an ordinary view.
                 // 如果DOWN事件没有被当前ViewGroup容器的子View响应，那么ViewGroup不会再派发接下来的任何事件
-                // 给其子View，而是给子的onTouch事件处理
+                // 给其子View，而是给自己的onTouch事件处理
                 handled = dispatchTransformedTouchEvent(ev, canceled, null,
                         TouchTarget.ALL_POINTER_IDS);
             } else {// 有子View接收Event
