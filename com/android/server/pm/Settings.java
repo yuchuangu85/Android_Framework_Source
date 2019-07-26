@@ -2462,6 +2462,11 @@ public final class Settings {
 
         final long startTime = SystemClock.uptimeMillis();
 
+        /**
+         * 如果mSettingsFilename存在，并且备份文件不存在，将其作为备份
+         *
+         * 否认则删除，新建
+         */
         // Keep the old settings around until we know the new ones have
         // been successfully written.
         if (mSettingsFilename.exists()) {
@@ -2469,7 +2474,9 @@ public final class Settings {
             // to persist settings earlier. So preserve the older
             // backup for future reference since the current settings
             // might have been corrupted.
+            // package.xml存在
             if (!mBackupSettingsFilename.exists()) {
+                // package-backup.xml不存在，用当前的package.xml作为备份
                 if (!mSettingsFilename.renameTo(mBackupSettingsFilename)) {
                     Slog.wtf(PackageManagerService.TAG,
                             "Unable to backup package manager settings, "
@@ -2477,6 +2484,7 @@ public final class Settings {
                     return;
                 }
             } else {
+                // 删除，后面会重写
                 mSettingsFilename.delete();
                 Slog.w(PackageManagerService.TAG, "Preserving older settings backup");
             }

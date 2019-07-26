@@ -406,6 +406,14 @@ import java.util.function.Predicate;
  * 第一件：解析这个应用程序的配置文件AndroidManifest.xml，以便可以获得它的安装信息；
  * 第二件：为这个应用程序分配Linux用户ID和Linux用户组ID，以便它可以在系统中获得合适的运行权限
  *
+ * PMS驱动APK安装:
+ * 通过INIT_COPY信号与DefaultContainerService进行连接，连接成功后拿到可转为IMediaContainerService的Binder，发送MCS_BOUND信号
+ * 通过MCS_BOUND信号接收IMediaContainerService(AIDL)
+ * 通过INIT_COPY接收HandlerParams请求数据，加入请求队列
+ * 通过MCS_BOUND新型号处理HandlerParams请求，通过startCopy()拿到合适的APK路径，通过DefaultContainerService进行复制，最后通过handleReturnCode()最终触发核心安装逻辑
+ *
+ * 链接：https://www.jianshu.com/p/d2a550a953e0
+ *
  * Stub是一个Binder
  */
 public class PackageManagerService extends IPackageManager.Stub
@@ -1354,6 +1362,7 @@ public class PackageManagerService extends IPackageManager.Stub
             if (DEBUG_SD_INSTALL) Log.i(TAG, "onServiceConnected");
             final IMediaContainerService imcs = IMediaContainerService.Stub
                     .asInterface(Binder.allowBlocking(service));
+            // 发送MCS_BOUND信号
             mHandler.sendMessage(mHandler.obtainMessage(MCS_BOUND, imcs));
         }
 
@@ -1425,8 +1434,10 @@ public class PackageManagerService extends IPackageManager.Stub
 
         private boolean connectToService() {
             if (DEBUG_INSTALL) Log.i(TAG, "Trying to bind to DefaultContainerService");
+            // 此String为com.android.defcontainer.DefaultContainerService
             Intent service = new Intent().setComponent(DEFAULT_CONTAINER_COMPONENT);
             Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
+            // mDefContainerConn为DefaultContainerConnection
             if (mContext.bindServiceAsUser(service, mDefContainerConn,
                     Context.BIND_AUTO_CREATE, UserHandle.SYSTEM)) {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
@@ -1457,6 +1468,7 @@ public class PackageManagerService extends IPackageManager.Stub
             }
         }
 
+        // 第三方应用安装
         void doHandleMessage(Message msg) {
             switch (msg.what) {
                 case DEF_CONTAINER_BIND:
@@ -1471,17 +1483,29 @@ public class PackageManagerService extends IPackageManager.Stub
                     }
                     break;
                 case INIT_COPY: {
+                    /**
+                     * INIT_COPY：
+                     * HandlerParams包含了安装APK必要的参数。在收到INIT_COPY信息后，会与
+                     * DefaultContainerService进行连接，DefaultContainerService负责
+                     * 处理文件检查与拷贝等耗时操作，与PMS运行在不同进程。在与
+                     * DefaultContainerService链接后，PMS获得可转为
+                     * IMediaContainerService（AIDL）的Binder，可以用来与
+                     * DefaultContainerService通信。如果链接已建立，将HandlerParams加入
+                     * 安装任务队列。连接操作见PackageHandler.connectToService
+                     */
                     HandlerParams params = (HandlerParams) msg.obj;
                     int idx = mPendingInstalls.size();
                     if (DEBUG_INSTALL) Slog.i(TAG, "init_copy idx=" + idx + ": " + params);
                     // If a bind was already initiated we dont really
                     // need to do anything. The pending install
                     // will be processed later on.
+                    // 此标志位表示是否绑定了服务，默认为false
                     if (!mBound) {
                         Trace.asyncTraceBegin(TRACE_TAG_PACKAGE_MANAGER, "bindingMCS",
                                 System.identityHashCode(mHandler));
                         // If this is the only one pending we might
                         // have to bind to the service again.
+                        // 与DefaultContainerService连接
                         if (!connectToService()) {
                             Slog.e(TAG, "Failed to bind to media container service");
                             params.serviceError();
@@ -1491,13 +1515,16 @@ public class PackageManagerService extends IPackageManager.Stub
                                 Trace.asyncTraceEnd(TRACE_TAG_PACKAGE_MANAGER, params.traceMethod,
                                         params.traceCookie);
                             }
+                            // 到这里表示绑定服务失败
                             return;
                         } else {
                             // Once we bind to the service, the first
                             // pending request will be processed.
+                            // 加入请求到安装队列
                             mPendingInstalls.add(idx, params);
                         }
                     } else {
+                        // 已绑定服务成功，添加请求，等待处理
                         mPendingInstalls.add(idx, params);
                         // Already bound to the service. Just make
                         // sure we trigger off processing the first request.
@@ -1508,6 +1535,14 @@ public class PackageManagerService extends IPackageManager.Stub
                     break;
                 }
                 case MCS_BOUND: {
+                    /**
+                     * MCS_BOUND
+                     * 收到此信号有两种可能，一者是与DefaultContainerService建立了连接，在此接收通信用的AIDL；
+                     * 二者是接收安装请求。在接收安装请求时，如果mContainerService不为空，但mBound标志位没有
+                     * 正确设置，说明出现了异常，将安装请求队列清空。如果一切正常，将安装请求HandlerParams加入
+                     * 请求队列，取出位于0位置的进行startCopy()操作。在处理完后，将HandlerParams移除请求队列。
+                     * 如果队列还有任务，发送MCS_BOUND信息号继续执行下一条，否则发送MCS_UNBIND信号解决服务。
+                     */
                     if (DEBUG_INSTALL) Slog.i(TAG, "mcs_bound");
                     if (msg.obj != null) {
                         mContainerService = (IMediaContainerService) msg.obj;
@@ -1516,6 +1551,7 @@ public class PackageManagerService extends IPackageManager.Stub
                     }
                     if (mContainerService == null) {
                         if (!mBound) {
+                            // 进到这里是不正常的状态
                             // Something seriously wrong since we are not bound and we are not
                             // waiting for connection. Bail out.
                             Slog.e(TAG, "Cannot bind to media container service");
@@ -1529,8 +1565,10 @@ public class PackageManagerService extends IPackageManager.Stub
                                             params.traceMethod, params.traceCookie);
                                 }
                             }
+                            // 绑定失败，清空请求队列
                             mPendingInstalls.clear();
                         } else {
+                            // 继续等待服务
                             Slog.w(TAG, "Waiting to connect to media container service");
                         }
                     } else if (mPendingInstalls.size() > 0) {
@@ -1539,15 +1577,18 @@ public class PackageManagerService extends IPackageManager.Stub
                             Trace.asyncTraceEnd(TRACE_TAG_PACKAGE_MANAGER, "queueInstall",
                                     System.identityHashCode(params));
                             Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "startCopy");
+                            // 复制APK
                             if (params.startCopy()) {
                                 // We are done...  look for more work or to
                                 // go idle.
                                 if (DEBUG_SD_INSTALL) Log.i(TAG,
                                         "Checking for more work or unbind...");
                                 // Delete pending install
+                                // 安装成功，移除此次安装请求
                                 if (mPendingInstalls.size() > 0) {
                                     mPendingInstalls.remove(0);
                                 }
+                                // 没有安装请求了，解绑服务连接
                                 if (mPendingInstalls.size() == 0) {
                                     if (mBound) {
                                         if (DEBUG_SD_INSTALL) Log.i(TAG,
@@ -1564,6 +1605,7 @@ public class PackageManagerService extends IPackageManager.Stub
                                     // of next pending install.
                                     if (DEBUG_SD_INSTALL) Log.i(TAG,
                                             "Posting MCS_BOUND for next work");
+                                    // 发送信息处理接下来的安装请求
                                     mHandler.sendEmptyMessage(MCS_BOUND);
                                 }
                             }
@@ -8464,6 +8506,7 @@ public class PackageManagerService extends IPackageManager.Stub
                 mParallelPackageParserCallback)) {
             // Submit files for parsing in parallel
             int fileCount = 0;
+            // 找出所用应用程序文件，如.apk
             for (File file : files) {
                 final boolean isPackage = (isApkFile(file) || file.isDirectory())
                         && !PackageInstallerService.isStageName(file.getName());
@@ -8471,6 +8514,7 @@ public class PackageManagerService extends IPackageManager.Stub
                     // Ignore entries which are not packages
                     continue;
                 }
+                // 这里最终触发PackageParser.parseBaseApkCommon解析AndroidManifest.xml;
                 parallelPackageParser.submit(file, parseFlags);
                 fileCount++;
             }
@@ -8489,6 +8533,7 @@ public class PackageManagerService extends IPackageManager.Stub
                     }
                     try {
                         if (errorCode == PackageManager.INSTALL_SUCCEEDED) {
+                            // 这里就是走scanPacakgeDirtyLI() 把组件信息交给PMS的逻辑
                             scanPackageChildLI(parseResult.pkg, parseFlags, scanFlags,
                                     currentTime, null);
                         }
@@ -8507,6 +8552,7 @@ public class PackageManagerService extends IPackageManager.Stub
                 }
 
                 // Delete invalid userdata apps
+                // 删除无效非非系统目录下的应用程序安装文件
                 if ((scanFlags & SCAN_AS_SYSTEM) == 0 &&
                         errorCode != PackageManager.INSTALL_SUCCEEDED) {
                     logCriticalInfo(Log.WARN,
@@ -14952,6 +14998,7 @@ public class PackageManagerService extends IPackageManager.Stub
         }
     }
 
+    // apk复制后，再由InstallParams处理结果
     private void processPendingInstall(final InstallArgs args, final int currentStatus) {
         // Queue up an async operation since the package installation may take a little while.
         mHandler.post(new Runnable() {
@@ -14964,10 +15011,13 @@ public class PackageManagerService extends IPackageManager.Stub
                 res.pkg = null;
                 res.removedInfo = null;
                 if (res.returnCode == PackageManager.INSTALL_SUCCEEDED) {
+                    // 安装前处理 , 主要是检查复制的APK状态，确保可用
                     args.doPreInstall(res.returnCode);
                     synchronized (mInstallLock) {
+                        // 触发apk安装逻辑
                         installPackageTracedLI(args, res);
                     }
+                    // 安装后处理
                     args.doPostInstall(res.returnCode, res.uid);
                 }
 
@@ -15123,17 +15173,23 @@ public class PackageManagerService extends IPackageManager.Stub
             return this;
         }
 
+        /**
+         * 1.检查尝试安装次数，超过限制则放弃安装请求，发送MCS_GIVE_UP信号，调用handleServiceError()
+         * 2.调用子类handleStartCopy()处理具体安装
+         * 3.调用子类handleReturnCode()处理安装结果
+         */
         final boolean startCopy() {
             boolean res;
             try {
                 if (DEBUG_INSTALL) Slog.i(TAG, "startCopy " + mUser + ": " + this);
-
+                // 尝试次数超限，放弃这个安装请求
                 if (++mRetries > MAX_RETRIES) {
                     Slog.w(TAG, "Failed to invoke remote methods on default container service. Giving up");
                     mHandler.sendEmptyMessage(MCS_GIVE_UP);
                     handleServiceError();
                     return false;
                 } else {
+                    // 处理安装
                     handleStartCopy();
                     res = true;
                 }
@@ -15142,6 +15198,7 @@ public class PackageManagerService extends IPackageManager.Stub
                 mHandler.sendEmptyMessage(MCS_RECONNECT);
                 res = false;
             }
+            // 处理安装结果
             handleReturnCode();
             return res;
         }
@@ -15420,6 +15477,12 @@ public class PackageManagerService extends IPackageManager.Stub
                 }
             }
 
+            /**
+             * 确定APK的安装位置
+             * onSd : SD卡
+             * onInt: 内部存储Data分区
+             * ephemeral: 安装到临时存储（Instant Apps 安装）
+             */
             final boolean onSd = (installFlags & PackageManager.INSTALL_EXTERNAL) != 0;
             final boolean onInt = (installFlags & PackageManager.INSTALL_INTERNAL) != 0;
             final boolean ephemeral = (installFlags & PackageManager.INSTALL_INSTANT_APP) != 0;
@@ -15427,12 +15490,15 @@ public class PackageManagerService extends IPackageManager.Stub
 
             if (onInt && onSd) {
                 // Check if both bits are set.
+                // apk 不能同时安装在SD卡和Data分区
                 Slog.w(TAG, "Conflicting flags specified for installing on both internal and external");
                 ret = PackageManager.INSTALL_FAILED_INVALID_INSTALL_LOCATION;
             } else if (onSd && ephemeral) {
+                // 冲突，Instant Apps 不能安装到SD卡中
                 Slog.w(TAG,  "Conflicting flags specified for installing ephemeral on external");
                 ret = PackageManager.INSTALL_FAILED_INVALID_INSTALL_LOCATION;
             } else {
+                // 获取少量apk信息
                 pkgLite = mContainerService.getMinimalPackageInfo(origin.resolvedPath, installFlags,
                         packageAbiOverride);
 
@@ -15519,7 +15585,9 @@ public class PackageManagerService extends IPackageManager.Stub
                 }
             }
 
+            // 创建 InstallArgs
             final InstallArgs args = createInstallArgs(this);
+            // 记住此 InstallArgs
             mArgs = args;
 
             if (ret == PackageManager.INSTALL_SUCCEEDED) {
@@ -15670,6 +15738,7 @@ public class PackageManagerService extends IPackageManager.Stub
                      * No package verification is enabled, so immediately start
                      * the remote call to initiate copy using temporary file.
                      */
+                    // 通过DefaultContainerService复制apk
                     ret = args.copyApk(mContainerService, true);
                 }
             }
@@ -17116,6 +17185,7 @@ public class PackageManagerService extends IPackageManager.Stub
         Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "parsePackage");
         final PackageParser.Package pkg;
         try {
+            // 解析apk
             pkg = pp.parsePackage(tmpPackageFile, parseFlags);
             DexMetadataHelper.validatePackageDexMetadata(pkg);
         } catch (PackageParserException e) {
@@ -17562,6 +17632,7 @@ public class PackageManagerService extends IPackageManager.Stub
                 replacePackageLIF(pkg, parseFlags, scanFlags, args.user,
                         installerPackageName, res, args.installReason);
             } else {
+                // 安装新的APK，并更新应用权限
                 installNewPackageLIF(pkg, parseFlags, scanFlags | SCAN_DELETE_DATA_ON_FAILURES,
                         args.user, installerPackageName, volumeUuid, res, args.installReason);
             }
