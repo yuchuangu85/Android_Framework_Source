@@ -999,6 +999,8 @@ public class PackageParser {
      * has changed since the last parse, it's up to callers to do so.
      *
      * @see #parsePackageLite(File, int)
+     *
+     * 解析AndroidManifest.xml会走这里
      */
     public Package parsePackage(File packageFile, int flags, boolean useCaches)
             throws PackageParserException {
@@ -1961,9 +1963,11 @@ public class PackageParser {
         int type;
         boolean foundApp = false;
 
+        // AndroidManifest属性
         TypedArray sa = res.obtainAttributes(parser,
                 com.android.internal.R.styleable.AndroidManifest);
 
+        // 获取sharedUserId属性
         String str = sa.getNonConfigurationString(
                 com.android.internal.R.styleable.AndroidManifest_sharedUserId, 0);
         if (str != null && str.length() > 0) {
@@ -2011,7 +2015,9 @@ public class PackageParser {
         int resizeable = 1;
         int anyDensity = 1;
 
+
         int outerDepth = parser.getDepth();
+        // 解析<manifest>节点
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > outerDepth)) {
             if (type == XmlPullParser.END_TAG || type == XmlPullParser.TEXT) {
@@ -2028,6 +2034,7 @@ public class PackageParser {
                 continue;
             }
 
+            // application
             if (tagName.equals(TAG_APPLICATION)) {
                 if (foundApp) {
                     if (RIGID_PARSER) {
@@ -2042,10 +2049,11 @@ public class PackageParser {
                 }
 
                 foundApp = true;
+                // 解析application标签
                 if (!parseBaseApplication(pkg, res, parser, flags, outError)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_OVERLAY)) {
+            } else if (tagName.equals(TAG_OVERLAY)) {// overlay
                 sa = res.obtainAttributes(parser,
                         com.android.internal.R.styleable.AndroidManifestResourceOverlay);
                 pkg.mOverlayTarget = sa.getString(
@@ -2089,23 +2097,23 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_KEY_SETS)) {
+            } else if (tagName.equals(TAG_KEY_SETS)) {// key-sets
                 if (!parseKeySets(pkg, res, parser, outError)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_PERMISSION_GROUP)) {
+            } else if (tagName.equals(TAG_PERMISSION_GROUP)) {// permission-group
                 if (!parsePermissionGroup(pkg, flags, res, parser, outError)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_PERMISSION)) {
+            } else if (tagName.equals(TAG_PERMISSION)) {// permission
                 if (!parsePermission(pkg, res, parser, outError)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_PERMISSION_TREE)) {
+            } else if (tagName.equals(TAG_PERMISSION_TREE)) {// permission-tree
                 if (!parsePermissionTree(pkg, res, parser, outError)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_USES_PERMISSION)) {
+            } else if (tagName.equals(TAG_USES_PERMISSION)) {// uses-permission
                 if (!parseUsesPermission(pkg, res, parser)) {
                     return null;
                 }
@@ -2114,7 +2122,7 @@ public class PackageParser {
                 if (!parseUsesPermission(pkg, res, parser)) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_USES_CONFIGURATION)) {
+            } else if (tagName.equals(TAG_USES_CONFIGURATION)) {// uses-configuration
                 ConfigurationInfo cPref = new ConfigurationInfo();
                 sa = res.obtainAttributes(parser,
                         com.android.internal.R.styleable.AndroidManifestUsesConfiguration);
@@ -2142,7 +2150,7 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_USES_FEATURE)) {
+            } else if (tagName.equals(TAG_USES_FEATURE)) {// uses-feature
                 FeatureInfo fi = parseUsesFeature(res, parser);
                 pkg.reqFeatures = ArrayUtils.add(pkg.reqFeatures, fi);
 
@@ -2154,7 +2162,7 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_FEATURE_GROUP)) {
+            } else if (tagName.equals(TAG_FEATURE_GROUP)) {// feature-group
                 FeatureGroupInfo group = new FeatureGroupInfo();
                 ArrayList<FeatureInfo> features = null;
                 final int innerDepth = parser.getDepth();
@@ -2185,7 +2193,7 @@ public class PackageParser {
                 }
                 pkg.featureGroups = ArrayUtils.add(pkg.featureGroups, group);
 
-            } else if (tagName.equals(TAG_USES_SDK)) {
+            } else if (tagName.equals(TAG_USES_SDK)) {// uses-sdk
                 if (SDK_VERSION > 0) {
                     sa = res.obtainAttributes(parser,
                             com.android.internal.R.styleable.AndroidManifestUsesSdk);
@@ -2243,7 +2251,7 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_SUPPORT_SCREENS)) {
+            } else if (tagName.equals(TAG_SUPPORT_SCREENS)) {// supports-screens
                 sa = res.obtainAttributes(parser,
                         com.android.internal.R.styleable.AndroidManifestSupportsScreens);
 
@@ -2282,7 +2290,7 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_PROTECTED_BROADCAST)) {
+            } else if (tagName.equals(TAG_PROTECTED_BROADCAST)) {// protected-broadcast
                 sa = res.obtainAttributes(parser,
                         com.android.internal.R.styleable.AndroidManifestProtectedBroadcast);
 
@@ -2304,11 +2312,11 @@ public class PackageParser {
 
                 XmlUtils.skipCurrentTag(parser);
 
-            } else if (tagName.equals(TAG_INSTRUMENTATION)) {
+            } else if (tagName.equals(TAG_INSTRUMENTATION)) {// instrumentation
                 if (parseInstrumentation(pkg, res, parser, outError) == null) {
                     return null;
                 }
-            } else if (tagName.equals(TAG_ORIGINAL_PACKAGE)) {
+            } else if (tagName.equals(TAG_ORIGINAL_PACKAGE)) {// original-package
                 sa = res.obtainAttributes(parser,
                         com.android.internal.R.styleable.AndroidManifestOriginalPackage);
 
@@ -3304,6 +3312,8 @@ public class PackageParser {
      * <p>
      * When adding new features, carefully consider if they should also be
      * supported by split APKs.
+     *
+     * 解析application标签
      */
     private boolean parseBaseApplication(Package owner, Resources res,
             XmlResourceParser parser, int flags, String[] outError)
@@ -3314,6 +3324,7 @@ public class PackageParser {
         TypedArray sa = res.obtainAttributes(parser,
                 com.android.internal.R.styleable.AndroidManifestApplication);
 
+        // 解析包配置资源
         if (!parsePackageItemInfo(owner, ai, outError,
                 "<application>", sa, false /*nameRequired*/,
                 com.android.internal.R.styleable.AndroidManifestApplication_name,
@@ -3339,6 +3350,7 @@ public class PackageParser {
                     outError);
         }
 
+        // 解析allowBackup
         boolean allowBackup = sa.getBoolean(
                 com.android.internal.R.styleable.AndroidManifestApplication_allowBackup, true);
         if (allowBackup) {
@@ -3394,8 +3406,10 @@ public class PackageParser {
             }
         }
 
+        // 主题
         ai.theme = sa.getResourceId(
                 com.android.internal.R.styleable.AndroidManifestApplication_theme, 0);
+        // 描述
         ai.descriptionRes = sa.getResourceId(
                 com.android.internal.R.styleable.AndroidManifestApplication_description, 0);
 
@@ -3440,6 +3454,7 @@ public class PackageParser {
             ai.flags |= ApplicationInfo.FLAG_VM_SAFE_MODE;
         }
 
+        // 解析硬件加速
         owner.baseHardwareAccelerated = sa.getBoolean(
                 com.android.internal.R.styleable.AndroidManifestApplication_hardwareAccelerated,
                 owner.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.ICE_CREAM_SANDWICH);
@@ -3486,6 +3501,7 @@ public class PackageParser {
             ai.flags |= ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC;
         }
 
+        // 是否支持反向布局
         if (sa.getBoolean(
                 com.android.internal.R.styleable.AndroidManifestApplication_supportsRtl,
                 false /* default is no RTL support*/)) {
@@ -3559,7 +3575,7 @@ public class PackageParser {
         }
 
         if (outError[0] == null) {
-            CharSequence pname;
+            CharSequence pname;// 进程名字
             if (owner.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.FROYO) {
                 pname = sa.getNonConfigurationString(
                         com.android.internal.R.styleable.AndroidManifestApplication_process,
@@ -3620,6 +3636,7 @@ public class PackageParser {
         boolean hasActivityOrder = false;
         boolean hasReceiverOrder = false;
         boolean hasServiceOrder = false;
+        // 解析application里面一层的数据（四大组件等）
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > innerDepth)) {
             if (type == XmlPullParser.END_TAG || type == XmlPullParser.TEXT) {
@@ -4031,6 +4048,7 @@ public class PackageParser {
         return true;
     }
 
+    // 解析包配置资源
     private static boolean parsePackageItemInfo(Package owner, PackageItemInfo outInfo,
             String[] outError, String tag, TypedArray sa, boolean nameRequired,
             int nameRes, int labelRes, int iconRes, int roundIconRes, int logoRes, int bannerRes) {
@@ -4089,6 +4107,7 @@ public class PackageParser {
         return true;
     }
 
+    // 解析activity或者receiver
     private Activity parseActivity(Package owner, Resources res,
             XmlResourceParser parser, int flags, String[] outError, CachedComponentArgs cachedArgs,
             boolean receiver, boolean hardwareAccelerated)
@@ -4113,6 +4132,7 @@ public class PackageParser {
         cachedArgs.mActivityArgs.sa = sa;
         cachedArgs.mActivityArgs.flags = flags;
 
+        // 存放从Manifest中解析出来的Activity的所有信息
         Activity a = new Activity(cachedArgs.mActivityArgs, new ActivityInfo());
         if (outError[0] != null) {
             sa.recycle();
@@ -4124,6 +4144,7 @@ public class PackageParser {
             a.info.exported = sa.getBoolean(R.styleable.AndroidManifestActivity_exported, false);
         }
 
+        // 主题
         a.info.theme = sa.getResourceId(R.styleable.AndroidManifestActivity_theme, 0);
 
         a.info.uiOptions = sa.getInt(R.styleable.AndroidManifestActivity_uiOptions,
@@ -4212,7 +4233,7 @@ public class PackageParser {
             a.info.flags |= ActivityInfo.FLAG_SYSTEM_USER_ONLY;
         }
 
-        if (!receiver) {
+        if (!receiver) {// activity独有的
             if (sa.getBoolean(R.styleable.AndroidManifestActivity_hardwareAccelerated,
                     hardwareAccelerated)) {
                 a.info.flags |= ActivityInfo.FLAG_HARDWARE_ACCELERATED;
@@ -4350,6 +4371,7 @@ public class PackageParser {
 
             if (parser.getName().equals("intent-filter")) {
                 ActivityIntentInfo intent = new ActivityIntentInfo(a);
+                // 解析intent-filter本身信息以及内部信息并把解析信息放到ActivityIntentInfo中
                 if (!parseIntent(res, parser, true /*allowGlobs*/, true /*allowAutoVerify*/,
                         intent, outError)) {
                     return null;
@@ -4586,6 +4608,7 @@ public class PackageParser {
                 height, heightFraction, gravity, minWidth, minHeight);
     }
 
+    // 解析activity-alias标签信息，并且保存到Activity中
     private Activity parseActivityAlias(Package owner, Resources res,
             XmlResourceParser parser, int flags, String[] outError,
             CachedComponentArgs cachedArgs)
@@ -4780,6 +4803,7 @@ public class PackageParser {
         return a;
     }
 
+    // 解析provider标签信息并且保存到Provider中
     private Provider parseProvider(Package owner, Resources res,
             XmlResourceParser parser, int flags, String[] outError,
             CachedComponentArgs cachedArgs)
@@ -5119,6 +5143,7 @@ public class PackageParser {
         return true;
     }
 
+    // 解析service的标签信息并把所有信息放到Service中
     private Service parseService(Package owner, Resources res,
             XmlResourceParser parser, int flags, String[] outError,
             CachedComponentArgs cachedArgs)
@@ -5451,6 +5476,7 @@ public class PackageParser {
     private static final String ANDROID_RESOURCES
             = "http://schemas.android.com/apk/res/android";
 
+    // 解析intent-filter本身信息以及内部信息，解析完成当到继承IntentFilter的IntentInfo中
     private boolean parseIntent(Resources res, XmlResourceParser parser, boolean allowGlobs,
             boolean allowAutoVerify, IntentInfo outInfo, String[] outError)
                     throws XmlPullParserException, IOException {
@@ -6199,6 +6225,7 @@ public class PackageParser {
         public String manifestPackageName;
 
         /** Names of any split APKs, ordered by parsed splitName */
+        // 分包策略下的各个包名
         public String[] splitNames;
 
         // TODO: work towards making these paths invariant
@@ -6210,6 +6237,7 @@ public class PackageParser {
          * this is path to single base APK file; for cluster packages this is
          * path to the cluster directory.
          */
+        // APK 存储路径，分包策略下为文件夹
         public String codePath;
 
         /** Path of base APK */
@@ -6237,6 +6265,7 @@ public class PackageParser {
         // For now we only support one application per package.
         public ApplicationInfo applicationInfo = new ApplicationInfo();
 
+        // 权限信息和组件信息
         public final ArrayList<Permission> permissions = new ArrayList<Permission>(0);
         public final ArrayList<PermissionGroup> permissionGroups = new ArrayList<PermissionGroup>(0);
         public final ArrayList<Activity> activities = new ArrayList<Activity>(0);

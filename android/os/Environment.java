@@ -230,6 +230,7 @@ public class Environment {
 
     /**
      * Return the user data directory.
+     *  data目录，获取数据目录 /data
      */
     public static File getDataDirectory() {
         return DIR_ANDROID_DATA;

@@ -2308,7 +2308,7 @@ public class PackageManagerService extends IPackageManager.Stub
         }
     }
 
-    // 入口
+    // 入口(SystemServer.startBootstrapServices调用)
     public static PackageManagerService main(Context context, Installer installer,
             boolean factoryTest, boolean onlyCore) {
         // Self-check for initial settings.
@@ -2444,6 +2444,12 @@ public class PackageManagerService extends IPackageManager.Stub
                         }
                     }, mPackages /*externalLock*/);
             mDefaultPermissionPolicy = mPermissionManager.getDefaultPermissionGrantPolicy();
+
+            /**
+             * 系统每次启动时，都会重新安装一遍系统中的应用程序，但是有些应用程序信息每次安装都需要保持一致，
+             * 如UID
+             * 因此需要Setting来保存
+             */
             mSettings = new Settings(mPermissionManager.getPermissionSettings(), mPackages);
         }
         }
@@ -2527,6 +2533,7 @@ public class PackageManagerService extends IPackageManager.Stub
             Trace.traceEnd(TRACE_TAG_PACKAGE_MANAGER);
 
             Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "read user settings");
+            // 读取恢复上一次安装应用程序信息
             mFirstBoot = !mSettings.readLPw(sUserManager.getUsers(false));
             Trace.traceEnd(TRACE_TAG_PACKAGE_MANAGER);
 
@@ -2571,6 +2578,8 @@ public class PackageManagerService extends IPackageManager.Stub
                 Slog.w(TAG, "No SYSTEMSERVERCLASSPATH found!");
             }
 
+            // 加载FrameWork资源，即资源文件，不包含执行代码
+            // 先获取系统目录/system , 拿到路径/system/framework
             File frameworkDir = new File(Environment.getRootDirectory(), "framework");
 
             final VersionInfo ver = mSettings.getInternalVersion();
@@ -2633,6 +2642,7 @@ public class PackageManagerService extends IPackageManager.Stub
             mParallelPackageParserCallback.findStaticOverlayPackages();
 
             // Find base frameworks (resource packages without code).
+            // 资源文件
             scanDirTracedLI(frameworkDir,
                     mDefParseFlags
                     | PackageParser.PARSE_IS_SYSTEM_DIR,
@@ -2642,7 +2652,17 @@ public class PackageManagerService extends IPackageManager.Stub
                     | SCAN_AS_PRIVILEGED,
                     0);
 
+
+            /**
+             * /data/priv-app: 受DRM保护的程序
+             * /data/app: 用户自行安装的程序
+             * /system/priv-app: 受DRM保护系统自带程序
+             * /system/app: 系统自带程序
+             * /vendor/priv-app 设备厂商提供的受DRM保护的应用程序
+             * /vendor/app: 手机厂商自己程序
+             */
             // Collect privileged system packages.
+            // 安装受DRM保护的私有程序
             final File privilegedAppDir = new File(Environment.getRootDirectory(), "priv-app");
             scanDirTracedLI(privilegedAppDir,
                     mDefParseFlags
@@ -2653,6 +2673,7 @@ public class PackageManagerService extends IPackageManager.Stub
                     0);
 
             // Collect ordinary system packages.
+            // 安装系统自带程序
             final File systemAppDir = new File(Environment.getRootDirectory(), "app");
             scanDirTracedLI(systemAppDir,
                     mDefParseFlags
@@ -2662,12 +2683,14 @@ public class PackageManagerService extends IPackageManager.Stub
                     0);
 
             // Collect privileged vendor packages.
+            // 设备厂商提供的受保护的应用程序("/vendor/priv-app)
             File privilegedVendorAppDir = new File(Environment.getVendorDirectory(), "priv-app");
             try {
                 privilegedVendorAppDir = privilegedVendorAppDir.getCanonicalFile();
             } catch (IOException e) {
                 // failed to look up canonical path, continue with original one
             }
+            // 安装厂商自带程序
             scanDirTracedLI(privilegedVendorAppDir,
                     mDefParseFlags
                     | PackageParser.PARSE_IS_SYSTEM_DIR,
@@ -2678,12 +2701,14 @@ public class PackageManagerService extends IPackageManager.Stub
                     0);
 
             // Collect ordinary vendor packages.
+            // 保存的是设备厂商提供的应用程序("/vendor/app)
             File vendorAppDir = new File(Environment.getVendorDirectory(), "app");
             try {
                 vendorAppDir = vendorAppDir.getCanonicalFile();
             } catch (IOException e) {
                 // failed to look up canonical path, continue with original one
             }
+            // 安装厂商自带程序
             scanDirTracedLI(vendorAppDir,
                     mDefParseFlags
                     | PackageParser.PARSE_IS_SYSTEM_DIR,
@@ -2862,6 +2887,7 @@ public class PackageManagerService extends IPackageManager.Stub
             if (!mOnlyCore) {
                 EventLog.writeEvent(EventLogTags.BOOT_PROGRESS_PMS_DATA_SCAN_START,
                         SystemClock.uptimeMillis());
+                // 安装用户程序
                 scanDirTracedLI(sAppInstallDir, 0, scanFlags | SCAN_REQUIRE_KNOWN, 0);
 
                 scanDirTracedLI(sDrmAppPrivateInstallDir, mDefParseFlags
@@ -3093,6 +3119,8 @@ public class PackageManagerService extends IPackageManager.Stub
                 Slog.i(TAG, "Platform changed from " + ver.sdkVersion + " to "
                         + mSdkVersion + "; regranting permissions for internal storage");
             }
+
+            // 更新所有应用权限
             mPermissionManager.updateAllPermissions(
                     StorageManager.UUID_PRIVATE_INTERNAL, sdkUpdated, mPackages.values(),
                     mPermissionCallback);
@@ -3188,6 +3216,7 @@ public class PackageManagerService extends IPackageManager.Stub
 
             // can downgrade to reader
             Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "write settings");
+            // 保存应用程序的安装信息
             mSettings.writeLPr();
             Trace.traceEnd(TRACE_TAG_PACKAGE_MANAGER);
             EventLog.writeEvent(EventLogTags.BOOT_PROGRESS_PMS_READY,

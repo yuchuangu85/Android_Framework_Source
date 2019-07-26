@@ -1705,6 +1705,7 @@ public class PermissionManagerService {
 
     private void updateAllPermissions(String volumeUuid, boolean sdkUpdated,
             Collection<PackageParser.Package> allPackages, PermissionCallback callback) {
+        // 根据 flags = UPDATE_PERMISSIONS_ALL 来标识更新所有
         final int flags = UPDATE_PERMISSIONS_ALL |
                 (sdkUpdated
                         ? UPDATE_PERMISSIONS_REPLACE_PKG | UPDATE_PERMISSIONS_REPLACE_ALL

@@ -20518,6 +20518,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                         == PackageManager.PERMISSION_GRANTED;
     }
 
+    // connection->ServiceDispatcher.InnerConnection(包含了ServiceConnection对象)
     public int bindService(IApplicationThread caller, IBinder token, Intent service,
             String resolvedType, IServiceConnection connection, int flags, String callingPackage,
             int userId) throws TransactionTooLargeException {

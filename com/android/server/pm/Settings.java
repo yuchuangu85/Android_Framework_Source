@@ -422,6 +422,7 @@ public final class Settings {
     final PermissionSettings mPermissions;
 
     Settings(PermissionSettings permissions, Object lock) {
+        // data目录，获取数据目录 /data
         this(Environment.getDataDirectory(), permissions, lock);
     }
 
@@ -430,14 +431,18 @@ public final class Settings {
         mPermissions = permission;
         mRuntimePermissionsPersistence = new RuntimePermissionPersistence(mLock);
 
+        // system目录，获取数据目录 /data/system
         mSystemDir = new File(dataDir, "system");
         mSystemDir.mkdirs();
         FileUtils.setPermissions(mSystemDir.toString(),
                 FileUtils.S_IRWXU|FileUtils.S_IRWXG
                 |FileUtils.S_IROTH|FileUtils.S_IXOTH,
                 -1, -1);
+        // /data/system/packages.xml
         mSettingsFilename = new File(mSystemDir, "packages.xml");
+        // /data/system/packages-backup.xml
         mBackupSettingsFilename = new File(mSystemDir, "packages-backup.xml");
+        // /data/system/packages.list
         mPackageListFilename = new File(mSystemDir, "packages.list");
         FileUtils.setPermissions(mPackageListFilename, 0640, SYSTEM_UID, PACKAGE_INFO_GID);
 
