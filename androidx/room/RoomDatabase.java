@@ -23,23 +23,6 @@ import android.database.Cursor;
 import android.os.Build;
 import android.util.Log;
 
-import androidx.annotation.CallSuper;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
-import androidx.annotation.RestrictTo;
-import androidx.annotation.WorkerThread;
-import androidx.collection.SparseArrayCompat;
-import androidx.core.app.ActivityManagerCompat;
-import androidx.arch.core.executor.ArchTaskExecutor;
-import androidx.room.migration.Migration;
-import androidx.sqlite.db.SimpleSQLiteQuery;
-import androidx.sqlite.db.SupportSQLiteDatabase;
-import androidx.sqlite.db.SupportSQLiteOpenHelper;
-import androidx.sqlite.db.SupportSQLiteQuery;
-import androidx.sqlite.db.SupportSQLiteStatement;
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -48,6 +31,23 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+
+import androidx.annotation.CallSuper;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RestrictTo;
+import androidx.annotation.WorkerThread;
+import androidx.arch.core.executor.ArchTaskExecutor;
+import androidx.collection.SparseArrayCompat;
+import androidx.core.app.ActivityManagerCompat;
+import androidx.room.migration.Migration;
+import androidx.sqlite.db.SimpleSQLiteQuery;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
+import androidx.sqlite.db.SupportSQLiteQuery;
+import androidx.sqlite.db.SupportSQLiteStatement;
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory;
 
 /**
  * Base class for all Room databases. All classes that are annotated with {@link Database} must
@@ -628,7 +628,9 @@ public abstract class RoomDatabase {
                             mCallbacks, mAllowMainThreadQueries,
                             mJournalMode.resolve(mContext),
                             mRequireMigration, mMigrationsNotRequiredFrom);
+            // 创建DataBase实现类的实例
             T db = Room.getGeneratedImplementation(mDatabaseClass, DB_IMPL_SUFFIX);
+            // 初始化数据库
             db.init(configuration);
             return db;
         }

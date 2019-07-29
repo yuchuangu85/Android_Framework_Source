@@ -22,6 +22,11 @@ import androidx.annotation.NonNull;
 
 /**
  * Utility class for Room.
+ *
+ * 参考链接：
+ * http://how2j.cn/k/annotation/annotation-customize/1056.html#nowhere
+ * https://blog.csdn.net/Alexwll/article/details/82852377
+ * https://blog.csdn.net/Alexwll/article/details/83033460
  */
 @SuppressWarnings("unused")
 public class Room {
@@ -73,6 +78,7 @@ public class Room {
         return new RoomDatabase.Builder<>(context, klass, null);
     }
 
+    // 创建DataBase实现类的实例
     @SuppressWarnings({"TypeParameterUnusedInFormals", "ClassNewInstance"})
     @NonNull
     static <T, C> T getGeneratedImplementation(Class<C> klass, String suffix) {
@@ -80,15 +86,15 @@ public class Room {
         String name = klass.getCanonicalName();
         final String postPackageName = fullPackage.isEmpty()
                 ? name
-                : (name.substring(fullPackage.length() + 1));
-        final String implName = postPackageName.replace('.', '_') + suffix;
+                : (name.substring(fullPackage.length() + 1));// 获取类名
+        final String implName = postPackageName.replace('.', '_') + suffix;// 拼接类名
         //noinspection TryWithIdenticalCatches
         try {
 
             @SuppressWarnings("unchecked")
             final Class<T> aClass = (Class<T>) Class.forName(
-                    fullPackage.isEmpty() ? implName : fullPackage + "." + implName);
-            return aClass.newInstance();
+                    fullPackage.isEmpty() ? implName : fullPackage + "." + implName);// 获取自动生成的类文件
+            return aClass.newInstance();// 创建并返回实例
         } catch (ClassNotFoundException e) {
             throw new RuntimeException("cannot find implementation for "
                     + klass.getCanonicalName() + ". " + implName + " does not exist");
