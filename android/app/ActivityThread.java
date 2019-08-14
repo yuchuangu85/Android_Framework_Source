@@ -3978,6 +3978,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             r.activity.mVisibleFromServer = true;
             mNumVisibleActivities++;
             if (r.activity.mVisibleFromClient) {
+                // 显示Activity
                 r.activity.makeVisible();
             }
         }

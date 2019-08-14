@@ -400,7 +400,7 @@ public final class ViewRootImpl implements ViewParent,
     int mWindowAttributesChangesFlag = 0;
 
     // These can be accessed by any thread, must be protected with a lock.
-    // Surface can never be reassigned or cleared (use Surface.clear()).
+    // Surface can never be reassigned(重新分配) or cleared (use Surface.clear()).
     public final Surface mSurface = new Surface();
 
     boolean mAdded;
@@ -2595,7 +2595,7 @@ public final class ViewRootImpl implements ViewParent,
 
         boolean cancelDraw = mAttachInfo.mTreeObserver.dispatchOnPreDraw() || !isViewVisible;
 
-        // 如果没有取消绘制，并且不是新的Surface，那么执行绘制
+        // 如果没有取消绘制，并且在绘制流程中没有重新创建新的Surface，那么执行绘制
         if (!cancelDraw && !newSurface) {
             if (mPendingTransitions != null && mPendingTransitions.size() > 0) {
                 for (int i = 0; i < mPendingTransitions.size(); ++i) {

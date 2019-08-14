@@ -17,6 +17,14 @@
 * [Android系统源码分析--View绘制流程之-setContentView](http://codemx.cn/2018/11/12/AndroidOS012-View-setContentView/)
 * [Android系统源码分析--View绘制流程之-inflate](http://codemx.cn/2018/11/20/AndroidOS013-View-inflate/)
 
+## 参考文章
+* [一篇文章看明白 Android 系统启动时都干了什么](https://blog.csdn.net/freekiteyu/article/details/79175010)
+* [一篇文章了解相见恨晚的 Android Binder 进程间通讯机制](https://blog.csdn.net/freekiteyu/article/details/70082302)
+* [一篇文章看明白 Android 从点击应用图标到界面显示的过程](https://blog.csdn.net/freekiteyu/article/details/79318031)
+* [一篇文章看明白 Activity 与 Window 与 View 之间的关系](https://blog.csdn.net/freekiteyu/article/details/79408969)
+* [一篇文章看明白 Android Service 启动过程](https://blog.csdn.net/freekiteyu/article/details/79785720)
+* [一篇文章看明白 Android PackageManagerService 工作流程](https://blog.csdn.net/freekiteyu/article/details/82774947)
+* [一篇文章看明白 Android v1 & v2 签名机制](https://blog.csdn.net/freekiteyu/article/details/84849651)
 
 
 ## 流程图：

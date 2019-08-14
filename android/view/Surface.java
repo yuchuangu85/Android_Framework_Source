@@ -46,6 +46,9 @@ import java.lang.annotation.RetentionPolicy;
  * <p><strong>Note:</strong> A Surface acts like a
  * {@link java.lang.ref.WeakReference weak reference} to the consumer it is associated with. By
  * itself it will not keep its parent consumer from being reclaimed.</p>
+ *
+ * 一篇文章看明白 Android 图形系统 Surface 与 SurfaceFlinger 之间的关系：
+ * https://blog.csdn.net/freekiteyu/article/details/79483406
  */
 public class Surface implements Parcelable {
     private static final String TAG = "Surface";

@@ -506,9 +506,9 @@ public final class ThreadedRenderer {
     }
 
     /**
-     * Halts any current rendering into the surface. Use this if it is unclear whether
+     * Halts(停止) any current rendering into the surface. Use this if it is unclear whether
      * or not the surface used by the ThreadedRenderer will be changing. It
-     * Suspends any rendering into the surface, but will not do any destruction.
+     * Suspends(暂停) any rendering into the surface, but will not do any destruction(破坏).
      *
      * Any subsequent draws will override the pause, resuming normal operation.
      */

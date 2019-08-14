@@ -88,7 +88,7 @@ public final class WindowManagerImpl implements WindowManager {
     }
 
     /**
-     * Activity的onResume方法时显示Activity中布局时会将DecorView添加到父布局
+     * Activity的onResume方法时显示Activity中布局时会将DecorView添加到父布局(Activity.makeVisible())
      * （或者Dialog调用show方法时，显示Dialog时会调用该方法）
      */
     @Override
