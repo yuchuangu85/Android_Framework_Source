@@ -1007,6 +1007,7 @@ public final class ViewRootImpl implements ViewParent,
         if (mTranslator != null) return;
 
         // Try to enable hardware acceleration if requested
+        // 获取硬件加速开关
         final boolean hardwareAccelerated =
                 (attrs.flags & WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED) != 0;
 
@@ -2392,7 +2393,7 @@ public final class ViewRootImpl implements ViewParent,
                     // Implementation of weights from WindowManager.LayoutParams
                     // We just grow the dimensions as needed and re-measure if
                     // needs be
-                    // 获取根布局的宽高尺寸
+                    // 获取根布局的测量宽、高尺寸
                     int width = host.getMeasuredWidth();
                     int height = host.getMeasuredHeight();
                     boolean measureAgain = false;// 是否重新测量
@@ -3441,6 +3442,7 @@ public final class ViewRootImpl implements ViewParent,
                 // draw(...) might invoke post-draw, which might register the next callback already.
                 final FrameDrawingCallback callback = mNextRtFrameCallback;
                 mNextRtFrameCallback = null;
+                // 硬件加速绘制
                 mAttachInfo.mThreadedRenderer.draw(mView, mAttachInfo, this, callback);
             } else {// 非硬件加速
                 // If we get here with a disabled（禁用） & requested hardware renderer, something went
@@ -3470,7 +3472,7 @@ public final class ViewRootImpl implements ViewParent,
                     return false;
                 }
 
-                // 执行绘制
+                // 执行软件绘制
                 if (!drawSoftware(surface, mAttachInfo, xOffset, yOffset, scalingRequired, dirty,
                         surfaceInsets)) {
                     return false;
@@ -3588,6 +3590,7 @@ public final class ViewRootImpl implements ViewParent,
             }
         } finally {
             try {
+                // 通知SurfaceFlinger进行图层合成
                 surface.unlockCanvasAndPost(canvas);
             } catch (IllegalArgumentException e) {
                 Log.e(mTag, "Could not unlock surface", e);

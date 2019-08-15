@@ -49,6 +49,9 @@ import java.lang.annotation.RetentionPolicy;
  *
  * 一篇文章看明白 Android 图形系统 Surface 与 SurfaceFlinger 之间的关系：
  * https://blog.csdn.net/freekiteyu/article/details/79483406
+ *
+ * AndroidO 图形框架下应用绘图过程——Surface创建
+ * https://blog.csdn.net/yangwen123/article/details/80674965
  */
 public class Surface implements Parcelable {
     private static final String TAG = "Surface";
@@ -331,6 +334,11 @@ public class Surface implements Parcelable {
      * entire surface should be redrawn.
      * @return A canvas for drawing into the surface.
      *
+     * （锁定界面中需要绘制的部分）每个窗口都关联一个Surface，当这个窗口需要绘制 UI 时，就会调用关联的 Surface 的
+     * lockCanvas()方法获得一个Canvas，（这个Canvas 封装了由 Skia 提供的 2D 图形绘制接口）并且向
+     * SurfaceFlinger Dequeue 一个Graphic Buffer，绘制的内容都会输出到 Graphic Buffer 上再交由
+     * SurfaceFlinger 对图形内容的合成及显示到屏幕上。
+     *
      * @throws IllegalArgumentException If the inOutDirty rectangle is not valid.
      * @throws OutOfResourcesException If the canvas cannot be locked.
      */
@@ -353,6 +361,9 @@ public class Surface implements Parcelable {
     /**
      * Posts the new contents of the {@link Canvas} to the surface and
      * releases the {@link Canvas}.
+     *
+     * 绘制完成之后，调用unlockCanvasAndPost请求将Canvas 显示到屏幕上，其本质上是向SurfaceFlinger
+     * 服务Queue一个Graphic Buffer。
      *
      * @param canvas The canvas previously obtained from {@link #lockCanvas}.
      */

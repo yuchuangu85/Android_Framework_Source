@@ -62,6 +62,15 @@ import java.lang.annotation.RetentionPolicy;
  * done on the UI thread and not the RenderThread to avoid stalling the
  * RenderThread with surface buffer allocation.
  *
+ * Android 屏幕绘制机制及硬件加速:
+ * https://blog.csdn.net/qian520ao/article/details/81144167
+ *
+ * AndroidO 图形框架下应用绘图过程——Surface创建:
+ * https://blog.csdn.net/yangwen123/article/details/80674965
+ *
+ * 理解Android硬件加速原理的小白文:
+ * https://www.jianshu.com/p/40f660e17a73
+ *
  * @hide
  */
 public final class ThreadedRenderer {
