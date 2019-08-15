@@ -16306,8 +16306,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             if (forceRedraw) {
                 mPrivateFlags |= PFLAG_DRAWN; // force another invalidation with the new orientation
             }
+            // 不支持硬件加速，刷新
             invalidate(false);
         } else {
+            // 通知父View 更新当前View的属性
             damageInParent();
         }
     }
@@ -18778,6 +18780,19 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Gets the RenderNode for the view, and updates its DisplayList (if needed and supported)
+     *
+     * 在三种情况下，View需要重新构建当前View包括子View的Display ：
+     *
+     * View类的成员变量mPrivateFlags的值的PFLAG_DRAWING_CACHE_VALID位等于0，这表明上次构建的Display List已经失效。
+     * View类的成员变量mRenderNode描述的Render Node内部维护的Display List Data还没有设置或者已经被销毁
+     * View类的成员变量mRecreateDisplayList的值等于true，这直接表明需要重新构建Display List。
+     * ---------------------
+     * 在View的updateDisplayListIfDirty()流程中，构建过程如下 ：
+     *
+     * 从当前View关联的Render Node获得一个DisplayListCanvas。
+     * 将当前View以及子View的 UI 绘制命令记录到 DisplayListCanvas。（draw(canvas)）
+     * 最后将已经绘制在 DisplayListCanvas 的 Display List Data 填充到当前 View 关联的 Render Node 中。
+     * （renderNode.end(canvas)）
      */
     @NonNull
     public RenderNode updateDisplayListIfDirty() {
@@ -18796,6 +18811,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     && !mRecreateDisplayList) {
                 mPrivateFlags |= PFLAG_DRAWN | PFLAG_DRAWING_CACHE_VALID;
                 mPrivateFlags &= ~PFLAG_DIRTY_MASK;
+                // 当前View是ViewGroup，并且自身不用重构，递归子View
                 dispatchGetDisplayList();
 
                 return renderNode; // no work needed
@@ -18809,16 +18825,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             int height = mBottom - mTop;
             int layerType = getLayerType();
 
+            // start 获取一个 DisplayListCanvas 用于绘制 硬件加速
             final DisplayListCanvas canvas = renderNode.start(width, height);
 
             try {
-                if (layerType == LAYER_TYPE_SOFTWARE) {
+                if (layerType == LAYER_TYPE_SOFTWARE) {// 软件绘制
+                    // 是否强制软件绘制
                     buildDrawingCache(true);
                     Bitmap cache = getDrawingCache(true);
                     if (cache != null) {
                         canvas.drawBitmap(cache, 0, 0, mLayerPaint);
                     }
-                } else {
+                } else {// 硬件绘制
                     computeScroll();
 
                     canvas.translate(-mScrollX, -mScrollY);
@@ -18827,6 +18845,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
                     // Fast path for layouts with no backgrounds
                     if ((mPrivateFlags & PFLAG_SKIP_DRAW) == PFLAG_SKIP_DRAW) {
+                        // 当前为ViewGroup，并且自身不用绘制，递归子View
                         dispatchDraw(canvas);
                         drawAutofilledHighlight(canvas);
                         if (mOverlay != null && !mOverlay.isEmpty()) {
@@ -18836,10 +18855,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                             debugDrawFocus(canvas);
                         }
                     } else {
+                        // 如果是ViewGroup会调用dispatchDraw从而递归调用子View的draw
                         draw(canvas);
                     }
                 }
             } finally {
+                // 缓存构建Op
                 renderNode.end(canvas);
                 setDisplayListProperties(renderNode);
             }
@@ -18847,6 +18868,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             mPrivateFlags |= PFLAG_DRAWN | PFLAG_DRAWING_CACHE_VALID;
             mPrivateFlags &= ~PFLAG_DIRTY_MASK;
         }
+        // 构建完成
         return renderNode;
     }
 

@@ -696,18 +696,31 @@ public final class ThreadedRenderer {
         view.mRecreateDisplayList = false;
     }
 
+    /**
+     * 1.利用View的RenderNode获取一个DisplayListCanvas
+     * 2.利用DisplayListCanvas构建并缓存所有的DrawOp
+     * 3.将DisplayListCanvas缓存的DrawOp填充到RenderNode
+     * 4.将根View的缓存DrawOp设置到RootRenderNode中，完成构建
+     */
     private void updateRootDisplayList(View view, DrawCallbacks callbacks) {
         Trace.traceBegin(Trace.TRACE_TAG_VIEW, "Record View#draw()");
+        // 来构建参数view(DecorView)视图的Display List
         updateViewTreeDisplayList(view);
 
+        // mRootNodeNeedsUpdate true表示要更新视图
+        // mRootNode.isValid()  表示已经构建了Display List
         if (mRootNodeNeedsUpdate || !mRootNode.isValid()) {
+            // 获取DisplayListCanvas
             DisplayListCanvas canvas = mRootNode.start(mSurfaceWidth, mSurfaceHeight);
             try {
+                // 利用canvas缓存Op
                 final int saveCount = canvas.save();
                 canvas.translate(mInsetLeft, mInsetTop);
                 callbacks.onPreDraw(canvas);
 
+                // ReorderBarrie表示会按照Z轴坐标值重新排列子View的渲染顺序
                 canvas.insertReorderBarrier();
+                // 构建并缓存所有的DrawOp
                 canvas.drawRenderNode(view.updateDisplayListIfDirty());
                 canvas.insertInorderBarrier();
 
@@ -715,6 +728,7 @@ public final class ThreadedRenderer {
                 canvas.restoreToCount(saveCount);
                 mRootNodeNeedsUpdate = false;
             } finally {
+                // 将所有的DrawOp填充到根RootNode中，作为新的Display List
                 mRootNode.end(canvas);
             }
         }
@@ -807,6 +821,7 @@ public final class ThreadedRenderer {
         final Choreographer choreographer = attachInfo.mViewRootImpl.mChoreographer;
         choreographer.mFrameInfo.markDrawStart();
 
+        // 构建View的DrawOp树
         updateRootDisplayList(view, callbacks);
 
         attachInfo.mIgnoreDirtyState = false;
@@ -829,6 +844,7 @@ public final class ThreadedRenderer {
         if (frameDrawingCallback != null) {
             nSetFrameCallback(mNativeProxy, frameDrawingCallback);
         }
+        // 通知RenderThread线程绘制
         int syncResult = nSyncAndDrawFrame(mNativeProxy, frameInfo, frameInfo.length);
         if ((syncResult & SYNC_LOST_SURFACE_REWARD_IF_FOUND) != 0) {
             setEnabled(false);
