@@ -141,6 +141,8 @@ public final class Method extends Executable  {
      * Returns a {@code Class} object that represents the formal return type
      * of the method represented by this {@code Method} object.
      *
+     * 获取方法的返回类型
+     *
      * @return the return type for the method this object represents
      */
     public Class<?> getReturnType() {
@@ -486,6 +488,8 @@ public final class Method extends Executable  {
     public native Object getDefaultValue();
 
     /**
+     * 获取该方法指定类型的注解
+     *
      * {@inheritDoc}
      * @throws NullPointerException  {@inheritDoc}
      * @since 1.5
@@ -495,6 +499,8 @@ public final class Method extends Executable  {
     }
 
     /**
+     * 获取声明的所有注解（可以是多个）
+     *
      * {@inheritDoc}
      * @since 1.5
      */
@@ -503,6 +509,8 @@ public final class Method extends Executable  {
     }
 
     /**
+     * 获取参数注解（可以是多个）
+     *
      * {@inheritDoc}
      * @since 1.5
      */
