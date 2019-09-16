@@ -2720,7 +2720,7 @@ public class RemoteViews implements Parcelable, Filter {
      * Equivalent to calling {@link Chronometer#setCountDown(boolean) Chronometer.setCountDown} on
      * the chronometer with the given viewId.
      *
-     * @param viewId The id of the {@link Chronometer} to change
+     * @param viewId The id of the {@link Chronometer} to changesingletonList
      * @param isCountDown True if you want the chronometer to count down to base instead of
      *                    counting up.
      */
