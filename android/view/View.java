@@ -1604,7 +1604,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     private static Paint sDebugPaint;
 
     /**
-     * <p>Indicates this view can display a tooltip on hover or long press.</p>
+     * <p>Indicates this view can display a tooltip(提示框) on hover or long press.</p>
      * {@hide}
      */
     static final int TOOLTIP = 0x40000000;
@@ -6454,6 +6454,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         final ListenerInfo li = mListenerInfo;
         if (li != null && li.mOnClickListener != null) {
             playSoundEffect(SoundEffectConstants.CLICK);
+            // 点击事件
             li.mOnClickListener.onClick(this);
             result = true;
         } else {
@@ -13527,7 +13528,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     if ((viewFlags & TOOLTIP) == TOOLTIP) {
                         handleTooltipUp();
                     }
-                    if (!clickable) {
+                    if (!clickable) {// 不可点击
                         removeTapCallback();
                         removeLongPressCallback();
                         mInContextButtonPress = false;
@@ -13564,6 +13565,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                                 if (mPerformClick == null) {
                                     mPerformClick = new PerformClick();
                                 }
+                                // 执行点击事件
                                 if (!post(mPerformClick)) {
                                     performClickInternal();
                                 }
@@ -13593,7 +13595,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     }
                     mHasPerformedLongPress = false;
 
-                    if (!clickable) {
+                    if (!clickable) {// 不可点击
                         checkForLongClick(0, x, y);
                         break;
                     }
@@ -24232,6 +24234,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
     }
 
+    // 检测长按事件
     private void checkForLongClick(int delayOffset, float x, float y) {
         if ((mViewFlags & LONG_CLICKABLE) == LONG_CLICKABLE || (mViewFlags & TOOLTIP) == TOOLTIP) {
             mHasPerformedLongPress = false;
